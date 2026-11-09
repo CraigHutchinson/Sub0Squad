@@ -11,7 +11,7 @@ job graphs (deferred completion, cancellation, remote sub-graphs) and
 [Sub0Pub](https://github.com/CraigHutchinson/Sub0Pub) carries typed events. The new parts are the resource arbiter, the
 durable journal, planners, and the engine seam.
 
-**Status: design stage.** `sub0squad --selftest` only proves the pinned dependencies link and cooperate here. Start with
+**Status: M1 (daemon, CLI, process jobs) and a sandbox harness (a project task delegated into gated work items with stub frontier escalation) work on Linux; see [docs/SANDBOX.md](docs/SANDBOX.md).** Earlier status: design stage. `sub0squad --selftest` only proves the pinned dependencies link and cooperate here. Start with
 [docs/DESIGN.md](docs/DESIGN.md), then [docs/ROADMAP.md](docs/ROADMAP.md) and [docs/DECISIONS.md](docs/DECISIONS.md).
 The name is a placeholder; the final `sub0*` name is pending.
 

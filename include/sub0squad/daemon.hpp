@@ -8,6 +8,7 @@
 /// adopts them (or marks them `lost` if the shim is gone without an outcome).
 
 #include "sub0squad/paths.hpp"
+#include "sub0squad/policy.hpp"
 
 #include <expected>
 #include <filesystem>
@@ -21,6 +22,7 @@ struct DaemonOptions
     RuntimePaths paths;
     std::filesystem::path exe;  ///< the multi-call sub0squad binary used to start shims (normally this process)
     int maxJobs = 2;            ///< the only M1 concurrency limit; replaced by arbiter leases in M2
+    FrontierMode frontier = FrontierMode::stub;  ///< owner setting: `off` forbids escalation, `stub` runs it without sending anything
 };
 
 class Daemon

@@ -4,6 +4,10 @@
 #include "sub0squad/frame.hpp"
 #include "sub0squad/job_store.hpp"
 #include "sub0squad/journal.hpp"
+#include "sub0squad/ledger.hpp"
+#include "sub0squad/progress.hpp"
+#include "sub0squad/workflow.hpp"
+#include "sub0squad/workflow_status.hpp"
 #include "sub0squad/process_tree.hpp"
 #include "sub0squad/status.hpp"
 #include "sub0squad/supervisor.hpp"
@@ -29,6 +33,7 @@
 #include <map>
 #include <mutex>
 #include <set>
+#include <sstream>
 #include <thread>
 
 namespace sub0squad {
@@ -109,6 +114,9 @@ struct Daemon::Impl
     int lockFd = -1, listenFd = -1, epfd = -1, wakeFd = -1, sigFd = -1;
     Journal journal;
     JobStore store;
+    WorkflowStore wfStore;
+    RulePolicy policy;
+    bool inAdvance = false;
     bool journalOk = true;
     bool stopping = false;
     std::map<int, Client> clients;
@@ -153,6 +161,7 @@ struct Daemon::Impl
             return false;
         }
         store.apply(journal.records().back());
+        wfStore.apply(journal.records().back());
         return true;
     }
 
@@ -166,6 +175,7 @@ struct Daemon::Impl
                 adopt(snapshot);
             } else {
                 record("jobFinished", journalbody::finished(snapshot.id, snapshot.run, eff.state, eff.exitJson, eff.note));
+                ledgerFor(snapshot.id);
                 logf("job %s reconciled at start: %s (%s)", snapshot.id.c_str(), std::string{toString(eff.state)}.c_str(), eff.note.c_str());
             }
         }
@@ -287,7 +297,118 @@ struct Daemon::Impl
             else running.erase(it);
         }
         notifyWaiters(id);
+        if (job) ledgerFor(id);
+        advanceWorkflows();
         scheduleQueued();
+    }
+
+    // ---- workflows and the ledger ---------------------------------------------------------------------------------
+    void ledgerFor(const std::string& id)
+    {
+        const JobRecord* job = store.find(id);
+        if (!job || job->spec.workflow.empty()) return;
+        LedgerRecord r;
+        r.ts = job->finishedAt;
+        r.workflow = job->spec.workflow; r.item = job->spec.item; r.role = job->spec.role; r.job = job->id;
+        r.tier = job->spec.tier; r.attempt = static_cast<int>(job->spec.attempt); r.run = job->run;
+        r.stub = true;  // no live provider exists in this build
+        r.outcome = std::string{toString(job->state)};
+        r.durationSec = job->startedAt > 0 ? job->finishedAt - job->startedAt : 0.0;
+        const Progress pr = readProgress(opts.paths.runDir(job->id, job->run), job->spec.adapter, job->spec.cwd);
+        if (auto it = pr.metrics.find("tokens.in"); it != pr.metrics.end()) r.tokensIn = it->second;
+        if (auto it = pr.metrics.find("tokens.out"); it != pr.metrics.end()) r.tokensOut = it->second;
+        r.costUnits = notionalCost(r.tier, r.tokensIn, r.tokensOut);
+        if (!appendLedger(opts.paths.ledgerFile(), r)) logf("cannot append to the ledger %s", opts.paths.ledgerFile().c_str());
+    }
+
+    void executeWorkflowAction(const std::string& wfId, const WorkflowAction& a)
+    {
+        switch (a.kind) {
+            case WorkflowAction::Kind::startJob: {
+                const std::string id = store.nextId();
+                record("jobSubmitted", journalbody::submitted(id, a.job));
+                logf("workflow %s: queued %s job %s (item '%s', attempt %d, tier %s)", wfId.c_str(), a.job.role.c_str(), id.c_str(), a.job.item.c_str(), static_cast<int>(a.job.attempt), a.job.tier.c_str());
+                break;
+            }
+            case WorkflowAction::Kind::recordDecision:
+                record("workflowDecision", wfbody::decision(wfId, a.item, a.attempt, a.decisionAction, a.decisionTier, a.decisionJson));
+                logf("workflow %s: decision for '%s' attempt %d: %s %s", wfId.c_str(), a.item.c_str(), a.attempt, a.decisionAction.c_str(), a.decisionTier.c_str());
+                break;
+            case WorkflowAction::Kind::cancelJob: (void)doCancel(a.jobId); break;
+            case WorkflowAction::Kind::loadPlan: {
+                const WorkflowRecord* wf = wfStore.find(wfId);
+                if (!wf) break;
+                std::ifstream in(std::filesystem::path{wf->spec.sandboxDir} / "plan.json");
+                std::stringstream ss;
+                ss << in.rdbuf();
+                auto plan = Plan::fromJson(ss.str());
+                if (plan) {
+                    record("workflowPlanned", wfbody::planned(wfId, *plan));
+                    logf("workflow %s: plan accepted, %zu item(s)", wfId.c_str(), plan->items.size());
+                } else {
+                    record("workflowFinished", wfbody::finished(wfId, WorkflowState::failed, "plan rejected: " + plan.error()));
+                    logf("workflow %s: plan rejected: %s", wfId.c_str(), plan.error().c_str());
+                }
+                break;
+            }
+            case WorkflowAction::Kind::finish:
+                record("workflowFinished", wfbody::finished(wfId, a.finalState, a.note));
+                logf("workflow %s finished: %s (%s)", wfId.c_str(), toString(a.finalState), a.note.c_str());
+                break;
+        }
+    }
+
+    void advanceWorkflows()
+    {
+        if (inAdvance || stopping) return;
+        inAdvance = true;
+        WorkflowSettings settings;
+        settings.exe = opts.exe.string();
+        settings.frontier = opts.frontier;
+        for (int round = 0; round < 16; ++round) {
+            bool acted = false;
+            std::vector<std::string> ids;
+            for (const auto& wf : wfStore.workflows()) if (wf.state == WorkflowState::running) ids.push_back(wf.id);
+            for (const auto& id : ids) {
+                const WorkflowRecord* wf = wfStore.find(id);
+                if (!wf || wf->state != WorkflowState::running) continue;
+                const auto actions = advance(*wf, store, settings, policy);  // copies what it needs: the store is mutated below
+                for (const auto& a : actions) { executeWorkflowAction(id, a); acted = true; }
+            }
+            if (!acted) break;
+        }
+        inAdvance = false;
+        scheduleQueued();
+    }
+
+    std::string doWorkflowSubmit(const std::string& specJson)
+    {
+        if (!journalOk) return errorReply("journal is failing: not accepting new work");
+        auto spec = WorkflowSpec::fromJson(specJson);
+        if (!spec) return errorReply(spec.error());
+        const std::string id = wfStore.nextId();
+        if (spec->sandboxDir.empty()) spec->sandboxDir = std::filesystem::absolute(opts.paths.workflowsDir() / id).string();
+        std::error_code ec;
+        std::filesystem::create_directories(spec->sandboxDir, ec);
+        if (ec) return errorReply("cannot create the sandbox " + spec->sandboxDir + ": " + ec.message());
+        record("workflowSubmitted", wfbody::submitted(id, *spec));
+        logf("workflow %s submitted: task '%s', sandbox %s", id.c_str(), spec->task.c_str(), spec->sandboxDir.c_str());
+        advanceWorkflows();
+        json::Writer w;
+        w.beginObject().kvBool("ok", true).kv("id", id).kv("sandbox", spec->sandboxDir).endObject();
+        return w.take();
+    }
+
+    std::string doWorkflowCancel(const std::string& id)
+    {
+        const WorkflowRecord* wf = wfStore.find(id);
+        if (!wf) return errorReply("no such workflow: " + id);
+        if (wf->state != WorkflowState::running) return errorReply("workflow " + id + " is already " + toString(wf->state));
+        record("workflowCancelRequested", wfbody::cancelRequested(id));
+        advanceWorkflows();
+        json::Writer w;
+        w.beginObject().kvBool("ok", true).kv("id", id).endObject();
+        return w.take();
     }
 
     void notifyWaiters(const std::string& id)
@@ -404,6 +525,12 @@ struct Daemon::Impl
             } else {
                 c.waits.insert(req->id);
             }
+        } else if (cmd == "workflowSubmit") {
+            send(c, doWorkflowSubmit(req->specJson));
+        } else if (cmd == "workflowStatus") {
+            send(c, workflowStatusJson(opts.paths, wfStore, store, req->id, "live"));
+        } else if (cmd == "workflowCancel") {
+            send(c, doWorkflowCancel(req->id));
         } else if (cmd == "shutdown") {
             json::Writer w;
             w.beginObject().kvBool("ok", true).kv("note", "daemon stopping; running jobs keep running").endObject();
@@ -512,7 +639,7 @@ std::expected<std::unique_ptr<Daemon>, std::string> Daemon::create(DaemonOptions
     auto journal = Journal::open(impl->opts.paths.journalDir());
     if (!journal) return std::unexpected(journal.error());
     impl->journal = std::move(*journal);
-    for (const auto& rec : impl->journal.records()) impl->store.apply(rec);
+    for (const auto& rec : impl->journal.records()) { impl->store.apply(rec); impl->wfStore.apply(rec); }
 
     impl->epfd = ::epoll_create1(EPOLL_CLOEXEC);
     impl->wakeFd = ::eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK);
@@ -537,6 +664,7 @@ int Daemon::run()
 {
     logf("serving %s (max %d parallel jobs, %zu journal records)", impl_->opts.paths.controlSocket().c_str(), impl_->opts.maxJobs,
          impl_->journal.records().size());
+    impl_->advanceWorkflows();
     impl_->scheduleQueued();
     return impl_->loop();
 }

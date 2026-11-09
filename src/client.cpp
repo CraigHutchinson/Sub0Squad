@@ -6,6 +6,8 @@
 #include "sub0squad/job_store.hpp"
 #include "sub0squad/journal.hpp"
 #include "sub0squad/status.hpp"
+#include "sub0squad/workflow.hpp"
+#include "sub0squad/workflow_status.hpp"
 #include "sub0squad/unix_socket.hpp"
 
 #include <sys/inotify.h>
@@ -13,6 +15,7 @@
 #include <sys/time.h>
 #include <poll.h>
 #include <unistd.h>
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -59,6 +62,9 @@ constexpr const char* kUsage =
     "  status [ID] [--json]                 jobs and progress (works without the daemon, from the journal)\n"
     "  logs ID [--stderr] [--follow] [--run N]\n"
     "  cancel ID | resume ID | wait ID [--timeout SEC] | ping | stop\n"
+    "  project submit --task calculator-basic|calculator-scientific [--sandbox DIR] [--inject ITEM[:N]]... [--max-local N]\n"
+    "  project status [ID] [--json] | project cancel ID | project wait ID [--timeout SEC]\n"
+    "  serve also takes --frontier off|stub (default stub: the escalation path runs, nothing is sent)\n"
     "  --selftest | --version\n";
 
 RuntimePaths pathsOrDie() { return RuntimePaths::fromEnvironment(); }
@@ -306,6 +312,181 @@ int cmdWait(const RuntimePaths& paths, int argc, char** argv)
     return reply->find("\"state\":\"succeeded\"") != std::string::npos ? 0 : 1;
 }
 
+
+std::string workflowStatusAnyway(const RuntimePaths& paths, const std::string& id, bool& offline)
+{
+    offline = false;
+    auto client = ControlClient::connect(paths);
+    if (client) {
+        auto r = client->request("workflowStatus", id.empty() ? "" : "\"id\":\"" + id + "\"");
+        return r ? *r : std::string{};
+    }
+    offline = true;
+    auto replay = Journal::replay(paths.journalDir());
+    if (!replay) return {};
+    JobStore jobs;
+    WorkflowStore wfs;
+    for (const auto& rec : replay->records) { jobs.apply(rec); wfs.apply(rec); }
+    return workflowStatusJson(paths, wfs, jobs, id, "journal");
+}
+
+void printWorkflows(const std::string& text)
+{
+    try {
+        json::withObject(text, [&](simdjson::ondemand::object& obj) {
+            for (auto f : obj) {
+                if (json::keyOf(f) != "workflows") continue;
+                for (auto wv : f.value().get_array()) {
+                    std::string id, task, state, note, sandbox;
+                    std::int64_t jobs = 0, active = 0;
+                    double share = 0;
+                    std::vector<std::string> reasons, items, decisions, tiers;
+                    for (auto wf : wv.get_object()) {
+                        const std::string_view k = wf.unescaped_key();
+                        auto v = wf.value();
+                        if (k == "id") id = json::toString(v);
+                        else if (k == "task") task = json::toString(v);
+                        else if (k == "state") state = json::toString(v);
+                        else if (k == "note") note = json::toString(v);
+                        else if (k == "sandbox") sandbox = json::toString(v);
+                        else if (k == "jobs") jobs = v.get_int64();
+                        else if (k == "jobsActive") active = v.get_int64();
+                        else if (k == "reasons") { for (auto r : v.get_array()) reasons.push_back(json::toString(r.value())); }
+                        else if (k == "items") {
+                            for (auto iv : v.get_array()) {
+                                std::string iid, title, status, tier; std::int64_t attempts = 0;
+                                for (auto g : iv.get_object()) {
+                                    const std::string_view gk = g.unescaped_key();
+                                    auto gv = g.value();
+                                    if (gk == "id") iid = json::toString(gv); else if (gk == "title") title = json::toString(gv);
+                                    else if (gk == "status") status = json::toString(gv); else if (gk == "tier") tier = json::toString(gv);
+                                    else if (gk == "attempts") attempts = gv.get_int64();
+                                }
+                                char buf[256];
+                                std::snprintf(buf, sizeof buf, "  %-11s %-10s attempts %lld  last tier %-13s %s", iid.c_str(), status.c_str(), static_cast<long long>(attempts), tier.empty() ? "-" : tier.c_str(), title.c_str());
+                                items.push_back(buf);
+                            }
+                        } else if (k == "decisions") {
+                            for (auto dv : v.get_array()) {
+                                std::string item, action, tier, why; std::int64_t attempt = 0;
+                                for (auto g : dv.get_object()) {
+                                    const std::string_view gk = g.unescaped_key();
+                                    auto gv = g.value();
+                                    if (gk == "action") action = json::toString(gv); else if (gk == "tier") tier = json::toString(gv);
+                                    else if (gk == "reasons") { for (auto r : gv.get_array()) why = json::toString(r.value()); }  // the last reason is the deciding one
+                                    else if (gk == "inputs") { for (auto h : gv.get_object()) { const std::string_view hk = h.unescaped_key(); if (hk == "item") item = json::toString(h.value()); else if (hk == "attempt") attempt = h.value().get_int64(); } }
+                                }
+                                decisions.push_back("  " + item + " attempt " + std::to_string(attempt) + ": " + action + (tier.empty() ? "" : " -> " + tier) + "  (" + why + ")");
+                            }
+                        } else if (k == "ledger") {
+                            for (auto lf : v.get_object()) {
+                                const std::string_view lk = lf.unescaped_key();
+                                if (lk == "frontierTokenShare") share = lf.value().get_double();
+                                else if (lk == "byTier") {
+                                    for (auto t : lf.value().get_object()) {
+                                        std::string name{std::string_view{t.unescaped_key()}};
+                                        std::int64_t attempts = 0; double tin = 0, tout = 0, cost = 0;
+                                        for (auto m : t.value().get_object()) {
+                                            const std::string_view mk = m.unescaped_key();
+                                            if (mk == "attempts") attempts = m.value().get_int64(); else if (mk == "tokensIn") tin = m.value().get_double();
+                                            else if (mk == "tokensOut") tout = m.value().get_double(); else if (mk == "costUnits") cost = m.value().get_double();
+                                        }
+                                        char buf[200];
+                                        std::snprintf(buf, sizeof buf, "  %-14s %3lld job(s)  tokens in %.0f out %.0f  notional cost %.2f", name.c_str(), static_cast<long long>(attempts), tin, tout, cost);
+                                        tiers.emplace_back(buf);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    std::printf("%s  %s  %s%s%s\n  sandbox %s   jobs %lld (%lld active)\n", id.c_str(), task.c_str(), state.c_str(), note.empty() ? "" : "  - ", note.c_str(), sandbox.c_str(),
+                                static_cast<long long>(jobs), static_cast<long long>(active));
+                    for (const auto& r : reasons) std::printf("  plan: %s\n", r.c_str());
+                    if (!items.empty()) std::printf("items:\n");
+                    for (const auto& i : items) std::printf("%s\n", i.c_str());
+                    if (!decisions.empty()) std::printf("decisions:\n");
+                    for (const auto& d : decisions) std::printf("%s\n", d.c_str());
+                    if (!tiers.empty()) std::printf("ledger (notional, nothing was sent anywhere): frontier token share %.1f %%\n", share * 100.0);
+                    for (const auto& t : tiers) std::printf("%s\n", t.c_str());
+                }
+            }
+        });
+    } catch (const simdjson::simdjson_error& e) { std::fprintf(stderr, "cannot read workflow status: %s\n", e.what()); }
+}
+
+bool workflowTerminal(const std::string& statusText, const std::string& id, std::string& state)
+{
+    state.clear();
+    const std::string key = "\"id\":\"" + id + "\"";
+    const auto at = statusText.find(key);
+    if (at == std::string::npos) return false;
+    const auto sp = statusText.find("\"state\":\"", at);
+    if (sp == std::string::npos) return false;
+    const auto start = sp + 9;
+    state = statusText.substr(start, statusText.find('"', start) - start);
+    return state != "running";
+}
+
+int cmdProject(const RuntimePaths& paths, int argc, char** argv)
+{
+    if (argc < 1) { std::fputs(kUsage, stderr); return 2; }
+    const std::string sub = argv[0];
+    if (sub == "submit") {
+        WorkflowSpec spec;
+        for (int i = 1; i < argc; ++i) {
+            const std::string a = argv[i];
+            auto val = [&]() -> std::string { return i + 1 < argc ? argv[++i] : ""; };
+            if (a == "--task") spec.task = val();
+            else if (a == "--sandbox") spec.sandboxDir = val();
+            else if (a == "--inject") spec.inject.push_back(val());
+            else if (a == "--max-local") spec.maxLocalAttempts = std::atoi(val().c_str());
+            else { std::fprintf(stderr, "project submit: unknown option %s\n", a.c_str()); return 2; }
+        }
+        if (!spec.sandboxDir.empty() && spec.sandboxDir[0] != '/') { char b[4096]; if (::getcwd(b, sizeof b)) spec.sandboxDir = std::string{b} + "/" + spec.sandboxDir; }
+        auto client = ControlClient::connect(paths);
+        if (!client) { std::fprintf(stderr, "%s%s\n", client.error().message.c_str(), client.error().noDaemon ? " (is `sub0squad serve` running?)" : ""); return 3; }
+        auto reply = client->request("workflowSubmit", "\"spec\":" + spec.toJson());
+        if (!reply) { std::fprintf(stderr, "%s\n", reply.error().c_str()); return 1; }
+        const Reply r = parseReply(*reply);
+        if (!r.ok) { std::fprintf(stderr, "error: %s\n", r.error.c_str()); return 1; }
+        try { json::withObject(*reply, [&](simdjson::ondemand::object& obj) { for (auto f : obj) if (json::keyOf(f) == "id") std::printf("%s\n", json::toString(f.value()).c_str()); }); }
+        catch (const simdjson::simdjson_error&) { return 1; }
+        return 0;
+    }
+    if (sub == "status") {
+        std::string id;
+        bool jsonOut = false;
+        for (int i = 1; i < argc; ++i) { if (std::string_view{argv[i]} == "--json") jsonOut = true; else id = argv[i]; }
+        bool offline = false;
+        const std::string text = workflowStatusAnyway(paths, id, offline);
+        if (text.empty()) { std::fprintf(stderr, "cannot read workflow status\n"); return 1; }
+        if (jsonOut) std::printf("%s\n", text.c_str());
+        else { if (offline) std::fprintf(stderr, "daemon not running: showing the journal (as of now)\n"); printWorkflows(text); }
+        return 0;
+    }
+    if (sub == "cancel") {
+        if (argc < 2) { std::fputs(kUsage, stderr); return 2; }
+        return simpleCommand(paths, "workflowCancel", argv[1], true);
+    }
+    if (sub == "wait") {
+        if (argc < 2) { std::fputs(kUsage, stderr); return 2; }
+        const std::string id = argv[1];
+        int timeout = 0;
+        for (int i = 2; i + 1 < argc; ++i) if (std::string_view{argv[i]} == "--timeout") timeout = std::atoi(argv[i + 1]);
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(timeout > 0 ? timeout : 1 << 20);
+        for (;;) {
+            bool offline = false;
+            const std::string text = workflowStatusAnyway(paths, id, offline);
+            std::string state;
+            if (!text.empty() && workflowTerminal(text, id, state)) { printWorkflows(text); return state == "succeeded" ? 0 : 1; }
+            if (std::chrono::steady_clock::now() >= deadline) { std::fprintf(stderr, "timed out waiting for the workflow (it keeps running)\n"); return 124; }
+            ::usleep(300000);
+        }
+    }
+    std::fputs(kUsage, stderr);
+    return 2;
+}
+
 }  // namespace
 
 int runCli(int argc, char** argv)
@@ -319,7 +500,15 @@ int runCli(int argc, char** argv)
         char self[4096];
         const ssize_t n = ::readlink("/proc/self/exe", self, sizeof self - 1);
         opts.exe = n > 0 ? std::string(self, static_cast<std::size_t>(n)) : std::string{argv[0]};
-        for (int i = 2; i + 1 < argc; ++i) if (std::string_view{argv[i]} == "--max-jobs") opts.maxJobs = std::max(1, std::atoi(argv[i + 1]));
+        for (int i = 2; i + 1 < argc; ++i) {
+            if (std::string_view{argv[i]} == "--max-jobs") opts.maxJobs = std::max(1, std::atoi(argv[i + 1]));
+            if (std::string_view{argv[i]} == "--frontier") {
+                const std::string_view m = argv[i + 1];
+                if (m == "off") opts.frontier = FrontierMode::off;
+                else if (m == "stub") opts.frontier = FrontierMode::stub;
+                else { std::fprintf(stderr, "serve: --frontier takes off or stub (there is no live mode in this build)\n"); return 2; }
+            }
+        }
         auto daemon = Daemon::create(std::move(opts));
         if (!daemon) { std::fprintf(stderr, "sub0squad serve: %s\n", daemon.error().c_str()); return 1; }
         return (*daemon)->run();
@@ -336,6 +525,7 @@ int runCli(int argc, char** argv)
         else { if (offline) std::fprintf(stderr, "daemon not running: showing the journal and shim records (as of now)\n"); printJobs(*st); }
         return 0;
     }
+    if (cmd == "project") return cmdProject(paths, argc - 2, argv + 2);
     if (cmd == "logs") return cmdLogs(paths, argc - 2, argv + 2);
     if (cmd == "wait") return cmdWait(paths, argc - 2, argv + 2);
     if (cmd == "cancel" || cmd == "resume") {

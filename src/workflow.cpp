@@ -38,7 +38,7 @@ std::expected<WorkflowSpec, std::string> WorkflowSpec::fromJson(std::string_view
         });
     } catch (const simdjson::simdjson_error& e) { return std::unexpected(std::string{"bad workflow spec: "} + e.what()); }
     if (s.task.empty()) return std::unexpected("workflow needs a task");
-    if (s.sandboxDir.empty() || s.sandboxDir[0] != '/') return std::unexpected("workflow sandbox must be an absolute directory");
+    if (!s.sandboxDir.empty() && s.sandboxDir[0] != '/') return std::unexpected("workflow sandbox must be an absolute directory");  // empty: the daemon chooses
     if (s.maxLocalAttempts < 1 || s.maxLocalAttempts > 5) return std::unexpected("maxLocalAttempts must be 1..5");
     return s;
 }

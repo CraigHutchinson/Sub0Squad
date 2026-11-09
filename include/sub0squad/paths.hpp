@@ -20,6 +20,8 @@ struct RuntimePaths
 
     [[nodiscard]] std::filesystem::path controlSocket() const { return runtimeDir / "control.sock"; }
     [[nodiscard]] std::filesystem::path instanceLock() const { return runtimeDir / "daemon.lock"; }
+    [[nodiscard]] std::filesystem::path ledgerFile() const { return stateDir / "ledger.ndjson"; }
+    [[nodiscard]] std::filesystem::path workflowsDir() const { return stateDir / "workflows"; }
     [[nodiscard]] std::filesystem::path journalDir() const { return stateDir / "journal"; }
     [[nodiscard]] std::filesystem::path jobsDir() const { return stateDir / "jobs"; }
     [[nodiscard]] std::filesystem::path jobDir(const std::string& id) const { return jobsDir() / id; }

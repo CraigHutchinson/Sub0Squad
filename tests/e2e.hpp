@@ -46,7 +46,7 @@ public:
     Squad(std::string exe, const char* tag) : exe_(std::move(exe)), home_(makeTempDir(tag)) { setenv("SUB0SQUAD_HOME", home_.c_str(), 1); }
     ~Squad() { stopDaemon(); std::filesystem::remove_all(home_); }
 
-    void startDaemon(int maxJobs = 2)
+    void startDaemon(int maxJobs = 2, std::vector<std::string> extra = {})
     {
         const std::string mj = std::to_string(maxJobs);
         const std::string log = (home_ / "daemon.log").string();
@@ -54,8 +54,12 @@ public:
         posix_spawn_file_actions_init(&fa);
         posix_spawn_file_actions_addopen(&fa, 1, log.c_str(), O_WRONLY | O_CREAT | O_APPEND, 0600);
         posix_spawn_file_actions_adddup2(&fa, 1, 2);
-        char* argv[] = {const_cast<char*>(exe_.c_str()), const_cast<char*>("serve"), const_cast<char*>("--max-jobs"), const_cast<char*>(mj.c_str()), nullptr};
-        CHECK(posix_spawn(&daemon_, exe_.c_str(), &fa, nullptr, argv, environ) == 0);
+        std::vector<std::string> all = {exe_, "serve", "--max-jobs", mj};
+        for (auto& e : extra) all.push_back(e);
+        std::vector<char*> argv;
+        for (auto& a : all) argv.push_back(a.data());
+        argv.push_back(nullptr);
+        CHECK(posix_spawn(&daemon_, exe_.c_str(), &fa, nullptr, argv.data(), environ) == 0);
         posix_spawn_file_actions_destroy(&fa);
         for (int i = 0; i < 500; ++i) { if (cli({"ping"}).exitCode == 0) return; sleepMs(10); }
         CHECK(false && "daemon did not come up");

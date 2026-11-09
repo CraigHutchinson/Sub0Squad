@@ -1,6 +1,6 @@
 # Sandbox harness: a project-scope task delegated into work items (mock agents, real gates)
 
-Status: DESIGN + first implementation, 2026-11-09. Purpose: exercise the whole delegation loop of DESIGN sections 6, 8a and 16
+Status: **implemented and tested on Linux, 2026-11-09** (mock agents, real gates; see "Results" at the end). Purpose: exercise the whole delegation loop of DESIGN sections 6, 8a and 16
 (planner, fan-out, per-item gates, integrator, decision policy, escalation, ledger) **before** any real model is attached, with
 work that has a real, checkable outcome.
 
@@ -57,3 +57,39 @@ at the scientific calculator because a template cannot grow without a model.
 `include/sub0squad/plan.hpp` (plan-1), `policy.hpp` (decisions), `workflow.hpp` (store + engine), `ledger.hpp`, `sandbox.hpp`
 (planner, agent, gate, integrator, calculator templates). Subcommands (hidden, used as job commands): `mock-planner`, `mock-agent`,
 `sandbox-gate`, `sandbox-integrate`. Owner commands: `sub0squad project submit|status|cancel`.
+
+
+## Results (2026-11-09)
+
+Run it by hand:
+
+```sh
+sub0squad serve --max-jobs 4 &                         # --frontier off|stub (default stub)
+sub0squad project submit --task calculator-scientific --inject parser --inject tokenizer:1
+sub0squad project wait w-000001 && sub0squad project status w-000001
+```
+
+A real run of that command (6.9 s, 20 jobs): the planner split the task into 6 items; `tokenizer` failed its gate once and was retried
+locally (passed); `parser` failed on both local attempts and was **escalated once to `frontier-stub`** (passed); the other four passed
+first time; the integrator built `calc`, which prints `512` for `2^3^2`. The ledger showed 14 % of tokens on the frontier-stub tier
+(notional cost 17.39 units, nothing sent anywhere). Tests: `test_workflow` (engine as a pure function: dependency order, idempotence,
+retry, escalate, frontier off, cancel), `test_sandbox` (templates compile, every defect fails its own gate, allowlist enforced, integration),
+`test_project` (the daemon end to end: parallelism observed, retry and escalation recorded with reasons, frontier share between 0 and 50 %,
+frontier off fails the item and creates no frontier job, a small task is not split, an unknown task fails with a reason, mid-flight cancel,
+and a daemon killed mid-workflow which the next daemon adopts and finishes).
+
+### What this does and does not prove
+
+Proves: delegation by an internal decision, staged fan-out with a dependency order and a job limit, trusted gates as the acceptance rule,
+a decision policy that is recorded with its inputs, escalation that is bounded and accounted, restart safety (level-triggered engine),
+offline readability. Does not prove: anything about real model quality, token costs or latency (all mock and notional); the portal,
+settings UI and quotas (M3, M3b); sub-task disjointness for a *model* planner (the plan validator enforces it, but a mock never tests an
+adversarial plan); real git worktrees per item (items live in plain directories); resource leases (M2); the `continue` operation.
+
+### Next steps this harness enables
+
+1. A **model planner** and **model agent**: replace `mock-planner`/`mock-agent` with workers that call llama.cpp, Sub0Llm or Strata,
+   keeping the same plan-1, gates, policy and ledger (M5).
+2. **Policy replay**: the journal already holds every decision with its inputs; a second `IDecisionPolicy` can be replayed against these runs.
+3. **Quotas and the share cap** enforced at escalation time (M3b), with the portal's Usage page reading the ledger.
+4. A bigger project than the calculator (units, statistics, history) is a bigger plan, not new machinery.

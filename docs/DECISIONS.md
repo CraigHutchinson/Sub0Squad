@@ -25,6 +25,7 @@
 19. (2026-11-09, owner) **Windows and Linux are first-class targets; macOS is potential, not a priority.** OS specifics sit behind a platform seam (DESIGN section 20); done-ness is claimed per platform and Windows needs a Windows run.
 20. (2026-11-09) **Diagnostics are reachable when the daemon is not**: offline `doctor` and `portal --offline` read the journal, ledger and rollups; metrics and KPIs are a versioned API with `asOf`/`source`, KPIs are data with visible formulas (DESIGN section 21).
 21. (2026-11-09) **Agents submit only registered tool manifests, never raw commands**; the daemon's own diagnostics use Sub0Log, not a new logger.
+22. (2026-11-09, owner) **A sandbox harness delegates a project-scope task** (`project submit --task calculator-scientific`): an internal planner decision splits it into work items run as jobs, with trusted per-item gates, a recorded decision policy, bounded escalation to `frontier-stub` and a ledger (docs/SANDBOX.md). `frontier-stub` is the only frontier tier in this build, it sends nothing, and `--frontier off|stub` is an owner setting of the daemon.
 
 ## Pending
 

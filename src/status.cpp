@@ -59,7 +59,8 @@ std::string jobJson(const RuntimePaths& paths, const JobRecord& job, const Effec
     const double now = wallNow();
     json::Writer w;
     w.beginObject().kv("id", job.id).kv("state", toString(eff.state)).kv("run", job.run).kv("tool", job.spec.tool).kv("tier", job.spec.tier)
-        .kv("owner", job.spec.owner).kv("note", eff.note);
+        .kv("owner", job.spec.owner).kv("note", eff.note).kv("workflow", job.spec.workflow).kv("item", job.spec.item).kv("role", job.spec.role)
+        .kv("attempt", job.spec.attempt);
     w.kv("submittedAt", job.submittedAt).kv("startedAt", job.startedAt).kv("finishedAt", job.finishedAt);
     const double end = isTerminal(eff.state) && job.finishedAt > 0 ? job.finishedAt : now;
     w.kv("elapsedSec", job.startedAt > 0 ? end - job.startedAt : 0.0);
