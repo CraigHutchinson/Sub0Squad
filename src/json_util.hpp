@@ -63,6 +63,10 @@ void withObject(std::string_view text, F&& fn)
     fn(obj);
 }
 
+/// Key of the current object field as a plain string_view (valid until the field is advanced).
+template <class F>
+std::string_view keyOf(F& field) { std::string_view k = field.unescaped_key(); return k; }
+
 template <class V>
 std::string toString(V&& v) { std::string_view sv = v.get_string(); return std::string{sv}; }
 

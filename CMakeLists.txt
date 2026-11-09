@@ -22,7 +22,13 @@ add_library(sub0squad_core STATIC
   src/process_tree.cpp
   src/shim.cpp
   src/supervisor.cpp
-  src/mock_worker.cpp)
+  src/mock_worker.cpp
+  src/frame.cpp
+  src/unix_socket.cpp
+  src/progress.cpp
+  src/status.cpp
+  src/daemon.cpp
+  src/client.cpp)
 target_include_directories(sub0squad_core PUBLIC include PRIVATE src)
 target_compile_options(sub0squad_core PRIVATE ${SUB0SQUAD_STRICT})
 target_link_libraries(sub0squad_core PUBLIC Sub0Pipeline::Sub0Pipeline Sub0Pipeline::Priority Sub0Pub::Sub0Pub Threads::Threads PRIVATE simdjson::simdjson)
@@ -47,6 +53,8 @@ endfunction()
 sub0squad_add_test(test_job_spec)
 sub0squad_add_test(test_journal)
 sub0squad_add_test(test_job_store)
+sub0squad_add_test(test_e2e)
+set_tests_properties(test_e2e PROPERTIES TIMEOUT 300)
 sub0squad_add_test(test_shim)
 set_tests_properties(test_shim PROPERTIES TIMEOUT 120)
 
