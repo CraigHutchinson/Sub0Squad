@@ -16,7 +16,8 @@ set(SUB0SQUAD_STRICT -Wall -Wextra -Werror)
 # Everything except main() lives in one static library so tests can link it.
 add_library(sub0squad_core STATIC
   src/paths.cpp
-  src/job_spec.cpp)
+  src/job_spec.cpp
+  src/journal.cpp)
 target_include_directories(sub0squad_core PUBLIC include PRIVATE src)
 target_compile_options(sub0squad_core PRIVATE ${SUB0SQUAD_STRICT})
 target_link_libraries(sub0squad_core PUBLIC Sub0Pipeline::Sub0Pipeline Sub0Pipeline::Priority Sub0Pub::Sub0Pub Threads::Threads PRIVATE simdjson::simdjson)
@@ -37,6 +38,7 @@ function(sub0squad_add_test name)
 endfunction()
 
 sub0squad_add_test(test_job_spec)
+sub0squad_add_test(test_journal)
 
 add_executable(m0_graph_growth tests/m0_graph_growth.cpp)
 target_compile_options(m0_graph_growth PRIVATE ${SUB0SQUAD_STRICT})
