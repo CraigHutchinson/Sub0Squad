@@ -1,5 +1,7 @@
 // The workflow engine as a pure function: planning, dependency order, gates, retry, escalation, failure, cancel, idempotence.
 #include "check.hpp"
+#include "sub0squad/harness_web.hpp"
+#include "sub0squad/triage.hpp"
 #include "sub0squad/workflow.hpp"
 
 using namespace sub0squad;
@@ -73,6 +75,31 @@ int main()
         Plan abs = makePlan(); abs.items[0].files = {"/etc/passwd"};
         CHECK(!Plan::fromJson(abs.toJson()).has_value());
         CHECK(!Plan::fromJson("{\"schema\":\"plan-1\",\"items\":[]}").has_value());
+    }
+    { // plan-2: the blueprint is valid; personas, cards and gates are enforced
+        const std::string bp = blueprintJson("calculator-web");
+        CHECK(Plan::fromJson(bp).has_value());
+        CHECK(!Plan::fromJson(bp, 50).has_value());                                  // cards over the token budget are rejected
+        auto swap = [&](const std::string& from, const std::string& to) { std::string t = bp; auto p = t.find(from); if (p != std::string::npos) t.replace(p, from.size(), to); return t; };
+        CHECK(!Plan::fromJson(swap("\"files\": [\"tests/eval.test.mjs\"]", "\"files\": [\"src/x.js\"]")).has_value());          // a tester writes only tests/
+        CHECK(!Plan::fromJson(swap("\"files\": [\"src/calc.js\"]", "\"files\": [\"tests/y.test.mjs\"]")).has_value());          // a developer never writes tests
+        CHECK(!Plan::fromJson(swap("\"persona\": \"developer\"", "\"persona\": \"wizard\"")).has_value());
+        CHECK(!Plan::fromJson(swap("\"kind\": \"node-test\"", "\"kind\": \"shell\"")).has_value());                           // a plan cannot carry commands
+        CHECK(!Plan::fromJson(swap("\"harness\": \"web-static\"", "\"harness\": \"mystery\"")).has_value());
+        auto plan = Plan::fromJson(bp);
+        CHECK(plan && plan->items.size() == 4 && plan->find("engine")->card.include.size() == 1);
+        // Triage: the first call.
+        const TriageResult web = triage("write a scientific calculator as a web page");
+        CHECK(web.blueprint == "calculator-web" && web.architect == "not needed" && web.split && web.projectType == "web-static");
+        const TriageResult basic = triage("make a calculator");
+        CHECK(basic.blueprint == "calculator-basic" && !basic.split);
+        const TriageResult unknown = triage("build a unit converter page with length and mass");
+        CHECK(unknown.blueprint.empty() && unknown.architect == "deferred" && unknown.projectType == "web-static");
+        CHECK(needsPlanPacket("x", unknown, "w-1").find("plan-2 syntax") != std::string::npos);
+        // Engine profiles: parse, round trip, loopback only.
+        auto e = EngineProfile::parse("q=http://127.0.0.1:8342/v1,model=m,ctx=8192,slots=2");
+        CHECK(e && e->model == "m" && e->contextTokens == 8192 && e->maxConcurrent == 2);
+        CHECK(e && EngineProfile::parse(e->toArg()).has_value());
     }
     { // happy path: planner, dependency order, gates, integrator
         Sim s = startSim();

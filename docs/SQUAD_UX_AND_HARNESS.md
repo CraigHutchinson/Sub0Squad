@@ -111,3 +111,43 @@ attempts, which is the point: the harness, retries and the stub-frontier escalat
 what each cost. Slots are one, so item agents must not run concurrently against it (the scheduler does not yet know the engine's cap:
 the arbiter and `EngineCaps` are M2/M5), hence `--max-jobs 1` for model runs. The server is itself started as a squad process job, so
 its teardown is the verified-cancel path.
+
+## 8. Results of the first real-model verification (2026-11-09)
+
+Engine: the Ubuntu `qwen3-6` snap (Qwen 3.6 35B-A3B on llama.cpp b9482, CPU, about 8.3 decode tokens/s), thinking off, one slot, `--max-jobs 1`.
+Two full runs of the `calculator-web` blueprint through `sub0squad do ... --agent llm` (about 25 minutes each). **Neither run produced a
+finished web page**; both ended `failed` at the `engine` item. That is a real result, not a harness bug:
+
+| | Run 1 | Run 2 (testers on engine profile `qwenA`, developers on `qwenB`, same snap) |
+|---|---|---|
+| `eval-tests` (tester) | accepted first attempt, 2,975 completion tokens | accepted first attempt, 2,872 tokens |
+| `ui-tests` (tester) | accepted first attempt, 1,315 tokens | accepted first attempt, 757 tokens |
+| `engine` local attempts 1 and 2 | 2 of 67 tests failed (`-2 ^ 2` precedence with spaces; `log2` read as identifier `log`) | 34 of 65 failed (parser error `Expected ) but got undefined`), identical on the retry |
+| `engine` attempt 3 (`frontier-stub` = reference) | **failed 1 test the model wrote**: `factorial of negative throws` (the test expects `(-3)!`-style input to throw; the contract says nothing of the kind) | **failed 2 tests the model wrote**: `min(1,2,3)` and `max(1,2,3)`, contradicting the card ("two-argument functions") |
+| `ui` | never started | never started |
+
+What the numbers say (ledger, estimates): the system block was 167 tokens, a tester card 350 to 365; the **developer prompt was about 3,000 tokens
+because the included test file (65 tests, about 2,500 tokens) dominated it**, so the work ratio of developer attempts is a context-size question,
+not a completion question; deliverable tokens were 97 to 99 % of each completion (the reply format held), decode 8.2 to 8.5 tok/s, prefill about 5 tok/s.
+Persona routing was verified from the journal and ledger: tester jobs ran with `qwenA`, every developer job with `qwenB`, and the status output
+splits tokens and decode speed per engine.
+
+### Findings, in order of consequence
+
+1. **Test-first with a small model is the weak link.** In both runs the model-written tests contradicted the contract in a way the reference
+   implementation could not satisfy, so a correct developer would also have failed. The tester gate only proves the tests *run, are numerous and
+   fail against the stub*; it cannot prove they are *right*. Proposed (not built): a **test dispute** path. When a stronger tier fails the same
+   tests as the earlier attempts, the policy answers `reviseTests` instead of `fail`: the tester item is re-run with the disputed test names and
+   messages as its only feedback, its dependants are re-queued, and the dispute is recorded. Where a reference exists (the mock, a prior
+   implementation) the gate can instead drop the tests the reference fails. Contract wording matters too: say `min` and `max` take exactly two
+   arguments *in the test acceptance list*, not only in the contract.
+2. **Failure feedback quality decides whether a retry can work.** Run 1 used the first gate excerpt ("2 subtests failed"), which told the model
+   nothing; the excerpt now lists leaf failures with their messages (fixed during this session, run 2 used it). It did not rescue run 2's
+   structural parser bug: the second attempt failed the same 34 tests. A retry with feedback helps with a wrong detail, not with a wrong design.
+3. **Context cost is dominated by what a card `include`s.** Inlining the whole accepted test file is simple and expensive; options are a
+   test index (names only) for the first attempt with the full file only on retry, or a tester instruction to write fewer, denser tests.
+4. **Throughput.** At this speed one item costs 3 to 8 minutes, a four-item project with one retry about 25 minutes; a single engine slot means
+   no parallelism, so the arbiter and `EngineCaps` (M2, M5) matter as soon as engines are shared.
+5. **A second real engine was not exercised.** The snap's server holds about 25 GB resident of this host's 29.6 GiB, so loading the Qwen3.8-27B
+   IQ1_S model beside it was not safe and the snap was not stopped. Run 2 exercised the routing with two profiles pointing at the same snap.
+   The 27B model remains to be tried when the snap is idle or in a session of its own.

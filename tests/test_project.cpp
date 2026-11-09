@@ -91,12 +91,13 @@ int main(int, char** argv)
         CHECK(s.find("\"id\":\"calculator\"") != std::string::npos && s.find("\"id\":\"tokenizer\"") == std::string::npos);
     }
 
-    { // An unknown task: the planner fails, is retried once, and the workflow fails with a reason.
+    { // An unknown task name: no blueprint, so the workflow awaits a plan (the deferred architect) and can be cancelled while waiting.
         Squad sq(exe, "projbad");
         sq.startDaemon(2);
         const std::string wf = sq.cli({"project", "submit", "--task", "world-domination"}).out.substr(0, 8);
-        CHECK(waitWorkflow(sq, wf, "failed"));
-        CHECK(wfStatus(sq, wf).find("planner failed twice") != std::string::npos);
+        CHECK(field(wfStatus(sq, wf), "state") == "awaiting-plan");
+        CHECK(sq.cli({"project", "cancel", wf}).exitCode == 0);
+        CHECK(field(wfStatus(sq, wf), "state") == "cancelled");
     }
 
     { // Cancel mid-flight: every job is cancelled, the workflow is cancelled, nothing is left running.
@@ -122,6 +123,41 @@ int main(int, char** argv)
         CHECK(waitWorkflow(sq, wf, "succeeded"));
         const std::string s = wfStatus(sq, wf);
         CHECK(s.find("\"status\":\"accepted\"") != std::string::npos && s.find("\"status\":\"failed\"") == std::string::npos);
+    }
+    { // The web project with personas, test-first handoff, retry, escalation, and the work-versus-harness metrics.
+        Squad sq(exe, "projweb");
+        sq.startDaemon(4);
+        const Result d = sq.cli({"do", "write a scientific calculator as a web page", "--inject", "eval-tests:1", "--inject", "engine"});
+        CHECK(d.exitCode == 0 && d.out.find("architect: not needed") != std::string::npos);
+        const std::string wf = "w-000001";
+        CHECK(waitWorkflow(sq, wf, "succeeded", 90000));
+        const std::string s = wfStatus(sq, wf);
+        CHECK(s.find("\"action\":\"retry\"") != std::string::npos && s.find("\"action\":\"escalate\"") != std::string::npos);
+        CHECK(s.find("\"workRatio\":") != std::string::npos && field(s, "workRatio") != "0");
+        CHECK(s.find("\"harnessBytes\":3") != std::string::npos);  // the harness supplied its scaffold: work the agents did not do
+        const auto project = sq.home() / "state" / "workflows" / wf / "project";
+        CHECK(std::filesystem::exists(project / "index.html") && std::filesystem::exists(project / "src" / "calc.js") && std::filesystem::exists(project / "serve.mjs"));
+        const Result t = sq.cli({"submit", "--cwd", project.string(), "--wall", "60", "--", "node", "--test", "tests/"});
+        CHECK(t.exitCode == 0);
+    }
+
+    { // An unknown task: triage defers the architect as a file handoff; supplying the plan starts the workflow.
+        Squad sq(exe, "projawait");
+        sq.startDaemon(4);
+        const Result d = sq.cli({"do", "build a unit converter page with length and mass"});
+        CHECK(d.exitCode == 0 && d.out.find("architect: deferred") != std::string::npos && d.out.find("awaiting a plan") != std::string::npos);
+        const std::string wf = "w-000001";
+        CHECK(field(wfStatus(sq, wf), "state") == "awaiting-plan");
+        const auto packet = sq.home() / "state" / "workflows" / wf / "needs-plan.md";
+        CHECK(std::filesystem::exists(packet) && slurp(packet).find("plan-2 syntax") != std::string::npos);
+        const auto planFile = sq.home() / "plan.json";
+        { std::ofstream o(planFile); o << sq.cli({"blueprint", "calculator-web"}).out; }
+        CHECK(sq.cli({"project", "plan", wf, "--file", (sq.home() / "missing.json").string()}).exitCode != 0);
+        { std::ofstream o(sq.home() / "bad.json"); o << "{\"schema\":\"plan-2\",\"items\":[]}"; }
+        CHECK(sq.cli({"project", "plan", wf, "--file", (sq.home() / "bad.json").string()}).exitCode != 0);  // an invalid plan is rejected with a reason
+        CHECK(sq.cli({"project", "plan", wf, "--file", planFile.string()}).exitCode == 0);
+        CHECK(waitWorkflow(sq, wf, "succeeded", 90000));
+        CHECK(sq.cli({"project", "plan", wf, "--file", planFile.string()}).exitCode != 0);  // no longer awaiting
     }
     return finish();
 }
