@@ -163,28 +163,40 @@ struct Tap { int tests = -1, pass = 0, fail = 0; std::string excerpt; };
 
 Tap parseTap(const std::string& out)
 {
+    // Counts come from the summary lines. The excerpt lists LEAF failures (nested subtests too) with their first error lines; a parent whose
+    // only message is "N subtests failed" adds nothing for a model that has to fix the code.
     Tap t;
+    struct Failure { std::string name, error; };
+    std::vector<Failure> failures;
     std::istringstream in(out);
-    std::string line, current;
-    int errLines = 0;
+    std::string line;
     bool inError = false;
+    int errLines = 0;
+    auto trimmed = [](const std::string& l) { const auto p = l.find_first_not_of(' '); return p == std::string::npos ? std::string{} : l.substr(p); };
     while (std::getline(in, line)) {
-        auto num = [&](const char* key) { return std::atoi(line.c_str() + std::string{key}.size()); };
-        if (line.rfind("# tests ", 0) == 0) t.tests = num("# tests ");
-        else if (line.rfind("# pass ", 0) == 0) t.pass = num("# pass ");
-        else if (line.rfind("# fail ", 0) == 0) t.fail = num("# fail ");
-        if (line.rfind("not ok ", 0) == 0) {
-            current = line.substr(7);
-            if (t.excerpt.size() < 1400) t.excerpt += "FAIL " + current + "\n";
-            errLines = 0; inError = false;
-        } else if (!current.empty() && line.find("error: ") != std::string::npos && line.find("error: ") < 6) {
+        if (line.rfind("# tests ", 0) == 0) { t.tests = std::atoi(line.c_str() + 8); continue; }
+        if (line.rfind("# pass ", 0) == 0) { t.pass = std::atoi(line.c_str() + 7); continue; }
+        if (line.rfind("# fail ", 0) == 0) { t.fail = std::atoi(line.c_str() + 7); continue; }
+        const std::string tl = trimmed(line);
+        if (tl.rfind("not ok ", 0) == 0) { failures.push_back({tl.substr(7), ""}); inError = false; errLines = 0; continue; }
+        if (failures.empty()) continue;
+        if (tl.rfind("error: ", 0) == 0) {
             inError = true; errLines = 0;
-            if (t.excerpt.size() < 1400) t.excerpt += "  " + line.substr(line.find("error: ") + 7) + "\n";
-        } else if (inError && errLines < 3 && !line.empty() && line.rfind("    ", 0) == 0 && line.find("code:") == std::string::npos) {
-            if (t.excerpt.size() < 1400) t.excerpt += "  " + line.substr(4) + "\n";
+            std::string e = tl.substr(7);
+            if (e == "|-" || e == "|") e.clear();
+            failures.back().error = e;
+        } else if (inError && !tl.empty() && errLines < 4 && tl.rfind("code:", 0) != 0 && tl.rfind("name:", 0) != 0 && tl.rfind("stack:", 0) != 0 && tl.rfind("location:", 0) != 0 && tl.rfind("expected:", 0) != 0 && tl.rfind("actual:", 0) != 0 && tl.rfind("operator:", 0) != 0 && tl.rfind("duration_ms", 0) != 0 && tl.rfind("type:", 0) != 0 && tl.rfind("failureType", 0) != 0 && tl.rfind("...", 0) != 0 && tl.rfind("---", 0) != 0) {
+            failures.back().error += (failures.back().error.empty() ? "" : " | ") + tl;
             ++errLines;
-        } else if (inError && line.rfind("  ", 0) == 0 && line.rfind("    ", 0) != 0) inError = false;
+        } else if (tl.rfind("code:", 0) == 0 || tl.rfind("stack:", 0) == 0 || tl.rfind("name:", 0) == 0) inError = false;
     }
+    int shown = 0;
+    for (const auto& f : failures) {
+        if (f.error.find("subtest") != std::string::npos && f.error.find("failed") != std::string::npos) continue;  // a parent summary
+        if (shown++ >= 6 || t.excerpt.size() > 1300) break;
+        t.excerpt += "FAIL " + f.name + (f.error.empty() ? "" : ": " + f.error.substr(0, 300)) + "\n";
+    }
+    if (t.excerpt.empty() && !failures.empty()) t.excerpt = "FAIL " + failures.front().name + "\n";
     return t;
 }
 
