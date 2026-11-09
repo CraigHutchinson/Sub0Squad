@@ -463,12 +463,20 @@ Pages (all driven by the API and the manifest panels, so new tools appear withou
 6. **Audit**: decisions, permission changes, denied attempts, cancellations.
 
 Implementation choice (to confirm with the owner): a single embedded static page (no build step, no framework, assets compiled
-into the binary) plus **cpp-httplib** (MIT, header-only, v0.65.0 released 2026-11-05) pinned through CPM, instead of hand-writing an HTTP stack.
-Checked: Sub0Llm has no HTTP server code in tree (its notes mention a `viz_server` that is not in the checkout), so there is no
-family precedent to reuse. The dependency sits behind a thin seam of our own (`IHttpFront`: route, static asset, JSON reply, SSE
-stream; httplib types never in public headers, the same rule as simdjson), so it can be swapped for a reactor-native server
-later. Its worker threads call the one thread-safe `ControlApi`. Idle cost is one blocked accept thread (measured with sub0perf
-in M3, not assumed). Encoding for the API, journal, ledger and events is JSON through simdjson (section 14, DECISIONS 16).
+into the binary) plus **Boost.Beast and Boost.Asio** (header-only use, pinned through CPM), following the family precedent: Sub0Llm's archived
+chapter project (`archive/chapter-education-diffusion`: `cmake/deps.cmake`, `include/sub0llm/http/server.hpp` and `client.hpp`)
+**moved from cpp-httplib to Beast**, with a minimal synchronous thread-per-connection `Server` and a blocking `Client`, both
+shaped like httplib's API. That code is read, not copied; we write our own small versions against the same shape. Reasons to
+follow it: one HTTP stack across the family; the engine adapters need an **HTTP client** as well (llama.cpp `llama-server`, and
+likely Strata) and Beast gives client and server; chunked writes cover **SSE** and Beast also has WebSocket if wanted later.
+Costs, stated: Sub0Llm pins Boost 1.91.0 and the latest is 1.92.0 (released 2026-08-12); the CMake tarball is about 102 MiB, so
+dev machines set `CPM_SOURCE_CACHE` (DEV_SETUP) and only `beast` is requested (`BOOST_INCLUDE_LIBRARIES beast`); Sub0Llm's
+server has no streaming response today, which we add. **Redundancy rule:** Asio is **not** a second event loop for the daemon.
+The daemon's reactor (control socket, pidfds, timers) stays ours; Asio and Beast run only on the portal's connection threads
+and in the engine HTTP client, in the blocking style Sub0Llm uses. The dependency sits behind our own seams (`IHttpFront`:
+route, static asset, JSON reply, SSE stream; `IHttpClient`: blocking POST with a streamed body), Beast types never in public
+headers (the same rule as simdjson), so the stack can be swapped later. Connection threads call the one thread-safe `ControlApi`.
+Idle cost is one blocked accept thread (measured with sub0perf in M3, not assumed). Encoding for the API, journal, ledger and events is JSON through simdjson (section 14, DECISIONS 16).
 
 ## 18. Revised milestones (supersedes the table in section 10 where they differ)
 

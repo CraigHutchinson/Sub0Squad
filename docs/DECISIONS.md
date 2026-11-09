@@ -21,6 +21,7 @@
 15. (2026-11-09) **Graph growth**: a running Sub0Pipeline graph cannot be extended (test: SIGSEGV); planners use staged pipelines (DESIGN section 11).
 16. (2026-11-09, owner) **JSON is simdjson** (5.1.1 pinned): on-demand forward reads and `builder::string_builder` writes; no nlohmann. Finding: Sub0Llm's notes say simdjson "does not emit JSON"; true for 3.10.1, not for 5.x, which has a builder (verified by building and round-tripping under clang 21). C++26 static reflection in the builder is not available on this toolchain (not detected), so writers are explicit for now.
 17. (2026-11-09) **Performance verification uses Sub0Math's sub0perf** (DESIGN section 19).
+18. (2026-11-09, owner pointer) **HTTP is Boost.Beast + Asio**, as in Sub0Llm's archived chapter project (which migrated off cpp-httplib), behind our own `IHttpFront` and `IHttpClient` seams; Asio is not the daemon's event loop (DESIGN section 17). Version to pin: 1.92.0 (Sub0Llm uses 1.91.0); first built and verified in M3 (portal) or M5 (llama.cpp client), not before.
 
 ## Pending
 
@@ -30,7 +31,7 @@
 | Licence | undecided (no LICENSE file yet) |
 | Remote repository | not created; name first |
 | Pinned versions | Sub0Pipeline `3d11ffe`, Sub0Pub `504d772` (heads on 2026-11-09), proven only by the selftest |
-| HTTP server for the portal (M3) | proposed cpp-httplib 0.65.0 behind our own `IHttpFront` seam; owner to confirm |
+| Boost version and `CPM_SOURCE_CACHE` | 1.92.0 proposed (about 102 MiB tarball); a shared CPM cache location to choose |
 | Strata | not found in the GitHub folder; owner to point at it before its engine manifest is written |
 | Socket transport, Windows support | open |
 

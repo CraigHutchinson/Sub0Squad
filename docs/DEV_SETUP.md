@@ -31,3 +31,8 @@ which does not read them; converting those to CPM is a separate change.
 
 `Sub0Pipeline Sub0Pub Sub0Log Sub0ECS Sub0Math Sub0MemPage Sub0TieredCache Sub0HexGrid Sub0Physics` are cloned next to this
 project; update with `git -C <dir> pull`.
+
+## CPM source cache (needed once Boost.Beast is added in M3/M5)
+
+The Boost CMake tarball is about 102 MiB. Set `CPM_SOURCE_CACHE` (for example `$HOME/.cache/CPM`, outside any repository) so every
+build directory and project shares one download. Not set up yet; nothing in the tree downloads Boost today.
