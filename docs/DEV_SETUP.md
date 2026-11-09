@@ -32,7 +32,22 @@ which does not read them; converting those to CPM is a separate change.
 `Sub0Pipeline Sub0Pub Sub0Log Sub0ECS Sub0Math Sub0MemPage Sub0TieredCache Sub0HexGrid Sub0Physics` are cloned next to this
 project; update with `git -C <dir> pull`.
 
-## CPM source cache (needed once Boost.Beast is added in M3/M5)
+## CPM source cache
 
-The Boost CMake tarball is about 102 MiB. Set `CPM_SOURCE_CACHE` (for example `$HOME/.cache/CPM`, outside any repository) so every
-build directory and project shares one download. Not set up yet; nothing in the tree downloads Boost today.
+`CPM_SOURCE_CACHE=$HOME/.cache/CPM` is exported by `~/.config/sub0/cpm-env.sh` (and listed in `environment.d/60-sub0-cpm.conf`
+for desktop-launched apps after a re-login), so every build directory and CPM project shares one download. It lives on the
+internal disk, outside any repository. It matters most when Boost's CMake tarball (about 102 MiB) is added in M3/M5; today it
+holds simdjson and the pinned Sub0 libraries from a pinned-only build.
+
+## Pinned-only build check (no local overrides)
+
+```sh
+env $(env | grep -o '^CPM_Sub0[A-Za-z]*_SOURCE' | sed 's/^/-u /') cmake -S . -B out/build/pinned -G Ninja -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_BUILD_TYPE=Release
+```
+(then build and `ctest` with the same `env -u ...` prefix). Verified 2026-11-09: configures, builds and passes with the pins.
+
+## Pin policy
+
+Use the **latest release or default-branch head** of every dependency, recorded as an exact commit with its date. Checked
+2026-11-09: Sub0Pipeline `3d11ffe`, Sub0Pub `504d772`, Sub0Math `1d20313` are the heads of `main`; simdjson v5.1.1; CPM.cmake 0.43.2;
+Boost 1.92.0 to be pinned when first used. Bump deliberately, one dependency per commit.
