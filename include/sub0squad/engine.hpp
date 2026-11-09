@@ -7,6 +7,7 @@
 /// The HTTP client is deliberately tiny (loopback only, Connection: close, no TLS); it sits behind this header so the Boost.Beast
 /// stack of DECISIONS 18 can replace it without touching callers.
 
+#include <cstddef>
 #include <expected>
 #include <string>
 #include <vector>
@@ -24,6 +25,8 @@ struct EngineProfile
     bool thinking = false;            ///< allow reasoning output (off: faster and cheaper; on: the model reasons before answering, much slower on CPU)
     double temperature = -1, topP = -1;  ///< -1: the recommended default of the mode (below)
     int topK = -1;
+    double minP = 0.0, presencePenalty = 0.0;  ///< card: min_p 0.0 for every mode; presence_penalty 1.5 is suggested for general non-thinking use but 0 for precise coding
+    std::string reasoningEffort;               ///< Qwen3.8 only (xhigh | medium | low): the Qwen3.6 template has no such control; empty = not sent
     /// Qwen's published recommendation: non-thinking 0.7 / top_p 0.8 / top_k 20, thinking 0.6 / 0.95 / 20. Greedy-like settings (0.2) make a retry
     /// reproduce the same mistake, which wastes the attempt.
     [[nodiscard]] double effectiveTemperature() const { return temperature >= 0 ? temperature : thinking ? 0.6 : 0.7; }
@@ -42,6 +45,7 @@ struct ChatResult
     std::string content, finishReason;
     long promptTokens = 0, completionTokens = 0;
     double promptMs = 0, predictedMs = 0;
+    std::size_t reasoningChars = 0;   ///< characters of reasoning_content (thinking), which the completion token count includes
 };
 
 struct ChatMessage { std::string role, content; };

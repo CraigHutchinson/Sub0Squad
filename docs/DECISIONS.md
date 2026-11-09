@@ -27,6 +27,7 @@
 21. (2026-11-09) **Agents submit only registered tool manifests, never raw commands**; the daemon's own diagnostics use Sub0Log, not a new logger.
 22. (2026-11-09, owner) **A sandbox harness delegates a project-scope task** (`project submit --task calculator-scientific`): an internal planner decision splits it into work items run as jobs, with trusted per-item gates, a recorded decision policy, bounded escalation to `frontier-stub` and a ledger (docs/SANDBOX.md). `frontier-stub` is the only frontier tier in this build, it sends nothing, and `--frontier off|stub` is an owner setting of the daemon.
 23. (2026-11-09, owner) **Public repository `CraigHutchinson/Sub0Squad`, MIT licence.** The name is still the working title (rename checklist below); the repository and licence are decided.
+24. (2026-11-09, owner) **Engine facts feed back to Sub0Llm**: Sub0Llm issues #100 (model provider plug-ins: `-m` accepts a Hugging Face URL or name, download, verify, configure; HTTP via Boost.Beast and Asio unless libcurl proves better for TLS, redirects and resume) and #101 (chat template and thinking controls, sampling defaults, reasoning accounting, the API surface a supervisor needs).
 
 ## Pending
 

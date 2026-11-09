@@ -20,7 +20,7 @@ std::string EngineProfile::toJson() const
 
 std::string EngineProfile::toArg() const
 {
-    return name + "=" + endpoint + ",model=" + model + ",kind=" + kind + ",ctx=" + std::to_string(contextTokens) + ",slots=" + std::to_string(maxConcurrent) + (thinking ? ",thinking=1" : "") + (temperature >= 0 ? ",temp=" + std::to_string(temperature) : "") + (topP >= 0 ? ",top_p=" + std::to_string(topP) : "") + (topK >= 0 ? ",top_k=" + std::to_string(topK) : "");
+    return name + "=" + endpoint + ",model=" + model + ",kind=" + kind + ",ctx=" + std::to_string(contextTokens) + ",slots=" + std::to_string(maxConcurrent) + (thinking ? ",thinking=1" : "") + (temperature >= 0 ? ",temp=" + std::to_string(temperature) : "") + (topP >= 0 ? ",top_p=" + std::to_string(topP) : "") + (topK >= 0 ? ",top_k=" + std::to_string(topK) : "") + (presencePenalty != 0 ? ",presence=" + std::to_string(presencePenalty) : "") + (reasoningEffort.empty() ? "" : ",effort=" + reasoningEffort);
 }
 
 std::expected<EngineProfile, std::string> EngineProfile::parse(const std::string& text)
@@ -42,6 +42,7 @@ std::expected<EngineProfile, std::string> EngineProfile::parse(const std::string
             if (k == "model") p.model = v; else if (k == "kind") p.kind = v; else if (k == "ctx") p.contextTokens = std::atoi(v.c_str());
             else if (k == "slots") p.maxConcurrent = std::atoi(v.c_str()); else if (k == "thinking") p.thinking = v == "1" || v == "true";
             else if (k == "temp") p.temperature = std::atof(v.c_str()); else if (k == "top_p") p.topP = std::atof(v.c_str()); else if (k == "top_k") p.topK = std::atoi(v.c_str());
+            else if (k == "presence") p.presencePenalty = std::atof(v.c_str()); else if (k == "min_p") p.minP = std::atof(v.c_str()); else if (k == "effort") p.reasoningEffort = v;
             else return std::unexpected("unknown engine option '" + k + "'");
         }
         first = false;
@@ -152,8 +153,10 @@ std::expected<ChatResult, std::string> chatCompleteMessages(const EngineProfile&
     json::Writer w;
     w.beginObject().kv("model", e.model).key("messages").beginArray();
     for (const auto& m : messages) w.beginObject().kv("role", m.role).kv("content", m.content).endObject();
-    w.endArray().kv("max_tokens", maxTokens).kv("temperature", e.effectiveTemperature()).kv("top_p", e.effectiveTopP()).kv("top_k", e.effectiveTopK()).kvBool("stream", false).kvBool("cache_prompt", true)
-        .key("chat_template_kwargs").beginObject().kvBool("enable_thinking", e.thinking).endObject().endObject();
+    w.endArray().kv("max_tokens", maxTokens).kv("temperature", e.effectiveTemperature()).kv("top_p", e.effectiveTopP()).kv("top_k", e.effectiveTopK()).kv("min_p", e.minP).kv("presence_penalty", e.presencePenalty).kvBool("stream", false).kvBool("cache_prompt", true)
+        .key("chat_template_kwargs").beginObject().kvBool("enable_thinking", e.thinking);
+    if (!e.reasoningEffort.empty()) w.kv("reasoning_effort", e.reasoningEffort);
+    w.endObject().endObject();
     auto resp = httpRequest("POST", e.endpoint + "/chat/completions", w.take(), timeoutSec);
     if (!resp) return std::unexpected(resp.error());
     if (resp->status != 200) return std::unexpected("engine returned HTTP " + std::to_string(resp->status) + ": " + resp->body.substr(0, 300));
@@ -168,7 +171,7 @@ std::expected<ChatResult, std::string> chatCompleteMessages(const EngineProfile&
                         for (auto cf : ch.get_object()) {
                             const std::string_view ck = cf.unescaped_key();
                             if (ck == "finish_reason") r.finishReason = json::toString(cf.value());
-                            else if (ck == "message") for (auto mf : cf.value().get_object()) if (json::keyOf(mf) == "content") r.content = json::toString(mf.value());
+                            else if (ck == "message") for (auto mf : cf.value().get_object()) { const std::string_view mk = mf.unescaped_key(); if (mk == "content") r.content = json::toString(mf.value()); else if (mk == "reasoning_content") r.reasoningChars = json::toString(mf.value()).size(); }
                         }
                         break;
                     }

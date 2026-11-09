@@ -38,6 +38,7 @@ int runOptimizeJob(const std::vector<std::string>& args)
     const int rounds = std::max(1, std::atoi(arg(args, "rounds", "1").c_str()));
     const std::string maxTokens = arg(args, "max-tokens", "3500");
     const std::string repairTurns = arg(args, "repair-turns", "0");
+    const std::string timeoutSec = arg(args, "timeout", "1700");
     std::vector<std::string> treatments;
     {
         std::stringstream ss(arg(args, "treatments", "baseline,index,planfirst"));
@@ -54,7 +55,7 @@ int runOptimizeJob(const std::vector<std::string>& args)
             row.attempt = attempt;
             const auto began = std::chrono::steady_clock::now();
             const int rc = runLlmAgent({"--workflow-dir", dir.string(), "--item", item, "--tier", "local", "--attempt", std::to_string(attempt), "--engine", engine,
-                                        "--max-tokens", maxTokens, "--treatment", t, "--repair-turns", repairTurns});
+                                        "--max-tokens", maxTokens, "--treatment", t, "--repair-turns", repairTurns, "--timeout", timeoutSec});
             row.generated = rc == 0;
             if (rc == 0) {
                 const int g = runHarnessGate({"--workflow-dir", dir.string(), "--item", item, "--attempt", std::to_string(attempt), "--no-publish", "1"});

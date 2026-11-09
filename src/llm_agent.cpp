@@ -220,7 +220,7 @@ int runLlmAgent(const std::vector<std::string>& args)
         const Parsed parsed = parseReply(reply->content, allowed);
         totIn += static_cast<double>(reply->promptTokens);
         totOut += static_cast<double>(reply->completionTokens);
-        const double totalChars = std::max<double>(1.0, static_cast<double>(reply->content.size()));
+        const double totalChars = std::max<double>(1.0, static_cast<double>(reply->content.size() + reply->reasoningChars));  // thinking is overhead, not deliverable
         lastWork = static_cast<double>(reply->completionTokens) * static_cast<double>(parsed.fileChars) / totalChars;
         if (reply->predictedMs > 0) decodeTps = static_cast<double>(reply->completionTokens) / (reply->predictedMs / 1000.0);
         if (reply->promptMs > 0) prefillTps = static_cast<double>(reply->promptTokens) / (reply->promptMs / 1000.0);

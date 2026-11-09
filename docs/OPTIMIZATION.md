@@ -100,3 +100,32 @@ the producer's acceptance voided and re-run, rearchitect, escalate, frontier off
 (`llm-architect --mode decompose`): a plausible split into a parser and an evaluator, rejected by the validator because one proposed item had no files, i.e. the
 safety net worked and the model's JSON discipline did not; a full workflow with the ladder and repair loop on the real model has not been run; native thinking
 has not been measured.
+
+## 5. Model cards and the thinking measurement (2026-11-09)
+
+Sources: the official cards of `Qwen/Qwen3.6-35B-A3B` (the snap's model) and `Qwen/Qwen3.8-27B` (the local GGUF's model), read through a fetch agent, and the two chat
+templates and the live server read directly on this machine (the template facts below are verified locally, the rest is the cards' text).
+
+| | Qwen3.6-35B-A3B (snap) | Qwen3.8-27B (dense, local file is IQ1_S) |
+|---|---|---|
+| Thinking | on by default; `chat_template_kwargs.enable_thinking=false` turns it off; `/think` `/nothink` soft switches not supported | on by default; same switch |
+| Thinking levels | **none** (verified: no `reasoning_effort` in the template) | **`reasoning_effort`: `xhigh` (default), `medium`, `low`** (verified in the GGUF's template); the card warns lower effort can mean more retries in agentic work |
+| History handling | `preserve_thinking` (default off: only the latest turn's thinking is kept) | `preserve_thinking` default **on** |
+| Sampling, thinking | 1.0 / 0.95 / 20 general; **0.6 / 0.95 / 20, presence 0 for precise coding** | 1.0 / 0.95 / 20 (no coding preset) |
+| Sampling, non-thinking | 0.7 / 0.8 / 20, min_p 0, presence 1.5 | same |
+| Output length | 32,768 recommended, 81,920 for hard programming | up to 262,144 reasoning plus 131,072 answer |
+| Coding benchmarks on the card | agentic coding emphasised | vs the dense Qwen3.6-27B: SWE-bench Pro 61.7 vs 53.5, LiveCodeBench v6 90.3 vs 83.9, Terminal-Bench 2.1 73.0 vs 63.4. The card does **not** compare with the 35B-A3B MoE |
+| 1-bit quantisation | n/a | no IQ1_S figure on the card or the Unsloth page (IQ1_S 6.19 GB, Q4_K_M 16.5 GB) |
+
+Engine profiles now carry `min_p`, `presence_penalty` and `reasoning_effort` (Qwen3.8 only) beside temperature, top_p and top_k.
+
+**Native thinking, measured once** (snap, thinking on, 0.6 / 0.95 / 20, `max_tokens` 14,000, the `engine` item, baseline prompt): the model spent **all 14,000 tokens
+on reasoning and returned no files** (`finish_reason=length`), after 32 minutes. At about 8 tokens/s the card's recommended 32,768-token budget would be about 68 minutes
+for one attempt. This is one run with a budget below the card's recommendation, so it does not show that thinking cannot work; it shows that on this CPU native thinking is
+unaffordable per attempt, while the external verify-and-repair loop reached one failing test in one extra turn of about 6 minutes. Thinking at this speed belongs, if anywhere, in a
+bounded planning step (a few hundred tokens, `planfirst`) or on a faster engine. Qwen3.8's `reasoning_effort=low` or `medium` is the obvious next measurement and needs that model at a usable quant.
+
+**Is a 3.8 model preferable?** Plausibly, and unmeasured here. The card's gains over 3.6-27B are large, and effort levels give a cost dial the 3.6 MoE lacks. The costs: a dense 27B
+decodes slower than a 3B-active MoE on this CPU (an estimate from memory bandwidth, not a measurement: a few tokens/s against 8.3), the Q4_K_M file is 15.7 GiB and
+cannot sit beside the snap's 25 GB resident server, and the 1-bit file on disk is the quality outlier (an earlier harness run on it produced `no_proposal` six times).
+The model-provider issue (Sub0Llm #100) is the route to `-m <Hugging Face URL>` without manual downloads.
