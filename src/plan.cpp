@@ -52,7 +52,7 @@ const WorkItem* Plan::find(std::string_view id) const
 namespace {
 bool validId(const std::string& id)
 {
-    return !id.empty() && id.size() <= 40 && std::all_of(id.begin(), id.end(), [](char c) { return (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_' || c == '-'; });
+    return !id.empty() && id.size() <= 60 && std::all_of(id.begin(), id.end(), [](char c) { return (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_' || c == '-' || c == '.'; });
 }
 bool validPath(const std::string& p)
 {
@@ -127,6 +127,15 @@ std::expected<Plan, std::string> Plan::fromJson(std::string_view text, int cardB
     }
     if (schema != "plan-1" && schema != "plan-2") return std::unexpected("unsupported plan schema '" + schema + "'");
     if (plan.harness != "" && plan.harness != "web-static") return std::unexpected("unknown project harness '" + plan.harness + "' (known: web-static)");
+    if (auto ok = plan.validate(cardBudgetTokens); !ok) return std::unexpected(ok.error());
+    return plan;
+}
+
+
+std::expected<void, std::string> Plan::validate(int cardBudgetTokens) const
+{
+    const Plan& plan = *this;
+    if (plan.harness != "" && plan.harness != "web-static") return std::unexpected("unknown project harness '" + plan.harness + "' (known: web-static)");
     if (plan.items.empty()) return std::unexpected("plan has no items");
     if (plan.items.size() > 32) return std::unexpected("plan has more than 32 items");
     std::set<std::string> ids;
@@ -170,7 +179,50 @@ std::expected<Plan, std::string> Plan::fromJson(std::string_view text, int cardB
         }
     }
     if (done.size() != plan.items.size()) return std::unexpected("plan dependencies contain a cycle");
-    return plan;
+    return {};
+}
+
+std::expected<Plan, std::string> Plan::amended(const Plan& base, const std::string& parentId, const Plan& fragment, int maxDepth, int cardBudgetTokens)
+{
+    const WorkItem* parent = base.find(parentId);
+    if (!parent) return std::unexpected("no item '" + parentId + "' to replace");
+    const int depth = static_cast<int>(std::count(parentId.begin(), parentId.end(), '.'));
+    if (depth >= maxDepth) return std::unexpected("item '" + parentId + "' is already at the maximum division depth (" + std::to_string(maxDepth) + ")");
+    if (fragment.items.size() < 2) return std::unexpected("a division needs at least two items");
+    std::set<std::string> fragIds, depended;
+    for (const auto& f : fragment.items) fragIds.insert(f.id);
+    for (const auto& f : fragment.items) for (const auto& d : f.deps) depended.insert(d);
+    std::set<std::string> covered;
+    Plan out = base;
+    out.items.clear();
+    std::vector<std::string> leaves;
+    std::vector<WorkItem> children;
+    for (const auto& f : fragment.items) {
+        WorkItem c = f;
+        c.id = parentId + "." + f.id;
+        c.deps.clear();
+        if (f.deps.empty()) c.deps = parent->deps;
+        for (const auto& d : f.deps) c.deps.push_back(parentId + "." + d);
+        for (const auto& file : f.files) covered.insert(file);
+        if (!depended.count(f.id)) leaves.push_back(c.id);
+        children.push_back(std::move(c));
+    }
+    for (const auto& file : parent->files)
+        if (!covered.count(file)) return std::unexpected("the division does not cover '" + file + "', which the original item delivered");
+    for (const auto& it : base.items) {
+        if (it.id == parentId) { for (auto& c : children) out.items.push_back(c); continue; }
+        WorkItem copy = it;
+        std::vector<std::string> deps;
+        for (const auto& d : it.deps) {
+            if (d != parentId) deps.push_back(d);
+            else for (const auto& leaf : leaves) deps.push_back(leaf);
+        }
+        copy.deps = deps;
+        out.items.push_back(std::move(copy));
+    }
+    // include lists that named the parent's output stay valid: children deliver the same files
+    if (auto ok = out.validate(cardBudgetTokens); !ok) return std::unexpected("the division is not a valid plan: " + ok.error());
+    return out;
 }
 
 }  // namespace sub0squad

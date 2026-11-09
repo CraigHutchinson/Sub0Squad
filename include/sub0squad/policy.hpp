@@ -24,9 +24,19 @@ struct DecisionContext
     FrontierMode frontier = FrontierMode::stub;
     int maxLocalAttempts = 2;
     int maxFrontierAttempts = 1;
+    // The escalation ladder (docs/OPTIMIZATION.md): what has been tried for this item, and where it sits in the plan.
+    int depth = 0;                 ///< division depth of the item (dots in its id)
+    int totalAttempts = 0;         ///< every attempt-like job so far: agent, decompose and rearchitect all count
+    int maxTotalAttempts = 8;
+    bool splittable = false;       ///< more than one file, or complexity of at least 2
+    bool hasTesterDep = false;     ///< the item is graded by tests another item produced
+    bool decomposeTried = false, reviseTried = false, rearchitectTried = false;
+    int maxDepth = 2;
 };
 
-enum class Action { retry, escalate, fail };
+/// retry: another local attempt. decompose: ask the model to divide the item. reviseTests: send back to the producer (the tester that wrote
+/// the tests this item is graded by). rearchitect: a dedicated job rewrites the work card. escalate: the frontier-stub tier. fail.
+enum class Action { retry, escalate, fail, decompose, reviseTests, rearchitect };
 
 struct Decision
 {
@@ -47,7 +57,9 @@ public:
     [[nodiscard]] virtual const char* name() const = 0;
 };
 
-/// The default, transparent policy: retry locally up to a limit, then escalate to the frontier-stub tier once if allowed, else fail.
+/// The default, transparent policy. After N local attempts the ladder is: decompose (the model decides the division), reviseTests (send
+/// back to the producer), rearchitect (a dedicated job rewrites the card), escalate to frontier-stub once if allowed, fail. Each rung is tried
+/// once, every rung counts as an attempt, and `maxTotalAttempts` bounds the whole ladder.
 class RulePolicy final : public IDecisionPolicy
 {
 public:

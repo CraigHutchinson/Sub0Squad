@@ -93,8 +93,9 @@ LedgerSummary summarise(const std::vector<LedgerRecord>& records, const std::str
         t.tokensIn += r.tokensIn; t.tokensOut += r.tokensOut; t.costUnits += r.costUnits; t.durationSec += r.durationSec;
         all += r.tokensIn + r.tokensOut;
         if (r.tier == "frontier-stub") frontier += r.tokensIn + r.tokensOut;
-        if (r.role != "agent") continue;
+        if (r.role != "agent" && r.role != "decompose" && r.role != "rearchitect") continue;  // architect jobs are overhead in the work ratio
         s.totalTokens += r.tokensIn + r.tokensOut;
+        if (r.role != "agent") continue;
         const bool accepted = gatePassed.count(r.item + "#" + std::to_string(r.attempt)) > 0;
         (accepted ? s.acceptedWorkTokens : s.reworkTokens) += r.tokensWork;
         s.promptOverheadTokens += r.tokensSystem + r.tokensFeedback;

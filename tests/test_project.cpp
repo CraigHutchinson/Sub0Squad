@@ -141,6 +141,25 @@ int main(int, char** argv)
         CHECK(t.exitCode == 0);
     }
 
+    { // The whole escalation ladder through the daemon: local retries, a decompose job that declines, the tester revises the tests (send back to
+      // the producer), a rearchitect job rewrites the card, then one escalation to the stub tier. Every rung counts as an attempt.
+        Squad sq(exe, "projladder");
+        sq.startDaemon(4);
+        sq.cli({"do", "write a scientific calculator as a web page", "--inject", "engine"});
+        const std::string wf = "w-000001";
+        CHECK(waitWorkflow(sq, wf, "succeeded", 120000));
+        const std::string s = wfStatus(sq, wf);
+        for (const char* action : {"retry", "decompose", "reviseTests", "rearchitect", "escalate"})
+            CHECK(s.find(std::string{"\"action\":\""} + action + "\"") != std::string::npos);
+        CHECK(s.find("\"action\":\"disputed\"") != std::string::npos);   // the producer's earlier acceptance was voided
+        const auto engine = sq.home() / "state" / "workflows" / wf / "items" / "engine";
+        CHECK(std::filesystem::exists(engine / "card-override.json"));       // the dedicated job rewrote the card
+        const auto tests = sq.home() / "state" / "workflows" / wf / "items" / "eval-tests";
+        CHECK(std::filesystem::exists(tests / "attempt-2"));                  // the tester item was re-run after the dispute
+        CHECK(std::filesystem::exists(tests / "dispute.txt"));               // what the producer was told (the mock agent does not consume it)
+        CHECK(field(wfStatus(sq, wf), "state") == "succeeded");
+    }
+
     { // An unknown task: triage defers the architect as a file handoff; supplying the plan starts the workflow.
         Squad sq(exe, "projawait");
         sq.startDaemon(4);

@@ -20,6 +20,7 @@ struct Sim
         jobs.apply(r);
         wfs.apply(r);
     }
+    Plan fragment;   // what the next decompose job "wrote"
     std::vector<WorkflowAction> step() { return advance(*wfs.find("w-000001"), jobs, settings, policy); }
     // Apply actions the way the daemon does; returns ids of jobs started.
     std::vector<std::string> run(const std::vector<WorkflowAction>& acts)
@@ -32,6 +33,13 @@ struct Sim
                 case WorkflowAction::Kind::finish: feed("workflowFinished", wfbody::finished("w-000001", a.finalState, a.note)); break;
                 case WorkflowAction::Kind::cancelJob: feed("jobCancelRequested", journalbody::cancelRequested(a.jobId, 1)); feed("jobFinished", journalbody::finished(a.jobId, 1, JobState::cancelled, "", "cancelled")); break;
                 case WorkflowAction::Kind::loadPlan: break;
+                case WorkflowAction::Kind::writeDispute: break;
+                case WorkflowAction::Kind::amendPlan: {
+                    auto merged = Plan::amended(*wfs.find("w-000001")->plan, a.item, fragment);
+                    if (merged) feed("workflowPlanAmended", wfbody::planAmended("w-000001", a.item, *merged));
+                    else feed("workflowAmendRejected", wfbody::amendRejected("w-000001", a.item, a.attempt, merged.error()));
+                    break;
+                }
             }
         }
         return started;
@@ -134,44 +142,108 @@ int main()
         auto a7 = s.step();
         CHECK(a7.size() == 1 && a7[0].kind == WorkflowAction::Kind::finish && a7[0].finalState == WorkflowState::succeeded);
     }
-    { // retry then escalate then success; decisions are recorded with inputs
+    { // the ladder for a small item (one file, complexity 1, no tester): retry, rearchitect (a dedicated job), then escalate once
         Sim s = startSim(2, FrontierMode::stub);
-        s.feed("workflowPlanned", wfbody::planned("w-000001", [] { Plan p; p.task = "t"; p.items = {{"a", "A", "g", {"a.hpp"}, {}, 3}}; return p; }()));
+        s.feed("workflowPlanned", wfbody::planned("w-000001", [] { Plan p; p.task = "t"; p.items = {{"a", "A", "g", {"a.hpp"}, {}, 1}}; return p; }()));
         auto ids = s.run(s.step());                                              // agent a attempt 1 local
         s.finishJob(ids[0], JobState::succeeded);
         ids = s.run(s.step());                                                   // gate 1
         s.finishJob(ids[0], JobState::failed);
         auto acts = s.step();                                                    // decision retry + agent attempt 2 local
-        CHECK(acts.size() == 2 && acts[0].kind == WorkflowAction::Kind::recordDecision && acts[0].decisionAction == "retry");
-        CHECK(acts[1].job.attempt == 2 && acts[1].job.tier == "local");
+        CHECK(acts.size() == 2 && acts[0].decisionAction == "retry" && acts[1].job.attempt == 2 && acts[1].job.tier == "local");
         ids = s.run(acts);
         s.finishJob(ids[0], JobState::failed);                                   // agent 2 fails outright
-        acts = s.step();                                                         // local attempts exhausted -> escalate
-        CHECK(acts.size() == 2 && acts[0].decisionAction == "escalate" && acts[1].job.tier == "frontier-stub" && acts[1].job.attempt == 3);
-        CHECK(acts[0].decisionJson.find("local attempts exhausted") != std::string::npos);
+        acts = s.step();                                                         // not splittable, no tester dependency: rearchitect
+        CHECK(acts.size() == 2 && acts[0].decisionAction == "rearchitect" && acts[1].job.role == "rearchitect" && acts[1].job.attempt == 3);
+        ids = s.run(acts);
+        s.finishJob(ids[0], JobState::succeeded);                                // the rewritten card is ready: a new local attempt follows
+        acts = s.step();
+        CHECK(acts.size() == 1 && acts[0].job.role == "agent" && acts[0].job.attempt == 4 && acts[0].job.tier == "local");
+        ids = s.run(acts);
+        s.finishJob(ids[0], JobState::failed);
+        acts = s.step();                                                         // every local rung tried: escalate once
+        CHECK(acts.size() == 2 && acts[0].decisionAction == "escalate" && acts[1].job.tier == "frontier-stub" && acts[1].job.attempt == 5);
+        CHECK(acts[0].decisionJson.find("every local rung was tried") != std::string::npos);
         ids = s.run(acts);
         s.finishJob(ids[0], JobState::succeeded);
         ids = s.run(s.step());
         CHECK(s.job(ids[0])->spec.role == "gate" && s.job(ids[0])->spec.tier == "frontier-stub");
         s.finishJob(ids[0], JobState::succeeded);
         const auto st = itemStatuses(*s.wfs.find("w-000001"), s.jobs);
-        CHECK(st.size() == 1 && st[0].status == "accepted" && st[0].attempts == 3 && st[0].tier == "frontier-stub");
+        CHECK(st.size() == 1 && st[0].status == "accepted" && st[0].attempts == 5 && st[0].tier == "frontier-stub");
     }
-    { // frontier off: fail after the local attempts, no frontier job is ever created
+    { // frontier off: the ladder still runs locally, then fails; no frontier job is ever created
         Sim s = startSim(2, FrontierMode::off);
         s.feed("workflowPlanned", wfbody::planned("w-000001", [] { Plan p; p.task = "t"; p.items = {{"a", "A", "g", {"a.hpp"}, {}, 1}}; return p; }()));
-        for (int attempt = 1; attempt <= 2; ++attempt) {
-            auto ids = s.run(s.step());
-            s.finishJob(ids[0], JobState::failed);
+        bool sawFrontier = false, sawFail = false;
+        for (int guard = 0; guard < 12 && s.wfs.find("w-000001")->state == WorkflowState::running; ++guard) {
+            const auto acts = s.step();
+            for (const auto& a : acts) {
+                if (a.kind == WorkflowAction::Kind::startJob && a.job.tier == "frontier-stub") sawFrontier = true;
+                if (a.kind == WorkflowAction::Kind::recordDecision && a.decisionAction == "fail") sawFail = true;
+            }
+            for (const auto& id : s.run(acts)) s.finishJob(id, s.job(id)->spec.role == "rearchitect" ? JobState::succeeded : JobState::failed);
         }
-        auto acts = s.step();
-        bool sawFail = false, sawStart = false;
-        for (const auto& a : acts) { if (a.kind == WorkflowAction::Kind::recordDecision && a.decisionAction == "fail") sawFail = true; if (a.kind == WorkflowAction::Kind::startJob) sawStart = true; }
-        CHECK(sawFail && !sawStart);
-        CHECK(acts.back().kind == WorkflowAction::Kind::finish && acts.back().finalState == WorkflowState::failed);  // nothing active: finishes in the same pass
-        s.run(acts);
+        CHECK(sawFail && !sawFrontier);
         CHECK(s.wfs.find("w-000001")->state == WorkflowState::failed);
-        CHECK(s.step().empty());
+    }
+    { // divide and conquer: after the local attempts the model decides the division; the item is replaced by smaller items
+        Sim s = startSim(2, FrontierMode::stub);
+        Plan base;
+        base.task = "t";
+        base.items = {{"t", "Tests", "g", {"tests/t.test.mjs"}, {}, 1, "tester"}, {"a", "Work", "g", {"a.js", "b.js"}, {"t"}, 3, "developer"}, {"z", "After", "g", {"z.js"}, {"a"}, 1, "developer"}};
+        s.feed("workflowPlanned", wfbody::planned("w-000001", base));
+        s.fragment.task = "frag";
+        s.fragment.items = {{"x", "Part x", "g", {"a.js"}, {}, 1, "developer"}, {"y", "Part y", "g", {"b.js"}, {"x"}, 1, "developer"}};
+        // tester t accepted at once
+        auto ids = s.run(s.step());
+        s.finishJob(ids[0], JobState::succeeded);
+        ids = s.run(s.step());
+        s.finishJob(ids[0], JobState::succeeded);
+        // a: two failed attempts
+        ids = s.run(s.step());
+        CHECK(s.job(ids[0])->spec.item == "a");
+        s.finishJob(ids[0], JobState::failed);
+        ids = s.run(s.step());                                                   // retry
+        s.finishJob(ids[0], JobState::failed);
+        auto acts = s.step();                                                    // the first rung: decompose
+        CHECK(acts.size() == 2 && acts[0].decisionAction == "decompose" && acts[1].job.role == "decompose" && acts[1].job.attempt == 3);
+        ids = s.run(acts);
+        s.finishJob(ids[0], JobState::succeeded);
+        acts = s.step();
+        CHECK(acts.size() == 1 && acts[0].kind == WorkflowAction::Kind::amendPlan);
+        s.run(acts);                                                             // the daemon merges the fragment
+        const Plan& merged = *s.wfs.find("w-000001")->plan;
+        CHECK(merged.find("a") == nullptr && merged.find("a.x") && merged.find("a.y"));
+        CHECK(merged.find("a.x")->deps == std::vector<std::string>{"t"});        // roots inherit the parent's dependencies
+        CHECK(merged.find("a.y")->deps == std::vector<std::string>{"a.x"});
+        CHECK(merged.find("z")->deps == std::vector<std::string>{"a.y"});        // dependants now wait for the leaves
+        acts = s.step();                                                         // the first child starts at once
+        CHECK(acts.size() == 1 && acts[0].job.item == "a.x" && acts[0].job.role == "agent" && acts[0].job.attempt == 1);
+        // an invalid division is rejected, counts as a failed attempt, and the ladder moves on: send back to the producer
+        Sim r = startSim(2, FrontierMode::stub);
+        r.feed("workflowPlanned", wfbody::planned("w-000001", base));
+        r.fragment.items = {{"x", "Part x", "g", {"a.js"}, {}, 1, "developer"}, {"y", "Part y", "g", {"c.js"}, {"x"}, 1, "developer"}};  // does not cover b.js
+        ids = r.run(r.step()); r.finishJob(ids[0], JobState::succeeded);
+        ids = r.run(r.step()); r.finishJob(ids[0], JobState::succeeded);
+        for (int i = 0; i < 2; ++i) { ids = r.run(r.step()); r.finishJob(ids[0], JobState::failed); }
+        ids = r.run(r.step());                                                   // decompose job
+        r.finishJob(ids[0], JobState::succeeded);
+        r.run(r.step());                                                         // amendPlan -> rejected
+        CHECK(r.wfs.find("w-000001")->rejectedAmends.count("a#3") == 1);
+        acts = r.step();                                                         // rejected division = failed attempt 3: reviseTests
+        CHECK(acts.size() >= 2 && acts[0].decisionAction == "reviseTests");
+        bool dispute = false;
+        for (const auto& a : acts) if (a.kind == WorkflowAction::Kind::writeDispute && a.item == "t" && a.fromItem == "a") dispute = true;
+        CHECK(dispute);
+        r.run(acts);
+        // the tester item t is re-run (no longer accepted), then a continues with a fresh attempt
+        acts = r.step();
+        CHECK(acts.size() == 1 && acts[0].job.item == "t" && acts[0].job.role == "agent" && acts[0].job.attempt == 2);
+        ids = r.run(acts); r.finishJob(ids[0], JobState::succeeded);
+        ids = r.run(r.step()); CHECK(r.job(ids[0])->spec.role == "gate" && r.job(ids[0])->spec.item == "t"); r.finishJob(ids[0], JobState::succeeded);
+        acts = r.step();
+        CHECK(acts.size() == 1 && acts[0].job.item == "a" && acts[0].job.role == "agent" && acts[0].job.attempt == 4 && acts[0].job.tier == "local");
     }
     { // cancel: active jobs are cancelled, then the workflow finishes cancelled
         Sim s = startSim();

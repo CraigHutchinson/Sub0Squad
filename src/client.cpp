@@ -66,7 +66,7 @@ constexpr const char* kUsage =
     "  cancel ID | resume ID | wait ID [--timeout SEC] | ping | stop\n"
     "  do \"<task in words>\" [project options]   triage first, then run: a known blueprint starts at once, otherwise a needs-plan.md handoff is written\n"
     "  project submit --task calculator-basic|calculator-scientific|calculator-web [--sandbox DIR] [--inject ITEM[:N]]... [--max-local N]\n"
-    "         [--agent mock|llm] [--engine NAME=http://127.0.0.1:PORT/v1[,model=..][,ctx=N][,slots=N]]... [--engine-for PERSONA=NAME]... [--max-tokens N]\n"
+    "         [--agent mock|llm] [--engine NAME=http://127.0.0.1:PORT/v1[,model=..][,ctx=N][,slots=N]]... [--engine-for PERSONA=NAME]... [--max-tokens N] [--treatment baseline|index|planfirst] [--repair-turns N]\n"
     "  project plan ID --file plan.json     supply the plan a workflow is awaiting (the deferred architect's answer)\n"
     "  blueprint NAME                       print a built-in plan-2 (calculator-web)\n"
     "  project status [ID] [--json] | project cancel ID | project wait ID [--timeout SEC]\n"
@@ -475,6 +475,8 @@ int parseWorkflowFlags(int argc, char** argv, int from, WorkflowSpec& spec)
             spec.engines.push_back(p->toArg());
         } else if (a == "--engine-for") { std::string kv = val(); const auto eq = kv.find('='); if (eq == std::string::npos) { std::fprintf(stderr, "--engine-for takes PERSONA=ENGINE\n"); return 2; } spec.route[kv.substr(0, eq)] = kv.substr(eq + 1); }
         else if (a == "--max-tokens") spec.maxTokens = std::atoi(val().c_str());
+        else if (a == "--treatment") spec.treatment = val();
+        else if (a == "--repair-turns") spec.repairTurns = std::atoi(val().c_str());
         else { std::fprintf(stderr, "unknown option %s\n", a.c_str()); return 2; }
     }
     return 0;

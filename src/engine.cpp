@@ -20,7 +20,7 @@ std::string EngineProfile::toJson() const
 
 std::string EngineProfile::toArg() const
 {
-    return name + "=" + endpoint + ",model=" + model + ",kind=" + kind + ",ctx=" + std::to_string(contextTokens) + ",slots=" + std::to_string(maxConcurrent) + (thinking ? ",thinking=1" : "");
+    return name + "=" + endpoint + ",model=" + model + ",kind=" + kind + ",ctx=" + std::to_string(contextTokens) + ",slots=" + std::to_string(maxConcurrent) + (thinking ? ",thinking=1" : "") + (temperature >= 0 ? ",temp=" + std::to_string(temperature) : "") + (topP >= 0 ? ",top_p=" + std::to_string(topP) : "") + (topK >= 0 ? ",top_k=" + std::to_string(topK) : "");
 }
 
 std::expected<EngineProfile, std::string> EngineProfile::parse(const std::string& text)
@@ -41,6 +41,7 @@ std::expected<EngineProfile, std::string> EngineProfile::parse(const std::string
             const std::string k = part.substr(0, e), v = e == std::string::npos ? "" : part.substr(e + 1);
             if (k == "model") p.model = v; else if (k == "kind") p.kind = v; else if (k == "ctx") p.contextTokens = std::atoi(v.c_str());
             else if (k == "slots") p.maxConcurrent = std::atoi(v.c_str()); else if (k == "thinking") p.thinking = v == "1" || v == "true";
+            else if (k == "temp") p.temperature = std::atof(v.c_str()); else if (k == "top_p") p.topP = std::atof(v.c_str()); else if (k == "top_k") p.topK = std::atoi(v.c_str());
             else return std::unexpected("unknown engine option '" + k + "'");
         }
         first = false;
@@ -141,11 +142,17 @@ std::expected<HttpResponse, std::string> httpRequest(const std::string& method, 
 
 std::expected<ChatResult, std::string> chatComplete(const EngineProfile& e, const std::string& system, const std::string& user, int maxTokens, double temperature, int timeoutSec)
 {
+    EngineProfile p = e;
+    if (temperature >= 0) p.temperature = temperature;
+    return chatCompleteMessages(p, {{"system", system}, {"user", user}}, maxTokens, timeoutSec);
+}
+
+std::expected<ChatResult, std::string> chatCompleteMessages(const EngineProfile& e, const std::vector<ChatMessage>& messages, int maxTokens, int timeoutSec)
+{
     json::Writer w;
-    w.beginObject().kv("model", e.model).key("messages").beginArray()
-        .beginObject().kv("role", "system").kv("content", system).endObject()
-        .beginObject().kv("role", "user").kv("content", user).endObject().endArray()
-        .kv("max_tokens", maxTokens).kv("temperature", temperature).kvBool("stream", false).kvBool("cache_prompt", true)
+    w.beginObject().kv("model", e.model).key("messages").beginArray();
+    for (const auto& m : messages) w.beginObject().kv("role", m.role).kv("content", m.content).endObject();
+    w.endArray().kv("max_tokens", maxTokens).kv("temperature", e.effectiveTemperature()).kv("top_p", e.effectiveTopP()).kv("top_k", e.effectiveTopK()).kvBool("stream", false).kvBool("cache_prompt", true)
         .key("chat_template_kwargs").beginObject().kvBool("enable_thinking", e.thinking).endObject().endObject();
     auto resp = httpRequest("POST", e.endpoint + "/chat/completions", w.take(), timeoutSec);
     if (!resp) return std::unexpected(resp.error());

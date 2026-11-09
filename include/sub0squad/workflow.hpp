@@ -11,6 +11,7 @@
 
 #include <map>
 #include <optional>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -27,6 +28,8 @@ struct WorkflowSpec
     std::string agent = "mock";                   ///< "mock" (templates) or "llm" (a real engine on the local tier)
     std::vector<std::string> engines;             ///< engine profiles in command-line form (EngineProfile::toArg); the first is the default
     std::map<std::string, std::string> route;     ///< persona -> engine name, e.g. tester=qwen3-6 (extensibility: engines are per persona)
+    std::string treatment = "baseline";           ///< prompt treatment of llm agents: baseline | index | planfirst (see docs/OPTIMIZATION.md)
+    int repairTurns = 2;                          ///< extra turns an llm agent takes to run the tests and fix failures before it says done
     int maxTokens = 3000;                         ///< completion budget of one llm attempt
 
     /// The engine profile for a persona (route, else the first engine), or nullopt when none is configured.
@@ -46,6 +49,8 @@ struct WorkflowRecord
     WorkflowSpec spec;
     std::optional<Plan> plan;
     std::vector<DecisionRecord> decisions;
+    std::set<std::string> rejectedAmends;   ///< "item#attempt": a decomposition the daemon refused (invalid plan), which counts as a failed attempt
+    std::vector<std::string> amendedItems;  ///< items that were replaced by a division, in order (history)
     bool cancelRequested = false;
     WorkflowState state = WorkflowState::running;
     std::string note;
@@ -57,6 +62,8 @@ namespace wfbody {
 [[nodiscard]] std::string submitted(const std::string& id, const WorkflowSpec& spec);
 [[nodiscard]] std::string planned(const std::string& id, const Plan& plan);
 [[nodiscard]] std::string decision(const std::string& id, const std::string& item, int attempt, const std::string& action, const std::string& tier, const std::string& decisionJson);
+[[nodiscard]] std::string planAmended(const std::string& id, const std::string& replaced, const Plan& plan);
+[[nodiscard]] std::string amendRejected(const std::string& id, const std::string& item, int attempt, const std::string& reason);
 [[nodiscard]] std::string cancelRequested(const std::string& id);
 [[nodiscard]] std::string finished(const std::string& id, WorkflowState state, const std::string& note);
 [[nodiscard]] std::string awaitingPlan(const std::string& id, const std::string& packetPath);
@@ -83,12 +90,13 @@ struct WorkflowSettings
 /// What the engine asks the daemon to do, in order.
 struct WorkflowAction
 {
-    enum class Kind { startJob, loadPlan, recordDecision, cancelJob, finish } kind = Kind::finish;
+    enum class Kind { startJob, loadPlan, recordDecision, cancelJob, finish, amendPlan, writeDispute } kind = Kind::finish;
     JobSpec job;                                       ///< startJob
     std::string jobId;                                 ///< cancelJob
     std::string item;                                  ///< recordDecision
     int attempt = 0;                                   ///< recordDecision
     std::string decisionAction, decisionTier, decisionJson;  ///< recordDecision
+    std::string fromItem;                              ///< writeDispute: the item whose failure disputes `item`'s output (attempt is that item's attempt)
     WorkflowState finalState = WorkflowState::failed;  ///< finish
     std::string note;                                  ///< finish
 };

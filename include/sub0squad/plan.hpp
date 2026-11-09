@@ -56,6 +56,12 @@ struct Plan
     /// of file, cards within `cardBudgetTokens`. Accepts plan-1 and plan-2.
     [[nodiscard]] static std::expected<Plan, std::string> fromJson(std::string_view text, int cardBudgetTokens = 1500);
     [[nodiscard]] const WorkItem* find(std::string_view id) const;
+    /// All structural checks (ids, dependencies, cycles, disjoint files, personas, cards, gates). `fromJson` runs this after parsing.
+    [[nodiscard]] std::expected<void, std::string> validate(int cardBudgetTokens = 1500) const;
+    /// Divide and conquer: replace item `parentId` by the items of `fragment` (a self-contained plan). Fragment ids are prefixed with
+    /// `parentId + "."`; fragment roots inherit the parent's dependencies; whatever depended on the parent now depends on the fragment's
+    /// leaves; the fragment's files must cover the parent's; recursion is limited to `maxDepth` levels. The result is validated.
+    [[nodiscard]] static std::expected<Plan, std::string> amended(const Plan& base, const std::string& parentId, const Plan& fragment, int maxDepth = 2, int cardBudgetTokens = 1500);
 };
 
 }  // namespace sub0squad

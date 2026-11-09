@@ -21,7 +21,14 @@ struct EngineProfile
     std::string model;                ///< model id sent in requests
     int maxConcurrent = 1;            ///< concurrent requests the engine should be given (EngineCaps.maxConcurrentSequences)
     int contextTokens = 4096;
-    bool thinking = false;            ///< allow reasoning output (off: faster, cheaper, what the agents want)
+    bool thinking = false;            ///< allow reasoning output (off: faster and cheaper; on: the model reasons before answering, much slower on CPU)
+    double temperature = -1, topP = -1;  ///< -1: the recommended default of the mode (below)
+    int topK = -1;
+    /// Qwen's published recommendation: non-thinking 0.7 / top_p 0.8 / top_k 20, thinking 0.6 / 0.95 / 20. Greedy-like settings (0.2) make a retry
+    /// reproduce the same mistake, which wastes the attempt.
+    [[nodiscard]] double effectiveTemperature() const { return temperature >= 0 ? temperature : thinking ? 0.6 : 0.7; }
+    [[nodiscard]] double effectiveTopP() const { return topP >= 0 ? topP : thinking ? 0.95 : 0.8; }
+    [[nodiscard]] int effectiveTopK() const { return topK >= 0 ? topK : 20; }
 
     [[nodiscard]] std::string toJson() const;
     /// The command-line form `name=endpoint,model=..,kind=..,ctx=N,slots=N` (inverse of parse).
@@ -37,7 +44,11 @@ struct ChatResult
     double promptMs = 0, predictedMs = 0;
 };
 
-/// One non-streaming chat completion. `timeoutSec` bounds the whole call.
+struct ChatMessage { std::string role, content; };
+/// One non-streaming chat completion over a whole conversation (the agent's verify-and-repair loop continues the same conversation, so the
+/// server can reuse its cache of the shared prefix). Sampling comes from the profile. `timeoutSec` bounds the whole call.
+[[nodiscard]] std::expected<ChatResult, std::string> chatCompleteMessages(const EngineProfile& engine, const std::vector<ChatMessage>& messages, int maxTokens, int timeoutSec);
+/// Single system+user turn. A negative `temperature` means "use the profile's".
 [[nodiscard]] std::expected<ChatResult, std::string> chatComplete(const EngineProfile& engine, const std::string& system, const std::string& user,
                                                                   int maxTokens, double temperature, int timeoutSec);
 /// Token count of `text` using the engine's own tokenizer (`<server root>/tokenize`); falls back to length/3.5 and says so via `estimated`.

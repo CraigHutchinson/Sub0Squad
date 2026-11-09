@@ -98,6 +98,9 @@ int main(int argc, char** argv)
         const std::vector<std::string> rest(argv + 2, argv + argc);
         if (std::strcmp(argv[1], "mock-planner") == 0) return sub0squad::runMockPlanner(rest);
         if (std::strcmp(argv[1], "mock-agent") == 0) return sub0squad::runMockAgent(rest);
+        if (std::strcmp(argv[1], "mock-architect") == 0) return sub0squad::runMockArchitect(rest);
+        if (std::strcmp(argv[1], "llm-architect") == 0) return sub0squad::runLlmArchitect(rest);
+        if (std::strcmp(argv[1], "optimize-job") == 0) return sub0squad::runOptimizeJob(rest);
         if (std::strcmp(argv[1], "llm-agent") == 0) return sub0squad::runLlmAgent(rest);
         if (std::strcmp(argv[1], "harness-gate") == 0) return sub0squad::runHarnessGate(rest);
         if (std::strcmp(argv[1], "harness-integrate") == 0) return sub0squad::runHarnessIntegrate(rest);

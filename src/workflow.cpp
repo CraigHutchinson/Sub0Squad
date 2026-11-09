@@ -17,7 +17,7 @@ const char* toString(WorkflowState s)
 std::string WorkflowSpec::toJson() const
 {
     json::Writer w;
-    w.beginObject().kv("task", task).kv("taskText", taskText).kv("triage", triage).kv("sandbox", sandboxDir).kv("maxLocalAttempts", maxLocalAttempts).kv("agent", agent).kv("maxTokens", maxTokens).key("inject").beginArray();
+    w.beginObject().kv("task", task).kv("taskText", taskText).kv("triage", triage).kv("sandbox", sandboxDir).kv("maxLocalAttempts", maxLocalAttempts).kv("agent", agent).kv("treatment", treatment).kv("repairTurns", repairTurns).kv("maxTokens", maxTokens).key("inject").beginArray();
     for (const auto& i : inject) w.str(i);
     w.endArray().key("engines").beginArray();
     for (const auto& e : engines) w.str(e);
@@ -42,6 +42,8 @@ std::expected<WorkflowSpec, std::string> WorkflowSpec::fromJson(std::string_view
                 else if (k == "maxLocalAttempts") s.maxLocalAttempts = static_cast<int>(v.get_int64());
                 else if (k == "inject") { for (auto x : v.get_array()) s.inject.push_back(json::toString(x.value())); }
                 else if (k == "agent") s.agent = json::toString(v);
+                else if (k == "treatment") s.treatment = json::toString(v);
+                else if (k == "repairTurns") s.repairTurns = static_cast<int>(v.get_int64());
                 else if (k == "maxTokens") s.maxTokens = static_cast<int>(v.get_int64());
                 else if (k == "engines") { for (auto x : v.get_array()) s.engines.push_back(json::toString(x.value())); }
                 else if (k == "route") { for (auto r : v.get_object()) { std::string persona{std::string_view{r.unescaped_key()}}; s.route[persona] = json::toString(r.value()); } }
@@ -57,6 +59,7 @@ std::expected<WorkflowSpec, std::string> WorkflowSpec::fromJson(std::string_view
     for (const auto& e : s.engines) { auto p = EngineProfile::parse(e); if (!p) return std::unexpected("engine '" + e + "': " + p.error()); names.insert(p->name); }
     if (s.agent == "llm" && s.engines.empty()) return std::unexpected("agent llm needs at least one --engine");
     for (const auto& [persona, name] : s.route) if (!names.count(name)) return std::unexpected("route " + persona + "=" + name + " names an unknown engine");
+    if (s.treatment != "baseline" && s.treatment != "index" && s.treatment != "planfirst") return std::unexpected("treatment must be baseline, index or planfirst");
     if (s.maxTokens < 256 || s.maxTokens > 32768) return std::unexpected("maxTokens must be 256..32768");
     return s;
 }
@@ -80,6 +83,8 @@ std::string decision(const std::string& id, const std::string& item, int attempt
     return w.take();
 }
 std::string awaitingPlan(const std::string& id, const std::string& packetPath) { json::Writer w; w.beginObject().kv("id", id).kv("note", packetPath).endObject(); return w.take(); }
+std::string planAmended(const std::string& id, const std::string& replaced, const Plan& plan) { json::Writer w; w.beginObject().kv("id", id).kv("item", replaced).kvRaw("plan", plan.toJson()).endObject(); return w.take(); }
+std::string amendRejected(const std::string& id, const std::string& item, int attempt, const std::string& reason) { json::Writer w; w.beginObject().kv("id", id).kv("item", item).kv("attempt", attempt).kv("note", reason).endObject(); return w.take(); }
 std::string cancelRequested(const std::string& id) { json::Writer w; w.beginObject().kv("id", id).endObject(); return w.take(); }
 std::string finished(const std::string& id, WorkflowState state, const std::string& note) { json::Writer w; w.beginObject().kv("id", id).kv("state", toString(state)).kv("note", note).endObject(); return w.take(); }
 }  // namespace wfbody
@@ -134,6 +139,8 @@ void WorkflowStore::apply(const JournalRecord& rec)
     for (auto& x : workflows_) if (x.id == id) w = &x;
     if (!w) return;
     if (rec.type == "workflowPlanned") { if (auto p = Plan::fromJson(planJson)) { w->plan = std::move(*p); if (w->state == WorkflowState::awaitingPlan) w->state = WorkflowState::running; } }
+    else if (rec.type == "workflowPlanAmended") { if (auto p = Plan::fromJson(planJson)) { w->plan = std::move(*p); w->amendedItems.push_back(item); } }
+    else if (rec.type == "workflowAmendRejected") w->rejectedAmends.insert(item + "#" + std::to_string(attempt));
     else if (rec.type == "workflowAwaitingPlan") { w->state = WorkflowState::awaitingPlan; w->note = "needs a plan: see " + note; }
     else if (rec.type == "workflowDecision") w->decisions.push_back({item, static_cast<int>(attempt), action, tier, decisionJson});
     else if (rec.type == "workflowCancelRequested") w->cancelRequested = true;
@@ -176,29 +183,35 @@ bool terminalJob(const JobRecord* j) { return isTerminal(j->state); }
 struct ItemView
 {
     const WorkItem* item = nullptr;
-    std::vector<const JobRecord*> agents, gates;
+    std::vector<const JobRecord*> attempts, gates;  ///< attempt-like jobs (agent, decompose, rearchitect) and gate jobs
     bool accepted = false, active = false;
     int maxAttempt = 0;
     int localAttempts = 0, frontierAttempts = 0;
+    bool decomposeTried = false, rearchitectTried = false;
     std::string latestTier;
-    const JobRecord* latestAgent = nullptr;
+    const JobRecord* latest = nullptr;              ///< the attempt-like job with the highest attempt number
 };
 
-ItemView viewOf(const WorkItem& it, const Mine& mine)
+ItemView viewOf(const WorkItem& it, const Mine& mine, const WorkflowRecord& wf)
 {
     ItemView v;
     v.item = &it;
+    int disputedAt = 0;
+    for (const auto& d : wf.decisions) if (d.item == it.id && d.action == "disputed") disputedAt = std::max(disputedAt, d.attempt);
     for (const JobRecord* j : mine.all) {
         if (j->spec.item != it.id) continue;
         if (!terminalJob(j)) v.active = true;
-        if (j->spec.role == "agent") {
-            v.agents.push_back(j);
+        const std::string& role = j->spec.role;
+        if (role == "agent" || role == "decompose" || role == "rearchitect") {
+            v.attempts.push_back(j);
             v.maxAttempt = std::max<int>(v.maxAttempt, static_cast<int>(j->spec.attempt));
-            if (j->spec.tier == "frontier-stub") ++v.frontierAttempts; else ++v.localAttempts;
-            if (!v.latestAgent || j->spec.attempt >= v.latestAgent->spec.attempt) { v.latestAgent = j; v.latestTier = j->spec.tier; }
-        } else if (j->spec.role == "gate") {
+            if (role == "agent") { if (j->spec.tier == "frontier-stub") ++v.frontierAttempts; else ++v.localAttempts; }
+            if (role == "decompose") v.decomposeTried = true;
+            if (role == "rearchitect") v.rearchitectTried = true;
+            if (!v.latest || j->spec.attempt >= v.latest->spec.attempt) { v.latest = j; v.latestTier = j->spec.tier; }
+        } else if (role == "gate") {
             v.gates.push_back(j);
-            if (j->state == JobState::succeeded) v.accepted = true;
+            if (j->state == JobState::succeeded && j->spec.attempt > disputedAt) v.accepted = true;  // a dispute voids earlier acceptances
         }
     }
     return v;
@@ -214,12 +227,12 @@ JobSpec agentJob(const WorkflowRecord& wf, const WorkflowSettings& st, const Wor
 {
     const auto engine = wf.spec.engineFor(it.persona);
     const bool llm = wf.spec.agent == "llm" && engine.has_value();
-    JobSpec s = baseJob(wf, st, "agent", llm ? "llm-agent" : "mock-agent", tier.c_str(), llm && tier == "local" ? 1800 : 120);
+    JobSpec s = baseJob(wf, st, "agent", llm ? "llm-agent" : "mock-agent", tier.c_str(), llm && tier == "local" ? 3 * 3600 : 120);
     s.item = it.id;
     s.attempt = attempt;
     if (llm) {
         s.argv = {st.exe, "llm-agent", "--workflow-dir", wf.spec.sandboxDir, "--item", it.id, "--tier", tier, "--attempt", std::to_string(attempt), "--engine", engine->toArg(),
-                  "--max-tokens", std::to_string(wf.spec.maxTokens), "--timeout", "1700"};
+                  "--max-tokens", std::to_string(wf.spec.maxTokens), "--timeout", "1700", "--treatment", wf.spec.treatment, "--repair-turns", std::to_string(wf.spec.repairTurns)};
     } else {
         s.argv = {st.exe, "mock-agent", "--workflow-dir", wf.spec.sandboxDir, "--item", it.id, "--tier", tier, "--attempt", std::to_string(attempt)};
         for (const auto& i : wf.spec.inject) { s.argv.push_back("--inject"); s.argv.push_back(i); }
@@ -234,6 +247,18 @@ JobSpec gateJob(const WorkflowRecord& wf, const WorkflowSettings& st, const Work
     s.item = it.id;
     s.attempt = attempt;
     s.argv = {st.exe, web ? "harness-gate" : "sandbox-gate", "--workflow-dir", wf.spec.sandboxDir, "--item", it.id, "--attempt", std::to_string(attempt)};
+    return s;
+}
+
+JobSpec architectJob(const WorkflowRecord& wf, const WorkflowSettings& st, const WorkItem& it, int attempt, const char* mode)
+{
+    const auto engine = wf.spec.engineFor("architect");
+    const bool llm = wf.spec.agent == "llm" && engine.has_value();
+    JobSpec s = baseJob(wf, st, mode, llm ? "llm-architect" : "mock-architect", "local", llm ? 1800 : 120);
+    s.item = it.id;
+    s.attempt = attempt;
+    s.argv = {st.exe, llm ? "llm-architect" : "mock-architect", "--mode", mode, "--workflow-dir", wf.spec.sandboxDir, "--item", it.id, "--attempt", std::to_string(attempt)};
+    if (llm) { s.argv.push_back("--engine"); s.argv.push_back(engine->toArg()); s.argv.push_back("--timeout"); s.argv.push_back("1700"); }
     return s;
 }
 
@@ -287,45 +312,84 @@ std::vector<WorkflowAction> advance(const WorkflowRecord& wf, const JobStore& st
     // 2. Items.
     const Plan& plan = *wf.plan;
     std::vector<ItemView> views;
-    for (const auto& it : plan.items) views.push_back(viewOf(it, mine));
-    auto accepted = [&](const std::string& id) { for (const auto& v : views) if (v.item->id == id) return v.accepted; return false; };
+    for (const auto& it : plan.items) views.push_back(viewOf(it, mine, wf));
 
     bool allAccepted = true;
     std::string failedItem;
+    auto isAccepted = [&](const std::string& id) { for (const auto& v : views) if (v.item->id == id) return v.accepted; return false; };
     for (const ItemView& v : views) {
         if (v.accepted) continue;
         allAccepted = false;
         if (v.active) continue;
-        if (!std::all_of(v.item->deps.begin(), v.item->deps.end(), accepted)) continue;
+        if (!std::all_of(v.item->deps.begin(), v.item->deps.end(), isAccepted)) continue;
         if (v.maxAttempt == 0) { out.push_back(start(agentJob(wf, st, *v.item, 1, "local"))); continue; }
         const int n = v.maxAttempt;
-        const JobRecord* agent = v.latestAgent;
-        const JobRecord* gate = nullptr;
-        for (const JobRecord* g : v.gates) if (g->spec.attempt == n) gate = g;
-        if (agent->state == JobState::succeeded && !gate) { out.push_back(start(gateJob(wf, st, *v.item, n, v.latestTier))); continue; }
-        // The attempt failed (agent or gate): there must be a recorded decision.
+        const JobRecord* latest = v.latest;
         const DecisionRecord* d = decisionFor(wf, v.item->id, n);
-        if (!d) {
+        const bool disputed = d && d->action == "disputed";
+        bool failed = false;
+        const std::string& role = latest->spec.role;
+        if (role == "agent" && !disputed) {
+            const JobRecord* gate = nullptr;
+            for (const JobRecord* g : v.gates) if (g->spec.attempt == n) gate = g;
+            if (latest->state == JobState::succeeded && !gate) { out.push_back(start(gateJob(wf, st, *v.item, n, v.latestTier))); continue; }
+            failed = true;
+        } else if (role == "decompose" && !disputed) {
+            if (latest->state == JobState::succeeded && !wf.rejectedAmends.count(v.item->id + "#" + std::to_string(n))) {
+                WorkflowAction a; a.kind = WorkflowAction::Kind::amendPlan; a.item = v.item->id; a.attempt = n; out.push_back(std::move(a));
+                continue;
+            }
+            failed = true;
+        } else if (role == "rearchitect" && !disputed) {
+            if (latest->state == JobState::succeeded && !d) { out.push_back(start(agentJob(wf, st, *v.item, n + 1, "local"))); continue; }
+            failed = true;
+        }
+        if (!d && (failed || disputed)) {
             DecisionContext ctx;
             ctx.workflow = wf.id; ctx.item = v.item->id; ctx.attempt = n;
             ctx.localAttempts = v.localAttempts; ctx.frontierAttempts = v.frontierAttempts;
-            ctx.failedRole = agent->state != JobState::succeeded ? "agent" : "gate";
-            const JobRecord* failed = agent->state != JobState::succeeded ? agent : gate;
-            ctx.failure = std::string{toString(failed->state)} + (failed->note.empty() ? "" : ": " + failed->note);
+            ctx.failedRole = role == "agent" ? (latest->state != JobState::succeeded ? "agent" : "gate") : role;
+            ctx.failure = std::string{toString(latest->state)} + (latest->note.empty() ? "" : ": " + latest->note);
             ctx.complexity = v.item->complexity;
             ctx.frontier = st.frontier;
             ctx.maxLocalAttempts = wf.spec.maxLocalAttempts;
+            ctx.depth = static_cast<int>(std::count(v.item->id.begin(), v.item->id.end(), '.'));
+            ctx.totalAttempts = n;
+            ctx.splittable = v.item->files.size() > 1 || v.item->complexity >= 2;
+            ctx.decomposeTried = v.decomposeTried;
+            ctx.rearchitectTried = v.rearchitectTried;
+            for (const auto& dd : wf.decisions) if (dd.item == v.item->id && dd.action == "reviseTests") ctx.reviseTried = true;
+            const WorkItem* tester = nullptr;
+            for (const auto& depId : v.item->deps) { const WorkItem* dep = plan.find(depId); if (dep && dep->persona == "tester") { tester = dep; ctx.hasTesterDep = true; break; } }
             const Decision dec = policy.decide(ctx);
-            WorkflowAction a;
-            a.kind = WorkflowAction::Kind::recordDecision;
-            a.item = v.item->id; a.attempt = n; a.decisionAction = toString(dec.action); a.decisionTier = dec.tier; a.decisionJson = toJson(ctx, dec);
-            out.push_back(std::move(a));
-            if (dec.action == Action::fail) failedItem = v.item->id;
-            else out.push_back(start(agentJob(wf, st, *v.item, n + 1, dec.tier)));
+            WorkflowAction rec;
+            rec.kind = WorkflowAction::Kind::recordDecision;
+            rec.item = v.item->id; rec.attempt = n; rec.decisionAction = toString(dec.action); rec.decisionTier = dec.tier; rec.decisionJson = toJson(ctx, dec);
+            out.push_back(std::move(rec));
+            switch (dec.action) {
+                case Action::fail: failedItem = v.item->id; break;
+                case Action::retry: case Action::escalate: out.push_back(start(agentJob(wf, st, *v.item, n + 1, dec.tier))); break;
+                case Action::decompose: out.push_back(start(architectJob(wf, st, *v.item, n + 1, "decompose"))); break;
+                case Action::rearchitect: out.push_back(start(architectJob(wf, st, *v.item, n + 1, "rearchitect"))); break;
+                case Action::reviseTests: {
+                    const ItemView* tv = nullptr;
+                    for (const auto& x : views) if (tester && x.item->id == tester->id) tv = &x;
+                    WorkflowAction w1; w1.kind = WorkflowAction::Kind::writeDispute; w1.item = tester->id; w1.fromItem = v.item->id; w1.attempt = n; out.push_back(std::move(w1));
+                    WorkflowAction w2;
+                    w2.kind = WorkflowAction::Kind::recordDecision; w2.item = tester->id; w2.attempt = tv ? tv->maxAttempt : 1; w2.decisionAction = "disputed";
+                    w2.decisionJson = "{\"action\":\"disputed\",\"reasons\":[\"the tests of '" + tester->id + "' are disputed by a failing attempt of '" + v.item->id + "'\"],\"inputs\":{\"item\":\"" + tester->id + "\",\"attempt\":" + std::to_string(w2.attempt) + "}}";
+                    out.push_back(std::move(w2));
+                    break;
+                }
+            }
             continue;
         }
+        if (!d) continue;
+        // A decision is recorded; act on it if its follow-up job has not been submitted yet.
         if (d->action == "fail") failedItem = v.item->id;
-        else out.push_back(start(agentJob(wf, st, *v.item, n + 1, d->tier)));  // decision recorded but the retry job not yet submitted
+        else if (d->action == "decompose") out.push_back(start(architectJob(wf, st, *v.item, n + 1, "decompose")));
+        else if (d->action == "rearchitect") out.push_back(start(architectJob(wf, st, *v.item, n + 1, "rearchitect")));
+        else out.push_back(start(agentJob(wf, st, *v.item, n + 1, d->tier.empty() ? "local" : d->tier)));  // retry, escalate, reviseTests, disputed
     }
     if (!failedItem.empty()) {
         cancelActive();
@@ -356,7 +420,7 @@ std::vector<ItemStatus> itemStatuses(const WorkflowRecord& wf, const JobStore& s
     if (!wf.plan) return r;
     const Mine mine = jobsOf(wf, store);
     for (const auto& it : wf.plan->items) {
-        const ItemView v = viewOf(it, mine);
+        const ItemView v = viewOf(it, mine, wf);
         ItemStatus s;
         s.id = it.id; s.title = it.title; s.attempts = v.maxAttempt; s.tier = v.latestTier;
         const DecisionRecord* d = v.maxAttempt ? decisionFor(wf, it.id, v.maxAttempt) : nullptr;

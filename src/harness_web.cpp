@@ -281,9 +281,9 @@ int runHarnessGate(const std::vector<std::string>& args)
     } else if (tap.fail != 0 || r.exitCode != 0) {
         return fail(std::to_string(tap.fail) + " of " + std::to_string(tap.tests) + " tests failed\n" + tap.excerpt);
     }
-    fs::remove_all(dir / "items" / itemId / "accepted", ec);
-    copyTree(out, dir / "items" / itemId / "accepted");
-    writeFile(dir / "items" / itemId / "accepted.json", "{\"item\":\"" + itemId + "\",\"attempt\":" + std::to_string(attempt) + "}");
+    const bool publish = one(a, "no-publish").empty();  // the optimiser judges attempts without touching the accepted outputs
+    if (publish) { fs::remove_all(dir / "items" / itemId / "accepted", ec); copyTree(out, dir / "items" / itemId / "accepted"); }
+    if (publish) writeFile(dir / "items" / itemId / "accepted.json", "{\"item\":\"" + itemId + "\",\"attempt\":" + std::to_string(attempt) + "}");
     writeFile(attemptDir / "gate.txt", "GATE PASS\n");
     events::progress(3, 3, "accepted");
     std::printf("GATE PASS: %s attempt %d (%d tests, %d failing against stubs where expected)\n", itemId.c_str(), attempt, tap.tests, tap.fail);

@@ -357,6 +357,40 @@ struct Daemon::Impl
                 }
                 break;
             }
+            case WorkflowAction::Kind::amendPlan: {
+                const WorkflowRecord* wf = wfStore.find(wfId);
+                if (!wf || !wf->plan) break;
+                const std::filesystem::path sandbox{wf->spec.sandboxDir};
+                const std::filesystem::path frag = sandbox / "items" / a.item / ("attempt-" + std::to_string(a.attempt)) / "fragment.json";
+                std::ifstream in(frag);
+                std::stringstream ss;
+                ss << in.rdbuf();
+                std::string reason;
+                auto fragment = Plan::fromJson(ss.str());
+                if (!fragment) reason = "fragment invalid: " + fragment.error();
+                else if (auto merged = Plan::amended(*wf->plan, a.item, *fragment)) {
+                    { std::ofstream o(sandbox / "plan.json", std::ios::trunc); o << merged->toJson(); }
+                    const std::size_t before = wf->plan->items.size();
+                    record("workflowPlanAmended", wfbody::planAmended(wfId, a.item, *merged));
+                    logf("workflow %s: item '%s' divided into %zu items", wfId.c_str(), a.item.c_str(), merged->items.size() - before + 1);
+                    break;
+                } else reason = merged.error();
+                record("workflowAmendRejected", wfbody::amendRejected(wfId, a.item, a.attempt, reason));
+                logf("workflow %s: division of '%s' rejected: %s", wfId.c_str(), a.item.c_str(), reason.c_str());
+                break;
+            }
+            case WorkflowAction::Kind::writeDispute: {
+                const WorkflowRecord* wf = wfStore.find(wfId);
+                if (!wf) break;
+                const std::filesystem::path sandbox{wf->spec.sandboxDir};
+                std::ifstream in(sandbox / "items" / a.fromItem / ("attempt-" + std::to_string(a.attempt)) / "gate.txt");
+                std::stringstream ss;
+                ss << in.rdbuf();
+                std::ofstream o(sandbox / "items" / a.item / "dispute.txt", std::ios::trunc);
+                o << "Item '" << a.fromItem << "' is graded by your tests and failed them even after several attempts. Some of your tests may contradict the contract. Failures reported:\n"
+                  << ss.str() << "Check each failing test against the contract and fix the tests that are wrong; keep the ones that are right.\n";
+                break;
+            }
             case WorkflowAction::Kind::finish:
                 record("workflowFinished", wfbody::finished(wfId, a.finalState, a.note));
                 logf("workflow %s finished: %s (%s)", wfId.c_str(), toString(a.finalState), a.note.c_str());

@@ -29,6 +29,8 @@ add_library(sub0squad_core STATIC
   src/status.cpp
   src/daemon.cpp
   src/plan.cpp
+  src/architect.cpp
+  src/optimizer.cpp
   src/triage.cpp
   src/llm_agent.cpp
   src/web_templates.cpp
