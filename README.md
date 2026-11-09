@@ -26,3 +26,7 @@ ctest --test-dir out/build/dev --output-on-failure
 ```
 
 See [docs/DEV_SETUP.md](docs/DEV_SETUP.md) for the local-source override (`CPM_<Name>_SOURCE`) used on the Sub0 dev machine.
+
+## Licence
+
+MIT, see [LICENSE](LICENSE).

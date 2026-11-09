@@ -26,14 +26,15 @@
 20. (2026-11-09) **Diagnostics are reachable when the daemon is not**: offline `doctor` and `portal --offline` read the journal, ledger and rollups; metrics and KPIs are a versioned API with `asOf`/`source`, KPIs are data with visible formulas (DESIGN section 21).
 21. (2026-11-09) **Agents submit only registered tool manifests, never raw commands**; the daemon's own diagnostics use Sub0Log, not a new logger.
 22. (2026-11-09, owner) **A sandbox harness delegates a project-scope task** (`project submit --task calculator-scientific`): an internal planner decision splits it into work items run as jobs, with trusted per-item gates, a recorded decision policy, bounded escalation to `frontier-stub` and a ledger (docs/SANDBOX.md). `frontier-stub` is the only frontier tier in this build, it sends nothing, and `--frontier off|stub` is an owner setting of the daemon.
+23. (2026-11-09, owner) **Public repository `CraigHutchinson/Sub0Squad`, MIT licence.** The name is still the working title (rename checklist below); the repository and licence are decided.
 
 ## Pending
 
 | Item | State |
 |---|---|
 | **Final name** | working title `Sub0Squad`; candidates below |
-| Licence | undecided (no LICENSE file yet) |
-| Remote repository | not created; name first |
+| Licence | decided: MIT (LICENSE file) |
+| Remote repository | created: github.com/CraigHutchinson/Sub0Squad (public) |
 | Pinned versions | Sub0Pipeline `3d11ffe`, Sub0Pub `504d772` (heads on 2026-11-09), proven only by the selftest |
 | Boost version and `CPM_SOURCE_CACHE` | 1.92.0 proposed (about 102 MiB tarball); a shared CPM cache location to choose |
 | Strata | not found in the GitHub folder; owner to point at it before its engine manifest is written |
