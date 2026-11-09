@@ -95,5 +95,25 @@ int main(int, char** argv)
         CHECK(sq.cli({"cancel", a}).exitCode == 0);
         CHECK(sq.waitState(b, "succeeded"));
     }
+    { // Gate: resume continues a recorded optimization-run-1 style run: attempts preserved, new attempts appended, same job.
+        Squad sq(exe, "resume");
+        sq.startDaemon();
+        const std::string state = (sq.home() / "state.json").string();
+        const std::string id = sq.submitWorker("r1", {"--steps", "6", "--step-ms", "10", "--fail-at", "4", "--state-file", state},
+            {"--state-file", state, "--state-schema", "optimization-run-1", "--resume-arg", exe, "--resume-arg", "mock-worker",
+             "--resume-arg", "--tag", "--resume-arg", "r2", "--resume-arg", "--steps", "--resume-arg", "6", "--resume-arg", "--step-ms",
+             "--resume-arg", "10", "--resume-arg", "--resume", "--resume-arg", "--state-file", "--resume-arg", state});
+        CHECK(sq.waitState(id, "failed"));
+        std::string s1 = sq.cli({"status", id, "--json"}).out;
+        CHECK(s1.find("\"progress\":{\"done\":3,\"total\":6") != std::string::npos);  // from the tool's own record, adapter status running
+        CHECK(sq.cli({"resume", id}).exitCode == 0);
+        CHECK(sq.waitState(id, "succeeded"));
+        s1 = sq.cli({"status", id, "--json"}).out;
+        CHECK(s1.find("\"run\":2") != std::string::npos);
+        CHECK(s1.find("\"progress\":{\"done\":6,\"total\":6") != std::string::npos);
+        CHECK(std::filesystem::exists(sq.home() / "state" / "jobs" / id / "run-1" / "stdout.log"));  // the interrupted run's evidence is kept
+        CHECK(sq.cli({"resume", id}).exitCode == 1);  // a succeeded job cannot be resumed
+        CHECK(sq.cli({"resume", "j-999999"}).exitCode == 1);
+    }
     return finish();
 }

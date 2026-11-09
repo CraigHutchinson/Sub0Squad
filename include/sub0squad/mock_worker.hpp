@@ -4,7 +4,7 @@
 /// the inherited event channel and can be told to misbehave in the ways the gates need: fail, crash, stall, ignore SIGTERM,
 /// leave a server child behind, or escape its process group with setsid and a double fork.
 ///
-/// Options: --steps N --step-ms T --fail-at K --crash-at K --stall-at K --ignore-term --server --escape --tag NAME
+/// Options: --resume --steps N --step-ms T --fail-at K --crash-at K --stall-at K --ignore-term --server --escape --tag NAME
 ///          --mem-mib M --state-file PATH --metric NAME=VALUE
 
 namespace sub0squad {

@@ -46,7 +46,7 @@ Effective reconcile(const RuntimePaths& paths, const JobRecord& job)
     e.shimAlive = job.shimPid > 0 && proc::isAlive(static_cast<pid_t>(job.shimPid), job.shimStartTicks);
     if (!e.shimAlive) {
         // The shim is gone and left no outcome: never report `running`.
-        const auto pr = readProgress(runDir);
+        const auto pr = readProgress(runDir, job.spec.adapter, job.spec.cwd);
         e.state = JobState::lost;
         e.note = "supervisor vanished without an exit record";
         if (pr.hasProgress) e.note += "; last progress " + std::to_string(pr.done) + "/" + std::to_string(pr.total);
@@ -69,13 +69,14 @@ std::string jobJson(const RuntimePaths& paths, const JobRecord& job, const Effec
     w.kv("resumable", !job.spec.resumeArgv.empty());
     w.kv("shimPid", static_cast<std::int64_t>(job.shimPid));
     if (job.startedAt > 0) {
-        const auto pr = readProgress(paths.runDir(job.id, job.run));
+        const auto pr = readProgress(paths.runDir(job.id, job.run), job.spec.adapter, job.spec.cwd);
         w.key("progress");
         if (pr.hasProgress) w.beginObject().kv("done", pr.done).kv("total", pr.total).kv("phase", pr.phase).endObject();
         else w.null();
         w.kv("lastEventAt", pr.lastEventAt);
         w.kv("lastEventAgeSec", pr.lastEventAt > 0 ? now - pr.lastEventAt : -1.0);
         w.kv("lastNote", pr.lastNote);
+        if (!pr.adapterSchema.empty()) w.key("adapter").beginObject().kv("schema", pr.adapterSchema).kv("status", pr.adapterStatus).endObject();
         w.key("metrics").beginObject();
         for (const auto& [name, v] : pr.metrics) w.kv(name, v);
         w.endObject();

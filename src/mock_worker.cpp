@@ -1,6 +1,7 @@
 #include "sub0squad/mock_worker.hpp"
 
 #include "json_util.hpp"
+#include "sub0squad/progress.hpp"
 
 #include <signal.h>
 #include <sys/prctl.h>
@@ -84,7 +85,7 @@ int runMockWorker(int argc, char** argv)
 {
     int steps = 5, failAt = -1, crashAt = -1, stallAt = -1;
     long stepMs = 50, memMiB = 0;
-    bool ignoreTerm = false, server = false, escape = false;
+    bool ignoreTerm = false, server = false, escape = false, resume = false;
     std::string tag = "x", stateFile;
     std::vector<std::pair<std::string, double>> metrics;
     for (int i = 0; i < argc; ++i) {
@@ -98,6 +99,7 @@ int runMockWorker(int argc, char** argv)
         else if (a == "--ignore-term") ignoreTerm = true;
         else if (a == "--server") server = true;
         else if (a == "--escape") escape = true;
+        else if (a == "--resume") resume = true;
         else if (a == "--tag") tag = next();
         else if (a == "--mem-mib") memMiB = std::atol(next());
         else if (a == "--state-file") stateFile = next();
@@ -113,7 +115,19 @@ int runMockWorker(int argc, char** argv)
     std::printf("mock-worker %s: %d steps\n", tag.c_str(), steps);
     std::fflush(stdout);
     std::fprintf(stderr, "mock-worker %s: stderr line\n", tag.c_str());
-    for (int step = 1; step <= steps; ++step) {
+    int firstStep = 1;
+    if (resume && !stateFile.empty()) {  // continue after the attempts already recorded, like the harness's --resume
+        std::FILE* f = std::fopen(stateFile.c_str(), "r");
+        if (f) {
+            std::string text;
+            char b[4096];
+            std::size_t n;
+            while ((n = std::fread(b, 1, sizeof b, f)) > 0) text.append(b, n);
+            std::fclose(f);
+            firstStep = static_cast<int>(progressFromOptimizationState(text).done) + 1;
+        }
+    }
+    for (int step = firstStep; step <= steps; ++step) {
         if (step == stallAt) { emit("{\"schema\":\"sub0squad-event-1\",\"type\":\"note\",\"text\":\"stalling\"}"); idleForever(ignoreTerm); }
         sleepMs(stepMs);
         if (step == crashAt) ::raise(SIGSEGV);

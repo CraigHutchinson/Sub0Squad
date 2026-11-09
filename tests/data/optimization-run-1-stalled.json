@@ -1,0 +1,186 @@
+{
+  "schema": "optimization-run-1",
+  "contract": {
+    "item_sha256": "aba84106293c448e1d5da5c518bb02433560aec838690d774bcca59cd65b8c7d",
+    "identities": {
+      "/run/media/craig-hutchinson/54D4C5011B8AF586/GitHub/Sub0Llm/scripts/optimization/iterate.py": "17ffe54c1c7de210d8410b3f77d802edb359c9f7ce23f4c7e1285284bf08ee6e",
+      "/run/media/craig-hutchinson/54D4C5011B8AF586/GitHub/Sub0Llm/scripts/optimization/llama_provider.py": "1933999a0c9954f55d147588e71996158541e34d63d97f7e03599659acea9957",
+      "/run/media/craig-hutchinson/54D4C5011B8AF586/GitHub/Sub0Llm/scripts/optimization/evaluate_kernel.py": "87141ab4400d4a37534e5fd53edda94bd99c919f2f364a313ec2a41659e8c790",
+      "/run/media/craig-hutchinson/54D4C5011B8AF586/GitHub/Sub0Llm/perf/optimization/llama-cpu.json": "45654c182c7e363f93d932a39022774b97c857fd182b49eb1fd69a55b628049b",
+      "/usr/lib/llvm-21/bin/clang": "412bbe8c60571a1eb06f48fde89635033621caeb01a9b4ee76d46711bae8e932",
+      "/usr/bin/python3.14": "52e0a13e60a981d8c4b6478be2ba5176f69da07948a056bf49cf6f077e30cb41",
+      "/run/media/craig-hutchinson/54D4C5011B8AF586/GitHub/Sub0Llm/tools/perf/sub0perf/accept.py": "84cba700c380a9f379a99665fafbdafc6cb0825139464a32697d2a11c9e9cb0c",
+      "/run/media/craig-hutchinson/54D4C5011B8AF586/GitHub/Sub0Llm/tools/perf/sub0perf/baseline.py": "5acda30c784a83c5fbfb13d816a9223d06a54aa2ad0f7e24abbaff6c18944dae",
+      "/run/media/craig-hutchinson/54D4C5011B8AF586/GitHub/Sub0Llm/tools/perf/sub0perf/cli.py": "18649ecbfcc71e76c8cccc361bcfc90d8787f1111ebd7cd58955fdf11cf3047b",
+      "/run/media/craig-hutchinson/54D4C5011B8AF586/GitHub/Sub0Llm/tools/perf/sub0perf/common.py": "bfd43d47f34497389c9dabcbf5c7d5d5fb0e95849356d87b8e202c71f6b5ef30",
+      "/run/media/craig-hutchinson/54D4C5011B8AF586/GitHub/Sub0Llm/tools/perf/sub0perf/confirm.py": "363ae878da8ad8f8f69054c893930ba277fe7bffba2602b60819afcafd64a380",
+      "/run/media/craig-hutchinson/54D4C5011B8AF586/GitHub/Sub0Llm/tools/perf/sub0perf/deferral.py": "ee76ce979d1a81bd11d4089d5deff9eec0810e570eb1cba8f1d0d7b3d24c8414",
+      "/run/media/craig-hutchinson/54D4C5011B8AF586/GitHub/Sub0Llm/tools/perf/sub0perf/gate.py": "5c4a263e0b4ddc603d7ca800f2982cbc08f877f6452e4aad44ff115f8e22670e",
+      "/run/media/craig-hutchinson/54D4C5011B8AF586/GitHub/Sub0Llm/tools/perf/sub0perf/gitstate.py": "f203f5b8a3fefe86d560d25830a848766db992bfc35f36d502237ef46a517f45",
+      "/run/media/craig-hutchinson/54D4C5011B8AF586/GitHub/Sub0Llm/tools/perf/sub0perf/hooks.py": "ea2b41bbd30fa8ab2e9381d24e107c575f35de4c884fde5576333b1d67bf5bb6",
+      "/run/media/craig-hutchinson/54D4C5011B8AF586/GitHub/Sub0Llm/tools/perf/sub0perf/judge.py": "1200ef66031f2d290000283249a933ad44be6881bb27e9c30bd6a9a56653e043",
+      "/run/media/craig-hutchinson/54D4C5011B8AF586/GitHub/Sub0Llm/tools/perf/sub0perf/levels.py": "a00aa499ebc86f19e95c9f0c13ae4c9baefeda94f254bf50562fa63350d909b7",
+      "/run/media/craig-hutchinson/54D4C5011B8AF586/GitHub/Sub0Llm/tools/perf/sub0perf/load.py": "528c9c3bf542875fd78c48feb846d92274fdfcca7db4b5caf3690e122fe207e9",
+      "/run/media/craig-hutchinson/54D4C5011B8AF586/GitHub/Sub0Llm/tools/perf/sub0perf/lock.py": "293e3522767b5ed6147ce44679a81e51ca3b2cba3bd642247a09de28b43267ed",
+      "/run/media/craig-hutchinson/54D4C5011B8AF586/GitHub/Sub0Llm/tools/perf/sub0perf/pins.py": "5211af4c332993cee7f64d257d494afd24e941ff21de26b16f75fcf13453fda6",
+      "/run/media/craig-hutchinson/54D4C5011B8AF586/GitHub/Sub0Llm/tools/perf/sub0perf/plan.py": "cfba058a0a227d24b10b7fb2501008ea437137457df2cda32aed1c306e3bd151",
+      "/run/media/craig-hutchinson/54D4C5011B8AF586/GitHub/Sub0Llm/tools/perf/sub0perf/platform_proc.py": "09399413039bebca0732e6a3454ce9e27a4776eb1142f8b22895c94cca620e9a",
+      "/run/media/craig-hutchinson/54D4C5011B8AF586/GitHub/Sub0Llm/tools/perf/sub0perf/power.py": "6f69e85b38847d42b595ce95fcf91e0e628d74454075fffd433be90b607155d7",
+      "/run/media/craig-hutchinson/54D4C5011B8AF586/GitHub/Sub0Llm/tools/perf/sub0perf/report.py": "4e7b3a7b28f845bf92c04c705075419bdf6cf48fa27a3f8e0cd45cd233399b4b",
+      "/run/media/craig-hutchinson/54D4C5011B8AF586/GitHub/Sub0Llm/tools/perf/sub0perf/reproduce.py": "6782c3f0ca9fba6c4e78cdce21e9f00dfeda451957a81b5eb61a268243f45ba0",
+      "/run/media/craig-hutchinson/54D4C5011B8AF586/GitHub/Sub0Llm/tools/perf/sub0perf/runner.py": "496451d498499abdcb7aab2ea866224dcea1b793572a59c629a0286ddd211cbd",
+      "/run/media/craig-hutchinson/54D4C5011B8AF586/GitHub/Sub0Llm/tools/perf/sub0perf/selftest.py": "cc742507cb39aa7fc94b50847b40edef9405551cccda67e6a8a9d1ee7fc39222",
+      "/run/media/craig-hutchinson/54D4C5011B8AF586/GitHub/Sub0Llm/tools/perf/sub0perf/speed.py": "c8dff3879d10d1442eb6b48fac707cb296c42c6a4e647e5fc52dad34c629f42d",
+      "/run/media/craig-hutchinson/54D4C5011B8AF586/GitHub/Sub0Llm/tools/perf/sub0perf/stats.py": "3b9d3de06a9835ef544154dcd305900475364dea64b6f950fca67e9184bf1318",
+      "/run/media/craig-hutchinson/54D4C5011B8AF586/GitHub/Sub0Llm/tools/perf/sub0perf/workload.py": "be3e291b05c0f230a50ec96a041b46c249b9cfd1b284261655ef99ceb4350994",
+      "/run/media/craig-hutchinson/54D4C5011B8AF586/GitHub/Sub0Llm/tools/perf/sub0perf/__init__.py": "dea5cb138e982094ebc34d19b9d00a2f6a9ff1ed3ed98b70c60a9749908a3caa"
+    },
+    "proposals_only": false,
+    "base_commit": "9ab9678bcb5e4fea16833cf73b3463f61fcb74c7"
+  },
+  "item": {
+    "schema": "optimization-item-1",
+    "id": "iq1s-pass2",
+    "issue": "https://github.com/CraigHutchinson/Sub0Llm/issues/70",
+    "goal": "Reduce native IQ1_S float dot latency at width 5120 beyond the incumbent (two independent accumulators, PR #71), one falsifiable small mechanism per attempt.",
+    "constraints": [
+      "Keep packed weight decoding and float activations unchanged. No per-call heap allocation.",
+      "The incumbent already splits the native float accumulator by l&1; do not re-add accumulators or merely hoist broadcasts the compiler already hoists.",
+      "Only edit the native dot core; keep scalar fallback, public interface, tests and tolerances unchanged.",
+      "Kernel-only experiment; full-model quality, memory and speed gates plus C++ review are required before model promotion."
+    ],
+    "qualification_scope": "kernel-only",
+    "editable_files": [
+      "include/sub0/quant/iq1_s.hpp"
+    ],
+    "context": [
+      {
+        "path": "include/sub0/quant/iq1_s.hpp",
+        "start_marker": "    // Internal row core:",
+        "end_marker": "static_assert(FormatModule<IQ1S>);"
+      }
+    ],
+    "max_context_chars": 7000,
+    "max_attempts": 6,
+    "stagnation_window": 2,
+    "max_recoveries": 3,
+    "wall_seconds": 3600,
+    "inference_timeout": 600,
+    "seed": 42,
+    "hints": [
+      "Seek a distinct mechanism from the incumbent: for example process two 32-element groups per iteration so more independent grid loads are in flight before their FMAs, or reorder the group loop to expose more independent work. Use only small exact edits and retain generic compilation and scalar behavior.",
+      "Use compiler and test feedback. If an attempt is slower or equal, say what limited it (loads, FMA latency, decode) before proposing the next mechanism."
+    ],
+    "provider_command": [
+      "/usr/bin/python3",
+      "{root}/scripts/optimization/llama_provider.py",
+      "--config",
+      "perf/optimization/llama-cpu.json"
+    ],
+    "identity_files": [
+      "scripts/optimization/iterate.py",
+      "scripts/optimization/llama_provider.py",
+      "scripts/optimization/evaluate_kernel.py",
+      "perf/optimization/llama-cpu.json",
+      "/usr/bin/clang++",
+      "/usr/bin/python3"
+    ],
+    "evaluation": {
+      "command": [
+        "/usr/bin/python3",
+        "{root}/scripts/optimization/evaluate_kernel.py",
+        "--baseline",
+        "{baseline}",
+        "--candidate",
+        "{candidate}",
+        "--result",
+        "{result}",
+        "--compiler",
+        "/usr/bin/clang++",
+        "--benchmark",
+        "IQ1_S 32x5120, fused native",
+        "--editable",
+        "include/sub0/quant/iq1_s.hpp",
+        "--rounds",
+        "5",
+        "--min-gain",
+        "0.02"
+      ],
+      "timeout": 600
+    },
+    "max_edits": 3,
+    "max_edit_chars": 600
+  },
+  "base_commit": "9ab9678bcb5e4fea16833cf73b3463f61fcb74c7",
+  "best_commit": "9ab9678bcb5e4fea16833cf73b3463f61fcb74c7",
+  "status": "stalled",
+  "attempts": [
+    {
+      "attempt": 1,
+      "baseline_commit": "9ab9678bcb5e4fea16833cf73b3463f61fcb74c7",
+      "status": "no_proposal",
+      "folder": "/run/media/craig-hutchinson/54D4C5011B8AF586/GitHub/Sub0Llm/out/optimization/iq1s-pass2-run-001/attempt-001",
+      "hypothesis": "Process two independent grid loads per iteration to increase in-flight loads before FMAs.",
+      "detail": "No small exact edit found that keeps packed weight decoding and float activations unchanged."
+    },
+    {
+      "attempt": 2,
+      "baseline_commit": "9ab9678bcb5e4fea16833cf73b3463f61fcb74c7",
+      "status": "no_proposal",
+      "folder": "/run/media/craig-hutchinson/54D4C5011B8AF586/GitHub/Sub0Llm/out/optimization/iq1s-pass2-run-001/attempt-002",
+      "hypothesis": "Process the two independent grid loads per iteration with a single interleaved load sequence to increase independent loads before FMAs.",
+      "detail": "No small exact edit found that keeps packed weight decoding and float activations unchanged.",
+      "recovery_hint": "Use compiler and test feedback. If an attempt is slower or equal, say what limited it (loads, FMA latency, decode) before proposing the next mechanism."
+    },
+    {
+      "attempt": 3,
+      "baseline_commit": "9ab9678bcb5e4fea16833cf73b3463f61fcb74c7",
+      "status": "no_proposal",
+      "folder": "/run/media/craig-hutchinson/54D4C5011B8AF586/GitHub/Sub0Llm/out/optimization/iq1s-pass2-run-001/attempt-003",
+      "hypothesis": "The incumbent already splits the native float accumulator by l&1, so no further independent-accumulator edit is possible without changing packed decoding or per",
+      "detail": "No small exact edit found that keeps packed weight decoding and float activations unchanged."
+    },
+    {
+      "attempt": 4,
+      "baseline_commit": "9ab9678bcb5e4fea16833cf73b3463f61fcb74c7",
+      "status": "no_proposal",
+      "folder": "/run/media/craig-hutchinson/54D4C5011B8AF586/GitHub/Sub0Llm/out/optimization/iq1s-pass2-run-001/attempt-004",
+      "hypothesis": "The incumbent already splits the native float accumulator by l&1, so no further independent-accumulator edit is possible without changing packed decoding or per",
+      "detail": "The incumbent already splits the native float accumulator by l&1, so no further independent-accumulator edit is possible without changing packed decoding or per",
+      "recovery_hint": "Inspect serial accumulator dependencies; try independent accumulators and measure register pressure."
+    },
+    {
+      "attempt": 5,
+      "baseline_commit": "9ab9678bcb5e4fea16833cf73b3463f61fcb74c7",
+      "status": "no_proposal",
+      "folder": "/run/media/craig-hutchinson/54D4C5011B8AF586/GitHub/Sub0Llm/out/optimization/iq1s-pass2-run-001/attempt-005",
+      "hypothesis": "The native float accumulator is already split by l&1, and the scalar fallback is unchanged; no further independent-accumulator edit is possible without changing",
+      "detail": "The incumbent already splits the native float accumulator by l&1, and no small exact edit exists that keeps packed weight decoding and float activations"
+    },
+    {
+      "attempt": 6,
+      "baseline_commit": "9ab9678bcb5e4fea16833cf73b3463f61fcb74c7",
+      "status": "no_proposal",
+      "folder": "/run/media/craig-hutchinson/54D4C5011B8AF586/GitHub/Sub0Llm/out/optimization/iq1s-pass2-run-001/attempt-006",
+      "hypothesis": "The native float accumulator is already split by l&1, and the scalar fallback is unchanged; no further independent-accumulator edit is possible without changing",
+      "detail": "The incumbent already splits the native float accumulator by l&1, and no small exact edit exists that keeps packed weight decoding and float activations",
+      "recovery_hint": "Hoist repeated scale/index/broadcast work; check whether the compiler already does so."
+    }
+  ],
+  "seen": [],
+  "no_progress": 0,
+  "recoveries": 3,
+  "started": 1794240204.0611875,
+  "next_hint": 3,
+  "continuation": {
+    "review_branch": null,
+    "best_commit": "9ab9678bcb5e4fea16833cf73b3463f61fcb74c7",
+    "issue": "https://github.com/CraigHutchinson/Sub0Llm/issues/70",
+    "review_required": true,
+    "qualification_scope": "kernel-only",
+    "next_hint": "Hoist repeated scale/index/broadcast work; check whether the compiler already does so.",
+    "novel_proposals": 0,
+    "improved_attempts": 0,
+    "action": "Review preserved diffs/evidence; narrow or reprofile the work item. Never infer global optimality from a stalled run."
+  }
+}

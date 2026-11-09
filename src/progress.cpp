@@ -54,4 +54,61 @@ Progress readProgress(const std::filesystem::path& runDir)
     return p;
 }
 
+Progress progressFromOptimizationState(std::string_view text)
+{
+    Progress p;
+    p.adapterSchema = "optimization-run-1";
+    try {
+        std::int64_t attempts = 0, maxAttempts = 0, noProgress = 0, recoveries = 0;
+        std::string status;
+        json::withObject(text, [&](simdjson::ondemand::object& obj) {
+            for (auto f : obj) {
+                const std::string_view k = f.unescaped_key();
+                auto v = f.value();
+                if (k == "status") status = json::toString(v);
+                else if (k == "no_progress") noProgress = v.get_int64();
+                else if (k == "recoveries") recoveries = v.get_int64();
+                else if (k == "attempts") { for (auto a : v.get_array()) { (void)a; ++attempts; } }
+                else if (k == "item") {
+                    for (auto g : v.get_object()) if (json::keyOf(g) == "max_attempts") maxAttempts = g.value().get_int64();
+                }
+            }
+        });
+        p.hasProgress = true;
+        p.done = attempts;
+        p.total = maxAttempts;
+        p.phase = status;
+        p.adapterStatus = status;
+        p.metrics["attempts"] = static_cast<double>(attempts);
+        p.metrics["no_progress"] = static_cast<double>(noProgress);
+        p.metrics["recoveries"] = static_cast<double>(recoveries);
+    } catch (const simdjson::simdjson_error&) {
+        p.hasProgress = false;
+        p.adapterStatus = "unreadable";
+    }
+    return p;
+}
+
+Progress readProgress(const std::filesystem::path& runDir, const ProgressAdapter& adapter, const std::string& cwd)
+{
+    Progress p = readProgress(runDir);
+    if (adapter.type != "state-file" || adapter.schema != "optimization-run-1" || adapter.path.empty()) return p;
+    std::filesystem::path path{adapter.path};
+    if (path.is_relative() && !cwd.empty()) path = std::filesystem::path{cwd} / path;
+    std::ifstream in(path, std::ios::binary);
+    if (!in) return p;
+    std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    Progress a = progressFromOptimizationState(text);
+    p.adapterStatus = a.adapterStatus;
+    p.adapterSchema = a.adapterSchema;
+    if (!p.hasProgress) { p.hasProgress = a.hasProgress; p.done = a.done; p.total = a.total; p.phase = a.phase; }
+    for (const auto& [name, v] : a.metrics) p.metrics.emplace(name, v);  // events win on a name clash
+    struct stat st{};
+    if (::stat(path.c_str(), &st) == 0) {
+        const double mt = static_cast<double>(st.st_mtim.tv_sec) + static_cast<double>(st.st_mtim.tv_nsec) / 1e9;
+        if (mt > p.lastEventAt) p.lastEventAt = mt;  // the tool's own record counts as liveness
+    }
+    return p;
+}
+
 }  // namespace sub0squad
