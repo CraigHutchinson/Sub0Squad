@@ -5,6 +5,9 @@
 #include "sub0pub/sub0pub.hpp"
 #include <simdjson.h>
 
+#include "sub0squad/mock_worker.hpp"
+#include "sub0squad/shim.hpp"
+
 #include <atomic>
 #include <cstdio>
 #include <cstring>
@@ -85,6 +88,8 @@ int selftest()
 
 int main(int argc, char** argv)
 {
+    if (argc > 2 && std::strcmp(argv[1], "exec-shim") == 0) return sub0squad::runShim(argv[2]);
+    if (argc > 1 && std::strcmp(argv[1], "mock-worker") == 0) return sub0squad::runMockWorker(argc - 2, argv + 2);
     if (argc > 1 && std::strcmp(argv[1], "--selftest") == 0) return selftest();
     if (argc > 1 && std::strcmp(argv[1], "--version") == 0) { std::puts("sub0squad 0.0.0 (working title, design stage)"); return 0; }
     std::puts("usage: sub0squad --selftest | --version   (the daemon itself is not implemented yet; see docs/ROADMAP.md)");
