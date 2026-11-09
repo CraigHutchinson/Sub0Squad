@@ -78,6 +78,24 @@ THP `madvise`, memlock 8 MiB; the iGPU is a Raphael gfx1036 (2 CUs) with 1 GiB V
   (the Sub0Llm harness profile pins decode to CPUs 0-7, one CCD); (2) warm start instead of `--no-warmup` (the snap's cold 5 tok/s prefill); (3) `-b/-ub` for prefill; (4) Q4_0 (online repack) versus Q4_K_M versus IQ4_XS, MoE first; (5) flash attention and q8_0 KV;
   (6) n-gram speculation for repetitive code edits (flag name unverified against our build's `--help`); (7) one thread per core versus SMT; (8) Vulkan; (9) ROCm: skip.
 
+## 5b. Ceilings measured (2026-11-09; supersedes the experiment order in 5a)
+
+Measured with `sub0llm-machine --roofs all` (Sub0Llm branch `feature/78-machine-roofs`, worktree `Sub0Llm-78`, **local, not pushed**; built as three Haiku-implemented increments, reviewed and re-run here; two runs agree; posted to Sub0Llm #78 and #95):
+DRAM read **32 to 35 GB/s, flat from 1 to 32 threads in every placement** (write 13.7, copy 29, triad 19.6); compute **2.6 TFLOP/s f32, 10.5 TOPS int8, 5.2 TFLOP/s bf16** (96 to 97 % of the assumed Zen 4 peaks).
+Flat bandwidth suggests **one memory channel** (single DDR5-5600 channel peaks at 44.8 GB/s); installed memory is unreadable without root, so this is an inference: a physical check (one or two DIMMs) would settle it, and a second DIMM would about double every decode number.
+
+| | Ceiling | Measured | Verdict |
+|---|---|---|---|
+| Decode, Qwen3.8-27B Q4_K_M (16.81 GB per token) | 33 / 16.81 = 1.96 tok/s | 1.78 | **91 % of the ceiling: at the wall** |
+| Decode, same model at IQ1_S (6.19 GB) | 5.3 tok/s | not run | quality unknown |
+| Decode, 3B-active MoE (about 2 GB per token, estimate) | about 16 tok/s | 8.3 | about half: software headroom |
+| Prefill, 27B dense (54 GFLOP per token) | 48 (f32), 97 (bf16), 195 (int8 dot) tok/s | 20 | 42 % of the f32 ceiling, about 10 % of the int8 one: large headroom |
+
+**Consequences for the plan.** Threads, CCD placement and flash attention cannot raise dense decode (bandwidth-bound and flat). The levers that can: (1) **fewer bytes per token** (lower-bit quant, MoE); (2) **more tokens per weight read**: several sequences per batch (`-np N`: the aggregate decode ceiling scales with slots while compute has headroom, directly useful to parallel squad agents) and speculative or multi-token prediction
+(the Qwen3.8 GGUF contains `blk.64.nextn.*`, an MTP head; our `llama-server` build shows only draft-model speculation flags, so MTP needs a newer build: unverified); (3) **prefill kernels** (int8 path, ubatch) where 5x headroom exists; (4) hardware (a second DIMM, or another machine).
+Revised experiment order, each measured against these ceilings: **(a) aggregate tokens/s versus slots (1, 2, 4) on the 27B Q4_K_M and on the MoE; (b) MTP/n-gram speculation on a newer llama.cpp build (the snap's b9482 is the candidate to test; its `llama-server` path was not found under `runtimes/`); (c) quant tiers by bytes per token and quality; (d) prefill: ubatch and thread scaling; (e) Vulkan last (an iGPU shares the same single channel).**
+Still to build (Sub0Llm increments): `sub0llm-fit` (#95) consuming the machine JSON; a squad job kind that runs `llama-server` sweeps and reports measured/ceiling; AVX2 path test; the Sub0Llm default test suite has not been run on the branch.
+
 ## 6. Resume
 
 ```sh
