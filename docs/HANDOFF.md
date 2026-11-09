@@ -66,6 +66,18 @@ M2 arbiter (core sets, memory budget, model slots **separate from job slots**, m
 
 **D. Owner decisions still open:** the final name (working title Sub0Squad), enabling any real frontier tier (never without an explicit owner switch), Windows timing.
 
+## 5a. Performance investigation of llama.cpp on this host (2026-11-09; posted to Sub0Llm #95 and #98)
+
+Research by a Sonnet agent (local read-only probes plus web), with the key local facts re-checked by me. **Verified here:** two 8-core CCDs (CPUs 0-7 and 8-15 on separate L3, 16-31 SMT siblings), AVX-512 with VNNI and BF16, `performance` governor, boost to 5.46 GHz,
+THP `madvise`, memlock 8 MiB; the iGPU is a Raphael gfx1036 (2 CUs) with 1 GiB VRAM and 14.8 GiB GTT, no discrete GPU, no ROCm userspace; our `llama-server` was built `GGML_NATIVE=ON` with `-march=native`, OpenMP and CPU repack on; the snap launches with `--no-warmup`.
+**Not verified:** RAM speed and channels (unreadable without root; the ceilings assume DDR5-5600 dual channel, 89.6 GB/s); the web-sourced iGPU numbers.
+
+- **The ISA is not the gap.** Decode ceiling is about bandwidth / bytes per token: about 4 tok/s practical for the 16.8 GB dense Q4_K_M (measured 1.78, so up to about 2x headroom) and 30 to 50 for the 3B-active MoE (measured 8.3, so the MoE gap looks like software: expert gather and the hybrid Gated-DeltaNet CPU kernels).
+- **Accelerators:** Vulkan on a 2-CU iGPU shares the same DDR5 (decode unchanged in every report found; prefill at best about 2x on larger iGPUs), ROCm for gfx1036 is unofficial with no success report: both low value, try Vulkan last on a small model.
+- **Ranked experiments (none run yet; one variable at a time, warmed, machine otherwise idle, `llama-bench -p 2048 -n 128 -r 3` then one end-to-end run):** (1) decode threads 8/12/16 and CCD placement, including one thread per core across both CCDs
+  (the Sub0Llm harness profile pins decode to CPUs 0-7, one CCD); (2) warm start instead of `--no-warmup` (the snap's cold 5 tok/s prefill); (3) `-b/-ub` for prefill; (4) Q4_0 (online repack) versus Q4_K_M versus IQ4_XS, MoE first; (5) flash attention and q8_0 KV;
+  (6) n-gram speculation for repetitive code edits (flag name unverified against our build's `--help`); (7) one thread per core versus SMT; (8) Vulkan; (9) ROCm: skip.
+
 ## 6. Resume
 
 ```sh
