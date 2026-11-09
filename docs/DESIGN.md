@@ -499,3 +499,47 @@ interleaved rounds, control benchmarks, per-host baselines, the measuring lock, 
 `cmake/dependencies.cmake`; ctest keeps the functional and end-to-end gates. The arbiter's exclusive measurement window takes the
 same per-repository lock so squad jobs and manual measurements cannot overlap. Budgets and the benchmark list are in
 [M1_PLAN.md](M1_PLAN.md) ("Verification with sub0perf").
+
+## 20. Platform seam: Windows and Linux first-class, macOS potential
+
+Everything the OS decides sits behind five small interfaces; no other code includes a platform header. Each platform reports what
+it **can** do (`HostFacts`), and the arbiter degrades visibly instead of pretending.
+
+| Interface | Responsibility | Linux | Windows | macOS (potential) |
+|---|---|---|---|---|
+| `IProcessSupervisor` | spawn a command into a kill-able group, wait handle, enumerate tree, **verify empty**, cooperative stop then forced kill | shim as session leader + `PR_SET_CHILD_SUBREAPER`, `pidfd`, `/proc` | **Job Object** (kill-on-close, process id list), process handle | process group, `kqueue EVFILT_PROC`, `libproc`; escapees not guaranteed |
+| `IIpcEndpoint` | control channel, peer identity, framing via `FrameReader` | unix socket 0600 + `SO_PEERCRED` | named pipe with owner-only ACL | unix socket + `LOCAL_PEERCRED` |
+| `IRuntimePaths` | state, runtime and cache locations | XDG | `%LOCALAPPDATA%` | `~/Library/Application Support` |
+| `IDurableFile` | append, flush, atomic replace, single-instance lock | `fdatasync`, `rename`, `flock` | `FlushFileBuffers`, `ReplaceFileW`, named mutex | `fcntl F_FULLFSYNC`, `rename`, `flock` |
+| `IHostFacts` | topology (groups, cores, SMT, NUMA), memory, can-pin, power state | `/sys`, `sched_setaffinity` | processor groups, `SetThreadGroupAffinity` | no hard pinning |
+
+Cooperative stop is a **message**, signals are only a courtesy (section 4 cancel). Workers get an inherited event pipe
+(`SUB0SQUAD_EVENT_FD` / `SUB0SQUAD_EVENT_HANDLE`). Windows claims need a Windows run to be true (PLAN_REVIEW A11).
+
+## 21. Diagnostics access: metrics, KPIs and liveness
+
+**Contract.** One versioned `ControlApi` is read by the CLI, the MCP server and the portal (`/api/v1`: `jobs`, `jobs/{id}`,
+`jobs/{id}/events` as resumable SSE keyed by journal sequence, `metrics/query`, `kpis`, `ledger?group_by`, `resources`,
+`engines`, `budget`, `decisions`, `audit`, `tools`, `health`), plus Prometheus text at `/metrics` and `sub0squad export` (NDJSON or
+CSV by time range). Reads are open to the owner's token and to the MCP identity read-only; settings and quotas are owner-only.
+Every value carries `asOf` and `source` (`live | journal | rollup`).
+
+**KPIs are data** (`kpi-1`): name, formula over metric and ledger names, window, unit, thresholds, plain definition, shown beside
+the value. Built-ins: *local-only completion rate*; *frontier share* (frontier tokens over all tokens, window) against its cap;
+*escalation rate* and *escalation success* (escalated sub-tasks that then passed the gates); *cost per accepted candidate* by tier;
+*accept rate*; *time to first accept*; *queue wait p50/p95*; *utilisation* per resource (used over leased over capacity);
+*lease contention*; *stall rate* and *lost rate*; *cancel latency and verified-clean rate*; *quota burn-down and projected
+exhaustion*; *policy regret* from replay (cost the new policy would have saved or added). Tools add KPIs by manifest.
+
+**Liveness, three layers.** (1) **Process**: `/healthz` is answered from the reactor thread, so it proves the loop turns, and
+exports `reactor_lag_ms`. (2) **Readiness**: `/readyz` checks the journal is writable, disk headroom, the control endpoint is
+bound, engines probe healthy. (3) **Work**: per job, last-event age against the tool's `expectedEventIntervalSec`, shim and worker
+handle liveness, engine probes. Stall and `lost` are first-class states, never inferred from log silence.
+
+**Offline diagnostics.** A wedged or dead daemon cannot serve its own portal, so `sub0squad doctor` and `sub0squad portal
+--offline` read the journal, ledger, rollups and shim records read-only and render the same pages marked "daemon unreachable,
+state as of T". `SIGUSR1` (Windows: a pipe command) dumps internal state to the Sub0Log diagnostic stream; optional systemd
+watchdog or Windows service recovery are documented, off by default.
+
+**Agent identity rule (section 16 addition).** An agent or MCP session may submit only a **registered tool manifest by name with
+typed parameters**, never a raw command line; raw-command submit is an owner-CLI capability.

@@ -27,6 +27,14 @@ later milestones add readers, not formats.
 | Daemon idle | one `epoll` reactor thread (control socket, pidfds, timers); executor threads parked | gate: ~0 % CPU |
 | Daemon start | client auto-start is **off** by default; `serve` is started explicitly (a systemd user unit example goes in the docs) | new capability off by default |
 
+## Platform (see DESIGN section 20 and PLAN_REVIEW.md)
+
+The rows above describe the **Linux backend**. They are written against five interfaces (`IProcessSupervisor`, `IIpcEndpoint`,
+`IRuntimePaths`, `IDurableFile`, `IHostFacts`), and the Windows backend maps them to a Job Object, a named pipe with an owner-only ACL,
+`%LOCALAPPDATA%`, `FlushFileBuffers`/`ReplaceFileW` and processor-group topology. Done-ness is stated per platform: **M1 (Linux)** is
+done when the gates pass here; **M1w (Windows)** is done only when the same scenarios pass on a Windows host or CI, which needs a
+Windows run the owner must provide. Cooperative stop is a message (not SIGTERM); the event channel is an inherited pipe.
+
 ## Components [P]
 
 - `squad/control` : unix-socket `ITransport`, request/response and streaming (logs, wait, subscribe), `ControlApi` (the one API the
@@ -66,14 +74,20 @@ All headers follow the family style (camelCase, Doxygen, `#pragma once`, one res
 
 ## Steps (each small, tested, committed)
 
-1. **Skeleton.** subcommand dispatch, `--json`, `ControlApi` stub, config and runtime-dir resolution. Test: CLI parses.
+0. **Platform seam.** the five interfaces with the Linux backend and a fake backend for tests; no platform header outside it.
+1. **Skeleton.** subcommand dispatch, `--json`, versioned `ControlApi` stub with protocol handshake, `IRuntimePaths`, single-instance
+   lock, the `job-spec-1` schema (argv, cwd, allow-listed env, stdin, tool, tier, data class, wall budget, resume command), owner
+   raw-command vs registered-manifest submit rule (agents never submit raw commands). Test: CLI parses, schema rejects bad specs.
 2. **Journal.** writer, replay, torn-tail test, fuzz of truncation points. Test: replay equals live state.
 3. **Control socket.** socket `ITransport` + `FrameReader`, `serve` accept loop on the reactor, `status`/`submit` round trip.
    Test: unauthorised uid rejected (where testable), many clients, a malformed frame does not kill the daemon.
 4. **Shim + process job.** spawn, subreaper, `exit.json`, teardown verification. Tests: normal exit, failure code, SIGTERM
    ignored, `setsid` + double-fork escapee, crash of the worker, daemon killed mid-job (job survives, then is adopted).
-5. **Event fd + progress snapshot + `logs`/`wait`.** Test: `status` shows progress with the log file deleted.
-6. **Lost.** kill the shim with SIGKILL: job becomes `lost`; with the daemon down, CLI `status` still says `lost`.
+5. **Event channel + progress snapshot + `logs`/`wait`.** non-blocking worker side with drop counter, bounded daemon queue, per-job
+   `stdout.log`/`stderr.log` with a byte cap and rotation. Test: `status` shows progress with the log file deleted; a flooding worker
+   cannot stall the daemon or itself.
+6. **Lost and offline diagnostics.** kill the shim: job becomes `lost`; with the daemon down, CLI `status` and `sub0squad doctor` still
+   say `lost` with `asOf`. `maxParallelJobs` (default 2) is the only M1 concurrency limit; wall-time budget enforced by the shim.
 7. **Mock worker + scenarios.** the scripted behaviours of DESIGN section 13; e2e scenarios as ctest entries
    (`e2e_cancel_tree`, `e2e_lost`, `e2e_resume_state`, `e2e_progress`, `e2e_idle`).
 8. **state-file adapter + resume on real `optimization-run-1`.**
@@ -125,3 +139,8 @@ inconclusive, not passes). The pre-push gate is installed by configuring once a 
 `measurementWindow` lease acquires the same per-repository lock (`.git/sub0perf/lock`, pid + time, stale-takeover rules) before it
 grants, so a squad job and a hand-run `sub0perf` never overlap, and the lock is released by the lease's scoped release on cancel or
 crash. The lock file format is Sub0Math's; we use it, we do not fork it. Specified here, built in M2.
+
+## Gaps review
+
+[PLAN_REVIEW.md](PLAN_REVIEW.md) lists every gap found in this plan (platform, diagnostics access, lifecycle, threat model) with its
+resolution; the steps above already include the blocking and high ones.

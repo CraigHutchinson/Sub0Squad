@@ -22,6 +22,9 @@
 16. (2026-11-09, owner) **JSON is simdjson** (5.1.1 pinned): on-demand forward reads and `builder::string_builder` writes; no nlohmann. Finding: Sub0Llm's notes say simdjson "does not emit JSON"; true for 3.10.1, not for 5.x, which has a builder (verified by building and round-tripping under clang 21). C++26 static reflection in the builder is not available on this toolchain (not detected), so writers are explicit for now.
 17. (2026-11-09) **Performance verification uses Sub0Math's sub0perf** (DESIGN section 19).
 18. (2026-11-09, owner pointer) **HTTP is Boost.Beast + Asio**, as in Sub0Llm's archived chapter project (which migrated off cpp-httplib), behind our own `IHttpFront` and `IHttpClient` seams; Asio is not the daemon's event loop (DESIGN section 17). Version to pin: 1.92.0 (Sub0Llm uses 1.91.0); first built and verified in M3 (portal) or M5 (llama.cpp client), not before.
+19. (2026-11-09, owner) **Windows and Linux are first-class targets; macOS is potential, not a priority.** OS specifics sit behind a platform seam (DESIGN section 20); done-ness is claimed per platform and Windows needs a Windows run.
+20. (2026-11-09) **Diagnostics are reachable when the daemon is not**: offline `doctor` and `portal --offline` read the journal, ledger and rollups; metrics and KPIs are a versioned API with `asOf`/`source`, KPIs are data with visible formulas (DESIGN section 21).
+21. (2026-11-09) **Agents submit only registered tool manifests, never raw commands**; the daemon's own diagnostics use Sub0Log, not a new logger.
 
 ## Pending
 
@@ -33,7 +36,7 @@
 | Pinned versions | Sub0Pipeline `3d11ffe`, Sub0Pub `504d772` (heads on 2026-11-09), proven only by the selftest |
 | Boost version and `CPM_SOURCE_CACHE` | 1.92.0 proposed (about 102 MiB tarball); a shared CPM cache location to choose |
 | Strata | not found in the GitHub folder; owner to point at it before its engine manifest is written |
-| Socket transport, Windows support | open |
+| Windows CI or host | needed to claim Windows done; implies a remote (owner decision) |
 
 ### Name candidates (family style is a plain noun: Pipeline, Pub, Log, Math, ECS)
 
