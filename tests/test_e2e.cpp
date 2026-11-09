@@ -125,5 +125,13 @@ int main(int, char** argv)
         CHECK(sq.cli({"cancel", id}).exitCode == 0);
         CHECK(sq.cli({"wait", id}).exitCode == 1);  // cancelled is not success
     }
+    { // The memory guard at submit: a job that declares more memory than the host has is refused with the numbers, nothing is queued.
+        Squad sq(exe, "memguard");
+        sq.startDaemon();
+        const Result r = sq.cli({"submit", "--memory-mib", "99999999", "--", "true"});
+        CHECK(r.exitCode != 0);
+        CHECK(sq.cli({"status", "--json"}).out.find("\"jobs\":[]") != std::string::npos);
+        CHECK(sq.cli({"submit", "--memory-mib", "1", "--", "true"}).exitCode == 0);
+    }
     return finish();
 }

@@ -16,7 +16,7 @@ std::string JobSpec::toJson() const
     for (const auto& [k, v] : env) w.kv(k, v);
     w.endObject();
     w.kv("tool", tool).kv("tier", tier).kv("owner", owner).kv("dataClass", dataClass);
-    w.kv("wallSeconds", wallSeconds).kv("graceSeconds", graceSeconds).kv("expectedEventIntervalSec", expectedEventIntervalSec);
+    w.kv("memoryMiB", memoryMiB).kv("wallSeconds", wallSeconds).kv("graceSeconds", graceSeconds).kv("expectedEventIntervalSec", expectedEventIntervalSec);
     w.key("resumeArgv").beginArray();
     for (const auto& a : resumeArgv) w.str(a);
     w.endArray();
@@ -50,6 +50,7 @@ std::expected<JobSpec, std::string> JobSpec::fromJson(std::string_view text)
                 else if (key == "owner") spec.owner = json::toString(value);
                 else if (key == "dataClass") spec.dataClass = json::toString(value);
                 else if (key == "wallSeconds") spec.wallSeconds = value.get_int64();
+                else if (key == "memoryMiB") spec.memoryMiB = value.get_int64();
                 else if (key == "graceSeconds") spec.graceSeconds = value.get_int64();
                 else if (key == "workflow") spec.workflow = json::toString(value);
                 else if (key == "item") spec.item = json::toString(value);

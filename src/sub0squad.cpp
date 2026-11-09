@@ -8,6 +8,7 @@
 #include "sub0squad/client.hpp"
 #include "sub0squad/mock_worker.hpp"
 #include "sub0squad/harness_web.hpp"
+#include "sub0squad/host_guard.hpp"
 #include "sub0squad/sandbox.hpp"
 #include "sub0squad/shim.hpp"
 
@@ -98,6 +99,8 @@ int main(int argc, char** argv)
         const std::vector<std::string> rest(argv + 2, argv + argc);
         if (std::strcmp(argv[1], "mock-planner") == 0) return sub0squad::runMockPlanner(rest);
         if (std::strcmp(argv[1], "mock-agent") == 0) return sub0squad::runMockAgent(rest);
+        if (std::strcmp(argv[1], "guard") == 0) return sub0squad::runGuard(rest);
+        if (std::strcmp(argv[1], "fetch-model") == 0) return sub0squad::runFetchModel(rest);
         if (std::strcmp(argv[1], "mock-architect") == 0) return sub0squad::runMockArchitect(rest);
         if (std::strcmp(argv[1], "llm-architect") == 0) return sub0squad::runLlmArchitect(rest);
         if (std::strcmp(argv[1], "optimize-job") == 0) return sub0squad::runOptimizeJob(rest);

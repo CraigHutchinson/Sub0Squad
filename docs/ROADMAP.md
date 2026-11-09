@@ -16,3 +16,5 @@ Milestones from [DESIGN.md](DESIGN.md) section 10. Tickets for them live in Sub0
 | M7 | live Claude/Codex, enabled only by the owner in the portal | not started |
 
 Gates are in DESIGN.md. Next concrete step: decide the name, then M1 (it needs `SUB0PIPELINE_BUILD_REMOTE=ON` and a socket or pipe transport).
+
+**Paused 2026-11-09** on LLM throughput; the current state, findings and prioritised plan are in [HANDOFF.md](HANDOFF.md).

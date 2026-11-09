@@ -3,6 +3,7 @@
 #include "json_util.hpp"
 #include "sub0squad/frame.hpp"
 #include "sub0squad/job_store.hpp"
+#include "sub0squad/host_guard.hpp"
 #include "sub0squad/journal.hpp"
 #include "sub0squad/ledger.hpp"
 #include "sub0squad/triage.hpp"
@@ -570,6 +571,9 @@ struct Daemon::Impl
             auto uid = peerUid(c.fd);
             spec->owner = "uid:" + std::to_string(uid.value_or(0));
             spec->workflow.clear(); spec->item.clear(); spec->role.clear(); spec->attempt = 0;  // clients cannot forge workflow labels
+            if (spec->memoryMiB > 0) {  // the explicit memory guard: refuse now, with the numbers, rather than start and thrash
+                if (auto ok = requireMemory(spec->memoryMiB); !ok) { send(c, errorReply(ok.error())); return; }
+            }
             if (spec->tier == "frontier-stub") { send(c, errorReply("tier frontier-stub is reserved for workflows")); return; }
             const std::string id = store.nextId();
             record("jobSubmitted", journalbody::submitted(id, *spec));

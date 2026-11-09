@@ -29,6 +29,7 @@ add_library(sub0squad_core STATIC
   src/status.cpp
   src/daemon.cpp
   src/plan.cpp
+  src/host_guard.cpp
   src/architect.cpp
   src/optimizer.cpp
   src/triage.cpp
@@ -69,6 +70,7 @@ sub0squad_add_test(test_job_spec)
 sub0squad_add_test(test_journal)
 sub0squad_add_test(test_job_store)
 sub0squad_add_test(test_workflow)
+sub0squad_add_test(test_host_guard)
 sub0squad_add_test(test_sandbox)
 set_tests_properties(test_sandbox PROPERTIES TIMEOUT 300)
 sub0squad_add_test(test_project)

@@ -58,7 +58,7 @@ constexpr const char* kUsage =
     "usage: sub0squad <command> [options]\n"
     "  serve [--max-jobs N]                 run the daemon (foreground)\n"
     "  submit [opts] -- <cmd> [args...]     submit a process job; prints its id\n"
-    "         --cwd DIR  --wall SEC  --grace SEC  --tool NAME  --tier stub|local  --env K=V\n"
+    "         --cwd DIR  --wall SEC  --memory-mib N (refused at submit if the host lacks it)  --grace SEC  --tool NAME  --tier stub|local  --env K=V\n"
     "         --resume-arg ARG (repeatable: the command `resume` runs)  --state-file PATH --state-schema NAME\n"
     "         --spec FILE (a job-spec-1 JSON file instead of a command)\n"
     "  status [ID] [--json]                 jobs and progress (works without the daemon, from the journal)\n"
@@ -68,6 +68,8 @@ constexpr const char* kUsage =
     "  project submit --task calculator-basic|calculator-scientific|calculator-web [--sandbox DIR] [--inject ITEM[:N]]... [--max-local N]\n"
     "         [--agent mock|llm] [--engine NAME=http://127.0.0.1:PORT/v1[,model=..][,ctx=N][,slots=N]]... [--engine-for PERSONA=NAME]... [--max-tokens N] [--treatment baseline|index|planfirst] [--repair-turns N]\n"
     "  project plan ID --file plan.json     supply the plan a workflow is awaiting (the deferred architect's answer)\n"
+    "  guard [--memory-mib N] [--reserve-mib R] [--disk-path P --disk-mib N]   explicit host guards (exit 1 when refused)\n"
+    "  fetch-model --url https://huggingface.co/... --out FILE [--sha256 H]   guarded, resumable, verified download (run it as a job)\n"
     "  blueprint NAME                       print a built-in plan-2 (calculator-web)\n"
     "  project status [ID] [--json] | project cancel ID | project wait ID [--timeout SEC]\n"
     "  serve also takes --frontier off|stub (default stub: the escalation path runs, nothing is sent)\n"
@@ -254,6 +256,7 @@ int cmdSubmit(const RuntimePaths& paths, int argc, char** argv)
         if (a == "--") { ++i; break; }
         else if (a == "--cwd") spec.cwd = val();
         else if (a == "--wall") spec.wallSeconds = std::atoll(val().c_str());
+        else if (a == "--memory-mib") spec.memoryMiB = std::atoll(val().c_str());
         else if (a == "--grace") spec.graceSeconds = std::atoll(val().c_str());
         else if (a == "--tool") spec.tool = val();
         else if (a == "--tier") spec.tier = val();

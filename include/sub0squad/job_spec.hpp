@@ -29,6 +29,7 @@ struct JobSpec
     std::string tier = "local";              ///< "stub", "local" or "frontier-stub"; a live frontier tier does not exist in this build
     std::string owner;                       ///< submitting user or agent identity
     std::string dataClass = "private";       ///< what may leave the machine (enforced from M3b)
+    std::int64_t memoryMiB = 0;              ///< memory the job declares it needs; submit REFUSES when the host cannot give it (explicit guard)
     std::int64_t wallSeconds = 0;            ///< 0 = unlimited; enforced by the shim
     std::int64_t graceSeconds = 5;           ///< SIGTERM to SIGKILL grace on cancel or timeout
     std::int64_t expectedEventIntervalSec = 0;  ///< work-liveness hint (0 = none)
