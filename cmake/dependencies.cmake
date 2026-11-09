@@ -28,3 +28,11 @@ CPMAddPackage(NAME Sub0Math
   GIT_TAG 1d20313cbd2ff2753620246b81934d0489a0636f
   DOWNLOAD_ONLY YES)
 include("${Sub0Math_SOURCE_DIR}/cmake/Sub0MathTooling.cmake")
+
+# simdjson 5.1.1 (Apache-2.0, released 2026-11-01): the one JSON library, as in Sub0Llm. Reads use the on-demand forward API;
+# writes use simdjson::builder::string_builder (present since 5.x; Sub0Llm's notes still say "parse only", which is stale for 5.x).
+# Keep simdjson types out of public headers (docs/DECISIONS.md).
+CPMAddPackage(NAME simdjson
+  GIT_REPOSITORY https://github.com/simdjson/simdjson.git
+  GIT_TAG 40a686ab89dc5ee58ec10d0514dd5c99abbc472b
+  OPTIONS "SIMDJSON_DEVELOPER_MODE OFF")

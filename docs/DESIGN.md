@@ -463,8 +463,12 @@ Pages (all driven by the API and the manifest panels, so new tools appear withou
 6. **Audit**: decisions, permission changes, denied attempts, cancellations.
 
 Implementation choice (to confirm with the owner): a single embedded static page (no build step, no framework, assets compiled
-into the binary) plus a small header-only HTTP server dependency pinned through CPM (cpp-httplib is the candidate), instead of
-hand-writing an HTTP stack. Idle cost is one blocked accept thread.
+into the binary) plus **cpp-httplib** (MIT, header-only, v0.65.0 released 2026-11-05) pinned through CPM, instead of hand-writing an HTTP stack.
+Checked: Sub0Llm has no HTTP server code in tree (its notes mention a `viz_server` that is not in the checkout), so there is no
+family precedent to reuse. The dependency sits behind a thin seam of our own (`IHttpFront`: route, static asset, JSON reply, SSE
+stream; httplib types never in public headers, the same rule as simdjson), so it can be swapped for a reactor-native server
+later. Its worker threads call the one thread-safe `ControlApi`. Idle cost is one blocked accept thread (measured with sub0perf
+in M3, not assumed). Encoding for the API, journal, ledger and events is JSON through simdjson (section 14, DECISIONS 16).
 
 ## 18. Revised milestones (supersedes the table in section 10 where they differ)
 

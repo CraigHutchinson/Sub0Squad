@@ -12,7 +12,7 @@ include(cmake/dependencies.cmake)
 find_package(Threads REQUIRED)
 add_executable(sub0squad src/sub0squad.cpp)
 target_compile_options(sub0squad PRIVATE -Wall -Wextra -Werror)
-target_link_libraries(sub0squad PRIVATE Sub0Pipeline::Sub0Pipeline Sub0Pipeline::Priority Sub0Pub::Sub0Pub Threads::Threads)
+target_link_libraries(sub0squad PRIVATE simdjson::simdjson Sub0Pipeline::Sub0Pipeline Sub0Pipeline::Priority Sub0Pub::Sub0Pub Threads::Threads)
 
 enable_testing()
 add_test(NAME dependency_selftest COMMAND sub0squad --selftest)
