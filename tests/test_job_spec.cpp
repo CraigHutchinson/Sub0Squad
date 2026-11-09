@@ -24,6 +24,8 @@ int main()
     CHECK(!JobSpec::fromJson("{\"argv\":[]}").has_value());
     CHECK(!JobSpec::fromJson("not json").has_value());
     CHECK(!JobSpec::fromJson("{\"argv\":[\"x\"],\"tier\":\"frontier\"}").has_value());  // never a frontier tier in M1
+    CHECK(JobSpec::fromJson("{\"argv\":[\"x\"],\"tier\":\"frontier-stub\"}").has_value());
+    CHECK(!JobSpec::fromJson("{\"argv\":[\"x\"],\"tier\":\"claude\"}").has_value());
     CHECK(!JobSpec::fromJson("{\"schema\":\"job-spec-9\",\"argv\":[\"x\"]}").has_value());
     return finish();
 }

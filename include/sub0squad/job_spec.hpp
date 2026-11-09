@@ -26,7 +26,7 @@ struct JobSpec
     std::string cwd;                         ///< working directory (empty: the submitter's)
     std::map<std::string, std::string> env;  ///< extra environment
     std::string tool = "process";            ///< manifest name (M3); free text in M1
-    std::string tier = "local";              ///< "stub" or "local" in M1; never a frontier tier
+    std::string tier = "local";              ///< "stub", "local" or "frontier-stub"; a live frontier tier does not exist in this build
     std::string owner;                       ///< submitting user or agent identity
     std::string dataClass = "private";       ///< what may leave the machine (enforced from M3b)
     std::int64_t wallSeconds = 0;            ///< 0 = unlimited; enforced by the shim
@@ -34,6 +34,10 @@ struct JobSpec
     std::int64_t expectedEventIntervalSec = 0;  ///< work-liveness hint (0 = none)
     std::vector<std::string> resumeArgv;     ///< command used by `resume` (empty: not resumable)
     ProgressAdapter adapter;                 ///< optional progress adapter
+    std::string workflow;                    ///< owning workflow id (set by the daemon only; client values are cleared)
+    std::string item;                        ///< work item id within the workflow
+    std::string role;                        ///< planner | agent | gate | integrator
+    std::int64_t attempt = 0;                ///< attempt number of the item (agent and gate jobs)
 
     /// Serialise as a `job-spec-1` JSON object.
     [[nodiscard]] std::string toJson() const;

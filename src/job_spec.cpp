@@ -20,6 +20,7 @@ std::string JobSpec::toJson() const
     w.key("resumeArgv").beginArray();
     for (const auto& a : resumeArgv) w.str(a);
     w.endArray();
+    w.kv("workflow", workflow).kv("item", item).kv("role", role).kv("attempt", attempt);
     w.key("adapter").beginObject().kv("type", adapter.type).kv("path", adapter.path).kv("schema", adapter.schema).endObject();
     w.endObject();
     return w.take();
@@ -50,6 +51,10 @@ std::expected<JobSpec, std::string> JobSpec::fromJson(std::string_view text)
                 else if (key == "dataClass") spec.dataClass = json::toString(value);
                 else if (key == "wallSeconds") spec.wallSeconds = value.get_int64();
                 else if (key == "graceSeconds") spec.graceSeconds = value.get_int64();
+                else if (key == "workflow") spec.workflow = json::toString(value);
+                else if (key == "item") spec.item = json::toString(value);
+                else if (key == "role") spec.role = json::toString(value);
+                else if (key == "attempt") spec.attempt = value.get_int64();
                 else if (key == "expectedEventIntervalSec") spec.expectedEventIntervalSec = value.get_int64();
                 else if (key == "adapter") {
                     for (auto kv : value.get_object()) {
@@ -66,7 +71,8 @@ std::expected<JobSpec, std::string> JobSpec::fromJson(std::string_view text)
     }
     if (!schema.empty() && schema != "job-spec-1") return std::unexpected("unsupported spec schema '" + schema + "'");
     if (spec.argv.empty() || spec.argv[0].empty()) return std::unexpected("job spec needs a non-empty argv");
-    if (spec.tier != "stub" && spec.tier != "local") return std::unexpected("tier '" + spec.tier + "' is not available (only stub and local)");
+    if (spec.tier != "stub" && spec.tier != "local" && spec.tier != "frontier-stub")
+        return std::unexpected("tier '" + spec.tier + "' is not available (stub, local, frontier-stub; no live frontier tier exists in this build)");
     if (spec.wallSeconds < 0 || spec.graceSeconds < 0) return std::unexpected("negative duration in job spec");
     return spec;
 }
