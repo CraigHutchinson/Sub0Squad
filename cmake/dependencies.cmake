@@ -19,3 +19,12 @@ CPMAddPackage(NAME Sub0Pub
   GIT_REPOSITORY https://github.com/CraigHutchinson/Sub0Pub.git
   GIT_TAG 504d772ecd8da6f22a22a26dd78ae3cb61c97868
   OPTIONS "SUB0PUB_BUILD_TESTING OFF" "SUB0PUB_BUILD_EXAMPLES OFF")
+
+# Sub0Math: hosts the family's performance tooling (sub0perf: calibrated interleaved benchmark rounds, per-host baselines, the
+# measuring lock, pre-push gate; docs/PERFORMANCE.md there). Used here only for its tooling (cmake/Sub0MathTooling.cmake), not its maths.
+# Pinned to the head of its default branch as of 2026-11-09.
+CPMAddPackage(NAME Sub0Math
+  GIT_REPOSITORY https://github.com/CraigHutchinson/Sub0Math.git
+  GIT_TAG 1d20313cbd2ff2753620246b81934d0489a0636f
+  DOWNLOAD_ONLY YES)
+include("${Sub0Math_SOURCE_DIR}/cmake/Sub0MathTooling.cmake")

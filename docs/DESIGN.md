@@ -479,3 +479,11 @@ hand-writing an HTTP stack. Idle cost is one blocked accept thread.
 | M5 | `IEngine` seam; `mock-engine`, then llama.cpp (slots > 1), Sub0Llm (process, in-process), Strata |
 | M6 | own repository; Sub0Llm consumes it |
 | M7 | **live** frontier providers (Claude Code, Codex) enabled only by the owner in the portal, with governance and budgets proven on the stub first |
+
+## 19. Performance verification uses sub0perf (Sub0Math)
+
+All timing, idle-cost and regression claims are verified with the family's **sub0perf** tooling from Sub0Math (calibrated
+interleaved rounds, control benchmarks, per-host baselines, the measuring lock, the pre-push gate), wired in through
+`cmake/dependencies.cmake`; ctest keeps the functional and end-to-end gates. The arbiter's exclusive measurement window takes the
+same per-repository lock so squad jobs and manual measurements cannot overlap. Budgets and the benchmark list are in
+[M1_PLAN.md](M1_PLAN.md) ("Verification with sub0perf").

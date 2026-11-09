@@ -99,3 +99,29 @@ Manifests (`tool-manifest-1`), metric registry, portal, tiers and quota leases, 
 their seams: every job record already carries `tool`, `tier` (always `local` or `stub` in M1), `owner`, `dataClass`; every journal
 record has a stable type name; every event can carry labels. Nothing in M1 can reach a hosted model: there is no network code in
 the tree.
+
+## Verification with sub0perf (Sub0Math tooling) [owner direction, 2026-11-09]
+
+`cmake/dependencies.cmake` now pulls Sub0Math (DOWNLOAD_ONLY, pinned; local override honoured) and includes
+`cmake/Sub0MathTooling.cmake` [V: configures cleanly; `sub0math_tooling_dir.txt` is written; no hooks are installed until a
+benchmark target is declared]. The sub0perf package (calibrated interleaved rounds, controls, per-host baselines, levels, the
+measuring lock, the pre-push gate; `Sub0Math/docs/PERFORMANCE.md`) is how every **timing and idle-cost claim** in this project is
+checked, instead of ad hoc stopwatch tests. Correctness gates stay in ctest; performance gates move to sub0perf:
+
+| Budget | Benchmark target (`sub0math_add_benchmark`) | Gate |
+|---|---|---|
+| Journal append (state transition, with and without fsync policy) | `Sub0Squad_Bench` pair: native append vs a plain `write` twin as the control | no regression against the host baseline; fsync only on transitions |
+| Control round trip (CLI to daemon `status`) | in-process loopback of the socket transport | ms-scale budget, regression checked |
+| Event parse (`sub0squad-event-1` line to progress snapshot) | parser over a recorded stream | no per-event heap allocation (the family rule) shown by the allocation counter |
+| Reactor wake and job spawn latency | shim spawn to first event | recorded per host |
+| Idle CPU of the daemon | `/proc` CPU-time delta over a fixed window, run through the same tooling's quiet-machine checks | ~0; this replaces the ad hoc step-10 measurement |
+| Later: arbiter grant latency, ledger append, metric ring buffer update (M2, M3) | same pattern | |
+
+Rules carried over: timing runs alone (the sub0perf lock enforces one measuring run per repository), baselines are per host and
+recorded with a reason, and a result is only trusted when the controls say the environment was quiet (ENVIRONMENT verdicts are
+inconclusive, not passes). The pre-push gate is installed by configuring once a benchmark exists; it never pushes anything itself.
+
+**The squad's own exclusive measurement window must interoperate with the sub0perf lock** (DESIGN section 5): the arbiter's
+`measurementWindow` lease acquires the same per-repository lock (`.git/sub0perf/lock`, pid + time, stale-takeover rules) before it
+grants, so a squad job and a hand-run `sub0perf` never overlap, and the lock is released by the lease's scoped release on cancel or
+crash. The lock file format is Sub0Math's; we use it, we do not fork it. Specified here, built in M2.
