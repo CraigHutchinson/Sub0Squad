@@ -16,3 +16,8 @@ target_link_libraries(sub0squad PRIVATE Sub0Pipeline::Sub0Pipeline Sub0Pipeline:
 
 enable_testing()
 add_test(NAME dependency_selftest COMMAND sub0squad --selftest)
+
+add_executable(m0_graph_growth tests/m0_graph_growth.cpp)
+target_compile_options(m0_graph_growth PRIVATE -Wall -Wextra -Werror)
+target_link_libraries(m0_graph_growth PRIVATE Sub0Pipeline::Sub0Pipeline Sub0Pipeline::Priority Threads::Threads)
+add_test(NAME m0_graph_growth COMMAND m0_graph_growth)

@@ -189,9 +189,8 @@ flowchart TB
   proposals share the leased inference slots; **timing never overlaps anything** (the measurement window).
 - **Integrator** applies accepted sub-task branches in a deterministic order onto the base, re-runs the full gates once
   (a per-sub-task pass does not prove the combination), and reports; it never pushes or merges.
-- **Graph growth**: Sub0Pipeline supports runtime-sized graphs and on-demand jobs, but whether jobs can be added to a graph
-  mid-run is **[U]**; the safe design is staged pipelines (plan stage output builds the next pipeline) and is what the first
-  milestone uses.
+- **Graph growth**: a running Sub0Pipeline graph cannot be extended **[V: section 11, crashes]**. Planning is therefore
+  staged: the plan stage produces data, the daemon builds and runs the next `Pipeline` from it.
 
 ## 7. Messaging and durability [P]
 
@@ -303,7 +302,14 @@ Port Python pieces to native only when stable and hot (the evaluator and arbiter
 
 ## 11. Open questions [U]
 
-- Can Sub0Pipeline add jobs to a running graph? (Test before M4; staged pipelines are the fallback.)
+- ~~Can Sub0Pipeline add jobs to a running graph?~~ **Answered 2026-11-09 [V]: no.** `tests/m0_graph_growth.cpp` makes a running
+  job call `pipe.emplace` on its own pipeline: the process crashes with SIGSEGV (the header documents emplace/succeed/precede
+  as build-phase only, and the job tables are not safe to grow while workers read them). Two fallbacks are asserted to work by
+  the same test and are **the rule for planners**: (a) *staged pipelines*, a plan stage whose output (plain data) builds and
+  runs the next `Pipeline` (fan-out/fan-in of N sub-tasks plus an integrator); (b) *nested sub-pipelines*, a running job builds
+  and runs its own `Pipeline` on its own executor (take care that nesting cannot exhaust a shared pool: give each level its
+  own executor or use a deferred job). The daemon therefore owns a **job-graph builder per stage**, never mutates a live graph.
+  The test fails on purpose if a future Sub0Pipeline supports growth, so this decision is revisited rather than forgotten.
 - Socket transport for `ITransport` (consumer-supplied; `FrameReader` handles framing) and the Windows equivalent; the previous
   dev machine was Windows.
 - Whether CPU yield uses cooperative checkpoints only or also cgroup freezing where available (a user systemd session exists
@@ -317,3 +323,159 @@ Port Python pieces to native only when stable and hot (the evaluator and arbiter
 Framework design sign-off and naming (M0); daemon + CLI wrapping the existing harness (M1); arbiter and journal (M2);
 event stream and timeline (M3); planner/fan-out (M4); engine seam and shared server (M5); extraction (M6). Related existing
 work: #68 (harness), #78 (machine test, supplies the host facts the arbiter needs), #79 (kernel inventory).
+
+---
+
+# Part B: mock-first foundation, observability, tiers and decisions (added 2026-11-09, owner direction)
+
+Direction for the next phase: build the **whole control loop end to end with mock work** (stub processes, a stub engine, a stub
+frontier provider) before any real engine or frontier model is attached. The daemon must be **inspectable** (a monitoring
+portal), **accountable** (an append-only ledger of who used which resource for what), **extensible** (each work tool declares its
+own metrics and progress, so new tools such as Strata plug in without portal or daemon changes) and **quota-aware** (local-first,
+frontier escalation bounded by budgets and a share cap). Real engines (llama.cpp, Sub0Llm, Strata) come after the stub
+validation; the frontier tier stays stubbed until the owner enables it in the portal.
+
+## 13. Mock-first strategy
+
+Everything real has a stand-in that is **scripted and deterministic**, so every behaviour (stall, crash, hang, slow, escalate) is a
+repeatable end-to-end test and policy changes can be iterated without spending anything.
+
+| Stand-in | What it is | Scripted behaviours |
+|---|---|---|
+| `mock-worker` (subcommand of the same binary, an external process job) | emits progress and metrics on the event fd, writes an `optimization-run-1`-shaped `state.json`, can spawn a child "server" | run N steps of T ms; fail at step k; stall (no progress); ignore SIGTERM; double-fork/`setsid` an escaping child; crash (SIGSEGV); allocate M MiB; emit custom metrics |
+| `mock-engine` | implements `IEngine` and `EngineCaps` with no model | configurable slots, latency per token, tokens/s versus concurrency curve, failure injection, cap revision events |
+| `stub-frontier` | implements the frontier provider seam with **no network code at all** | returns canned or templated results; records exactly **what would have been sent** (after redaction) and a notional token and cost estimate; injectable refusals, rate limits, errors |
+| scenario files | JSON scripts that tie the above together | e.g. "a hard task: local attempts 1-6 stall, escalate at attempt 4, frontier stub succeeds, integrator gates pass" |
+
+The stub frontier runs the **entire** escalation path (decision, permission check, quota lease, data-governance redaction,
+ledger entry flagged `stub`, notional cost). The only thing it does not do is send bytes anywhere. That is how the policy is
+tuned before it can spend real quota.
+
+## 14. Work-tool plugin seam: workers, engines, metrics (extensibility)
+
+A **tool** is anything the squad can run: a worker kind (process, native remote kind, agent CLI) or an engine runtime
+(llama.cpp, Sub0Llm, Strata, mock). Every tool ships a **manifest** (JSON, versioned `tool-manifest-1`), so adding a tool is
+adding a file, not changing the daemon or the portal:
+
+```json
+{ "schema": "tool-manifest-1", "name": "optimization-harness", "kind": "worker",
+  "run": { "type": "process", "command": ["python3", "${tools}/iterate.py"], "cwd": "${repo}" },
+  "resources": { "cores": "build:8", "memoryMiB": 7500, "slots": { "engine": 1 }, "exclusiveWindow": false },
+  "tier": "local", "dataClass": "private",
+  "idempotent": false, "resumable": true,
+  "progress": { "protocol": "event-fd", "adapters": [ { "type": "state-file", "path": "${out}/state.json", "schema": "optimization-run-1" } ] },
+  "metrics": [ { "name": "attempts", "unit": "count", "type": "counter", "label": "Attempts" },
+               { "name": "accepted", "unit": "count", "type": "counter" },
+               { "name": "tokens.out", "unit": "tokens", "type": "counter" },
+               { "name": "attempt.seconds", "unit": "s", "type": "histogram", "buckets": [30, 60, 120, 300, 600] } ],
+  "panels": [ { "title": "Attempts", "series": ["attempts", "accepted"], "view": "line" } ] }
+```
+
+- **Progress without log parsing.** A worker gets an inherited descriptor (env `SUB0SQUAD_EVENT_FD`) and writes one JSON line per
+  event (`sub0squad-event-1`: `progress {done,total,phase}`, `metric {name,value,labels}`, `checkpoint`, `yieldPoint`,
+  `needs {signal}` for escalation hints, `note`). Legacy tools are wrapped by an **adapter** that derives the same events from
+  a file they already write (the optimisation harness: `state.json` gives attempts/`max_attempts`, status, `no_progress`,
+  `recoveries`, and the `continuation` block, which is the escalation packet).
+- **Metrics are declared, not hard-coded.** The manifest's `metrics` and `panels` give the daemon the name, unit, type,
+  labels and a display hint; the portal renders **any** tool generically from that schema. Built-in metrics (section 15)
+  exist for every job regardless of tool.
+- **Engines** declare `EngineCaps` (section 5a) in the same manifest family (`engine-manifest-1`) plus a runtime kind (server,
+  spawned process, in-process library). **Strata** is expected to be one engine runtime among these; it is not in this
+  checkout, so its manifest is written when the owner points at it, and nothing in the daemon is Strata-specific.
+- **Validation**: the daemon refuses a manifest that is malformed, names an unknown resource or tier, or asks for the frontier
+  tier without a data class, and reports why. Manifests are hashed and the hash is recorded with every job (identity).
+
+## 15. Metrics, utilisation and the accountability ledger
+
+Two stores, both native and small, neither a database server:
+
+1. **Metric registry** (live, in memory): counters, gauges, histograms with labels (`job`, `tool`, `engine`, `tier`, `owner`,
+   `kind`). Rolling time series in fixed ring buffers (1 s for 15 min, 1 min for 48 h, 1 h for 90 days), flushed to rollup
+   files, so the portal draws history without unbounded memory. A Prometheus text endpoint (`/metrics`) exposes the same data to
+   external tools. Idle cost is nil: samples are pushed by events and sampled on one low-rate timer (default 1 s while a
+   client watches, 15 s otherwise).
+2. **Ledger** (durable, append-only, schema `ledger-1`, written next to the journal): one record per **resource use**: who
+   (owner, job, sub-task, tool), what (resource and amount), when (start, end), how it was granted (policy decision id), and
+   what it cost (core-seconds, MiB-seconds, slot-seconds, tokens in/out, notional or real cost units, tier, `stub` flag).
+   The ledger is the answer to "who used what and why": quotas are computed from it, and it is never rewritten.
+
+Built-in metrics (every job, no tool support needed): queue wait, run time, state transitions, core/memory/slot utilisation versus
+capacity (per resource and per lease), lease contention, process-tree size and RSS, cancel latency, `lost` count. **Derived
+effectiveness metrics** (needed to iterate on policy): accept rate (accepted candidates over attempts), **cost per accepted
+candidate** per tier, **frontier share** (frontier tokens/cost over total in a window), escalation rate and its outcome
+(did the escalated item then succeed), time-to-first-accept, local-only completion rate.
+
+## 16. Tiers, quotas, permission gate and the decision model
+
+**Tier ladder.** T0 `stub` (mock engines and the stub frontier), T1 small local (e.g. a 27B on llama.cpp, Sub0Llm or Strata), T2
+larger or alternative local, T3 frontier (Claude, Codex). Work always starts at the cheapest capable tier. A task that a small local
+model completes 100 % stays 100 % local; escalation is per sub-task, not per task.
+
+**Frontier permission gate (default: closed, owner-controlled).** Each frontier provider has a mode: `off` → **`stub`** (the
+development default: the full path runs, nothing is sent, notional cost is recorded) → `live` (real calls). Only the **owner,
+through the portal's Status and Settings page** (loopback only, per-session token, explicit confirmation, optional expiry and
+scope), can move a provider to `live`. The CLI, agents and the MCP identity **cannot** change it or any quota: those endpoints
+reject them and the attempt is audited. Every change is an audit record (who, when, from, to, scope, expiry). A work item must
+also carry `allowFrontier` and a data class that permits it, so enabling live mode never silently exposes private work.
+The default build contains no code path that can send to a hosted model unless a provider module is explicitly compiled in and
+its mode is `live`.
+
+**Quotas and the share cap.** Budgets are per tier and per window (item, owner, day, week) over tokens, requests, cost units
+and wall time, plus a **frontier share cap** (for example at most 20 % of tokens in a rolling window, and a reserve floor so
+interactive Claude Code use is never starved by background squad work). A frontier call is a **quota lease**: the arbiter
+grants it only if the budget, the share cap and the permission gate all allow, otherwise the request is denied with the reason,
+and the planner or decision policy picks another action (split further, retry locally, ask the owner).
+
+**Decision model.** One seam, `IDecisionPolicy::decide(DecisionContext) → Decision`, where the context holds attempts, stall and
+gate-failure signals, the planner's complexity estimate, budget and share-to-date, tier availability and `needs` hints from the
+worker, and the decision is `continue | retry | split | escalate(tier) | abort | askOwner` with ordered **reasons** and a
+confidence. Implementations: (1) a **rule policy** from configuration (default, transparent, testable); (2) a scored policy;
+(3) later a model-based classifier (a local-LLM job) behind the same interface. Every decision is stored with its full input as
+a **decision record** in the journal, so a new policy can be **replayed offline against recorded history** (`sub0squad policy
+replay`) and compared on cost, accept rate and frontier share before it is allowed to decide for real. In stub mode these
+records already accumulate from mock and local runs.
+
+**Agent access: tool calls and MCP.** The same control API is exposed as a stdio MCP server (`sub0squad mcp`) so Claude Code or
+Codex sessions can inspect and talk to the squad: `squad_status`, `squad_jobs`, `squad_job`, `squad_logs`, `squad_resources`,
+`squad_engines`, `squad_budget`, `squad_submit`, `squad_cancel`, `squad_decide` (dry run: what would the policy do for this
+context; no side effects), `squad_request_escalation` (files a request that the policy, quota and permission gate answer with
+granted or denied and a reason), and `squad_note` (a session posts a message attached to a job). The MCP identity is a normal
+client of the daemon: read, submit and cancel its own jobs; never settings, permissions or quotas.
+
+## 17. Observability portal
+
+`sub0squad serve` also serves a **read-mostly web portal on 127.0.0.1** (never a routable interface; Host and Origin checked;
+a random per-session token printed at start and stored 0600 under the runtime dir; mutating calls need it; CSRF-safe). One
+`ControlApi` core serves three thin front ends: the CLI (unix socket), the MCP server (stdio) and the portal (loopback HTTP
+JSON plus a Server-Sent-Events stream; SSE rather than WebSocket keeps the server small and idle-free).
+
+Pages (all driven by the API and the manifest panels, so new tools appear without portal code):
+1. **Overview**: queue, running jobs with progress, host utilisation against capacity (cores, memory, slots, measurement
+   window), engine health, recent alerts (stalled, lost, quota near limit).
+2. **Job detail**: state history, graph of sub-tasks and their states, live log tail, progress, the tool's declared panels,
+   leases held and waited on, decisions made and why, evidence links, cancel and resume buttons.
+3. **Resources and engines**: per-resource timeline, contention, `EngineCaps` with measured throughput versus concurrency, queue depth.
+4. **Usage and accountability**: ledger views by owner, tool, tier and time; cost per accepted candidate; **local versus
+   frontier share** against its cap; escalation funnel (requested, granted, denied, succeeded); quota burn-down.
+5. **Status and Settings** (owner only): tier and provider modes (`off` / `stub` / `live`), quotas and share cap, data-governance
+   allowlists, policy selection, retention; every change confirmed and audited; the live switch shows what a frontier call would
+   have sent (from the stub's recorded payloads) so the owner can inspect before enabling.
+6. **Audit**: decisions, permission changes, denied attempts, cancellations.
+
+Implementation choice (to confirm with the owner): a single embedded static page (no build step, no framework, assets compiled
+into the binary) plus a small header-only HTTP server dependency pinned through CPM (cpp-httplib is the candidate), instead of
+hand-writing an HTTP stack. Idle cost is one blocked accept thread.
+
+## 18. Revised milestones (supersedes the table in section 10 where they differ)
+
+| Milestone | Deliverable (all on mock work unless stated) |
+|---|---|
+| M0 | design, graph-growth answer **done**; name, licence, repo pending the owner |
+| M1 | daemon + CLI + control socket, process job kind with its own process tree (verified cancel), crash-safe journal, `lost` detection, event-fd progress, `mock-worker`, state-file adapter and resume on a real `optimization-run-1`; end-to-end test scenarios |
+| M2 | arbiter on mock resources (core sets, memory, slots, measurement window), ledger |
+| M3 | metric registry, tool manifests and panels, SSE event stream, **portal v0 (read-only)** with Overview, Job detail, Resources |
+| M3b | tiers, quotas, share cap, permission gate, decision policy and replay, `stub-frontier`, MCP server, portal Usage, Settings and Audit |
+| M4 | planner, staged fan-out and integrator on mock sub-tasks, then the first real splitter |
+| M5 | `IEngine` seam; `mock-engine`, then llama.cpp (slots > 1), Sub0Llm (process, in-process), Strata |
+| M6 | own repository; Sub0Llm consumes it |
+| M7 | **live** frontier providers (Claude Code, Codex) enabled only by the owner in the portal, with governance and budgets proven on the stub first |
