@@ -17,7 +17,8 @@ set(SUB0SQUAD_STRICT -Wall -Wextra -Werror)
 add_library(sub0squad_core STATIC
   src/paths.cpp
   src/job_spec.cpp
-  src/journal.cpp)
+  src/journal.cpp
+  src/job_store.cpp)
 target_include_directories(sub0squad_core PUBLIC include PRIVATE src)
 target_compile_options(sub0squad_core PRIVATE ${SUB0SQUAD_STRICT})
 target_link_libraries(sub0squad_core PUBLIC Sub0Pipeline::Sub0Pipeline Sub0Pipeline::Priority Sub0Pub::Sub0Pub Threads::Threads PRIVATE simdjson::simdjson)
@@ -39,6 +40,7 @@ endfunction()
 
 sub0squad_add_test(test_job_spec)
 sub0squad_add_test(test_journal)
+sub0squad_add_test(test_job_store)
 
 add_executable(m0_graph_growth tests/m0_graph_growth.cpp)
 target_compile_options(m0_graph_growth PRIVATE ${SUB0SQUAD_STRICT})
