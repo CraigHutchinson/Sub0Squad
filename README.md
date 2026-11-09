@@ -1,4 +1,4 @@
-# Sub0Work (working title)
+# Sub0Squad (working title)
 
 A native C++23 toolbox for **delegated background work**: submit a job, check its progress, follow its log, cancel it,
 resume it. Jobs run in **parallel** on workers that **share resources** (cores, memory, a model server, the exclusive
@@ -11,7 +11,7 @@ job graphs (deferred completion, cancellation, remote sub-graphs) and
 [Sub0Pub](https://github.com/CraigHutchinson/Sub0Pub) carries typed events. The new parts are the resource arbiter, the
 durable journal, planners, and the engine seam.
 
-**Status: design stage.** `sub0workd --selftest` only proves the pinned dependencies link and cooperate here. Start with
+**Status: design stage.** `sub0squad --selftest` only proves the pinned dependencies link and cooperate here. Start with
 [docs/DESIGN.md](docs/DESIGN.md), then [docs/ROADMAP.md](docs/ROADMAP.md) and [docs/DECISIONS.md](docs/DECISIONS.md).
 The name is a placeholder; the final `sub0*` name is pending.
 

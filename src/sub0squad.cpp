@@ -1,4 +1,4 @@
-// sub0workd (WORKING TITLE): the native agent worker daemon described in docs/DESIGN.md.
+// sub0squad (WORKING TITLE): the native agent worker daemon described in docs/DESIGN.md.
 // Today it is only a dependency smoke test: it proves the pinned Sub0Pipeline and Sub0Pub link and cooperate here:
 // a DAG with a job that completes from another thread (deferred completion) and typed events delivered to a subscriber.
 #include "sub0pipeline/sub0pipeline.hpp"
@@ -69,7 +69,7 @@ int selftest()
 int main(int argc, char** argv)
 {
     if (argc > 1 && std::strcmp(argv[1], "--selftest") == 0) return selftest();
-    if (argc > 1 && std::strcmp(argv[1], "--version") == 0) { std::puts("sub0workd 0.0.0 (working title, design stage)"); return 0; }
-    std::puts("usage: sub0workd --selftest | --version   (the daemon itself is not implemented yet; see docs/ROADMAP.md)");
+    if (argc > 1 && std::strcmp(argv[1], "--version") == 0) { std::puts("sub0squad 0.0.0 (working title, design stage)"); return 0; }
+    std::puts("usage: sub0squad --selftest | --version   (the daemon itself is not implemented yet; see docs/ROADMAP.md)");
     return argc > 1 ? 2 : 0;
 }

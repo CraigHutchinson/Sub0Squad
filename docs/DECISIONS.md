@@ -11,13 +11,15 @@
    library), with the scheduler aware of each engine's **concurrency cap**.
 6. **Spin-off project** with its own `sub0*` name; Sub0Llm is one engine and one consumer.
 7. A throwaway Python supervisor was prototyped and discarded: it duplicated Sub0Pipeline.
-8. Dependencies via **CPM**, pinned for CI and overridable per machine with `CPM_<NAME>_SOURCE` (docs/DEV_SETUP.md).
+8. One multi-call binary, `sub0squad`, with subcommands (`serve` for the daemon, `submit`, `status`, `logs`, `cancel`, `wait`, `resume`), instead of a clumsy `sub0squadd` plus a separate CLI.
+9. (Stretch) **Agent workers** (Claude Code, Codex) and escalation to a frontier model when work is too complex or needs splitting, under explicit budgets and data-governance rules (DESIGN section 8a).
+10. Dependencies via **CPM**, pinned for CI and overridable per machine with `CPM_<NAME>_SOURCE` (docs/DEV_SETUP.md).
 
 ## Pending
 
 | Item | State |
 |---|---|
-| **Final name** | working title `Sub0Work`; candidates below |
+| **Final name** | working title `Sub0Squad`; candidates below |
 | Licence | undecided (no LICENSE file yet) |
 | Remote repository | not created; name first |
 | Pinned versions | Sub0Pipeline `3d11ffe`, Sub0Pub `504d772` (heads on 2026-11-09), proven only by the selftest |
@@ -28,7 +30,7 @@
 
 | Name | Daemon / CLI | For | Against |
 |---|---|---|---|
-| **Sub0Work** (recommended) | `sub0workd` / `sub0work` | says what it schedules (work items, workers); shortest | generic |
+| **Sub0Squad** (recommended) | `sub0squad` / `sub0squad` | says what it schedules (work items, workers); shortest | generic |
 | Sub0Crew | `sub0crewd` / `sub0crew` | workers as a crew | friendly but vaguer about scheduling and resources |
 | Sub0Dispatch | `sub0dispatchd` / `sub0dispatch` | scheduling and routing to engines | leaves out workers and resources |
 | Sub0Foreman | `sub0foremand` / `sub0foreman` | assigns and supervises | collides with the well-known Foreman tools |

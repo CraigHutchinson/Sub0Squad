@@ -1,11 +1,11 @@
 > **Origin:** moved here from Sub0Llm (`docs/design/AGENT_WORKER_FRAMEWORK.md`, branch `docs/agent-worker-framework`) on
 > 2026-11-09 when the framework became its own project. **This copy is now the source of truth**; the Sub0Llm copy is to be
 > reduced to a pointer once this project has a remote. References to `#NN` tickets are Sub0Llm issues until this project has
-> its own tracker. The working title `Sub0Work` is a placeholder (see DECISIONS.md).
+> its own tracker. The working title `Sub0Squad` is a placeholder (see DECISIONS.md).
 
 # Design: a native toolbox for delegated, parallel, resource-aware agent work
 
-Status: DESIGN, 2026-11-09. Intended to become its own project (working name `sub0work`, placeholder) with Sub0Llm as one
+Status: DESIGN, 2026-11-09. Intended to become its own project (working name `sub0squad`, placeholder) with Sub0Llm as one
 inference engine among several. Related: #68 (the existing optimisation harness), #77 (goal), #78 (machine test), the
 Sub0Pipeline and Sub0Pub libraries. Legend: **[V]** verified in the repo or the library READMEs, **[P]** proposed,
 **[U]** unknown until tested.
@@ -21,6 +21,8 @@ Sub0Pipeline and Sub0Pub libraries. Legend: **[V]** verified in the repo or the 
    measurement window).
 6. A start of an agentic worker framework that can be **split into a toolbox project** later, with Sub0Llm as an engine.
    **Several engines and runtimes** are supported side by side: llama.cpp and our native Sub0Llm directly (section 8).
+8. (Stretch) Support **Claude and Codex workers**, so work can be delegated up to a frontier model when it is too complex or needs
+   splitting (section 8a).
 7. The LLM engine must support **multiple concurrent users**, and the scheduler must **know the engine's concurrency cap**
    (section 5a).
 
@@ -44,10 +46,10 @@ from a dead supervisor rather than trusting a stale "running"; distinguish cance
 ```mermaid
 flowchart LR
     subgraph clients["Clients (CLI, agents, CI)"]
-      CLI[sub0work submit | status | logs | cancel | wait | resume]
+      CLI[sub0squad submit | status | logs | cancel | wait | resume]
       AG[Agents: Claude Code, Codex, ...]
     end
-    subgraph daemon["sub0workd (native, one per host)"]
+    subgraph daemon["sub0squad serve (native, one per host)"]
       CO[Coordinator: Sub0Pipeline graphs and executors]
       AR[Resource arbiter: leases, queues, quiet windows]
       BUS[Sub0Pub event bus: typed events]
@@ -75,7 +77,7 @@ flowchart LR
     W4 --> E2
 ```
 
-- **One native daemon per host** (`sub0workd`) hosts a Sub0Pipeline coordinator, the resource arbiter, an event bus and the
+- **One native binary, `sub0squad`, with subcommands** (`serve` runs the per-host daemon; `submit`, `status`, `logs`, `cancel`, `wait`, `resume` are the client). The daemon hosts a Sub0Pipeline coordinator, the resource arbiter, an event bus and the
   journal. A thin CLI and any agent talk to it over a local socket (named pipe on Windows); it never listens on a network.
 - **Workers are processes** hosting registered job kinds (`WorkerHost`), reached through Sub0Pipeline's remote sub-graph
   mechanism. A worker per git worktree isolates edits; an evaluator worker owns builds and checks; a measurement worker
@@ -239,6 +241,43 @@ Sub0Llm is also a **consumer**: its own kernel-optimisation, qualification and m
 kinds, so it uses the toolbox instead of growing a copy. Bringing Sub0Llm up as an engine needs the concurrency work in
 section 5a (#90), structured-output support, and context beyond the proving ground's 128 positions.
 
+## 8a. Agent workers and frontier escalation (stretch) [P]
+
+An **engine** (section 8) answers one request. An **agent worker** runs a whole agent loop with tools, edits and judgement in
+its own isolated worktree. The framework supports both, and treats frontier agents as one more kind of worker so that work
+can be **delegated up** when it is too complex or needs splitting.
+
+| Worker kind | How it runs | Notes |
+|---|---|---|
+| Local engine loop | the existing harness loop on llama.cpp or Sub0Llm | cheap, private, bounded; the baseline |
+| Claude worker | headless Claude Code (`claude -p`) in a worktree, with an allowlist of tools and a budget | the same CLI can also be pointed at a local Anthropic-compatible endpoint, which was done with the local Qwen server |
+| Codex worker | `codex exec` in a worktree, same contract | |
+| Any other agent CLI or API | a registered job kind with the same contract | |
+
+**One worker contract.** A worker receives a work item (goal, constraints, editable-file allowlist, budget, evidence rules),
+runs in a fresh detached worktree, and returns a diff, logs and a result. Whatever agent produced it, **the same trusted
+evaluator gates decide acceptance** (correctness, memory, measured performance), and nothing is pushed, merged or
+promoted automatically. A frontier worker's claim is never evidence; this is the harness's existing rule.
+
+**Escalation policy (recorded, never silent).** A work item states its tiers; the scheduler escalates on explicit signals:
+1. the planner marks a sub-task **too complex**, or a plan needs a better split than a local model produced;
+2. **stagnation**: the loop's own stall detector fires (the Qwen IQ1_S pass-2 run on 2026-11-09 ended `stalled` after six
+   attempts that all returned `no_proposal`, and the earlier pass needed an expert seed: exactly the case to escalate);
+3. repeated gate failures on the same sub-task, or a budget about to be exhausted with no accepted gain.
+An escalation hands over the continuation packet (best commit, rejected attempts and why, evidence paths), so a frontier
+worker starts from the local loop's findings, not from nothing. Cheap tiers go first; a frontier call is a budgeted resource
+like any other lease (token and cost caps per item, per owner, per day).
+
+**Frontier as planner, local as implementer.** A frontier model is most valuable for the decomposition step (section 6): it
+writes the sub-task graph, and local workers implement the pieces in parallel. The plan is still validated data, never
+executed on trust.
+
+**Data governance and safety.** Sending code or evidence to a hosted model is an outward action. Each work item declares what
+may leave the machine (public repository content only by default; never secrets, credentials or private-repo content); the
+daemon enforces it with an allowlist of paths and a redaction pass, and a frontier tier is **off unless the item enables it**.
+Workers get no credentials beyond their own API access, run with an allowlisted tool set in a worktree, and cannot push.
+Provider terms, cost and rate limits are configuration, not code.
+
 ## 9. Native, and what that buys [P]
 
 Jobs are coarse (minutes), so raw throughput is not the point. Native is chosen for: a **single static binary** with no
@@ -252,12 +291,13 @@ CPU effectively zero, journal append without per-event fsync storms.
 | Milestone | Deliverable | Gate |
 |---|---|---|
 | M0 | this design agreed; name, repo and licence decided; Sub0Pipeline/Sub0Pub versions pinned | owner sign-off |
-| M1 | `sub0workd` + CLI running the **existing Python harness unchanged as an external job kind** (process job): submit, status, logs, cancel (tree teardown verified, no stray server), wait, resume | cancel leaves no child; `lost` detected; resume works on a real `state.json` |
+| M1 | `sub0squad` + CLI running the **existing Python harness unchanged as an external job kind** (process job): submit, status, logs, cancel (tree teardown verified, no stray server), wait, resume | cancel leaves no child; `lost` detected; resume works on a real `state.json` |
 | M2 | arbiter: core sets, memory budget, exclusive measurement lease, scoped release; journal and replay | two jobs cannot overlap the window; crash releases leases |
 | M3 | Sub0Pub event stream, progress snapshots, Chrome-Trace timeline | status without parsing logs |
 | M4 | planner and fan-out/fan-in: first splitter = one sub-task per quant format (#34-#41) with disjoint files | integrator re-runs gates once; no overlapping edits |
 | M5 | `IEngine` seam with `EngineCaps`, capability-based routing and slot leasing: llama.cpp server (slots > 1) first, then native Sub0Llm as a spawned process and as an in-process library with concurrent sequences | scheduler never exceeds the advertised cap; an over-capability request is refused with a reason; the same item runs on both engines with comparable evidence |
-| M6 | split into the toolbox repo; Sub0Llm consumes it as a dependency | Sub0Llm builds and runs its loops from the toolbox |
+| M6 | own repository; Sub0Llm consumes it as a dependency | Sub0Llm builds and runs its loops from the toolbox |
+| M7 (stretch) | agent workers: Claude Code and Codex as worker kinds, escalation policy with continuation packets, budgets and data-governance enforcement | an item stalled locally is continued by a frontier worker from the packet, still gated by the same evaluator; nothing leaves the machine unless enabled |
 
 Port Python pieces to native only when stable and hot (the evaluator and arbiter first); never maintain both.
 
