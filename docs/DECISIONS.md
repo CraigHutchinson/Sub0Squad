@@ -14,6 +14,11 @@
 8. One multi-call binary, `sub0squad`, with subcommands (`serve` for the daemon, `submit`, `status`, `logs`, `cancel`, `wait`, `resume`), instead of a clumsy `sub0squadd` plus a separate CLI.
 9. (Stretch) **Agent workers** (Claude Code, Codex) and escalation to a frontier model when work is too complex or needs splitting, under explicit budgets and data-governance rules (DESIGN section 8a).
 10. Dependencies via **CPM**, pinned for CI and overridable per machine with `CPM_<NAME>_SOURCE` (docs/DEV_SETUP.md).
+11. (2026-11-09) **Mock-first**: the whole control loop is built and proven on scripted stand-ins (mock worker, mock engine, stub frontier) before real engines or frontier models attach (DESIGN section 13).
+12. (2026-11-09) **Observable and accountable**: a loopback monitoring portal, a metric registry that tools extend through manifests, and an append-only usage ledger (DESIGN sections 14, 15, 17). New tools, for example Strata as a local engine, plug in by manifest.
+13. (2026-11-09) **Local-first with bounded frontier escalation**: tiers, quotas and a frontier share cap; a decision policy exposed as a tool call and MCP (DESIGN section 16).
+14. (2026-11-09) **Frontier tiers are stubbed for all development work**; the only way to go live is the owner's explicit switch in the portal's Status and Settings page. CLI, agents and MCP cannot change it.
+15. (2026-11-09) **Graph growth**: a running Sub0Pipeline graph cannot be extended (test: SIGSEGV); planners use staged pipelines (DESIGN section 11).
 
 ## Pending
 
@@ -23,7 +28,8 @@
 | Licence | undecided (no LICENSE file yet) |
 | Remote repository | not created; name first |
 | Pinned versions | Sub0Pipeline `3d11ffe`, Sub0Pub `504d772` (heads on 2026-11-09), proven only by the selftest |
-| Graph growth mid-run in Sub0Pipeline | untested (staged pipelines are the fallback) |
+| New dependencies for M1/M3 | nlohmann/json and cpp-httplib (or another small HTTP server), pinned via CPM: owner OK needed |
+| Strata | not found in the GitHub folder; owner to point at it before its engine manifest is written |
 | Socket transport, Windows support | open |
 
 ### Name candidates (family style is a plain noun: Pipeline, Pub, Log, Math, ECS)
