@@ -29,6 +29,7 @@ add_library(sub0squad_core STATIC
   src/status.cpp
   src/daemon.cpp
   src/plan.cpp
+  src/engine.cpp
   src/ledger.cpp
   src/workflow_status.cpp
   src/event_channel.cpp
