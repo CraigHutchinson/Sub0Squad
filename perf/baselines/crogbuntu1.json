@@ -1,0 +1,76 @@
+{
+  "format": 2,
+  "host": "CrogBuntu1",
+  "machine": "x86_64",
+  "system": "Linux 7.0.0-42-generic",
+  "note": "Medians per op after calibration scaling, with robust CV across interleaved rounds. Regenerate deliberately; say why in the commit. Regressions are accepted with `accept`.",
+  "power": {
+    "state": "ac",
+    "saver": false
+  },
+  "calibration_ns": 4500.848,
+  "calibration_sustained_ns": 4535.12,
+  "epochs": 0,
+  "cpu": 31,
+  "benchmarks": {
+    "frame encode 256 B, encodeFrame()": {
+      "median_ns": 18.223,
+      "cv": 0.0074,
+      "rounds": 5,
+      "modes": [
+        18.139,
+        18.687
+      ]
+    },
+    "frame encode 256 B, hand-written": {
+      "median_ns": 2.443,
+      "cv": 0.0016,
+      "rounds": 5
+    },
+    "job-spec parse, JobSpec::fromJson()": {
+      "median_ns": 400.096,
+      "cv": 0.0297,
+      "rounds": 5
+    },
+    "job-spec serialise, JobSpec::toJson()": {
+      "median_ns": 206.642,
+      "cv": 0.0027,
+      "rounds": 5
+    },
+    "journal append (fdatasync per record)": {
+      "median_ns": 674434.334,
+      "cv": 0.0708,
+      "rounds": 5
+    },
+    "journal append (no fsync), Journal::append()": {
+      "median_ns": 1732.889,
+      "cv": 0.0034,
+      "rounds": 5
+    },
+    "journal append (no fsync), hand-written write()": {
+      "median_ns": 1378.47,
+      "cv": 0.0047,
+      "rounds": 5
+    },
+    "progress tail 400 events, readProgress()": {
+      "median_ns": 81524.932,
+      "cv": 0.0022,
+      "rounds": 5
+    }
+  },
+  "pairs": {
+    "frame encode 256 B, encodeFrame()": {
+      "reference": "frame encode 256 B, hand-written",
+      "ratio": 7.4597,
+      "modes": [
+        7.4558,
+        7.6321
+      ]
+    },
+    "journal append (no fsync), Journal::append()": {
+      "reference": "journal append (no fsync), hand-written write()",
+      "ratio": 1.2541
+    }
+  },
+  "accepted": []
+}

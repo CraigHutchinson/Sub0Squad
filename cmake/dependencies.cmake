@@ -27,6 +27,10 @@ CPMAddPackage(NAME Sub0Math
   GIT_REPOSITORY https://github.com/CraigHutchinson/Sub0Math.git
   GIT_TAG 1d20313cbd2ff2753620246b81934d0489a0636f
   DOWNLOAD_ONLY YES)
+# Off by default in this project: no git hooks installed and no benchmark run after every build; run the targets deliberately
+# (cmake --build <dir> --target Sub0Squad_Bench_check) and enable the hooks only when ready (docs/DEV_SETUP.md).
+set(SUB0MATH_PERF_ON_BUILD "OFF" CACHE STRING "")
+set(SUB0MATH_PERF_GIT_HOOKS OFF CACHE BOOL "")
 include("${Sub0Math_SOURCE_DIR}/cmake/Sub0MathTooling.cmake")
 
 # simdjson 5.1.1 (Apache-2.0, released 2026-11-01): the one JSON library, as in Sub0Llm. Reads use the on-demand forward API;

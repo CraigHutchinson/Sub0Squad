@@ -56,7 +56,7 @@ private:
 template <class F>
 void withObject(std::string_view text, F&& fn)
 {
-    simdjson::ondemand::parser parser;
+    thread_local simdjson::ondemand::parser parser;  // reused per thread: no per-call parser allocation
     simdjson::padded_string padded{text};
     auto doc = parser.iterate(padded);
     simdjson::ondemand::object obj = doc.get_object();
