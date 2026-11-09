@@ -1,6 +1,6 @@
 # M1 plan: daemon, CLI and process jobs, proven end to end on mock work
 
-Status: PLAN, 2026-11-09. Nothing here is implemented. Design context: DESIGN.md sections 3, 4, 13, 14, 18. Legend as in DESIGN:
+Status: **IMPLEMENTED ON LINUX 2026-11-09 except the items under "Implementation status" below** (owner: Linux only for now, Windows later). Design context: DESIGN.md sections 3, 4, 13, 14, 18. Legend as in DESIGN:
 **[V]** verified, **[P]** proposed, **[U]** unknown until tested.
 
 ## Scope
@@ -144,3 +144,46 @@ crash. The lock file format is Sub0Math's; we use it, we do not fork it. Specifi
 
 [PLAN_REVIEW.md](PLAN_REVIEW.md) lists every gap found in this plan (platform, diagnostics access, lifecycle, threat model) with its
 resolution; the steps above already include the blocking and high ones.
+
+
+## Implementation status (2026-11-09, Linux)
+
+Tests: `ctest` runs 9 tests (about 65 s), all passing, also from a clean configure with the **pinned** dependencies (local overrides unset).
+
+| Gate | Result | Evidence |
+|---|---|---|
+| Cancel leaves no child and releases everything | **met** for processes: worker, a SIGTERM-ignoring server and a `setsid` double-fork escapee are gone after cancel; state `cancelled`, teardown `verified` | `test_shim` (20 cancels) and `test_e2e` (10 cancels through the daemon). "Releases everything" covers the process tree, pidfd and runner thread; resource leases do not exist until M2 |
+| Dead supervisor is `lost`, never `running` | **met** | `test_e2e`: shim SIGKILLed, `lost` with the daemon up and with it down (`source: journal`); a daemon crash leaves the job running and the next daemon adopts it; an outcome written while no daemon ran is picked up from `exit.json` |
+| Resume works on a real optimization-run-1 state.json | **partly met** | adapter reads the **real** stalled record (`tests/data/optimization-run-1-stalled.json`: 6/6, `stalled`, recoveries 3) and an optimisation-style mock run is failed, resumed (run 2) and finished with attempts preserved. The **real `iterate.py --resume` was not run**, see findings |
+| Status reports progress without parsing logs | **met** | `test_e2e`: logs deleted and overwritten with garbage, progress and metrics still correct from the event file |
+| Daemon idle at ~0 % CPU | **met** (counter based) | `test_idle`: with one finished and one running job, 0 CPU ticks and 0 context switches over 12 s |
+
+Also built: `exec-shim` (own session and group, child subreaper, stdout/stderr/event capture with a 64 MiB cap, wall budget,
+verified teardown, atomic `exit.json`), `mock-worker`, journal with torn-tail truncation and a truncation fuzz test, `job-spec-1`,
+control socket with `SO_PEERCRED`, single-instance lock, `maxParallelJobs`, `wait --timeout` (exit 124), offline `status`/`logs`.
+sub0perf: `Sub0Squad_Bench` (8 benchmarks, 2 pair groups) with a recorded baseline `perf/baselines/crogbuntu1.json` (5 interleaved
+rounds, load 1 %, calibration stable) and a `_check` that reported 0 regressed. The git hooks are **off** (see DEV_SETUP).
+
+### Findings while implementing
+
+1. **A `stalled` optimisation run is terminal for the harness.** `iterate.py --resume` raises "run is terminal; create a new run from
+   its continuation packet" unless the state's status is `running`. So the squad needs two distinct operations: `resume` (an
+   interrupted `running` record, the harness's `--resume`) and a new **`continue`** (a new run seeded from the `continuation` block,
+   `--base <best_commit>`). Only `resume` exists. `continue` is also the natural handoff point for escalation (DESIGN section 8a).
+2. **Running the real harness changes another repository.** `iterate.py` creates detached git worktrees and takes a lock inside the
+   Sub0Llm repository, and its contract pins absolute paths and file hashes, so a copy of an old `state.json` elsewhere is refused.
+   Testing it for real needs a sandbox clone of Sub0Llm and a stub provider; not done (rule: do not edit other repos).
+3. A runaway during development: `spawnShim` once used `/proc/self/exe`, which in a test is the test binary, and re-ran itself
+   recursively (about 63,000 short-lived processes and an equal number of `/tmp/s0q-*` directories, all processes killed). Fixed: the
+   executable is now an explicit argument and the shim sets `SUB0SQUAD_IN_SHIM`, which makes `spawnShim` refuse (a recursion guard).
+   Tests now use directories under the build tree, never `/tmp`.
+4. `encodeFrame` is 7.5x its hand-written twin (a `std::string` allocation); accepted for the control plane, recorded in the baseline.
+5. A stale CMake cache keeps old `SUB0MATH_PERF_*` defaults, which is how the first configure installed sub0perf git hooks despite the
+   setting; they were removed and the cache fixed. A fresh build directory honours the OFF defaults.
+
+### Not done in M1 yet
+
+- Step 9, the **remote sub-graph smoke** (`SUB0PIPELINE_BUILD_REMOTE=ON`, a native kind over the pipe transport): not started.
+- Cooperative stop as a message (only SIGTERM then SIGKILL now); log rotation (a cap only); the daemon's own log is plain stderr, not Sub0Log;
+  `continue`; `doctor` and the offline portal; the timing-based idle benchmark through sub0perf (the idle gate is counter based).
+- Windows: nothing, by decision.

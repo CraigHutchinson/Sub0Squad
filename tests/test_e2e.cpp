@@ -115,5 +115,15 @@ int main(int, char** argv)
         CHECK(sq.cli({"resume", id}).exitCode == 1);  // a succeeded job cannot be resumed
         CHECK(sq.cli({"resume", "j-999999"}).exitCode == 1);
     }
+    { // `wait --timeout` returns 124 while the job keeps running.
+        Squad sq(exe, "waitto");
+        sq.startDaemon();
+        const std::string id = sq.submitWorker("w1", {"--steps", "10000", "--step-ms", "20"});
+        CHECK(sq.waitState(id, "running"));
+        CHECK_EQ(sq.cli({"wait", id, "--timeout", "1"}).exitCode, 124);
+        CHECK(sq.statusField(id, "state") == "running");
+        CHECK(sq.cli({"cancel", id}).exitCode == 0);
+        CHECK(sq.cli({"wait", id}).exitCode == 1);  // cancelled is not success
+    }
     return finish();
 }

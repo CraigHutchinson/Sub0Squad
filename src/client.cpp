@@ -9,6 +9,8 @@
 #include "sub0squad/unix_socket.hpp"
 
 #include <sys/inotify.h>
+#include <sys/socket.h>
+#include <sys/time.h>
 #include <poll.h>
 #include <unistd.h>
 #include <cstdio>
@@ -28,6 +30,12 @@ std::expected<ControlClient, ControlClient::ConnectError> ControlClient::connect
     ControlClient c;
     c.fd_ = r.fd;
     return c;
+}
+
+void ControlClient::setReceiveTimeout(int seconds)
+{
+    timeval tv{seconds, 0};
+    ::setsockopt(fd_, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof tv);
 }
 
 std::expected<std::string, std::string> ControlClient::request(std::string_view cmd, std::string_view extra)
@@ -280,10 +288,13 @@ int cmdWait(const RuntimePaths& paths, int argc, char** argv)
         std::fprintf(stderr, "daemon not running: cannot wait\n");
         return 3;
     }
-    const int fdTimeoutMs = timeout > 0 ? timeout * 1000 : -1;
-    (void)fdTimeoutMs;  // the blocking read below is bounded by SO_RCVTIMEO when a timeout was given
+    if (timeout > 0) client->setReceiveTimeout(timeout);
     auto reply = client->request("wait", "\"id\":\"" + id + "\"");
-    if (!reply) { std::fprintf(stderr, "%s\n", reply.error().c_str()); return 1; }
+    if (!reply) {
+        const bool timedOut = timeout > 0 && reply.error().find("Resource temporarily unavailable") != std::string::npos;
+        std::fprintf(stderr, "%s\n", timedOut ? "timed out waiting for the job to finish (it keeps running)" : reply.error().c_str());
+        return timedOut ? 124 : 1;
+    }
     const Reply r = parseReply(*reply);
     if (!r.ok) { std::fprintf(stderr, "error: %s\n", r.error.c_str()); return 1; }
     printJobs("{\"jobs\":[" + [&] {

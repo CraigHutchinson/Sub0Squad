@@ -26,6 +26,9 @@ public:
     /// Send `{"v":1,"cmd":...,<extra>}` (extra is the inside of a JSON object, or empty) and return the reply frame.
     [[nodiscard]] std::expected<std::string, std::string> request(std::string_view cmd, std::string_view extraFields = {});
 
+    /// Bound every later blocking read to `seconds` (0 = unbounded). A timed-out request fails with "timed out".
+    void setReceiveTimeout(int seconds);
+
 private:
     int fd_ = -1;
 };

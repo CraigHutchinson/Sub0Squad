@@ -1,12 +1,17 @@
 # cmake/get_cpm.cmake — download CPM.cmake on first configure if not cached.
 # Pin the version here; bump deliberately when updating.
 set(CPM_DOWNLOAD_VERSION 0.43.2)
-set(CPM_DOWNLOAD_LOCATION "${CMAKE_BINARY_DIR}/cmake/CPM_${CPM_DOWNLOAD_VERSION}.cmake")
+# Prefer the shared cache (CPM_SOURCE_CACHE, docs/DEV_SETUP.md) so the bootstrap is downloaded once per machine, not per build dir.
+if(DEFINED ENV{CPM_SOURCE_CACHE} AND NOT "$ENV{CPM_SOURCE_CACHE}" STREQUAL "")
+  set(CPM_DOWNLOAD_LOCATION "$ENV{CPM_SOURCE_CACHE}/cpm/CPM_${CPM_DOWNLOAD_VERSION}.cmake")
+  file(MAKE_DIRECTORY "$ENV{CPM_SOURCE_CACHE}/cpm")
+else()
+  set(CPM_DOWNLOAD_LOCATION "${CMAKE_BINARY_DIR}/cmake/CPM_${CPM_DOWNLOAD_VERSION}.cmake")
+endif()
 set(CPM_DOWNLOAD_SHA256 "49A3BEF91CEB65BB66D57255E12D1FFD22ABC2F6408FA9FE4534C544A2F232AA")
 set(CPM_DOWNLOAD_TEMPORARY "${CPM_DOWNLOAD_LOCATION}.tmp")
 
 if(NOT EXISTS "${CPM_DOWNLOAD_LOCATION}")
-  file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/cmake")
   file(REMOVE "${CPM_DOWNLOAD_TEMPORARY}")
   message(STATUS "Downloading CPM.cmake v${CPM_DOWNLOAD_VERSION}...")
   file(DOWNLOAD

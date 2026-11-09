@@ -51,3 +51,14 @@ env $(env | grep -o '^CPM_Sub0[A-Za-z]*_SOURCE' | sed 's/^/-u /') cmake -S . -B 
 Use the **latest release or default-branch head** of every dependency, recorded as an exact commit with its date. Checked
 2026-11-09: Sub0Pipeline `3d11ffe`, Sub0Pub `504d772`, Sub0Math `1d20313` are the heads of `main`; simdjson v5.1.1; CPM.cmake 0.43.2;
 Boost 1.92.0 to be pinned when first used. Bump deliberately, one dependency per commit.
+
+## Tests and benchmarks
+
+```sh
+cmake --build out/build/dev && ctest --test-dir out/build/dev --output-on-failure     # 9 tests, about 65 s
+cmake --build out/build/dev --target Sub0Squad_Bench_check                             # sub0perf: judge against perf/baselines/crogbuntu1.json
+cmake --build out/build/dev --target Sub0Squad_Bench_baseline                          # only with a reason, once a baseline exists
+```
+End-to-end tests start a real daemon and the real CLI under `SUB0SQUAD_HOME` inside the build tree. Run timing targets alone on a
+quiet machine. sub0perf git hooks and the after-build check are **off** by default (`SUB0MATH_PERF_GIT_HOOKS`,
+`SUB0MATH_PERF_ON_BUILD`); an existing build directory keeps the values it cached, so pass them with `-D` there.
