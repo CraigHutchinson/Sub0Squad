@@ -7,6 +7,7 @@
 
 #include "sub0squad/client.hpp"
 #include "sub0squad/mock_worker.hpp"
+#include "sub0squad/harness_web.hpp"
 #include "sub0squad/sandbox.hpp"
 #include "sub0squad/shim.hpp"
 
@@ -97,6 +98,9 @@ int main(int argc, char** argv)
         const std::vector<std::string> rest(argv + 2, argv + argc);
         if (std::strcmp(argv[1], "mock-planner") == 0) return sub0squad::runMockPlanner(rest);
         if (std::strcmp(argv[1], "mock-agent") == 0) return sub0squad::runMockAgent(rest);
+        if (std::strcmp(argv[1], "llm-agent") == 0) return sub0squad::runLlmAgent(rest);
+        if (std::strcmp(argv[1], "harness-gate") == 0) return sub0squad::runHarnessGate(rest);
+        if (std::strcmp(argv[1], "harness-integrate") == 0) return sub0squad::runHarnessIntegrate(rest);
         if (std::strcmp(argv[1], "sandbox-gate") == 0) return sub0squad::runSandboxGate(rest);
         if (std::strcmp(argv[1], "sandbox-integrate") == 0) return sub0squad::runSandboxIntegrate(rest);
     }

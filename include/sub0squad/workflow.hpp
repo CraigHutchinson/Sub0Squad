@@ -4,10 +4,12 @@
 /// `advance()` is the level-triggered engine, a pure function from (workflow, its labelled jobs, settings, policy) to the next
 /// actions, so a restarted daemon derives exactly the same next steps and needs no special recovery. No I/O happens here.
 
+#include "sub0squad/engine.hpp"
 #include "sub0squad/job_store.hpp"
 #include "sub0squad/plan.hpp"
 #include "sub0squad/policy.hpp"
 
+#include <map>
 #include <optional>
 #include <string>
 #include <vector>
@@ -16,16 +18,24 @@ namespace sub0squad {
 
 struct WorkflowSpec
 {
-    std::string task;                  ///< e.g. "calculator-scientific"
+    std::string task;                  ///< a known task name (blueprint), or "custom"
+    std::string taskText;              ///< the owner's words, as given to `do`
+    std::string triage;                ///< the triage-1 record (JSON) kept with the workflow
     std::string sandboxDir;            ///< absolute directory holding plan.json, items/ and project/
     std::vector<std::string> inject;   ///< failure injection for the mock agent: "item" or "item:N" (fail the first N local attempts)
     int maxLocalAttempts = 2;
+    std::string agent = "mock";                   ///< "mock" (templates) or "llm" (a real engine on the local tier)
+    std::vector<std::string> engines;             ///< engine profiles in command-line form (EngineProfile::toArg); the first is the default
+    std::map<std::string, std::string> route;     ///< persona -> engine name, e.g. tester=qwen3-6 (extensibility: engines are per persona)
+    int maxTokens = 3000;                         ///< completion budget of one llm attempt
 
+    /// The engine profile for a persona (route, else the first engine), or nullopt when none is configured.
+    [[nodiscard]] std::optional<EngineProfile> engineFor(const std::string& persona) const;
     [[nodiscard]] std::string toJson() const;
     [[nodiscard]] static std::expected<WorkflowSpec, std::string> fromJson(std::string_view text);
 };
 
-enum class WorkflowState { running, succeeded, failed, cancelled };
+enum class WorkflowState { running, awaitingPlan, succeeded, failed, cancelled };
 [[nodiscard]] const char* toString(WorkflowState s);
 
 struct DecisionRecord { std::string item; int attempt = 0; std::string action; std::string tier; std::string json; };
@@ -49,6 +59,7 @@ namespace wfbody {
 [[nodiscard]] std::string decision(const std::string& id, const std::string& item, int attempt, const std::string& action, const std::string& tier, const std::string& decisionJson);
 [[nodiscard]] std::string cancelRequested(const std::string& id);
 [[nodiscard]] std::string finished(const std::string& id, WorkflowState state, const std::string& note);
+[[nodiscard]] std::string awaitingPlan(const std::string& id, const std::string& packetPath);
 }  // namespace wfbody
 
 class WorkflowStore

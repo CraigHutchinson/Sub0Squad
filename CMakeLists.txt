@@ -29,6 +29,10 @@ add_library(sub0squad_core STATIC
   src/status.cpp
   src/daemon.cpp
   src/plan.cpp
+  src/triage.cpp
+  src/llm_agent.cpp
+  src/web_templates.cpp
+  src/harness_web.cpp
   src/engine.cpp
   src/ledger.cpp
   src/workflow_status.cpp

@@ -18,6 +18,11 @@ std::string EngineProfile::toJson() const
     return w.take();
 }
 
+std::string EngineProfile::toArg() const
+{
+    return name + "=" + endpoint + ",model=" + model + ",kind=" + kind + ",ctx=" + std::to_string(contextTokens) + ",slots=" + std::to_string(maxConcurrent) + (thinking ? ",thinking=1" : "");
+}
+
 std::expected<EngineProfile, std::string> EngineProfile::parse(const std::string& text)
 {
     EngineProfile p;

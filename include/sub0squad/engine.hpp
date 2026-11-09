@@ -24,6 +24,8 @@ struct EngineProfile
     bool thinking = false;            ///< allow reasoning output (off: faster, cheaper, what the agents want)
 
     [[nodiscard]] std::string toJson() const;
+    /// The command-line form `name=endpoint,model=..,kind=..,ctx=N,slots=N` (inverse of parse).
+    [[nodiscard]] std::string toArg() const;
     /// `name=endpoint[,model=...][,kind=...][,ctx=N][,slots=N]` as given on the command line.
     [[nodiscard]] static std::expected<EngineProfile, std::string> parse(const std::string& text);
 };

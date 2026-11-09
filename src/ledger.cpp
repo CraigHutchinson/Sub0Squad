@@ -4,7 +4,9 @@
 
 #include <fcntl.h>
 #include <unistd.h>
+#include <algorithm>
 #include <fstream>
+#include <set>
 
 namespace sub0squad {
 
@@ -19,7 +21,9 @@ std::string toJson(const LedgerRecord& r)
     json::Writer w;
     w.beginObject().kv("schema", "ledger-1").kv("ts", r.ts).kv("workflow", r.workflow).kv("item", r.item).kv("role", r.role).kv("job", r.job)
         .kv("run", r.run).kv("attempt", r.attempt).kv("tier", r.tier).kvBool("stub", r.stub).kv("outcome", r.outcome)
-        .kv("durationSec", r.durationSec).kv("tokensIn", r.tokensIn).kv("tokensOut", r.tokensOut).kv("costUnits", r.costUnits).endObject();
+        .kv("durationSec", r.durationSec).kv("tokensIn", r.tokensIn).kv("tokensOut", r.tokensOut).kv("costUnits", r.costUnits)
+        .kv("engine", r.engine).kv("tokensSystem", r.tokensSystem).kv("tokensCard", r.tokensCard).kv("tokensFeedback", r.tokensFeedback)
+        .kv("tokensWork", r.tokensWork).kv("harnessBytes", r.harnessBytes).kv("decodeTps", r.decodeTps).endObject();
     return w.take();
 }
 
@@ -60,6 +64,13 @@ std::vector<LedgerRecord> readLedger(const std::filesystem::path& file)
                     else if (k == "tokensIn") r.tokensIn = v.get_double();
                     else if (k == "tokensOut") r.tokensOut = v.get_double();
                     else if (k == "costUnits") r.costUnits = v.get_double();
+                    else if (k == "engine") r.engine = json::toString(v);
+                    else if (k == "tokensSystem") r.tokensSystem = v.get_double();
+                    else if (k == "tokensCard") r.tokensCard = v.get_double();
+                    else if (k == "tokensFeedback") r.tokensFeedback = v.get_double();
+                    else if (k == "tokensWork") r.tokensWork = v.get_double();
+                    else if (k == "harnessBytes") r.harnessBytes = v.get_double();
+                    else if (k == "decodeTps") r.decodeTps = v.get_double();
                 }
             });
             out.push_back(std::move(r));
@@ -72,6 +83,9 @@ LedgerSummary summarise(const std::vector<LedgerRecord>& records, const std::str
 {
     LedgerSummary s;
     double all = 0, frontier = 0;
+    std::set<std::string> gatePassed;  // "item#attempt"
+    for (const auto& r : records)
+        if ((workflow.empty() || r.workflow == workflow) && r.role == "gate" && r.outcome == "succeeded") gatePassed.insert(r.item + "#" + std::to_string(r.attempt));
     for (const auto& r : records) {
         if (!workflow.empty() && r.workflow != workflow) continue;
         auto& t = s.byTier[r.tier];
@@ -79,8 +93,20 @@ LedgerSummary summarise(const std::vector<LedgerRecord>& records, const std::str
         t.tokensIn += r.tokensIn; t.tokensOut += r.tokensOut; t.costUnits += r.costUnits; t.durationSec += r.durationSec;
         all += r.tokensIn + r.tokensOut;
         if (r.tier == "frontier-stub") frontier += r.tokensIn + r.tokensOut;
+        if (r.role != "agent") continue;
+        s.totalTokens += r.tokensIn + r.tokensOut;
+        const bool accepted = gatePassed.count(r.item + "#" + std::to_string(r.attempt)) > 0;
+        (accepted ? s.acceptedWorkTokens : s.reworkTokens) += r.tokensWork;
+        s.promptOverheadTokens += r.tokensSystem + r.tokensFeedback;
+        s.harnessBytes = std::max(s.harnessBytes, r.harnessBytes);
+        if (!r.engine.empty()) {
+            auto& e = s.byEngine[r.engine];
+            ++e.attempts; e.tokensIn += r.tokensIn; e.tokensOut += r.tokensOut;
+            if (r.decodeTps > 0) { e.decodeTpsSum += r.decodeTps; ++e.decodeSamples; }
+        }
     }
     s.frontierTokenShare = all > 0 ? frontier / all : 0.0;
+    s.workRatio = s.totalTokens > 0 ? s.acceptedWorkTokens / s.totalTokens : 0.0;
     return s;
 }
 

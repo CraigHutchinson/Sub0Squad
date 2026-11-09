@@ -2,6 +2,7 @@
 
 #include "json_util.hpp"
 #include "sub0squad/event_channel.hpp"
+#include "sub0squad/harness_web.hpp"
 #include "sub0squad/plan.hpp"
 
 #include <fcntl.h>
@@ -147,6 +148,17 @@ int runMockPlanner(const std::vector<std::string>& args)
     plan.task = task;
     const std::vector<std::string> allFiles = {"tokenizer.hpp", "test_tokenizer.cpp", "parser.hpp", "test_parser.cpp", "functions.hpp", "test_functions.cpp",
                                                "evaluator.hpp", "test_evaluator.cpp", "cli.hpp", "main.cpp", "test_cli.cpp", "calc_tests.cpp"};
+    if (task == "calculator-web") {
+        // The hand-written blueprint stands in for a frontier architect: validated like any other plan.
+        const std::string text = blueprintJson("calculator-web");
+        auto parsed = Plan::fromJson(text);
+        if (!parsed) { std::fprintf(stderr, "mock-planner: blueprint invalid: %s\n", parsed.error().c_str()); return 1; }
+        events::metric("plan.items", static_cast<double>(parsed->items.size()));
+        if (!writeFileAtomic(out, parsed->toJson())) { std::fprintf(stderr, "mock-planner: cannot write %s\n", out.c_str()); return 1; }
+        events::progress(1, 1, "planned");
+        std::printf("planned %zu item(s) for calculator-web from the blueprint\n", parsed->items.size());
+        return 0;
+    }
     if (task == "calculator-basic") {
         plan.reasons = {"small task: one self-contained deliverable, splitting would cost more than it saves", "decision: single item"};
         plan.items = {{"calculator", "Calculator (all modules)", "Write a calculator with + - * / % ^ !, parentheses, constants and a CLI", allFiles, {}, 2}};
@@ -163,7 +175,7 @@ int runMockPlanner(const std::vector<std::string>& args)
             {"tests", "Combined tests", "A table of expressions with expected values and a list of expressions that must be rejected", {"calc_tests.cpp"}, {"evaluator"}, 2},
         };
     } else {
-        std::fprintf(stderr, "mock-planner: no plan for task '%s' (known: calculator-basic, calculator-scientific)\n", task.c_str());
+        std::fprintf(stderr, "mock-planner: no plan for task '%s' (known: calculator-basic, calculator-scientific, calculator-web)\n", task.c_str());
         return 3;
     }
     events::metric("plan.items", static_cast<double>(plan.items.size()));
@@ -197,7 +209,8 @@ int runMockAgent(const std::vector<std::string>& args)
                 const int limit = colon == std::string::npos ? 1 << 30 : std::atoi(spec.c_str() + colon + 1);
                 if (name == itemId && attempt <= limit) buggy = true;
             }
-    const std::string bugFile = calculatorBugTarget(itemId);
+    const bool web = plan->harness == "web-static";
+    const std::string bugFile = web ? webMockBugTarget(itemId) : calculatorBugTarget(itemId);
     const fs::path out = dir / "items" / itemId / ("attempt-" + std::to_string(attempt)) / "out";
     std::error_code ec;
     fs::remove_all(out, ec);
@@ -211,7 +224,7 @@ int runMockAgent(const std::vector<std::string>& args)
     for (const auto& f : item->files) {
         std::this_thread::sleep_for(std::chrono::milliseconds(delayMs));
         const bool useBug = buggy && f == bugFile;
-        std::string text = calculatorFile(f, useBug);
+        std::string text = web ? webMockFile(f, useBug) : calculatorFile(f, useBug);
         if (text.empty()) { std::fprintf(stderr, "mock-agent: no template for '%s' (or its defect no longer matches)\n", f.c_str()); return 1; }
         if (!writeFileAtomic(out / f, text)) { std::fprintf(stderr, "mock-agent: cannot write %s\n", f.c_str()); return 1; }
         tokensOut += static_cast<double>(text.size()) / 4.0;
@@ -222,6 +235,16 @@ int runMockAgent(const std::vector<std::string>& args)
     json::Writer w;
     w.beginObject().kv("item", itemId).kv("tier", tier).kv("attempt", attempt).kvBool("injectedDefect", buggy).endObject();
     writeFileAtomic(out.parent_path() / "agent.json", w.take());
+    {   // a mock still reports the metrics the harness KPIs use: all of it is deliverable work, the card is the only input
+        double cardTokens = 0;
+        cardTokens += static_cast<double>(item->card.estimatedTokens());
+        events::metric("tokens.system", 0);
+        events::metric("tokens.card", cardTokens);
+        events::metric("tokens.feedback", 0);
+        events::metric("tokens.work", tokensOut);
+        events::metric("tokens.waste", 0);
+        if (web) events::metric("harness.bytes", static_cast<double>(webScaffoldBytes()));
+    }
     return 0;
 }
 

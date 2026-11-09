@@ -5,6 +5,7 @@
 #include "sub0squad/job_store.hpp"
 #include "sub0squad/journal.hpp"
 #include "sub0squad/ledger.hpp"
+#include "sub0squad/triage.hpp"
 #include "sub0squad/progress.hpp"
 #include "sub0squad/workflow.hpp"
 #include "sub0squad/workflow_status.hpp"
@@ -318,6 +319,11 @@ struct Daemon::Impl
         if (auto it = pr.metrics.find("tokens.in"); it != pr.metrics.end()) r.tokensIn = it->second;
         if (auto it = pr.metrics.find("tokens.out"); it != pr.metrics.end()) r.tokensOut = it->second;
         r.costUnits = notionalCost(r.tier, r.tokensIn, r.tokensOut);
+        auto metric = [&](const char* name) { auto it = pr.metrics.find(name); return it == pr.metrics.end() ? 0.0 : it->second; };
+        r.tokensSystem = metric("tokens.system"); r.tokensCard = metric("tokens.card"); r.tokensFeedback = metric("tokens.feedback");
+        r.tokensWork = metric("tokens.work"); r.harnessBytes = metric("harness.bytes"); r.decodeTps = metric("engine.decode_tps");
+        for (std::size_t i = 0; i + 1 < job->spec.argv.size(); ++i)
+            if (job->spec.argv[i] == "--engine") r.engine = job->spec.argv[i + 1].substr(0, job->spec.argv[i + 1].find('='));
         if (!appendLedger(opts.paths.ledgerFile(), r)) logf("cannot append to the ledger %s", opts.paths.ledgerFile().c_str());
     }
 
@@ -393,9 +399,32 @@ struct Daemon::Impl
         if (ec) return errorReply("cannot create the sandbox " + spec->sandboxDir + ": " + ec.message());
         record("workflowSubmitted", wfbody::submitted(id, *spec));
         logf("workflow %s submitted: task '%s', sandbox %s", id.c_str(), spec->task.c_str(), spec->sandboxDir.c_str());
+        if (!isKnownTask(spec->task)) {  // no blueprint: the architect role is deferred as a file handoff
+            TriageResult t = triage(spec->taskText.empty() ? spec->task : spec->taskText);
+            const std::filesystem::path packet = std::filesystem::path{spec->sandboxDir} / "needs-plan.md";
+            std::ofstream(packet) << needsPlanPacket(spec->taskText.empty() ? spec->task : spec->taskText, t, id);
+            record("workflowAwaitingPlan", wfbody::awaitingPlan(id, packet.string()));
+            logf("workflow %s awaits a plan: %s", id.c_str(), packet.c_str());
+        }
         advanceWorkflows();
         json::Writer w;
         w.beginObject().kvBool("ok", true).kv("id", id).kv("sandbox", spec->sandboxDir).endObject();
+        return w.take();
+    }
+
+    std::string doWorkflowPlan(const std::string& id, const std::string& planJson)
+    {
+        const WorkflowRecord* wf = wfStore.find(id);
+        if (!wf) return errorReply("no such workflow: " + id);
+        if (wf->state != WorkflowState::awaitingPlan) return errorReply("workflow " + id + " is " + toString(wf->state) + ", not awaiting a plan");
+        auto plan = Plan::fromJson(planJson);
+        if (!plan) return errorReply("plan rejected: " + plan.error());
+        { std::ofstream o(std::filesystem::path{wf->spec.sandboxDir} / "plan.json", std::ios::trunc); o << plan->toJson(); }
+        record("workflowPlanned", wfbody::planned(id, *plan));
+        logf("workflow %s: plan supplied, %zu item(s)", id.c_str(), plan->items.size());
+        advanceWorkflows();
+        json::Writer w;
+        w.beginObject().kvBool("ok", true).kv("id", id).kv("items", static_cast<std::int64_t>(plan->items.size())).endObject();
         return w.take();
     }
 
@@ -403,7 +432,13 @@ struct Daemon::Impl
     {
         const WorkflowRecord* wf = wfStore.find(id);
         if (!wf) return errorReply("no such workflow: " + id);
-        if (wf->state != WorkflowState::running) return errorReply("workflow " + id + " is already " + toString(wf->state));
+        if (wf->state != WorkflowState::running && wf->state != WorkflowState::awaitingPlan) return errorReply("workflow " + id + " is already " + toString(wf->state));
+        if (wf->state == WorkflowState::awaitingPlan) {
+            record("workflowFinished", wfbody::finished(id, WorkflowState::cancelled, "cancelled while awaiting a plan"));
+            json::Writer w;
+            w.beginObject().kvBool("ok", true).kv("id", id).endObject();
+            return w.take();
+        }
         record("workflowCancelRequested", wfbody::cancelRequested(id));
         advanceWorkflows();
         json::Writer w;
@@ -529,6 +564,8 @@ struct Daemon::Impl
             send(c, doWorkflowSubmit(req->specJson));
         } else if (cmd == "workflowStatus") {
             send(c, workflowStatusJson(opts.paths, wfStore, store, req->id, "live"));
+        } else if (cmd == "workflowPlan") {
+            send(c, doWorkflowPlan(req->id, req->specJson));
         } else if (cmd == "workflowCancel") {
             send(c, doWorkflowCancel(req->id));
         } else if (cmd == "shutdown") {

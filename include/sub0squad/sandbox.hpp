@@ -13,6 +13,9 @@ namespace sub0squad {
 [[nodiscard]] int runMockPlanner(const std::vector<std::string>& args);
 /// `mock-agent --workflow-dir D --item I --tier T --attempt N [--inject ITEM[:N]]... [--delay-ms MS]`
 [[nodiscard]] int runMockAgent(const std::vector<std::string>& args);
+/// `llm-agent --workflow-dir D --item I --tier T --attempt N --engine NAME=URL[,model=..]`: one real engine call per attempt (tier `frontier-stub` stands in
+/// with the mock templates: no frontier provider exists in this build). Reports where its tokens went.
+[[nodiscard]] int runLlmAgent(const std::vector<std::string>& args);
 /// `sandbox-gate --workflow-dir D --item I --attempt N`: allowlist check, compile with -Wall -Werror, run the item's test.
 [[nodiscard]] int runSandboxGate(const std::vector<std::string>& args);
 /// `sandbox-integrate --workflow-dir D`: merge accepted items into project/, build, run the combined tests and a smoke check.

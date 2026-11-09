@@ -32,7 +32,13 @@ std::string workflowStatusJson(const RuntimePaths& paths, const WorkflowStore& w
         w.key("ledger").beginObject().key("byTier").beginObject();
         for (const auto& [tier, t] : s.byTier)
             w.key(tier).beginObject().kv("attempts", t.attempts).kv("tokensIn", t.tokensIn).kv("tokensOut", t.tokensOut).kv("costUnits", t.costUnits).kv("durationSec", t.durationSec).endObject();
-        w.endObject().kv("frontierTokenShare", s.frontierTokenShare).kvBool("stub", true).endObject();
+        w.endObject().key("byEngine").beginObject();
+        for (const auto& [name, e] : s.byEngine)
+            w.key(name).beginObject().kv("attempts", e.attempts).kv("tokensIn", e.tokensIn).kv("tokensOut", e.tokensOut)
+                .kv("decodeTps", e.decodeSamples ? e.decodeTpsSum / e.decodeSamples : 0.0).endObject();
+        w.endObject().kv("frontierTokenShare", s.frontierTokenShare).kv("workRatio", s.workRatio).kv("totalTokens", s.totalTokens)
+            .kv("acceptedWorkTokens", s.acceptedWorkTokens).kv("reworkTokens", s.reworkTokens).kv("promptOverheadTokens", s.promptOverheadTokens)
+            .kv("harnessBytes", s.harnessBytes).kvBool("stub", true).endObject();
         w.endObject();
     }
     w.endArray().endObject();

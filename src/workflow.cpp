@@ -3,22 +3,27 @@
 #include "json_util.hpp"
 
 #include <algorithm>
+#include <set>
 #include <cstdio>
 
 namespace sub0squad {
 
 const char* toString(WorkflowState s)
 {
-    switch (s) { case WorkflowState::running: return "running"; case WorkflowState::succeeded: return "succeeded"; case WorkflowState::failed: return "failed"; case WorkflowState::cancelled: return "cancelled"; }
+    switch (s) { case WorkflowState::running: return "running"; case WorkflowState::awaitingPlan: return "awaiting-plan"; case WorkflowState::succeeded: return "succeeded"; case WorkflowState::failed: return "failed"; case WorkflowState::cancelled: return "cancelled"; }
     return "?";
 }
 
 std::string WorkflowSpec::toJson() const
 {
     json::Writer w;
-    w.beginObject().kv("task", task).kv("sandbox", sandboxDir).kv("maxLocalAttempts", maxLocalAttempts).key("inject").beginArray();
+    w.beginObject().kv("task", task).kv("taskText", taskText).kv("triage", triage).kv("sandbox", sandboxDir).kv("maxLocalAttempts", maxLocalAttempts).kv("agent", agent).kv("maxTokens", maxTokens).key("inject").beginArray();
     for (const auto& i : inject) w.str(i);
-    w.endArray().endObject();
+    w.endArray().key("engines").beginArray();
+    for (const auto& e : engines) w.str(e);
+    w.endArray().key("route").beginObject();
+    for (const auto& [persona, name] : route) w.kv(persona, name);
+    w.endObject().endObject();
     return w.take();
 }
 
@@ -31,16 +36,38 @@ std::expected<WorkflowSpec, std::string> WorkflowSpec::fromJson(std::string_view
                 const std::string_view k = f.unescaped_key();
                 auto v = f.value();
                 if (k == "task") s.task = json::toString(v);
+                else if (k == "taskText") s.taskText = json::toString(v);
+                else if (k == "triage") s.triage = json::toString(v);
                 else if (k == "sandbox") s.sandboxDir = json::toString(v);
                 else if (k == "maxLocalAttempts") s.maxLocalAttempts = static_cast<int>(v.get_int64());
                 else if (k == "inject") { for (auto x : v.get_array()) s.inject.push_back(json::toString(x.value())); }
+                else if (k == "agent") s.agent = json::toString(v);
+                else if (k == "maxTokens") s.maxTokens = static_cast<int>(v.get_int64());
+                else if (k == "engines") { for (auto x : v.get_array()) s.engines.push_back(json::toString(x.value())); }
+                else if (k == "route") { for (auto r : v.get_object()) { std::string persona{std::string_view{r.unescaped_key()}}; s.route[persona] = json::toString(r.value()); } }
             }
         });
     } catch (const simdjson::simdjson_error& e) { return std::unexpected(std::string{"bad workflow spec: "} + e.what()); }
     if (s.task.empty()) return std::unexpected("workflow needs a task");
+    if (s.taskText.size() > 4000) return std::unexpected("task text is too long");
     if (!s.sandboxDir.empty() && s.sandboxDir[0] != '/') return std::unexpected("workflow sandbox must be an absolute directory");  // empty: the daemon chooses
     if (s.maxLocalAttempts < 1 || s.maxLocalAttempts > 5) return std::unexpected("maxLocalAttempts must be 1..5");
+    if (s.agent != "mock" && s.agent != "llm") return std::unexpected("agent must be mock or llm");
+    std::set<std::string> names;
+    for (const auto& e : s.engines) { auto p = EngineProfile::parse(e); if (!p) return std::unexpected("engine '" + e + "': " + p.error()); names.insert(p->name); }
+    if (s.agent == "llm" && s.engines.empty()) return std::unexpected("agent llm needs at least one --engine");
+    for (const auto& [persona, name] : s.route) if (!names.count(name)) return std::unexpected("route " + persona + "=" + name + " names an unknown engine");
+    if (s.maxTokens < 256 || s.maxTokens > 32768) return std::unexpected("maxTokens must be 256..32768");
     return s;
+}
+
+std::optional<EngineProfile> WorkflowSpec::engineFor(const std::string& persona) const
+{
+    if (engines.empty()) return std::nullopt;
+    std::string want;
+    if (auto it = route.find(persona); it != route.end()) want = it->second;
+    for (const auto& e : engines) { auto p = EngineProfile::parse(e); if (p && (want.empty() || p->name == want)) return std::optional<EngineProfile>{*p}; }
+    return std::nullopt;
 }
 
 namespace wfbody {
@@ -52,6 +79,7 @@ std::string decision(const std::string& id, const std::string& item, int attempt
     w.beginObject().kv("id", id).kv("item", item).kv("attempt", attempt).kv("action", action).kv("tier", tier).kvRaw("decision", decisionJson).endObject();
     return w.take();
 }
+std::string awaitingPlan(const std::string& id, const std::string& packetPath) { json::Writer w; w.beginObject().kv("id", id).kv("note", packetPath).endObject(); return w.take(); }
 std::string cancelRequested(const std::string& id) { json::Writer w; w.beginObject().kv("id", id).endObject(); return w.take(); }
 std::string finished(const std::string& id, WorkflowState state, const std::string& note) { json::Writer w; w.beginObject().kv("id", id).kv("state", toString(state)).kv("note", note).endObject(); return w.take(); }
 }  // namespace wfbody
@@ -105,7 +133,8 @@ void WorkflowStore::apply(const JournalRecord& rec)
     WorkflowRecord* w = nullptr;
     for (auto& x : workflows_) if (x.id == id) w = &x;
     if (!w) return;
-    if (rec.type == "workflowPlanned") { if (auto p = Plan::fromJson(planJson)) w->plan = std::move(*p); }
+    if (rec.type == "workflowPlanned") { if (auto p = Plan::fromJson(planJson)) { w->plan = std::move(*p); if (w->state == WorkflowState::awaitingPlan) w->state = WorkflowState::running; } }
+    else if (rec.type == "workflowAwaitingPlan") { w->state = WorkflowState::awaitingPlan; w->note = "needs a plan: see " + note; }
     else if (rec.type == "workflowDecision") w->decisions.push_back({item, static_cast<int>(attempt), action, tier, decisionJson});
     else if (rec.type == "workflowCancelRequested") w->cancelRequested = true;
     else if (rec.type == "workflowFinished") {
@@ -183,20 +212,28 @@ const DecisionRecord* decisionFor(const WorkflowRecord& wf, const std::string& i
 
 JobSpec agentJob(const WorkflowRecord& wf, const WorkflowSettings& st, const WorkItem& it, int attempt, const std::string& tier)
 {
-    JobSpec s = baseJob(wf, st, "agent", "mock-agent", tier.c_str(), 120);
+    const auto engine = wf.spec.engineFor(it.persona);
+    const bool llm = wf.spec.agent == "llm" && engine.has_value();
+    JobSpec s = baseJob(wf, st, "agent", llm ? "llm-agent" : "mock-agent", tier.c_str(), llm && tier == "local" ? 1800 : 120);
     s.item = it.id;
     s.attempt = attempt;
-    s.argv = {st.exe, "mock-agent", "--workflow-dir", wf.spec.sandboxDir, "--item", it.id, "--tier", tier, "--attempt", std::to_string(attempt)};
-    for (const auto& i : wf.spec.inject) { s.argv.push_back("--inject"); s.argv.push_back(i); }
+    if (llm) {
+        s.argv = {st.exe, "llm-agent", "--workflow-dir", wf.spec.sandboxDir, "--item", it.id, "--tier", tier, "--attempt", std::to_string(attempt), "--engine", engine->toArg(),
+                  "--max-tokens", std::to_string(wf.spec.maxTokens), "--timeout", "1700"};
+    } else {
+        s.argv = {st.exe, "mock-agent", "--workflow-dir", wf.spec.sandboxDir, "--item", it.id, "--tier", tier, "--attempt", std::to_string(attempt)};
+        for (const auto& i : wf.spec.inject) { s.argv.push_back("--inject"); s.argv.push_back(i); }
+    }
     return s;
 }
 
 JobSpec gateJob(const WorkflowRecord& wf, const WorkflowSettings& st, const WorkItem& it, int attempt, const std::string& tier)
 {
-    JobSpec s = baseJob(wf, st, "gate", "sandbox-gate", tier.c_str(), 120);
+    const bool web = wf.plan && wf.plan->harness == "web-static";
+    JobSpec s = baseJob(wf, st, "gate", web ? "harness-gate" : "sandbox-gate", tier.c_str(), 120);
     s.item = it.id;
     s.attempt = attempt;
-    s.argv = {st.exe, "sandbox-gate", "--workflow-dir", wf.spec.sandboxDir, "--item", it.id, "--attempt", std::to_string(attempt)};
+    s.argv = {st.exe, web ? "harness-gate" : "sandbox-gate", "--workflow-dir", wf.spec.sandboxDir, "--item", it.id, "--attempt", std::to_string(attempt)};
     return s;
 }
 
@@ -301,8 +338,9 @@ std::vector<WorkflowAction> advance(const WorkflowRecord& wf, const JobStore& st
         const JobRecord* integ = nullptr;
         for (const JobRecord* j : mine.all) if (j->spec.role == "integrator") integ = j;
         if (!integ) {
-            JobSpec s = baseJob(wf, st, "integrator", "sandbox-integrate", "stub", 300);
-            s.argv = {st.exe, "sandbox-integrate", "--workflow-dir", wf.spec.sandboxDir};
+            const bool web = plan.harness == "web-static";
+            JobSpec s = baseJob(wf, st, "integrator", web ? "harness-integrate" : "sandbox-integrate", "stub", 300);
+            s.argv = {st.exe, web ? "harness-integrate" : "sandbox-integrate", "--workflow-dir", wf.spec.sandboxDir};
             out.push_back(start(std::move(s)));
         } else if (terminalJob(integ)) {
             out.push_back(integ->state == JobState::succeeded ? finish(WorkflowState::succeeded, "all items accepted; integration passed")

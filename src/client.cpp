@@ -5,7 +5,9 @@
 #include "sub0squad/frame.hpp"
 #include "sub0squad/job_store.hpp"
 #include "sub0squad/journal.hpp"
+#include "sub0squad/harness_web.hpp"
 #include "sub0squad/status.hpp"
+#include "sub0squad/triage.hpp"
 #include "sub0squad/workflow.hpp"
 #include "sub0squad/workflow_status.hpp"
 #include "sub0squad/unix_socket.hpp"
@@ -62,7 +64,11 @@ constexpr const char* kUsage =
     "  status [ID] [--json]                 jobs and progress (works without the daemon, from the journal)\n"
     "  logs ID [--stderr] [--follow] [--run N]\n"
     "  cancel ID | resume ID | wait ID [--timeout SEC] | ping | stop\n"
-    "  project submit --task calculator-basic|calculator-scientific [--sandbox DIR] [--inject ITEM[:N]]... [--max-local N]\n"
+    "  do \"<task in words>\" [project options]   triage first, then run: a known blueprint starts at once, otherwise a needs-plan.md handoff is written\n"
+    "  project submit --task calculator-basic|calculator-scientific|calculator-web [--sandbox DIR] [--inject ITEM[:N]]... [--max-local N]\n"
+    "         [--agent mock|llm] [--engine NAME=http://127.0.0.1:PORT/v1[,model=..][,ctx=N][,slots=N]]... [--engine-for PERSONA=NAME]... [--max-tokens N]\n"
+    "  project plan ID --file plan.json     supply the plan a workflow is awaiting (the deferred architect's answer)\n"
+    "  blueprint NAME                       print a built-in plan-2 (calculator-web)\n"
     "  project status [ID] [--json] | project cancel ID | project wait ID [--timeout SEC]\n"
     "  serve also takes --frontier off|stub (default stub: the escalation path runs, nothing is sent)\n"
     "  --selftest | --version\n";
@@ -339,7 +345,8 @@ void printWorkflows(const std::string& text)
                 for (auto wv : f.value().get_array()) {
                     std::string id, task, state, note, sandbox;
                     std::int64_t jobs = 0, active = 0;
-                    double share = 0;
+                    double share = 0, workRatio = 0, acceptedWork = 0, rework = 0, totalTok = 0, overhead = 0, harnessBytes = 0;
+                    std::vector<std::string> engines;
                     std::vector<std::string> reasons, items, decisions, tiers;
                     for (auto wf : wv.get_object()) {
                         const std::string_view k = wf.unescaped_key();
@@ -382,6 +389,26 @@ void printWorkflows(const std::string& text)
                             for (auto lf : v.get_object()) {
                                 const std::string_view lk = lf.unescaped_key();
                                 if (lk == "frontierTokenShare") share = lf.value().get_double();
+                                else if (lk == "workRatio") workRatio = lf.value().get_double();
+                                else if (lk == "acceptedWorkTokens") acceptedWork = lf.value().get_double();
+                                else if (lk == "reworkTokens") rework = lf.value().get_double();
+                                else if (lk == "totalTokens") totalTok = lf.value().get_double();
+                                else if (lk == "promptOverheadTokens") overhead = lf.value().get_double();
+                                else if (lk == "harnessBytes") harnessBytes = lf.value().get_double();
+                                else if (lk == "byEngine") {
+                                    for (auto en : lf.value().get_object()) {
+                                        std::string name{std::string_view{en.unescaped_key()}};
+                                        std::int64_t attempts = 0; double tin = 0, tout = 0, tps = 0;
+                                        for (auto m : en.value().get_object()) {
+                                            const std::string_view mk = m.unescaped_key();
+                                            if (mk == "attempts") attempts = m.value().get_int64(); else if (mk == "tokensIn") tin = m.value().get_double();
+                                            else if (mk == "tokensOut") tout = m.value().get_double(); else if (mk == "decodeTps") tps = m.value().get_double();
+                                        }
+                                        char buf[200];
+                                        std::snprintf(buf, sizeof buf, "  engine %-14s %3lld attempt(s)  tokens in %.0f out %.0f  decode %.1f tok/s", name.c_str(), static_cast<long long>(attempts), tin, tout, tps);
+                                        engines.emplace_back(buf);
+                                    }
+                                }
                                 else if (lk == "byTier") {
                                     for (auto t : lf.value().get_object()) {
                                         std::string name{std::string_view{t.unescaped_key()}};
@@ -408,6 +435,10 @@ void printWorkflows(const std::string& text)
                     for (const auto& d : decisions) std::printf("%s\n", d.c_str());
                     if (!tiers.empty()) std::printf("ledger (notional, nothing was sent anywhere): frontier token share %.1f %%\n", share * 100.0);
                     for (const auto& t : tiers) std::printf("%s\n", t.c_str());
+                    for (const auto& e : engines) std::printf("%s\n", e.c_str());
+                    if (totalTok > 0)
+                        std::printf("work vs harness (estimates): work ratio %.1f %% (accepted deliverable tokens %.0f of %.0f total), rework %.0f, prompt overhead %.0f, harness supplied %.0f bytes\n",
+                                    workRatio * 100.0, acceptedWork, totalTok, rework, overhead, harnessBytes);
                 }
             }
         });
@@ -427,21 +458,60 @@ bool workflowTerminal(const std::string& statusText, const std::string& id, std:
     return state != "running";
 }
 
+
+int parseWorkflowFlags(int argc, char** argv, int from, WorkflowSpec& spec)
+{
+    for (int i = from; i < argc; ++i) {
+        const std::string a = argv[i];
+        auto val = [&]() -> std::string { return i + 1 < argc ? argv[++i] : ""; };
+        if (a == "--task") spec.task = val();
+        else if (a == "--sandbox") spec.sandboxDir = val();
+        else if (a == "--inject") spec.inject.push_back(val());
+        else if (a == "--max-local") spec.maxLocalAttempts = std::atoi(val().c_str());
+        else if (a == "--agent") spec.agent = val();
+        else if (a == "--engine") {
+            auto p = EngineProfile::parse(val());
+            if (!p) { std::fprintf(stderr, "--engine: %s\n", p.error().c_str()); return 2; }
+            spec.engines.push_back(p->toArg());
+        } else if (a == "--engine-for") { std::string kv = val(); const auto eq = kv.find('='); if (eq == std::string::npos) { std::fprintf(stderr, "--engine-for takes PERSONA=ENGINE\n"); return 2; } spec.route[kv.substr(0, eq)] = kv.substr(eq + 1); }
+        else if (a == "--max-tokens") spec.maxTokens = std::atoi(val().c_str());
+        else { std::fprintf(stderr, "unknown option %s\n", a.c_str()); return 2; }
+    }
+    return 0;
+}
+
+int cmdDo(const RuntimePaths& paths, int argc, char** argv)
+{
+    if (argc < 1 || argv[0][0] == '-') { std::fputs(kUsage, stderr); return 2; }
+    const std::string text = argv[0];
+    WorkflowSpec spec;
+    if (int rc = parseWorkflowFlags(argc, argv, 1, spec)) return rc;
+    const TriageResult t = triage(text);
+    spec.task = t.blueprint.empty() ? "custom" : t.blueprint;
+    spec.taskText = text;
+    spec.triage = t.toJson();
+    std::printf("triage: %s project, complexity %d, %s, architect: %s\n", t.projectType.c_str(), t.complexity, t.split ? "split into items" : "one item", t.architect.c_str());
+    for (const auto& r : t.reasons) std::printf("  - %s\n", r.c_str());
+    if (!spec.sandboxDir.empty() && spec.sandboxDir[0] != '/') { char b[4096]; if (::getcwd(b, sizeof b)) spec.sandboxDir = std::string{b} + "/" + spec.sandboxDir; }
+    auto client = ControlClient::connect(paths);
+    if (!client) { std::fprintf(stderr, "%s%s\n", client.error().message.c_str(), client.error().noDaemon ? " (is `sub0squad serve` running?)" : ""); return 3; }
+    auto reply = client->request("workflowSubmit", "\"spec\":" + spec.toJson());
+    if (!reply) { std::fprintf(stderr, "%s\n", reply.error().c_str()); return 1; }
+    const Reply r = parseReply(*reply);
+    if (!r.ok) { std::fprintf(stderr, "error: %s\n", r.error.c_str()); return 1; }
+    try { json::withObject(*reply, [&](simdjson::ondemand::object& obj) { for (auto f : obj) if (json::keyOf(f) == "id") std::printf("workflow %s\n", json::toString(f.value()).c_str()); }); }
+    catch (const simdjson::simdjson_error&) { return 1; }
+    if (t.blueprint.empty()) std::printf("awaiting a plan: see needs-plan.md in the workflow sandbox, then `sub0squad project plan <id> --file plan.json`\n");
+    return 0;
+}
+
 int cmdProject(const RuntimePaths& paths, int argc, char** argv)
 {
     if (argc < 1) { std::fputs(kUsage, stderr); return 2; }
     const std::string sub = argv[0];
     if (sub == "submit") {
         WorkflowSpec spec;
-        for (int i = 1; i < argc; ++i) {
-            const std::string a = argv[i];
-            auto val = [&]() -> std::string { return i + 1 < argc ? argv[++i] : ""; };
-            if (a == "--task") spec.task = val();
-            else if (a == "--sandbox") spec.sandboxDir = val();
-            else if (a == "--inject") spec.inject.push_back(val());
-            else if (a == "--max-local") spec.maxLocalAttempts = std::atoi(val().c_str());
-            else { std::fprintf(stderr, "project submit: unknown option %s\n", a.c_str()); return 2; }
-        }
+        if (int rc = parseWorkflowFlags(argc, argv, 1, spec)) return rc;
         if (!spec.sandboxDir.empty() && spec.sandboxDir[0] != '/') { char b[4096]; if (::getcwd(b, sizeof b)) spec.sandboxDir = std::string{b} + "/" + spec.sandboxDir; }
         auto client = ControlClient::connect(paths);
         if (!client) { std::fprintf(stderr, "%s%s\n", client.error().message.c_str(), client.error().noDaemon ? " (is `sub0squad serve` running?)" : ""); return 3; }
@@ -467,6 +537,21 @@ int cmdProject(const RuntimePaths& paths, int argc, char** argv)
     if (sub == "cancel") {
         if (argc < 2) { std::fputs(kUsage, stderr); return 2; }
         return simpleCommand(paths, "workflowCancel", argv[1], true);
+    }
+    if (sub == "plan") {
+        std::string id, file;
+        for (int i = 1; i < argc; ++i) { if (std::string_view{argv[i]} == "--file" && i + 1 < argc) file = argv[++i]; else id = argv[i]; }
+        if (id.empty() || file.empty()) { std::fputs(kUsage, stderr); return 2; }
+        const std::string planText = slurpFile(file);
+        if (planText.empty()) { std::fprintf(stderr, "cannot read %s\n", file.c_str()); return 2; }
+        auto client = ControlClient::connect(paths);
+        if (!client) { std::fprintf(stderr, "%s\n", client.error().message.c_str()); return 3; }
+        auto reply = client->request("workflowPlan", "\"id\":\"" + id + "\",\"spec\":" + planText);
+        if (!reply) { std::fprintf(stderr, "%s\n", reply.error().c_str()); return 1; }
+        const Reply r = parseReply(*reply);
+        if (!r.ok) { std::fprintf(stderr, "error: %s\n", r.error.c_str()); return 1; }
+        std::printf("plan accepted\n");
+        return 0;
     }
     if (sub == "wait") {
         if (argc < 2) { std::fputs(kUsage, stderr); return 2; }
@@ -525,6 +610,8 @@ int runCli(int argc, char** argv)
         else { if (offline) std::fprintf(stderr, "daemon not running: showing the journal and shim records (as of now)\n"); printJobs(*st); }
         return 0;
     }
+    if (cmd == "do") return cmdDo(paths, argc - 2, argv + 2);
+    if (cmd == "blueprint") { if (argc < 3) { std::fputs(kUsage, stderr); return 2; } const std::string b = blueprintJson(argv[2]); if (b.empty()) { std::fprintf(stderr, "no blueprint '%s'\n", argv[2]); return 1; } std::printf("%s", b.c_str()); return 0; }
     if (cmd == "project") return cmdProject(paths, argc - 2, argv + 2);
     if (cmd == "logs") return cmdLogs(paths, argc - 2, argv + 2);
     if (cmd == "wait") return cmdWait(paths, argc - 2, argv + 2);
