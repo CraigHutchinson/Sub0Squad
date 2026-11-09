@@ -7,12 +7,14 @@
 
 #include "sub0squad/client.hpp"
 #include "sub0squad/mock_worker.hpp"
+#include "sub0squad/sandbox.hpp"
 #include "sub0squad/shim.hpp"
 
 #include <atomic>
 #include <cstdio>
 #include <cstring>
 #include <string>
+#include <vector>
 #include <thread>
 
 namespace {
@@ -91,6 +93,13 @@ int main(int argc, char** argv)
 {
     if (argc > 2 && std::strcmp(argv[1], "exec-shim") == 0) return sub0squad::runShim(argv[2]);
     if (argc > 1 && std::strcmp(argv[1], "mock-worker") == 0) return sub0squad::runMockWorker(argc - 2, argv + 2);
+    if (argc > 1) {
+        const std::vector<std::string> rest(argv + 2, argv + argc);
+        if (std::strcmp(argv[1], "mock-planner") == 0) return sub0squad::runMockPlanner(rest);
+        if (std::strcmp(argv[1], "mock-agent") == 0) return sub0squad::runMockAgent(rest);
+        if (std::strcmp(argv[1], "sandbox-gate") == 0) return sub0squad::runSandboxGate(rest);
+        if (std::strcmp(argv[1], "sandbox-integrate") == 0) return sub0squad::runSandboxIntegrate(rest);
+    }
     if (argc > 1 && std::strcmp(argv[1], "--selftest") == 0) return selftest();
     if (argc > 1 && std::strcmp(argv[1], "--version") == 0) { std::puts("sub0squad 0.0.0 (working title, M1 in progress)"); return 0; }
     return sub0squad::runCli(argc, argv);

@@ -29,6 +29,9 @@ add_library(sub0squad_core STATIC
   src/status.cpp
   src/daemon.cpp
   src/plan.cpp
+  src/event_channel.cpp
+  src/calculator_templates.cpp
+  src/sandbox.cpp
   src/workflow.cpp
   src/policy.cpp
   src/client.cpp)
@@ -57,6 +60,8 @@ sub0squad_add_test(test_job_spec)
 sub0squad_add_test(test_journal)
 sub0squad_add_test(test_job_store)
 sub0squad_add_test(test_workflow)
+sub0squad_add_test(test_sandbox)
+set_tests_properties(test_sandbox PROPERTIES TIMEOUT 300)
 sub0squad_add_test(test_e2e)
 set_tests_properties(test_e2e PROPERTIES TIMEOUT 300)
 sub0squad_add_test(test_idle)
