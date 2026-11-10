@@ -335,6 +335,29 @@ int runHarnessIntegrate(const std::vector<std::string>& args)
     const Cmd s = run({"node", "--input-type=module", "-e", script}, project, 30);
     if (s.exitCode != 0) { std::printf("INTEGRATION FAIL: serve check: %s\n", s.output.substr(0, 500).c_str()); return 1; }
     events::progress(3, 3, "integrated");
+    // The deliverables manifest and the final report: what the run produced and how to open it. The web harness decides by rule (the page,
+    // the source tree, the report); other harnesses will have a reporter step decide (docs/WORK_GRAPH.md section 12).
+    {
+        std::vector<std::string> files;
+        for (auto& e : fs::recursive_directory_iterator(project)) if (e.is_regular_file()) files.push_back(fs::relative(e.path(), project).generic_string());
+        std::sort(files.begin(), files.end());
+        std::string md = "# " + (plan->project.empty() ? std::string{"Project"} : plan->project) + "\n\nRequest: " + plan->task + "\n\n## What was built\n\n| item | persona | files |\n|---|---|---|\n";
+        for (const auto& it : plan->items) {
+            md += "| " + it.id + " | " + it.persona + " | ";
+            for (std::size_t i = 0; i < it.files.size(); ++i) md += (i ? ", " : "") + it.files[i];
+            md += " |\n";
+        }
+        md += "\n## Verification\n\n" + std::to_string(tap.pass) + " tests passed over the merged project; the page and its modules were fetched from the static server.\n\n## Run it\n\n```sh\ncd project\nnode --test tests/\nnode serve.mjs 8080   # then open http://127.0.0.1:8080\n```\n";
+        if (!plan->reasons.empty()) { md += "\n## Why this split\n\n"; for (const auto& r : plan->reasons) md += "- " + r + "\n"; }
+        writeFile(dir / "report.md", md);
+        json::Writer w;
+        w.beginObject().kv("schema", "deliverables-1").kv("summary", "all " + std::to_string(plan->items.size()) + " items accepted; " + std::to_string(tap.pass) + " tests pass").key("items").beginArray();
+        w.beginObject().kv("id", "page").kv("kind", "web-page").kv("title", "The page").kv("path", "project/index.html").kv("open", "site").kv("run", "cd project && node serve.mjs 8080").endObject();
+        w.beginObject().kv("id", "report").kv("kind", "report").kv("title", "Final report").kv("path", "report.md").kv("open", "file").endObject();
+        w.beginObject().kv("id", "source").kv("kind", "source-tree").kv("title", "Project sources (" + std::to_string(files.size()) + " files)").kv("path", "project/").kv("open", "tree").endObject();
+        w.endArray().endObject();
+        writeFile(dir / "deliverables.json", w.take());
+    }
     std::printf("INTEGRATION PASS: %zu items merged, %d tests passed, page served (try: cd %s && node serve.mjs 8080)\n", plan->items.size(), tap.pass, project.c_str());
     return 0;
 }

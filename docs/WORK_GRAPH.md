@@ -220,3 +220,31 @@ the page keeps one request in flight per endpoint with a 5 s timeout, does nothi
 changed. Measured in the built-in browser (Chromium): 300 forced refreshes left the DOM at 359 nodes and the JS heap at a few MB; with the
 server stalled, 100 poll attempts started 2 requests. A 21.6 GB process is far beyond what this page's data (a few hundred KB) can explain,
 so the Firefox process may be another tab; the way to settle it is `about:processes` in Firefox, which shows the page for each process.
+
+## 12. Workflow packages, deliverables and the model badge (portal, 2026-11-10)
+
+**Packages.** Every workflow has a package the portal can open: the request (`taskText`), the plan and its reasons, the engines and seed, the
+deliverables, and every file the run wrote (prompts, replies, gate outputs, per-attempt outputs, accepted outputs, the merged project), shown
+grouped per node, and per node in its drawer. Files open in a viewer (read only, capped at 400 KB, confined to the workflow's sandbox: relative
+paths, no `..`, symbolic links resolved and checked). `/api/files?wf=` lists, `/api/file?wf=&p=` reads.
+
+**Deliverables are a manifest, not a guess.** The integrator writes `deliverables.json` (`deliverables-1`: id, kind, title, path, how to open
+it, how to run it) and `report.md` next to the plan; the portal shows them first and links the page. The web harness decides by rule (the page,
+the report, the source tree). For C++ and other outputs the decision is an agent's: a **reporter** step after integration looks at the merged
+result and the plan and writes the manifest and the final report (binaries and how to run them, libraries and their headers, documents, test
+and benchmark reports, what was not done), with the harness supplying the default rules and the daemon validating that every path exists and
+stays inside the workflow.
+
+**Generated sites are another origin.** A page the models wrote is served from the portal's next port (default 8781 for the portal on 8780): a
+different origin, so it cannot read the portal's API (which sends no CORS headers), and its responses carry `default-src` limited to itself and
+`connect-src 'none'`. The portal port refuses `/site/` and the site port serves nothing but `/site/<workflow>/...`. Checked in the browser: the
+calculator ran on port 8783, 2+3 gave 5, and a `fetch` to the portal's API from the page failed. (An attempt with `Content-Security-Policy:
+sandbox` was dropped: the browser pane blocked the page's own sub-resources from the opaque origin.)
+
+**Which model.** Each engine's `/props` and `/v1/models` give the file, quantisation, parameters, size, training context, build and slots. The portal
+shows a short badge (`9B Q4_K_M`, `35B-A3B Q4_K_M`) on every node that ran, in the nodes table, the engine panel and the KPI row, with a tooltip of
+the details and a click-through drawer; `frontier stub` and `mock` have their own badges so a multi-model workflow reads at a glance. A node's
+badge comes from the engine profile that served its attempts (the ledger records the name), or from the engine of its running job.
+
+**Rates.** `/slots` counts whole tokens, so a one-second difference at 5 to 8 tok/s reads as a whole number. The rate is now taken over the last
+five samples (a resolution of 0.2 tok/s).

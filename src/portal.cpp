@@ -4,11 +4,13 @@
 #include "sub0squad/engine.hpp"
 
 #include <arpa/inet.h>
+#include <poll.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <unistd.h>
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
@@ -52,14 +54,39 @@ struct SlotLive
     long prevDecoded = 0, prevProcessed = 0, prevTask = -2;
     double decodeTps = 0, prefillTps = 0;
     Ring decodeSeries, prefillSeries;
+    std::deque<std::array<double, 3>> window;  ///< recent samples (seconds, tokens decoded, prompt tokens processed): the rate is a sum over the window
+};
+
+// /slots counts whole tokens, so one second at 5 to 8 tok/s reads as 5, 6, 7 or 8: the rate is taken over the last five samples instead,
+// which resolves a fifth of a token per second.
+constexpr std::size_t kRateWindow = 5;
+void rates(std::deque<std::array<double, 3>>& win, double dt, double dec, double pre, double& decTps, double& preTps)
+{
+    win.push_back({dt, dec, pre});
+    while (win.size() > kRateWindow) win.pop_front();
+    double t = 0, d = 0, p = 0;
+    for (const auto& w : win) { t += w[0]; d += w[1]; p += w[2]; }
+    decTps = t > 0 ? d / t : 0;
+    preTps = t > 0 ? p / t : 0;
+}
+
+struct ModelInfo
+{
+    bool have = false;
+    double fetchedAt = 0;
+    std::string alias, file, path, ftype, build;
+    long long nParams = 0, sizeBytes = 0, nCtxTrain = 0;
+    int totalSlots = 0;
 };
 
 struct EngineLive
 {
+    ModelInfo model;
     bool ok = false;
     std::string error;
     std::map<int, SlotLive> slots;
     Ring decode, prefill, active;
+    std::deque<std::array<double, 3>> window;
     double lastT = 0;
 };
 
@@ -149,7 +176,7 @@ void sampleEngine(Live& L, const std::string& base)
     e.ok = true;
     e.error.clear();
     const double dt = e.lastT > 0 ? t - e.lastT : 0;
-    double sumDecode = 0, sumPrefill = 0;
+    double sumDecode = 0, sumPrefill = 0, rawDec = 0, rawPre = 0;
     int active = 0;
     try {
         simdjson::ondemand::parser parser;
@@ -183,8 +210,10 @@ void sampleEngine(Live& L, const std::string& base)
             const bool sameTask = s.prevTask == n.idTask;
             const long dDec = sameTask ? std::max(0L, n.decoded - s.prevDecoded) : (n.processing ? n.decoded : 0);
             const long dPre = sameTask ? std::max(0L, n.promptProcessed - s.prevProcessed) : (n.processing ? n.promptProcessed : 0);
-            s.decodeTps = dt > 0 ? dDec / dt : 0;
-            s.prefillTps = dt > 0 ? dPre / dt : 0;
+            if (dt > 0) rates(s.window, dt, static_cast<double>(dDec), static_cast<double>(dPre), s.decodeTps, s.prefillTps);
+            else { s.decodeTps = 0; s.prefillTps = 0; }
+            rawDec += static_cast<double>(dDec);
+            rawPre += static_cast<double>(dPre);
             s.decodeSeries.push(s.decodeTps);
             s.prefillSeries.push(s.prefillTps);
             s.processing = n.processing;
@@ -201,10 +230,58 @@ void sampleEngine(Live& L, const std::string& base)
             if (n.processing) ++active;
         }
     } catch (const simdjson::simdjson_error& err) { e.ok = false; e.error = err.what(); return; }
+    if (dt > 0) rates(e.window, dt, rawDec, rawPre, sumDecode, sumPrefill);
     e.decode.push(sumDecode);
     e.prefill.push(sumPrefill);
     e.active.push(active);
     e.lastT = t;
+}
+
+// Which model a llama-server runs: `/props` (alias, file, quantisation, build, slots) and `/v1/models` meta (parameters, size, training context).
+void fetchModel(Live& L, const std::string& base)
+{
+    ModelInfo m;
+    if (auto r = httpRequest("GET", base + "/props", "", 2); r && r->status == 200) {
+        try {
+            simdjson::ondemand::parser parser;
+            simdjson::padded_string text{r->body};
+            auto doc = parser.iterate(text);
+            for (auto f : doc.get_object()) {
+                const std::string_view k = f.unescaped_key();
+                if (k == "model_alias") m.alias = std::string{std::string_view{f.value().get_string()}};
+                else if (k == "model_path") { m.path = std::string{std::string_view{f.value().get_string()}}; m.file = fs::path(m.path).filename().string(); }
+                else if (k == "model_ftype") m.ftype = std::string{std::string_view{f.value().get_string()}};
+                else if (k == "build_info") m.build = std::string{std::string_view{f.value().get_string()}};
+                else if (k == "total_slots") m.totalSlots = static_cast<int>(f.value().get_int64());
+            }
+            m.have = true;
+        } catch (const simdjson::simdjson_error&) {}
+    }
+    if (auto r = httpRequest("GET", base + "/v1/models", "", 2); r && r->status == 200) {
+        try {
+            simdjson::ondemand::parser parser;
+            simdjson::padded_string text{r->body};
+            auto doc = parser.iterate(text);
+            for (auto top : doc.get_object()) {
+                if (top.unescaped_key().value() != "data") continue;
+                for (auto entry : top.value().get_array()) {
+                    for (auto f : entry.get_object()) {
+                        if (f.unescaped_key().value() != "meta") continue;
+                        for (auto mf : f.value().get_object()) {
+                            const std::string_view k = mf.unescaped_key();
+                            if (k == "n_params") m.nParams = mf.value().get_int64();
+                            else if (k == "size") m.sizeBytes = mf.value().get_int64();
+                            else if (k == "n_ctx_train") m.nCtxTrain = mf.value().get_int64();
+                        }
+                    }
+                    break;
+                }
+            }
+        } catch (const simdjson::simdjson_error&) {}
+    }
+    m.fetchedAt = nowSec();
+    std::lock_guard lock(L.m);
+    L.engines[base].model = m;
 }
 
 // Loopback llama-server bases named in text (the workflow engine profiles): http://127.0.0.1:PORT or http://localhost:PORT.
@@ -234,6 +311,9 @@ std::string liveJson(Live& L, std::size_t n)
     w.key("engines").beginArray();
     for (const auto& [base, e] : L.engines) {
         w.beginObject().kv("base", base).kvBool("ok", e.ok).kv("error", e.error);
+        w.key("model").beginObject().kv("alias", e.model.alias).kv("file", e.model.file).kv("path", e.model.path).kv("ftype", e.model.ftype).kv("build", e.model.build)
+            .kv("nParams", static_cast<std::int64_t>(e.model.nParams)).kv("sizeBytes", static_cast<std::int64_t>(e.model.sizeBytes))
+            .kv("nCtxTrain", static_cast<std::int64_t>(e.model.nCtxTrain)).kv("totalSlots", e.model.totalSlots).endObject();
         w.key("decodeTps"); e.decode.write(w, n);
         w.key("prefillTps"); e.prefill.write(w, n);
         w.key("active"); e.active.write(w, n);
@@ -252,6 +332,112 @@ std::string liveJson(Live& L, std::size_t n)
     return w.take();
 }
 
+// ---- workflow packages: files of a workflow's sandbox, read only ----------------------------------------------------------------
+std::string sandboxOf(Live& L, const std::string& wf)
+{
+    std::string text;
+    { std::lock_guard lock(L.m); text = L.stateJson; }
+    try {
+        simdjson::ondemand::parser parser;
+        simdjson::padded_string padded{text};
+        auto doc = parser.iterate(padded);
+        for (auto top : doc.get_object()) {
+            if (top.unescaped_key().value() != "workflows") continue;
+            for (auto inner : top.value().get_object()) {
+                if (inner.unescaped_key().value() != "workflows") continue;
+                for (auto w : inner.value().get_array()) {
+                    std::string id, sandbox;
+                    for (auto f : w.get_object()) {
+                        const std::string_view k = f.unescaped_key();
+                        if (k == "id") id = std::string{std::string_view{f.value().get_string()}};
+                        else if (k == "sandbox") sandbox = std::string{std::string_view{f.value().get_string()}};
+                    }
+                    if (id == wf) return sandbox;
+                }
+            }
+        }
+    } catch (const simdjson::simdjson_error&) {}
+    return {};
+}
+
+std::string urlDecode(const std::string& s)
+{
+    std::string o;
+    for (std::size_t i = 0; i < s.size(); ++i) {
+        if (s[i] == '%' && i + 2 < s.size() && std::isxdigit(static_cast<unsigned char>(s[i + 1])) && std::isxdigit(static_cast<unsigned char>(s[i + 2]))) { o += static_cast<char>(std::stoi(s.substr(i + 1, 2), nullptr, 16)); i += 2; }
+        else if (s[i] == '+') o += ' ';
+        else o += s[i];
+    }
+    return o;
+}
+
+std::string queryParam(const std::string& target, const std::string& name)
+{
+    const auto q = target.find('?');
+    if (q == std::string::npos) return {};
+    const std::string key = name + "=";
+    for (std::size_t pos = q + 1; pos < target.size();) {
+        const auto amp = target.find('&', pos);
+        const std::string part = target.substr(pos, amp == std::string::npos ? std::string::npos : amp - pos);
+        if (part.rfind(key, 0) == 0) return urlDecode(part.substr(key.size()));
+        if (amp == std::string::npos) break;
+        pos = amp + 1;
+    }
+    return {};
+}
+
+// A path inside the sandbox: relative, no "..", and after resolving symbolic links still under the sandbox root.
+bool insideSandbox(const fs::path& root, const std::string& rel, fs::path& out)
+{
+    if (rel.empty() || rel[0] == '/' || rel.find("..") != std::string::npos || rel.find('\0') != std::string::npos) return false;
+    std::error_code ec;
+    const fs::path base = fs::weakly_canonical(root, ec);
+    const fs::path full = fs::weakly_canonical(base / rel, ec);
+    if (ec) return false;
+    const std::string b = base.string() + "/", f = full.string() + "/";
+    if (f.compare(0, b.size(), b) != 0) return false;
+    out = full;
+    return true;
+}
+
+const char* mimeOf(const std::string& path)
+{
+    const auto dot = path.rfind('.');
+    const std::string ext = dot == std::string::npos ? "" : path.substr(dot);
+    if (ext == ".html" || ext == ".htm") return "text/html; charset=utf-8";
+    if (ext == ".js" || ext == ".mjs") return "text/javascript; charset=utf-8";
+    if (ext == ".css") return "text/css; charset=utf-8";
+    if (ext == ".json") return "application/json";
+    if (ext == ".svg") return "image/svg+xml";
+    if (ext == ".png") return "image/png";
+    if (ext == ".jpg" || ext == ".jpeg") return "image/jpeg";
+    if (ext == ".wasm") return "application/wasm";
+    return "text/plain; charset=utf-8";
+}
+
+// Everything worth opening in a sandbox, without the duplicated per-attempt workspaces (`ws/`): path and size.
+std::string filesJson(const fs::path& root)
+{
+    json::Writer w;
+    w.beginObject().kv("sandbox", root.string());
+    std::string deliverables;
+    { std::ifstream in(root / "deliverables.json"); std::ostringstream o; o << in.rdbuf(); deliverables = o.str(); }
+    if (!deliverables.empty()) w.kvRaw("deliverables", deliverables); else w.key("deliverables").null();
+    w.key("files").beginArray();
+    std::error_code ec;
+    int n = 0;
+    for (fs::recursive_directory_iterator it(root, fs::directory_options::skip_permission_denied, ec), end; it != end && n < 3000; it.increment(ec)) {
+        if (ec) break;
+        const std::string name = it->path().filename().string();
+        if (it->is_directory(ec) && (name == "ws" || name == "node_modules" || name == ".git")) { it.disable_recursion_pending(); continue; }
+        if (!it->is_regular_file(ec)) continue;
+        w.beginObject().kv("p", fs::relative(it->path(), root).generic_string()).kv("s", static_cast<std::int64_t>(it->file_size(ec))).endObject();
+        ++n;
+    }
+    w.endArray().endObject();
+    return w.take();
+}
+
 // ---- HTTP -----------------------------------------------------------------------------------------------------------------------
 void sendAll(int fd, const std::string& s)
 {
@@ -263,11 +449,11 @@ void sendAll(int fd, const std::string& s)
     }
 }
 
-void respond(int fd, int code, const char* type, const std::string& body)
+void respond(int fd, int code, const char* type, const std::string& body, const char* extraHeaders = "")
 {
     const char* text = code == 200 ? "OK" : code == 404 ? "Not Found" : "Method Not Allowed";
     sendAll(fd, "HTTP/1.1 " + std::to_string(code) + " " + text + "\r\nContent-Type: " + type + "\r\nContent-Length: " + std::to_string(body.size()) +
-                    "\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\nConnection: close\r\n\r\n" + body);
+                    "\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\n" + extraHeaders + "Connection: close\r\n\r\n" + body);
 }
 
 }  // namespace
@@ -284,6 +470,18 @@ int servePortal(int port, const std::function<std::string()>& state, const std::
     ::inet_pton(AF_INET, "127.0.0.1", &a.sin_addr);  // loopback only: the portal is never reachable from another machine
     if (::bind(srv, reinterpret_cast<sockaddr*>(&a), sizeof a) != 0 || ::listen(srv, 16) != 0) { std::perror("portal: bind/listen"); ::close(srv); return 1; }
 
+    // Generated sites are served from a second loopback port, a different origin from the portal: a page the models wrote cannot read the
+    // portal's API (no CORS headers there), and its own responses forbid any network access (CSP connect-src 'none', default-src to itself).
+    const int siteSrv = ::socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
+    {
+        int one2 = 1;
+        ::setsockopt(siteSrv, SOL_SOCKET, SO_REUSEADDR, &one2, sizeof one2);
+        sockaddr_in b{};
+        b.sin_family = AF_INET;
+        b.sin_port = htons(static_cast<std::uint16_t>(port + 1));
+        ::inet_pton(AF_INET, "127.0.0.1", &b.sin_addr);
+        if (siteSrv < 0 || ::bind(siteSrv, reinterpret_cast<sockaddr*>(&b), sizeof b) != 0 || ::listen(siteSrv, 16) != 0) { std::perror("portal: site port"); return 1; }
+    }
     Live live;
     for (const auto& b : extraEngines) live.bases.insert(b);
     std::jthread sampler([&live, &state](std::stop_token st) {
@@ -300,13 +498,21 @@ int servePortal(int port, const std::function<std::string()>& state, const std::
             }
             std::set<std::string> bases;
             { std::lock_guard lock(live.m); bases = live.bases; }
-            for (const auto& b : bases) sampleEngine(live, b);
+            for (const auto& b : bases) {
+                bool need = false;
+                { std::lock_guard lock(live.m); const auto& m = live.engines[b].model; need = !m.have || nowSec() - m.fetchedAt > 60; }
+                if (need) fetchModel(live, b);
+                sampleEngine(live, b);
+            }
             std::this_thread::sleep_until(next);
         }
     });
     std::fprintf(stderr, "portal: http://127.0.0.1:%d/  (read-only, loopback only; Ctrl-C to stop)\n", port);
     for (;;) {
-        const int c = ::accept4(srv, nullptr, nullptr, SOCK_CLOEXEC);
+        pollfd pf[2] = {{srv, POLLIN, 0}, {siteSrv, POLLIN, 0}};
+        if (::poll(pf, 2, -1) <= 0) continue;
+        const bool onSite = !(pf[0].revents & POLLIN);
+        const int c = ::accept4(onSite ? siteSrv : srv, nullptr, nullptr, SOCK_CLOEXEC);
         if (c < 0) continue;
         timeval tv{2, 0};
         ::setsockopt(c, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof tv);
@@ -321,12 +527,35 @@ int servePortal(int port, const std::function<std::string()>& state, const std::
         else {
             const std::string target = req.substr(4, req.find(' ', 4) - 4);
             const std::string path = target.substr(0, target.find('?'));
-            if (path == "/" || path == "/index.html") respond(c, 200, "text/html; charset=utf-8", portalPage());
+            if (onSite && path.rfind("/site/", 0) != 0) respond(c, 404, "text/plain", "this port serves /site/<workflow>/ only\n");
+            else if (path == "/" || path == "/index.html") respond(c, 200, "text/html; charset=utf-8", portalPage());
             else if (path == "/api/state") { std::string cached; { std::lock_guard lock(live.m); cached = live.stateJson; } respond(c, 200, "application/json", cached); }
             else if (path == "/api/live") {
                 std::size_t n = 120;
                 if (const auto q = target.find("n="); q != std::string::npos) n = std::clamp<long>(std::atol(target.c_str() + q + 2), 10, static_cast<long>(kKeep));
                 respond(c, 200, "application/json", liveJson(live, n));
+            }
+            else if (path == "/api/files") {  // the packages of one workflow: its files and its deliverables manifest
+                const std::string root = sandboxOf(live, queryParam(target, "wf"));
+                if (root.empty()) respond(c, 404, "text/plain", "unknown workflow\n"); else respond(c, 200, "application/json", filesJson(root));
+            }
+            else if (path == "/api/file") {  // one file as plain text (the request, a prompt, a reply, a gate output, an artifact), capped
+                const std::string root = sandboxOf(live, queryParam(target, "wf"));
+                fs::path full;
+                if (root.empty() || !insideSandbox(root, queryParam(target, "p"), full) || !fs::is_regular_file(full)) respond(c, 404, "text/plain", "not found\n");
+                else { std::string body = slurp(full); const bool cut = body.size() > 400000; if (cut) body.resize(400000); respond(c, 200, "text/plain; charset=utf-8", body + (cut ? "\n[... cut at 400 KB]\n" : "")); }
+            }
+            else if (onSite && path.rfind("/site/", 0) != 0) respond(c, 404, "text/plain", "this port serves /site/<workflow>/ only\n");
+            else if (onSite) {  // the integrated project served as a site, in an opaque sandboxed origin with no network
+                const std::string rest = urlDecode(path.substr(6));
+                const auto slash = rest.find('/');
+                const std::string wf = rest.substr(0, slash);
+                std::string rel = slash == std::string::npos ? "" : rest.substr(slash + 1);
+                if (rel.empty() || rel.back() == '/') rel += "index.html";
+                const std::string root = sandboxOf(live, wf);
+                fs::path full;
+                if (root.empty() || !insideSandbox(fs::path(root) / "project", rel, full) || !fs::is_regular_file(full)) respond(c, 404, "text/plain", "not found\n");
+                else respond(c, 200, mimeOf(full.string()), slurp(full), ("Content-Security-Policy: default-src http://127.0.0.1:" + std::to_string(port + 1) + " 'unsafe-inline'; connect-src 'none'\r\n").c_str());
             }
             else if (path == "/healthz") respond(c, 200, "text/plain", "ok\n");
             else respond(c, 404, "text/plain", "not found\n");
