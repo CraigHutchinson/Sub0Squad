@@ -1,0 +1,64 @@
+# Backlog
+
+Work that is understood but not scheduled. Newest first within a heading; each item says where its design lives. The roadmap ([ROADMAP.md](ROADMAP.md))
+holds milestones; this holds the things noticed on the way.
+
+## Portal
+
+### Node tree presentation: grouping, ordering and connections (2026-11-10, from a screenshot of the live V run)
+
+What the screenshot of `w-000001` (a divided workflow on the 9B) shows, and what should change:
+
+- **Parts are not grouped under the node that divided them.** Nodes sit by dependency column and level, so the parts of different parents
+  interleave (`ui-js.ui-edit`, `engine.lexer`, `ui-js.ui-detect`, `engine.functions` in one row), and a coordinator (`engine`, `ui-js`, drawn as
+  "integrator") sits in the top row far from its parts. Wanted: a divided parent drawn as a **container** (a labelled box) holding its parts, the
+  parts ordered inside it, and the coordinator as the box's frame or footer, so the V reads as nesting, with finished containers collapsible to one
+  line (state, rounds, tokens, last verdict).
+- **Edges cross and run through unrelated nodes.** The dashed "divided into" edges and the solid dependency edges are long splines that cross
+  five or six times. Wanted: a layered layout with **crossing minimisation** (barycentre ordering within each layer), edges routed between
+  layers (orthogonal or short splines), **bundling** for fan-in and fan-out (all parts into their coordinator, one tester into several
+  developers), and the "divided into" relation shown by containment instead of an edge.
+- **Order is by arrival, not by meaning.** Wanted: a stable, meaningful order (test items beside the thing they grade, parts in dependency
+  order, siblings in the order the division listed them) that **does not jump between refreshes**; layout must be deterministic from the plan so the
+  keyed patching keeps nodes in place, and a node that changes state changes colour, not place.
+- **The V is not visible.** Descent on the left and ascent on the right (design: `docs/WORK_GRAPH.md` sections 7 and 13): lanes by phase (tests,
+  implementation, integration), the current oscillation highlighted, round-trip count on each coordinator.
+- **Small defects:** the activity icon for "dividing" (`÷`) reads as a plus at that size, so use a distinct shape or colour pair; the model badge
+  overlaps long node ids and the live line is clipped at the node edge (`... decoding 549 tok (1.95k le`), so give the node room or wrap, and
+  truncate with a tooltip; level labels should say what the level is.
+- **Scale:** past about 30 nodes the whole graph cannot be read at once. Wanted: zoom and pan, a mini-map, focus on the active frontier (running
+  and waiting nodes plus their neighbours), highlight of the dependency path on hover or selection.
+
+Acceptance: a plan like the one in the screenshot (6 top-level items, 3 divided into 3 or 4 parts) renders with no edge crossing a node that is not an
+endpoint and at most a few edge crossings; each divided parent is a container with its parts inside; two refreshes with unchanged data leave every
+node where it was; a collapsed container shows its state and counts. Design notes first (compound layered layout; which library or a small
+hand-written Sugiyama pass; how it works with the retained-mode patching in `portal_page.cpp`).
+
+### Other portal items
+
+- A "copy as prompt" button on the briefing; the briefing for any request, not only escalations (`WORK_GRAPH.md` section 17).
+- The visual V and per-node verdict history; node detail with the card, the last prompt and the gate output side by side; engine and memory
+  gauges (sections 8, 12).
+- Quotas and the frontier switch as governance requests, shown in the inbox (section 14).
+
+## Workflow
+
+- **Agents raise requests themselves** (a reply block asking a question or reporting a blocker instead of guessing); impact analysis for a
+  requirement change from the graph and keyed history instead of the scope the owner ticks (section 14).
+- **The V, remaining:** attribution of a failed integration by a model rather than by file names; review (a model reading the combined result
+  against the card); send-up proposals against a parent's interface; bubble-up to a rearchitect of the parent when the round-trip budget is
+  spent (section 13).
+- **Parallelism inside a node:** the plan phase emits areas with interface skeletons; serial area turns; redundant forks on idle slots; prefix
+  reuse across forks with llama.cpp slot save and restore, to be checked on our build (section 15).
+- **Project-manager pass** on idle capacity filing proposals into the inbox (section 11); model-backed overseer that proposes options for the
+  `owner` class; harness facts per project type (C++ builds and tests) (section 17).
+- **A reporter step** that decides the deliverables and writes the final report for non-web outputs (section 12).
+- **Shed jobs** are requeued without costing an attempt; memory-aware engine leases (KV cost per slot) (section 11).
+- **Reuse accepted outputs across workflows** by content hash, so a rerun does not redo accepted nodes.
+- **Keyed history store and the Sub0Log trace stream**: `history-1`, scope and visit keys, `export` and `compare` (section 10).
+- A frontier-stub that has no reference for a plan's items is useless for escalation: either a real reference path or a documented "stub
+  cannot help here" (the policy already skips it).
+
+## Platform
+
+- Windows and macOS builds; the HTTP stack on Boost.Beast and Asio behind the seam (DECISIONS 18); Sub0Llm roofs PR #102 follow-ups.

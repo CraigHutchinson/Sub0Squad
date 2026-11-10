@@ -1,6 +1,6 @@
 # Roadmap
 
-Milestones from [DESIGN.md](DESIGN.md) section 10. Tickets for them live in Sub0Llm for now (#86 to #90).
+Milestones from [DESIGN.md](DESIGN.md) section 10. Tickets for them live in Sub0Llm for now (#86 to #90). Work noticed on the way: [BACKLOG.md](BACKLOG.md).
 
 | Milestone | Deliverable | State |
 |---|---|---|
