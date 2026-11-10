@@ -211,9 +211,17 @@ struct Daemon::Impl
         if (stopping || !journalOk) return;
         for (;;) {
             if (activeCount() >= opts.maxJobs) return;
+            // Lease occupancy of the jobs that are running now: a queued job whose shared resource (an engine's slots) is full waits
+            // without blocking later jobs that need nothing or a different resource.
+            std::map<std::string, std::int64_t> held;
+            for (const auto& [id, r] : running)
+                if (!r->finalized) if (const JobRecord* jr = store.find(id); jr && !jr->spec.leaseResource.empty()) ++held[jr->spec.leaseResource];
             const JobRecord* next = nullptr;
-            for (const auto& j : store.jobs())
-                if (j.state == JobState::queued && !running.count(j.id) && (!next || j.submittedAt < next->submittedAt)) next = &j;
+            for (const auto& j : store.jobs()) {
+                if (j.state != JobState::queued || running.count(j.id)) continue;
+                if (!j.spec.leaseResource.empty() && held[j.spec.leaseResource] >= std::max<std::int64_t>(1, j.spec.leaseCap)) continue;
+                if (!next || j.submittedAt < next->submittedAt) next = &j;
+            }
             if (!next) return;
             startRun(*next);
         }

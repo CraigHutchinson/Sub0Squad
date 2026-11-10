@@ -133,5 +133,25 @@ int main(int, char** argv)
         CHECK(sq.cli({"status", "--json"}).out.find("\"jobs\":[]") != std::string::npos);
         CHECK(sq.cli({"submit", "--memory-mib", "1", "--", "true"}).exitCode == 0);
     }
+    { // Resource lease: four job slots but a lease of 2 on one resource. Never more than 2 holders run at once, the rest wait, and a
+      // lease-free job is not blocked behind the full lease.
+        Squad sq(exe, "lease");
+        sq.startDaemon(4);
+        std::vector<std::string> ids;
+        for (int i = 0; i < 5; ++i)
+            ids.push_back(sq.submitWorker("lz" + std::to_string(i), {"--steps", "8", "--step-ms", "100"}, {"--lease", "engine-a=2"}));
+        const std::string free = sq.submitWorker("lzfree", {"--steps", "2", "--step-ms", "50"});
+        CHECK(sq.waitState(free, "succeeded"));  // finished while the leased jobs still queue or run
+        int peak = 0;
+        for (int tick = 0; tick < 400; ++tick) {
+            int running = 0, done = 0;
+            for (const auto& id : ids) { const std::string st = sq.statusField(id, "state"); if (st == "running") ++running; if (st == "succeeded") ++done; }
+            peak = std::max(peak, running);
+            if (done == 5) break;
+            sleepMs(50);
+        }
+        CHECK(peak == 2);
+        for (const auto& id : ids) CHECK(sq.waitState(id, "succeeded"));
+    }
     return finish();
 }

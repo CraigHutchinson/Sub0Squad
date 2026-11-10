@@ -279,7 +279,9 @@ int runHarnessGate(const std::vector<std::string>& args)
         // A tester's tests must be about something real: against the stubs most of them must fail.
         if (tap.fail * 10 < tap.tests * 7) return fail("only " + std::to_string(tap.fail) + " of " + std::to_string(tap.tests) + " tests fail against the stub: they do not exercise the contract");
     } else if (tap.fail != 0 || r.exitCode != 0) {
-        return fail(std::to_string(tap.fail) + " of " + std::to_string(tap.tests) + " tests failed\n" + tap.excerpt);
+        const int code = fail(std::to_string(tap.fail) + " of " + std::to_string(tap.tests) + " tests failed\n" + tap.excerpt);
+        // Exit 3 marks a near pass (at least 10 tests, at most 15 % failing): the decision policy repairs it instead of dividing the item.
+        return tap.tests >= 10 && tap.fail * 100 <= tap.tests * 15 ? 3 : code;
     }
     const bool publish = one(a, "no-publish").empty();  // the optimiser judges attempts without touching the accepted outputs
     if (publish) { fs::remove_all(dir / "items" / itemId / "accepted", ec); copyTree(out, dir / "items" / itemId / "accepted"); }

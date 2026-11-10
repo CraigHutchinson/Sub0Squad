@@ -230,6 +230,7 @@ JobSpec agentJob(const WorkflowRecord& wf, const WorkflowSettings& st, const Wor
     JobSpec s = baseJob(wf, st, "agent", llm ? "llm-agent" : "mock-agent", tier.c_str(), llm && tier == "local" ? 3 * 3600 : 120);
     s.item = it.id;
     s.attempt = attempt;
+    if (llm) { s.leaseResource = engine->endpoint; s.leaseCap = std::max(1, engine->maxConcurrent); }
     if (llm) {
         s.argv = {st.exe, "llm-agent", "--workflow-dir", wf.spec.sandboxDir, "--item", it.id, "--tier", tier, "--attempt", std::to_string(attempt), "--engine", engine->toArg(),
                   "--max-tokens", std::to_string(wf.spec.maxTokens), "--timeout", "1700", "--treatment", wf.spec.treatment, "--repair-turns", std::to_string(wf.spec.repairTurns)};
@@ -258,7 +259,10 @@ JobSpec architectJob(const WorkflowRecord& wf, const WorkflowSettings& st, const
     s.item = it.id;
     s.attempt = attempt;
     s.argv = {st.exe, llm ? "llm-architect" : "mock-architect", "--mode", mode, "--workflow-dir", wf.spec.sandboxDir, "--item", it.id, "--attempt", std::to_string(attempt)};
-    if (llm) { s.argv.push_back("--engine"); s.argv.push_back(engine->toArg()); s.argv.push_back("--timeout"); s.argv.push_back("1700"); }
+    if (llm) {
+        s.leaseResource = engine->endpoint; s.leaseCap = std::max(1, engine->maxConcurrent);
+        s.argv.push_back("--engine"); s.argv.push_back(engine->toArg()); s.argv.push_back("--timeout"); s.argv.push_back("1700");
+    }
     return s;
 }
 
@@ -356,6 +360,7 @@ std::vector<WorkflowAction> advance(const WorkflowRecord& wf, const JobStore& st
             ctx.depth = static_cast<int>(std::count(v.item->id.begin(), v.item->id.end(), '.'));
             ctx.totalAttempts = n;
             ctx.splittable = v.item->files.size() > 1 || v.item->complexity >= 2;
+            for (const JobRecord* g : v.gates) if (g->spec.attempt == n && g->exitJson.find("\"code\":3") != std::string::npos) ctx.nearPass = true;
             ctx.decomposeTried = v.decomposeTried;
             ctx.rearchitectTried = v.rearchitectTried;
             for (const auto& dd : wf.decisions) if (dd.item == v.item->id && dd.action == "reviseTests") ctx.reviseTried = true;

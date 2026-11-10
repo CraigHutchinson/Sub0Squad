@@ -27,9 +27,11 @@ struct DecisionContext
     // The escalation ladder (docs/OPTIMIZATION.md): what has been tried for this item, and where it sits in the plan.
     int depth = 0;                 ///< division depth of the item (dots in its id)
     int totalAttempts = 0;         ///< every attempt-like job so far: agent, decompose and rearchitect all count
-    int maxTotalAttempts = 8;
+    int maxTotalAttempts = 10;   // 8 plus the near-pass repair allowance, so repairs never starve the final escalation
     bool splittable = false;       ///< more than one file, or complexity of at least 2
     bool hasTesterDep = false;     ///< the item is graded by tests another item produced
+    bool nearPass = false;         ///< the failed gate had at least 10 tests and at most 15 % of them failing (gate exit code 3)
+    int maxNearPassRepairs = 2;    ///< extra local repair attempts granted to a near pass before the ladder moves on
     bool decomposeTried = false, reviseTried = false, rearchitectTried = false;
     int maxDepth = 2;
 };

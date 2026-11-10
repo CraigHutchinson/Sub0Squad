@@ -41,6 +41,12 @@ Decision RulePolicy::decide(const DecisionContext& c) const
         d.reasons.push_back("local attempts " + std::to_string(c.localAttempts) + " of " + std::to_string(c.maxLocalAttempts) + " used: retry locally");
         return d;
     }
+    if (c.nearPass && c.localAttempts < c.maxLocalAttempts + c.maxNearPassRepairs) {
+        d.action = Action::retry;
+        d.tier = "local";
+        d.reasons.push_back("near pass (at most 15 % of the tests fail): repair the best code so far instead of dividing the item");
+        return d;
+    }
     d.reasons.push_back("local attempts exhausted (" + std::to_string(c.localAttempts) + ")");
     if (!c.decomposeTried && c.splittable && c.depth < c.maxDepth) {
         d.action = Action::decompose;

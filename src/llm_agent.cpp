@@ -170,8 +170,22 @@ int runLlmAgent(const std::vector<std::string>& args)
         std::error_code mv;
         fs::rename(disputeFile, dir / "items" / itemId / ("dispute-used-" + std::to_string(attempt) + ".txt"), mv);
     } else if (attempt > 1 && fs::exists(dir / "items" / itemId / ("attempt-" + std::to_string(attempt - 1)))) {
-        const std::string g = slurp(dir / "items" / itemId / ("attempt-" + std::to_string(attempt - 1)) / "gate.txt");
-        if (!g.empty()) feedback = "Your previous attempt was rejected:\n" + clip(g, 1200) + "\nFix exactly this and write the complete files again.\n";
+        // Start the retry from the BEST earlier attempt (fewest failing tests, the latest on a tie), not from nothing: a rewrite from scratch
+        // regressed a 64 of 67 pass to 59 of 67 in the first real run. The model gets that attempt's files and its failures.
+        int best = attempt - 1, bestFail = 1 << 30;
+        for (int k = 1; k < attempt; ++k) {
+            const std::string gk = slurp(dir / "items" / itemId / ("attempt-" + std::to_string(k)) / "gate.txt");
+            int f = 1 << 29;
+            if (gk.rfind("GATE FAIL: ", 0) == 0 && gk.find(" of ") != std::string::npos) f = std::atoi(gk.c_str() + 11);
+            if (f <= bestFail) { bestFail = f; best = k; }
+        }
+        const fs::path bestDir = dir / "items" / itemId / ("attempt-" + std::to_string(best));
+        const std::string g = slurp(bestDir / "gate.txt");
+        std::string code;
+        if (!g.empty() && bestFail < (1 << 29))
+            for (const auto& f : item->files) { const std::string c = slurp(bestDir / "out" / f); if (!c.empty()) code += "=== FILE: " + f + " ===\n" + clip(c, 7000) + "\n=== END FILE ===\n"; }
+        if (!g.empty() && !code.empty()) feedback = "Your best earlier version (attempt " + std::to_string(best) + ") is below. It was rejected:\n" + clip(g, 1200) + "\n" + code + "Change only what these failures need, keep everything else, and write the complete files again.\n";
+        else if (!g.empty()) feedback = "Your previous attempt was rejected:\n" + clip(g, 1200) + "\nFix exactly this and write the complete files again.\n";
         else feedback = "Your previous attempt produced no usable files. Reply in the required file format.\n";
     }
     const std::string user = card.str() + (feedback.empty() ? "" : "\n" + feedback);

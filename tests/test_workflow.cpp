@@ -256,5 +256,14 @@ int main()
         acts = s.step();
         CHECK(acts.size() == 1 && acts[0].finalState == WorkflowState::cancelled);
     }
+    { RulePolicy policy; // Near pass: a gate failure with few failing tests is repaired (extra local attempts), not divided; a bad failure still climbs the ladder.
+        DecisionContext c; c.workflow = "w"; c.item = "engine"; c.attempt = 2; c.localAttempts = 2; c.failedRole = "gate"; c.splittable = true; c.nearPass = true;
+        c.totalAttempts = 2;
+        CHECK(policy.decide(c).action == Action::retry);
+        c.localAttempts = 4;                       // the repair allowance is used up
+        CHECK(policy.decide(c).action == Action::decompose);
+        c.localAttempts = 2; c.nearPass = false;   // not a near pass: the ladder starts at decompose
+        CHECK(policy.decide(c).action == Action::decompose);
+    }
     return finish();
 }
