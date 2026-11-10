@@ -25,6 +25,14 @@ std::string toJson(const DecisionContext& c, const Decision& d)
     return w.take();
 }
 
+int chooseLeaseSlot(int cap, const std::set<int>& used, int preferred)
+{
+    if (preferred >= 0 && preferred < cap && !used.count(preferred)) return preferred;
+    int i = 0;
+    while (used.count(i) && i < cap) ++i;
+    return i;
+}
+
 int effectiveSizeBudget(int budget, int idleSlots, int totalSlots)
 {
     if (budget <= 0 || totalSlots <= 1 || idleSlots < 0) return budget;

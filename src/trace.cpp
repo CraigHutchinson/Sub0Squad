@@ -56,6 +56,7 @@ void traceReply(const std::filesystem::path& file, int turn, const ChatResult& r
     std::string s = "### Reply, turn " + std::to_string(turn) + " (" + now() + "): " + std::to_string(r.promptTokens) + " prompt tokens, " + std::to_string(r.completionTokens) + " completion tokens, finish `" + r.finishReason + "`";
     if (r.predictedMs > 0) { char b[64]; std::snprintf(b, sizeof b, ", %.1f tok/s decode", static_cast<double>(r.completionTokens) / (r.predictedMs / 1000.0)); s += b; }
     if (r.promptMs > 0) { char b[64]; std::snprintf(b, sizeof b, ", %.1f s prompt", r.promptMs / 1000.0); s += b; }
+    if (r.cachedTokens > 0) s += ", " + std::to_string(r.cachedTokens) + " of them already cached on the slot";
     s += "\n\n";
     if (!r.reasoning.empty()) s += "Reasoning the model returned (" + std::to_string(r.reasoning.size()) + " characters):\n\n" + fence(r.reasoning) + "\n";
     else if (r.reasoningChars > 0) s += "(the model reasoned for " + std::to_string(r.reasoningChars) + " characters that were not kept)\n\n";

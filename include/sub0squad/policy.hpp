@@ -3,6 +3,7 @@
 /// The decision seam (docs/DESIGN.md section 16): given what is known about an item that just failed, answer retry, escalate or
 /// fail, with reasons and the inputs used so the decision can be audited and replayed offline against a different policy.
 
+#include <set>
 #include <string>
 #include <vector>
 
@@ -59,6 +60,11 @@ struct Decision
 /// below 400); when the engine is busy (at most one idle slot) a split would only queue, so it is raised by half. `totalSlots <= 1` or an unknown
 /// state leaves the budget as given.
 [[nodiscard]] int effectiveSizeBudget(int budget, int idleSlots, int totalSlots);
+
+/// Which slot of a lease a starting job takes: the one its node used last time when it is free (the server keeps that slot's cache, so a retry
+/// skips the prefill of the card and tests it shares with the earlier attempt: measured 19 s cold against 4.5 s warm for a 3,000 token prompt on the 9B),
+/// otherwise the lowest free one. `used` holds the slots in use; the result is below `cap` whenever one is free.
+[[nodiscard]] int chooseLeaseSlot(int cap, const std::set<int>& used, int preferred);
 
 class IDecisionPolicy
 {

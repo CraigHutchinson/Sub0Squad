@@ -476,5 +476,12 @@ int main()
         CHECK(recallLastConversation(root, "engine").empty());                  // no conversation file there
         std::filesystem::remove_all(root);
     }
+    { // Slot affinity: a node's retry returns to its earlier slot when it is free; otherwise the lowest free slot.
+        CHECK_EQ(chooseLeaseSlot(8, {}, -1), 0);
+        CHECK_EQ(chooseLeaseSlot(8, {0, 1}, -1), 2);
+        CHECK_EQ(chooseLeaseSlot(8, {0, 1, 5}, 5), 2);   // preferred is taken: lowest free
+        CHECK_EQ(chooseLeaseSlot(8, {0, 1}, 5), 5);      // preferred is free: kept, so the prompt cache hits
+        CHECK_EQ(chooseLeaseSlot(4, {0}, 9), 1);         // preferred beyond the cap is ignored
+    }
     return finish();
 }

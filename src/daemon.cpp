@@ -257,6 +257,7 @@ struct Daemon::Impl
         logf("memory pressure: %lld MiB available, shedding %s%s", static_cast<long long>(avail), victim->id.c_str(), victim->spec.service ? " (a server)" : "");
         (void)doCancel(victim->id);  // one per tick: give the kernel time to reclaim before shedding more
     }
+    std::map<std::string, int> lastSlot;  ///< "workflow/item" -> the lease slot its latest job took (slot affinity for the server-side prompt cache)
     std::map<std::string, std::string> shedNote;  ///< jobs cancelled by the memory guard: the reason recorded when they finish
     std::chrono::steady_clock::time_point lastMemCheck{};
     int watchMs = 5000;
@@ -284,7 +285,12 @@ struct Daemon::Impl
             }
             if (!next) return;
             int idx = -1;
-            if (!next->spec.leaseResource.empty()) { idx = 0; while (usedIndex[next->spec.leaseResource].count(idx)) ++idx; }  // the lowest free slot of the lease
+            if (!next->spec.leaseResource.empty()) {
+                const std::string key = next->spec.workflow + "/" + next->spec.item;
+                const auto prev = lastSlot.find(key);
+                idx = chooseLeaseSlot(static_cast<int>(std::max<std::int64_t>(1, next->spec.leaseCap)), usedIndex[next->spec.leaseResource], prev == lastSlot.end() ? -1 : prev->second);
+                if (!next->spec.item.empty()) lastSlot[key] = idx;  // a node's next attempt goes back to the slot that already holds its prompt
+            }
             startRun(*next, idx);
         }
     }

@@ -72,6 +72,17 @@ hand-written Sugiyama pass; how it works with the retained-mode patching in `por
 - A frontier-stub that has no reference for a plan's items is useless for escalation: either a real reference path or a documented "stub
   cannot help here" (the policy already skips it).
 
+## Prompts and tokens (from [PROMPT_REVIEW.md](PROMPT_REVIEW.md))
+
+- **Repair by edits** (search and replace blocks, whole file as fallback; architect corrections return only the corrected items): about 80 % of repair
+  output was unchanged text.
+- **A cost rule for dividing** (serial saving against division, parts' tests and integration) instead of the size rule alone.
+- **Rolling conversation window**; **tidy the system block** (generated harness brief, persona-neutral prefix first); a retry includes only the failing
+  tests plus the names of the rest.
+- **Skills**: a registry of format and capability texts, injected at the end of the turn that needs them, listed by name otherwise, `NEED <name>` for
+  optional ones, tolerant parsing; measure how reliably a 9B asks. A/B each change with seeded runs (tokens by kind, cached tokens, time, acceptance).
+- Slot affinity and the cached-token figure in the trace are built (second build); show cached tokens as a portal figure.
+
 ## Platform
 
 - Windows and macOS builds; the HTTP stack on Boost.Beast and Asio behind the seam (DECISIONS 18); Sub0Llm roofs PR #102 follow-ups.

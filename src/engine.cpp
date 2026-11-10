@@ -211,6 +211,7 @@ std::expected<ChatResult, std::string> chatCompleteMessages(const EngineProfile&
                         const std::string_view tk = tf.unescaped_key();
                         if (tk == "prompt_ms") r.promptMs = tf.value().get_double();
                         else if (tk == "predicted_ms") r.predictedMs = tf.value().get_double();
+                        else if (tk == "cache_n") r.cachedTokens = static_cast<long>(tf.value().get_int64());
                     }
                 }
             }
