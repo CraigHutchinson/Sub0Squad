@@ -25,6 +25,14 @@ std::string toJson(const DecisionContext& c, const Decision& d)
     return w.take();
 }
 
+int effectiveSizeBudget(int budget, int idleSlots, int totalSlots)
+{
+    if (budget <= 0 || totalSlots <= 1 || idleSlots < 0) return budget;
+    if (idleSlots >= 3 && idleSlots * 2 >= totalSlots) return std::max(400, budget / 2);
+    if (idleSlots <= 1) return budget + budget / 2;
+    return budget;
+}
+
 Decision RulePolicy::decide(const DecisionContext& c) const
 {
     Decision d;

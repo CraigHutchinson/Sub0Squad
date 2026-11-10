@@ -275,7 +275,17 @@ int runHarnessGate(const std::vector<std::string>& args)
     if (r.timedOut) return fail("tests timed out");
     events::progress(2, 3, "judge");
     if (tap.tests < 0) return fail("the test runner produced no result:\n" + r.output.substr(0, 700));
-    if (tap.tests < item->gate.minTests) return fail("only " + std::to_string(tap.tests) + " test(s) ran, at least " + std::to_string(item->gate.minTests) + " are required\n" + tap.excerpt);
+    if (tap.tests < item->gate.minTests) {
+        // A test file that crashes while loading (a read at the top of the file, an import that does not exist) counts as one failed test with the
+        // message "test failed": say what the runner actually reported, or the model cannot know what to fix.
+        std::string why;
+        int shown = 0;
+        std::istringstream in(r.output);
+        for (std::string line; std::getline(in, line) && shown < 4;)
+            if (line.find("Error") != std::string::npos || line.find("ENOENT") != std::string::npos || line.find("Cannot find") != std::string::npos) { why += "  " + line.substr(0, 200) + "\n"; ++shown; }
+        return fail("only " + std::to_string(tap.tests) + " test(s) ran, at least " + std::to_string(item->gate.minTests) + " are required\n" + tap.excerpt +
+                    (why.empty() ? std::string{} : "The runner reported (a test file that fails while loading counts as one failed test):\n" + why));
+    }
     if (item->gate.mustFailOnStub) {
         // A tester's tests must be about something real: against the stubs most of them must fail.
         if (tap.fail * 10 < tap.tests * 7) return fail("only " + std::to_string(tap.fail) + " of " + std::to_string(tap.tests) + " tests fail against the stub: they do not exercise the contract");

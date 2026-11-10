@@ -21,7 +21,9 @@ h1{font-size:16px;margin:0}.mute{color:var(--mute)}main{padding:12px 16px;displa
 svg{max-width:100%}.graph svg{width:100%;height:auto;display:block;overflow:visible}
 .node{cursor:pointer}.node rect.box{fill:var(--panel);stroke-width:2}.node text{fill:var(--ink);font-size:12px}.node .sub{fill:var(--mute);font-size:10.5px}.node .live{fill:var(--running);font-size:10.5px}
 .s-pending rect.box{stroke:var(--pending)}.s-running rect.box{stroke:var(--running);animation:pulse 1.4s ease-in-out infinite}.s-accepted rect.box{stroke:var(--accepted)}.s-failed rect.box{stroke:var(--failed)}
-.node.sel rect.box{stroke-width:4}.badge{display:inline-block;padding:0 7px;border-radius:9px;font-size:11px;font-weight:600;border:1px solid var(--accent);color:var(--accent);vertical-align:1px;cursor:help}.badge.fr{border-color:var(--warn);color:var(--warn)}.badge.mock{border-color:var(--mute);color:var(--mute)}.bpill{fill:none;stroke:var(--accent);stroke-width:1.2}.bpill.fr{stroke:var(--warn)}.btext{fill:var(--accent);font-size:10px;font-weight:600}.btext.fr{fill:var(--warn)}@keyframes pulse{50%{stroke-opacity:.35}}
+.node.sel rect.box{stroke-width:4}
+.node.act-divide rect.box,.node.act-architect rect.box,.node.act-integrate rect.box{stroke:var(--accent);fill:color-mix(in srgb,var(--accent) 14%,var(--panel))}.node.act-integrate rect.box{stroke:#1a9a8a}
+.actdot{fill:var(--accent);stroke:var(--panel);stroke-width:2}.actdot.int{fill:#1a9a8a}.acttext{fill:#fff;font-size:13px;font-weight:700;text-anchor:middle}.badge{display:inline-block;padding:0 7px;border-radius:9px;font-size:11px;font-weight:600;border:1px solid var(--accent);color:var(--accent);vertical-align:1px;cursor:help}.badge.fr{border-color:var(--warn);color:var(--warn)}.badge.mock{border-color:var(--mute);color:var(--mute)}.bpill{fill:none;stroke:var(--accent);stroke-width:1.2}.bpill.fr{stroke:var(--warn)}.btext{fill:var(--accent);font-size:10px;font-weight:600}.btext.fr{fill:var(--warn)}@keyframes pulse{50%{stroke-opacity:.35}}
 .edge{fill:none;stroke:var(--edge);stroke-width:1.5}.edge.parent{stroke-dasharray:4 4;stroke:var(--accent)}
 .lane{fill:none;stroke:var(--line);stroke-dasharray:2 5}.lanelabel{fill:var(--mute);font-size:11px}
 .spark{fill:none;stroke:var(--running);stroke-width:1.5}.spark.b{stroke:var(--accepted)}.spark.c{stroke:var(--warn)}.sparkfill{fill:var(--running);opacity:.12}
@@ -39,7 +41,7 @@ code{font-size:12px;word-break:break-all}
 .rq{border:1px solid var(--line);border-radius:8px;padding:8px 10px;margin:6px 0}.rq.block{border-color:var(--warn)}.rq textarea,.addform textarea{width:100%;font:inherit;background:var(--bg);color:var(--ink);border:1px solid var(--line);border-radius:6px;padding:6px;margin:6px 0}
 .btn{font:inherit;cursor:pointer;border:1px solid var(--accent);color:var(--accent);background:none;border-radius:6px;padding:2px 10px;margin:2px 6px 2px 0}.btn.warn{border-color:var(--failed);color:var(--failed)}.btn.opt{border-color:var(--line);color:var(--mute)}
 .addform label{display:inline-block;margin-right:12px;font-size:13px}.node.blocked rect.box{stroke-dasharray:6 4}
-.reqline{margin:2px 0}
+.reqline{margin:2px 0}.offline .btn{opacity:.4;pointer-events:none}.warnbar{border:1px solid var(--warn);color:var(--warn);border-radius:6px;padding:4px 8px;margin:6px 0;font-size:13px}
 @media(min-width:900px){main{grid-template-columns:3fr 2fr}.wide{grid-column:1/-1}}
 </style></head><body>
 <header><h1>Sub0Squad portal</h1><span class="mute" title="Small work: be the expert and do it best. Larger work: divide it well and make sure the separation and the interactions hold. The squad is part of your team.">Many small minds, one whole solution.</span><span id="asof" class="mute">connecting…</span><span class="mute">read-only · loopback · live 1 s · click anything for detail</span></header>
@@ -47,7 +49,7 @@ code{font-size:12px;word-break:break-all}
 <section class="card wide"><div class="kpis" id="kpis"></div></section>
 <section class="card wide" id="intent"><b>Intent</b> <span class="mute">what was asked, what was added or decided since, and what is waiting for an answer</span>
 <div id="in-req"></div>
-<b>Inbox</b> <span class="mute" id="in-count"></span><div id="inbox"></div>
+<b>Inbox</b> <span class="mute" id="in-count"></span><div id="offlinebar"></div><div id="inbox"></div>
 <details id="addbox"><summary>Add a requirement, clarification or question to the running project</summary>
 <div class="addform"><div><label><input type="radio" name="addkind" value="requirement" checked> requirement</label><label><input type="radio" name="addkind" value="clarification"> clarification</label><label><input type="radio" name="addkind" value="question"> question for the architect</label></div>
 <div class="mute" style="margin-top:4px">Scope (the nodes it concerns; none ticked = all):</div><div id="add-scope"></div>
@@ -193,7 +195,12 @@ function drawGraph(items,wfId){
   const host=$('graph');
   items=items.map(i=>({persona:'',deps:[],parent:'',tokensIn:0,tokensOut:0,durationSec:0,engine:'',...i}));
   if(!items.length){if(graphSig!=='none'){graphSig='none';host.innerHTML='<p class="mute">No work items yet.</p>'}return}
-  const jobsByItem={};((state.jobs&&state.jobs.jobs)||[]).forEach(j=>{if(j.workflow===wfId&&j.item&&['running','starting'].includes(j.state)&&['agent','gate'].includes(j.role)&&(!jobsByItem[j.item]||j.role=='agent'))jobsByItem[j.item]=j});
+  // the live job behind each node; a division or a card rewrite raised by the node shows on the node itself (highest rank wins)
+  const rank={decompose:4,rearchitect:3,agent:2,gate:1},jobsByItem={};
+  ((state.jobs&&state.jobs.jobs)||[]).forEach(j=>{if(j.workflow===wfId&&j.item&&['running','starting'].includes(j.state)&&rank[j.role]&&(!jobsByItem[j.item]||rank[j.role]>rank[jobsByItem[j.item].role]))jobsByItem[j.item]=j});
+  const actOf=(i,j)=>!j?null:j.role==='decompose'?{cls:'act-divide',label:'dividing into parts',icon:'÷',tip:'The model is dividing this item into smaller parts ('+j.id+'). When it is done the parts appear below and this node integrates them.'}
+    :j.role==='rearchitect'?{cls:'act-architect',label:'rewriting its card',icon:'A',tip:'An architect job is rewriting this item\'s work card, shorter and focused on what failed ('+j.id+').'}
+    :(i.persona==='integrator'&&j.role==='gate')?{cls:'act-integrate',label:'integrating its parts',icon:'⇄',int:true,tip:'All parts are accepted: this node runs its own tests over them together ('+j.id+').'}:null;
   const engines=(live&&live.engines)||[];
   const wfNow=currentWf(),openReq=((wfNow&&wfNow.requests)||[]).filter(r=>r.status==='open'&&r.blocking);
   const blockedBy=id=>openReq.find(r=>!(r.scope||[]).length||r.scope.includes(id));
@@ -210,21 +217,22 @@ function drawGraph(items,wfId){
   items.forEach(i=>{for(const d of i.deps||[])if(pos[d])edge(pos[d],pos[i.id],'');if(i.parent&&pos[i.parent])edge(pos[i.parent],pos[i.id],'parent')});
   const sig=width+'x'+height+'|'+shell;
   if(sig!==graphSig){graphSig=sig;host.innerHTML=`<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="work graph">${shell}<g class="layer"></g></svg>`}
-  const nodes=items.map(i=>{const p=pos[i.id],x=X(p),yy=Y(p),L=i.status=='running'?nodeLive(i,jobsByItem,engines):null;
+  const nodes=items.map(i=>{const p=pos[i.id],x=X(p),yy=Y(p),L=i.status=='running'?nodeLive(i,jobsByItem,engines):null,act=i.status==='running'?actOf(i,jobsByItem[i.id]):null;
     let liveLine='';
-    if(L){const j=L.job,pr=j.progress;let t=`${esc(j.role)} running ${Math.round(j.elapsedSec||0)} s`;
-      if(L.slot)t=L.slot.processing?slotText(L.slot):t;else if(pr&&pr.total)t+=` · ${esc(pr.phase||'')} ${pr.done}/${pr.total}`;
+    if(L){const j=L.job,pr=j.progress;let t=act?`${act.label} · ${Math.round(j.elapsedSec||0)} s`:`${esc(j.role)} running ${Math.round(j.elapsedSec||0)} s`;
+      if(L.slot)t=L.slot.processing?(act?act.label+' · ':'')+slotText(L.slot):t;else if(pr&&pr.total)t+=` · ${esc(pr.phase||'')} ${pr.done}/${pr.total}`;
       liveLine=`<text class="live" x="${x+10}" y="${yy+66}">${L.slotNo!=null?'slot '+L.slotNo+' · ':''}${t}</text>`;
       if(L.slot)liveLine+=`<g transform="translate(${x+W-82},${yy+34})">${spark(L.slot.decodeSeries.slice(-40),72,22,'',null)}</g>`}
     const NM=i.attempts>0||L?nodeModel(i,jobsByItem[i.id]):null;
     const bw=NM?(NM.b.short.length+(NM.b.quant?NM.b.quant.length+1:0))*6.3+10:0;
     const badge=NM?`<g><title>${esc(NM.title)}</title><rect class="bpill ${NM.b.cls}" x="${x+W-8-bw}" y="${yy+6}" width="${bw}" height="16" rx="8"/><text class="btext ${NM.b.cls}" x="${x+W-3-bw}" y="${yy+17}">${esc(NM.b.short)}${NM.b.quant?' '+esc(NM.b.quant):''}</text></g>`:'';
+    const actIcon=act?`<g><title>${esc(act.tip)}</title><circle class="actdot${act.int?' int':''}" cx="${x}" cy="${yy}" r="11"/><text class="acttext" x="${x}" y="${yy+4.5}">${act.icon}</text></g>`:'';
     const bq=i.status!=='accepted'?blockedBy(i.id):null;
     if(bq&&!L)liveLine=`<text class="live" x="${x+10}" y="${yy+66}" style="fill:var(--warn)">waiting for an answer (${esc(bq.id)})</text>`;
-    return {k:i.id,cls:`node s-${i.status}${bq?' blocked':''}${sel&&sel.type=='node'&&sel.key==i.id?' sel':''}`,html:`<rect class="box" x="${x}" y="${yy}" width="${W}" height="${H}" rx="8"/>
+    return {k:i.id,cls:`node s-${i.status}${act?' '+act.cls:''}${bq?' blocked':''}${sel&&sel.type=='node'&&sel.key==i.id?' sel':''}`,html:`<rect class="box" x="${x}" y="${yy}" width="${W}" height="${H}" rx="8"/>
     <text x="${x+10}" y="${yy+18}"><tspan font-weight="600">${esc(i.id)}</tspan> <tspan class="sub">${esc(i.persona)}</tspan></text>
-    <text class="sub" x="${x+10}" y="${yy+34}">${esc(i.status)} · attempt${i.attempts==1?'':'s'} ${i.attempts}${i.engine?' · '+esc(i.engine):''}</text>
-    <text class="sub" x="${x+10}" y="${yy+50}">tokens in ${fmt(i.tokensIn)} · out ${fmt(i.tokensOut)}</text>${liveLine}${badge}`}});
+    <text class="sub" x="${x+10}" y="${yy+34}">${esc(act?act.label:i.status)} · attempt${i.attempts==1?'':'s'} ${i.attempts}${i.engine?' · '+esc(i.engine):''}</text>
+    <text class="sub" x="${x+10}" y="${yy+50}">tokens in ${fmt(i.tokensIn)} · out ${fmt(i.tokensOut)}</text>${liveLine}${badge}${actIcon}`}});
   reconcile(host.querySelector('.layer'),nodes,{tag:'g',ns:'http://www.w3.org/2000/svg'});
 }
 // ================= workflow package =================
@@ -259,6 +267,10 @@ function renderIntent(){
   const rq=wf.requests||[];
   const reqs=[{n:'REQ-1',t:wf.taskText||wf.task,by:'owner',when:wf.submittedAt}].concat(rq.filter(r=>r.kind==='requirement'&&r.status==='answered').map((r,i)=>({n:'REQ-'+(i+2),t:r.answer||r.detail||r.title,by:r.answeredBy||r.from,when:r.answeredAt,scope:r.scope})));
   setInner($('in-req'),reqs.map(r=>`<div class="reqline"><span class="pill">${esc(r.n)}</span> ${esc(r.t)} <span class="mute">· ${esc(r.by)}${r.scope&&r.scope.length?' · applies to '+esc(r.scope.join(', ')):''}</span></div>`).join('')+((wf.reasons||[]).length?`<div class="mute" style="margin-top:4px">Assumptions made when planning: ${(wf.reasons||[]).map(esc).join(' · ')}</div>`:''));
+  // an answer can only be delivered to a running daemon: say so, and do not offer buttons that cannot work
+  const daemonUp=(state.workflows&&state.workflows.source)==='live';
+  setInner($('offlinebar'),daemonUp?'':'<div class="warnbar">The daemon is not running, so this is the last recorded state: answers cannot be delivered until it is started again (<code>sub0squad serve</code>); the workflow resumes from its journal.</div>');
+  $('inbox').classList.toggle('offline',!daemonUp);
   const open=rq.filter(r=>r.status==='open'),openBlocking=open.filter(r=>r.blocking).length;
   setText($('in-count'),open.length?`${open.length} open${openBlocking?`, ${openBlocking} holding work`:''}`:'nothing waiting');
   reconcile($('inbox'),open.length?open.map(r=>({k:r.id,cls:'rq'+(r.blocking?' block':''),data:{rid:r.id,kind:r.kind},html:
@@ -271,7 +283,7 @@ function renderIntent(){
   setInner($('in-log'),done.length?done.map(r=>`<div class="reqline"><span class="pill">${esc(kindLabel[r.kind]||r.kind)}</span> <b>${esc(r.title)}</b> <span class="mute">${esc(r.id)} · ${esc(r.from)} → ${esc(r.answeredBy||'')}${r.resolution?' · '+esc(r.resolution):''}</span>${r.answer?`<div class="mute" style="white-space:pre-wrap">${esc(r.answer)}</div>`:''}</div>`).join(''):'<span class="mute">None yet.</span>');
   reconcile($('add-scope'),wf.items.map(i=>({k:i.id,cls:'',html:`<label><input type="checkbox" value="${esc(i.id)}"> ${esc(i.id)}</label>`})),{tag:'span'});
 }
-async function postJson(path,body){const r=await fetch(path,{method:'POST',headers:{'content-type':'application/json','x-portal-token':TOKEN},body:JSON.stringify(body)});try{return await r.json()}catch(e){return {ok:false,error:'HTTP '+r.status}}}
+async function postJson(path,body){try{const r=await fetch(path,{method:'POST',headers:{'content-type':'application/json','x-portal-token':TOKEN},body:JSON.stringify(body)});try{return await r.json()}catch(e){return {ok:false,error:'HTTP '+r.status}}}catch(e){return {ok:false,error:'the portal is not reachable (was it restarted? reload this page)'}}}
 $('inbox').addEventListener('click',async ev=>{
   const card=ev.target.closest('.rq');if(!card)return;const wf=currentWf();if(!wf)return;
   const opt=ev.target.closest('[data-opt]');if(opt){const ta=card.querySelector('textarea');ta.value=opt.getAttribute('data-opt');ta.focus();return}
@@ -303,7 +315,7 @@ function render(){
     drawGraph(wf.items,wf.id);
     renderIntent();
     reconcile($('nodes'),wf.items.map(i=>({tokensIn:0,tokensOut:0,durationSec:0,...i})).map(i=>{const nm=i.attempts>0?nodeModel(i,null):null;
-      return {k:i.id,cls:'click'+(sel&&sel.type=='node'&&sel.key==i.id?' selrow':''),html:`<td>${esc(i.id)}</td><td>${nm?badgeHtml(nm.b,nm.title):''}</td><td>${esc(i.status)}</td><td>${i.attempts}</td><td>${fmt(i.tokensIn)}</td><td>${fmt(i.tokensOut)}</td><td>${Math.round(i.durationSec)} s</td>`}}),{tag:'tr'});
+      return {k:i.id,cls:'click'+(sel&&sel.type=='node'&&sel.key==i.id?' selrow':''),html:`<td>${esc(i.id)}</td><td>${nm?badgeHtml(nm.b,nm.title):''}</td><td>${esc(i.status)}${(()=>{const j=((state.jobs&&state.jobs.jobs)||[]).find(x=>x.workflow===wf.id&&x.item===i.id&&['running','starting'].includes(x.state)&&(x.role==='decompose'||x.role==='rearchitect'));return j?` <span class="pill">${j.role==='decompose'?'dividing':'rewriting card'}</span>`:''})()}</td><td>${i.attempts}</td><td>${fmt(i.tokensIn)}</td><td>${fmt(i.tokensOut)}</td><td>${Math.round(i.durationSec)} s</td>`}}),{tag:'tr'});
     const ds=(wf.decisions||[]).slice(-12).reverse();
     reconcile($('decisions'),ds.length?ds.map((x,n)=>({k:x.action+'|'+((x.inputs&&x.inputs.item)||'')+'|'+((x.inputs&&x.inputs.attempt)||'')+'|'+(ds.length-n),html:`<td><b>${esc(x.action)}</b> ${esc((x.inputs&&x.inputs.item)||'')} #${esc((x.inputs&&x.inputs.attempt)||'')}<br><span class="mute">${esc((x.reasons||[]).slice(-1)[0]||'')}</span></td>`})):[{k:'none',html:'<td class="mute">none yet</td>'}],{tag:'tr'});
   }

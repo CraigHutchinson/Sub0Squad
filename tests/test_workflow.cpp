@@ -396,5 +396,17 @@ int main()
             else { bool failed = false; for (const auto& a : acts) if (a.kind == WorkflowAction::Kind::finish && a.finalState == WorkflowState::failed) failed = true; CHECK(failed); }
         }
     }
+    { // Split for parallelism: the size budget follows the engine's idle capacity.
+        CHECK_EQ(effectiveSizeBudget(1800, 7, 8), 900);   // plenty idle: smaller parts that can run side by side
+        CHECK_EQ(effectiveSizeBudget(1800, 3, 6), 900);
+        CHECK_EQ(effectiveSizeBudget(1800, 4, 8), 900);
+        CHECK_EQ(effectiveSizeBudget(1800, 2, 8), 1800);  // some spare capacity: as configured
+        CHECK_EQ(effectiveSizeBudget(1800, 1, 8), 2700);  // nearly busy: a split would only queue
+        CHECK_EQ(effectiveSizeBudget(1800, 0, 8), 2700);
+        CHECK_EQ(effectiveSizeBudget(600, 8, 8), 400);    // never below 400
+        CHECK_EQ(effectiveSizeBudget(1800, 7, 1), 1800);  // one slot: nothing to parallelise
+        CHECK_EQ(effectiveSizeBudget(1800, -1, 8), 1800); // unknown state
+        CHECK_EQ(effectiveSizeBudget(0, 8, 8), 0);        // size splitting off stays off
+    }
     return finish();
 }

@@ -54,6 +54,12 @@ struct Decision
 [[nodiscard]] const char* toString(Action a);
 [[nodiscard]] std::string toJson(const DecisionContext& ctx, const Decision& d);
 
+/// Split for parallelism, not only for size. The size budget (estimated tokens above which an item is divided before it is attempted) follows the
+/// engine's spare capacity: with plenty of idle slots (at least three and half of them) parts can run side by side, so it is halved (never
+/// below 400); when the engine is busy (at most one idle slot) a split would only queue, so it is raised by half. `totalSlots <= 1` or an unknown
+/// state leaves the budget as given.
+[[nodiscard]] int effectiveSizeBudget(int budget, int idleSlots, int totalSlots);
+
 class IDecisionPolicy
 {
 public:

@@ -9,6 +9,7 @@
 
 #include <cstddef>
 #include <expected>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -61,6 +62,10 @@ struct ChatMessage { std::string role, content; };
 [[nodiscard]] long countTokens(const EngineProfile& engine, const std::string& text, bool& estimated);
 
 /// Plain HTTP helpers (also used by the web harness smoke check).
+/// How many request slots a llama.cpp server has and how many are idle right now (from its `/slots`); nullopt when it cannot be read.
+struct SlotCounts { int total = 0, idle = 0; };
+[[nodiscard]] std::optional<SlotCounts> engineSlots(const EngineProfile& engine);
+
 struct HttpResponse { int status = 0; std::string body; };
 [[nodiscard]] std::expected<HttpResponse, std::string> httpRequest(const std::string& method, const std::string& url, const std::string& body, int timeoutSec);
 

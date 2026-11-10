@@ -149,6 +149,27 @@ std::expected<ChatResult, std::string> chatComplete(const EngineProfile& e, cons
     return chatCompleteMessages(p, {{"system", system}, {"user", user}}, maxTokens, timeoutSec);
 }
 
+std::optional<SlotCounts> engineSlots(const EngineProfile& e)
+{
+    std::string base = e.endpoint;
+    if (base.size() > 3 && base.compare(base.size() - 3, 3, "/v1") == 0) base.resize(base.size() - 3);
+    const auto resp = httpRequest("GET", base + "/slots", "", 2);
+    if (!resp || resp->status != 200) return std::nullopt;
+    SlotCounts c;
+    try {
+        simdjson::ondemand::parser parser;
+        simdjson::padded_string text{resp->body};
+        auto doc = parser.iterate(text);
+        for (auto slot : doc.get_array()) {
+            bool processing = false;
+            for (auto f : slot.get_object()) if (f.unescaped_key().value() == "is_processing") processing = f.value().get_bool();
+            ++c.total;
+            if (!processing) ++c.idle;
+        }
+    } catch (const simdjson::simdjson_error&) { return std::nullopt; }
+    return c.total > 0 ? std::optional<SlotCounts>{c} : std::nullopt;
+}
+
 std::expected<ChatResult, std::string> chatCompleteMessages(const EngineProfile& e, const std::vector<ChatMessage>& messages, int maxTokens, int timeoutSec)
 {
     json::Writer w;

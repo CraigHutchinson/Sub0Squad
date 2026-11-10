@@ -359,6 +359,7 @@ const std::vector<HarnessFile>& webScaffold()
     static const std::vector<HarnessFile> files = {
         {"package.json", kPackage}, {"serve.mjs", kServe}, {"tests/helpers/dom-stub.mjs", kDomStub},
         {"src/calc.js", kStubCalc}, {"src/lexer.js", kStubLexer}, {"src/functions.js", kStubFunctions}, {"src/ui.js", kStubUi}, {"index.html", kStubIndex},
+        {"style.css", ""},  // an empty stub: a test that reads the stylesheet while loading does not crash, and a non-empty check fails against it
     };
     return files;
 }

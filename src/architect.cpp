@@ -164,34 +164,57 @@ int runLlmArchitect(const std::vector<std::string>& args)
         std::fprintf(stderr, "llm-architect: unknown mode '%s'\n", mode.c_str());
         return 64;
     }
-    events::progress(0, 2, "waiting for the engine");
-    auto reply = chatComplete(*engine, system, user, 2500, 0.2, timeoutSec);
+    if (const char* slot = std::getenv("SUB0SQUAD_LEASE_INDEX"); slot && *slot) events::metric("engine.slot", static_cast<double>(std::atoi(slot)));  // so the portal can show this on the node that raised it
     const fs::path attemptDir = dir / "items" / itemId / ("attempt-" + std::to_string(attempt));
     writeFile(attemptDir / "prompt.txt", "SYSTEM:\n" + system + "\nUSER:\n" + user);
-    if (!reply) { std::fprintf(stderr, "llm-architect: engine call failed: %s\n", reply.error().c_str()); return 2; }
-    writeFile(attemptDir / "reply.txt", reply->content);
-    events::metric("tokens.in", static_cast<double>(reply->promptTokens));
-    events::metric("tokens.out", static_cast<double>(reply->completionTokens));
-    if (reply->predictedMs > 0) events::metric("engine.decode_tps", static_cast<double>(reply->completionTokens) / (reply->predictedMs / 1000.0));
-    const std::string json = extractJson(reply->content);
-    if (json.empty()) { std::fprintf(stderr, "llm-architect: the reply contained no JSON object\n"); return 3; }
-    events::progress(1, 2, "validating");
-    if (mode == "decompose") {
-        auto fragment = Plan::fromJson(json);
-        if (!fragment) { std::printf("DECLINED: the proposed division is invalid: %s\n", fragment.error().c_str()); return 3; }
-        // Check it would merge now, so the daemon's later merge cannot be a surprise.
-        if (auto merged = Plan::amended(*plan, itemId, *fragment); !merged) { std::printf("DECLINED: %s\n", merged.error().c_str()); return 3; }
-        if (!writeFile(attemptDir / "fragment.json", fragment->toJson())) return 1;
-        std::printf("proposed a division of '%s' into %zu items\n", itemId.c_str(), fragment->items.size());
-        return 0;
+    // Iterate: a division with one defect (a part without test files, a part graded by the parent's tests) is sent back with the reason, up to
+    // two more times, instead of being thrown away: the same repair loop the workers have, applied to the architect.
+    EngineProfile ep = *engine;
+    ep.temperature = 0.2;
+    std::vector<ChatMessage> convo = {{"system", system}, {"user", user}};
+    constexpr int kTurns = 3;
+    double tokensIn = 0, tokensOut = 0;
+    std::string lastError = "no reply";
+    for (int turn = 0; turn < kTurns; ++turn) {
+        events::progress(turn, kTurns + 1, turn == 0 ? "waiting for the engine" : "repairing");
+        auto reply = chatCompleteMessages(ep, convo, 2500, timeoutSec);
+        if (!reply) { std::fprintf(stderr, "llm-architect: engine call failed: %s\n", reply.error().c_str()); return 2; }
+        writeFile(attemptDir / ("reply-" + std::to_string(turn) + ".txt"), reply->content);
+        writeFile(attemptDir / "reply.txt", reply->content);
+        tokensIn += reply->promptTokens; tokensOut += reply->completionTokens;
+        events::metric("tokens.in", tokensIn);
+        events::metric("tokens.out", tokensOut);
+        if (reply->predictedMs > 0) events::metric("engine.decode_tps", static_cast<double>(reply->completionTokens) / (reply->predictedMs / 1000.0));
+        const std::string json = extractJson(reply->content);
+        std::string error;
+        if (json.empty()) error = "the reply contained no JSON object";
+        else if (mode == "decompose") {
+            auto fragment = Plan::fromJson(json);
+            if (!fragment) error = "the proposed division is invalid: " + fragment.error();
+            else if (auto merged = Plan::amended(*plan, itemId, *fragment); !merged) error = merged.error();  // would it merge now, so the daemon's later merge is no surprise
+            else {
+                if (!writeFile(attemptDir / "fragment.json", fragment->toJson())) return 1;
+                std::printf("proposed a division of '%s' into %zu items%s\n", itemId.c_str(), fragment->items.size(), turn ? (" (after " + std::to_string(turn) + " correction" + (turn > 1 ? "s" : "") + ")").c_str() : "");
+                return 0;
+            }
+        } else {
+            WorkCard card;
+            if (!parseCard(json, card)) error = "the rewritten card is not valid";
+            else if (card.estimatedTokens() > 1500) error = "the rewritten card is over the token budget";
+            else {
+                if (!writeFile(dir / "items" / itemId / "card-override.json", cardJson(card))) return 1;
+                events::progress(kTurns, kTurns, "rewritten");
+                std::printf("rewrote the card of '%s' (about %d tokens)\n", itemId.c_str(), card.estimatedTokens());
+                return 0;
+            }
+        }
+        lastError = error;
+        std::printf("turn %d rejected: %s\n", turn, error.c_str());
+        convo.push_back({"assistant", reply->content});
+        convo.push_back({"user", "Your reply was rejected: " + error + ". Reply again with the corrected JSON object only, changing just what the error names."});
     }
-    WorkCard card;
-    if (!parseCard(json, card)) { std::printf("DECLINED: the rewritten card is not valid\n"); return 3; }
-    if (card.estimatedTokens() > 1500) { std::printf("DECLINED: the rewritten card is over the token budget\n"); return 3; }
-    if (!writeFile(dir / "items" / itemId / "card-override.json", cardJson(card))) return 1;
-    events::progress(2, 2, "rewritten");
-    std::printf("rewrote the card of '%s' (about %d tokens)\n", itemId.c_str(), card.estimatedTokens());
-    return 0;
+    std::printf("DECLINED: %s\n", lastError.c_str());
+    return 3;
 }
 
 }  // namespace sub0squad

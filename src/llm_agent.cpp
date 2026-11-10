@@ -2,6 +2,7 @@
 #include "sub0squad/event_channel.hpp"
 #include "sub0squad/harness_web.hpp"
 #include "sub0squad/plan.hpp"
+#include "sub0squad/policy.hpp"
 #include "sub0squad/sandbox.hpp"
 
 #include <algorithm>
@@ -195,12 +196,22 @@ int runLlmAgent(const std::vector<std::string>& args)
     // ---- plan phase: size the work before writing any of it. Calibrated on the first real run: about 350 tokens plus 30 per test
     // (69 tests came to about 2,400 tokens). Too big for the budget and still divisible: exit 4 hands the item back to be divided.
     const long estimate = 350 + 30 * testCount;
+    // Split for parallelism, not only for size: the budget follows the engine's spare capacity (see effectiveSizeBudget).
+    long budget = sizeBudget;
+    std::string capacity;
+    if (sizeBudget > 0 && attempt == 1 && feedback.empty()) {
+        if (const auto sc = engineSlots(*engine)) {
+            budget = effectiveSizeBudget(static_cast<int>(sizeBudget), sc->idle, sc->total);
+            capacity = std::to_string(sc->idle) + " of " + std::to_string(sc->total) + " engine slots idle";
+            events::metric("size.budget.effective", static_cast<double>(budget));
+        }
+    }
     events::metric("size.estimate", static_cast<double>(estimate));
-    if (sizeBudget > 0 && attempt == 1 && feedback.empty() && testCount > 0 && estimate > sizeBudget && std::count(itemId.begin(), itemId.end(), '.') < 2) {
-        writeFile(dir / "items" / itemId / "size.json", "{\"estimateTokens\":" + std::to_string(estimate) + ",\"budget\":" + std::to_string(sizeBudget) + ",\"tests\":" + std::to_string(testCount) + ",\"verdict\":\"split\"}\n");
+    if (sizeBudget > 0 && attempt == 1 && feedback.empty() && testCount > 0 && estimate > budget && std::count(itemId.begin(), itemId.end(), '.') < 2) {
+        writeFile(dir / "items" / itemId / "size.json", "{\"estimateTokens\":" + std::to_string(estimate) + ",\"budget\":" + std::to_string(budget) + ",\"configuredBudget\":" + std::to_string(sizeBudget) + ",\"capacity\":\"" + capacity + "\",\"tests\":" + std::to_string(testCount) + ",\"verdict\":\"split\"}\n");
         writeFile(dir / "items" / itemId / "attempt-1" / "gate.txt", "PLAN PHASE: not attempted. Estimated " + std::to_string(estimate) + " completion tokens for " + std::to_string(testCount) + " tests, over the budget of " + std::to_string(sizeBudget) + ". Divide the item so each part is small.\n");
-        events::note("plan phase: estimated " + std::to_string(estimate) + " tokens against a budget of " + std::to_string(sizeBudget) + ": split before implementing");
-        std::printf("size verdict: split (estimate %ld tokens for %ld tests, budget %ld)\n", estimate, testCount, sizeBudget);
+        events::note("plan phase: estimated " + std::to_string(estimate) + " tokens against a budget of " + std::to_string(budget) + (capacity.empty() ? std::string{} : " (" + capacity + ")") + ": split before implementing");
+        std::printf("size verdict: split (estimate %ld tokens for %ld tests, budget %ld; %s)\n", estimate, testCount, budget, capacity.empty() ? "capacity unknown" : capacity.c_str());
         return 4;
     }
     const std::string user = card.str() + (feedback.empty() ? "" : "\n" + feedback);
