@@ -130,6 +130,7 @@ int runLlmAgent(const std::vector<std::string>& args)
     const int maxTokens = std::atoi(arg(args, "max-tokens", "3000").c_str());
     const int timeoutSec = std::atoi(arg(args, "timeout", "1700").c_str());
     const int repairTurns = std::max(0, std::atoi(arg(args, "repair-turns", "0").c_str()));  // extra turns after the first: run the tests, feed failures back, repeat
+    const long sizeBudget = std::atol(arg(args, "size-budget", "0").c_str());  // plan phase: above this estimate an item with tests is handed back to be divided
     const std::string treatment = arg(args, "treatment", "baseline");  // baseline | index | planfirst (docs/OPTIMIZATION.md)
     const auto began = std::chrono::steady_clock::now();
 
@@ -154,11 +155,14 @@ int runLlmAgent(const std::vector<std::string>& args)
     for (std::size_t i = 0; i < item->files.size(); ++i) card << (i ? ", " : "") << item->files[i];
     card << "\n\nContext: " << item->card.context << "\n\nContract:\n" << item->card.contract << "\n";
     if (!item->card.acceptance.empty()) { card << "\nAcceptance:\n"; for (const auto& x : item->card.acceptance) card << "- " << x << "\n"; }
+    long testCount = 0;
     for (const auto& inc : item->card.include) {
         std::string content;
         for (const auto& dep : closure(*plan, itemId)) { const fs::path f = dir / "items" / dep / "accepted" / inc; if (fs::exists(f)) { content = slurp(f); break; } }
         if (content.empty()) continue;
-        const std::string names = treatment == "index" ? testNames(content) : std::string{};
+        const std::string allNames = testNames(content);
+        testCount += std::count(allNames.begin(), allNames.end(), '\n');
+        const std::string names = treatment == "index" ? allNames : std::string{};
         if (!names.empty()) card << "\nThe provided tests in " << inc << " are named as follows (the file itself is not shown; implement the contract so tests with these names pass):\n" << names;
         else card << "\nProvided file " << inc << ":\n=== FILE: " << inc << " ===\n" << clip(content, 7000) << "\n=== END FILE ===\n";
     }
@@ -187,6 +191,17 @@ int runLlmAgent(const std::vector<std::string>& args)
         if (!g.empty() && !code.empty()) feedback = "Your best earlier version (attempt " + std::to_string(best) + ") is below. It was rejected:\n" + clip(g, 1200) + "\n" + code + "Change only what these failures need, keep everything else, and write the complete files again.\n";
         else if (!g.empty()) feedback = "Your previous attempt was rejected:\n" + clip(g, 1200) + "\nFix exactly this and write the complete files again.\n";
         else feedback = "Your previous attempt produced no usable files. Reply in the required file format.\n";
+    }
+    // ---- plan phase: size the work before writing any of it. Calibrated on the first real run: about 350 tokens plus 30 per test
+    // (69 tests came to about 2,400 tokens). Too big for the budget and still divisible: exit 4 hands the item back to be divided.
+    const long estimate = 350 + 30 * testCount;
+    events::metric("size.estimate", static_cast<double>(estimate));
+    if (sizeBudget > 0 && attempt == 1 && feedback.empty() && testCount > 0 && estimate > sizeBudget && std::count(itemId.begin(), itemId.end(), '.') < 2) {
+        writeFile(dir / "items" / itemId / "size.json", "{\"estimateTokens\":" + std::to_string(estimate) + ",\"budget\":" + std::to_string(sizeBudget) + ",\"tests\":" + std::to_string(testCount) + ",\"verdict\":\"split\"}\n");
+        writeFile(dir / "items" / itemId / "attempt-1" / "gate.txt", "PLAN PHASE: not attempted. Estimated " + std::to_string(estimate) + " completion tokens for " + std::to_string(testCount) + " tests, over the budget of " + std::to_string(sizeBudget) + ". Divide the item so each part is small.\n");
+        events::note("plan phase: estimated " + std::to_string(estimate) + " tokens against a budget of " + std::to_string(sizeBudget) + ": split before implementing");
+        std::printf("size verdict: split (estimate %ld tokens for %ld tests, budget %ld)\n", estimate, testCount, sizeBudget);
+        return 4;
     }
     const std::string user = card.str() + (feedback.empty() ? "" : "\n" + feedback);
 
@@ -222,7 +237,14 @@ int runLlmAgent(const std::vector<std::string>& args)
     std::size_t lastFiles = 0, lastRejected = 0;
     for (int turn = 0; turn <= repairTurns; ++turn) {
         events::progress(turn, repairTurns + 1, turn == 0 ? "generating" : "repairing");
-        auto reply = chatCompleteMessages(*engine, convo, maxTokens, timeoutSec);
+        EngineProfile turnEngine = *engine;
+        if (engine->seed >= 0) {  // a reproducible run: one derived seed per (item, attempt, turn), so retries differ from each other but a rerun replays them
+            std::uint64_t h = 1469598103934665603ull ^ static_cast<std::uint64_t>(engine->seed);
+            for (const char c : itemId + "#" + std::to_string(attempt) + "#" + std::to_string(turn)) { h ^= static_cast<unsigned char>(c); h *= 1099511628211ull; }
+            turnEngine.seed = static_cast<long long>(h & 0x7fffffffull);
+            std::printf("seed for turn %d: %lld (run seed %lld)\n", turn, turnEngine.seed, engine->seed);
+        }
+        auto reply = chatCompleteMessages(turnEngine, convo, maxTokens, timeoutSec);
         if (!reply) {
             std::fprintf(stderr, "llm-agent: engine call failed: %s\n", reply.error().c_str());
             if (!haveFiles) return 2;

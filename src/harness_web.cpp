@@ -280,6 +280,14 @@ int runHarnessGate(const std::vector<std::string>& args)
         if (tap.fail * 10 < tap.tests * 7) return fail("only " + std::to_string(tap.fail) + " of " + std::to_string(tap.tests) + " tests fail against the stub: they do not exercise the contract");
     } else if (tap.fail != 0 || r.exitCode != 0) {
         const int code = fail(std::to_string(tap.fail) + " of " + std::to_string(tap.tests) + " tests failed\n" + tap.excerpt);
+        // Exit 5: the same tests fail with the same messages as the previous attempt. A model that cannot change the outcome by repairing is
+        // more likely facing a wrong test (the first real lexer run: the test expected positions off by one), so the policy sends the tests back.
+        if (attempt > 1) {
+            const auto failLines = [](const std::string& g) { std::set<std::string> s; std::istringstream in(g); for (std::string l; std::getline(in, l);) if (l.rfind("FAIL ", 0) == 0) s.insert(l); return s; };
+            const auto now = failLines(slurp(attemptDir / "gate.txt"));
+            const auto before = failLines(slurp(dir / "items" / itemId / ("attempt-" + std::to_string(attempt - 1)) / "gate.txt"));
+            if (!now.empty() && now == before) return 5;
+        }
         // Exit 3 marks a near pass (at least 10 tests, at most 15 % failing): the decision policy repairs it instead of dividing the item.
         return tap.tests >= 10 && tap.fail * 100 <= tap.tests * 15 ? 3 : code;
     }

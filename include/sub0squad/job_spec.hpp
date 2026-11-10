@@ -39,6 +39,7 @@ struct JobSpec
     std::string item;                        ///< work item id within the workflow
     std::string role;                        ///< planner | agent | gate | integrator
     std::int64_t attempt = 0;                ///< attempt number of the item (agent and gate jobs)
+    bool service = false;                    ///< a long-lived server (an engine): it does not count against the daemon's job slots, only against memory
     std::string leaseResource;               ///< shared resource the job occupies while running (an engine endpoint); empty = none
     std::int64_t leaseCap = 0;               ///< jobs allowed to hold `leaseResource` at once (an engine's slots); the job slot limit still applies
 

@@ -20,7 +20,7 @@ std::string EngineProfile::toJson() const
 
 std::string EngineProfile::toArg() const
 {
-    return name + "=" + endpoint + ",model=" + model + ",kind=" + kind + ",ctx=" + std::to_string(contextTokens) + ",slots=" + std::to_string(maxConcurrent) + (thinking ? ",thinking=1" : "") + (temperature >= 0 ? ",temp=" + std::to_string(temperature) : "") + (topP >= 0 ? ",top_p=" + std::to_string(topP) : "") + (topK >= 0 ? ",top_k=" + std::to_string(topK) : "") + (presencePenalty != 0 ? ",presence=" + std::to_string(presencePenalty) : "") + (reasoningEffort.empty() ? "" : ",effort=" + reasoningEffort);
+    return name + "=" + endpoint + ",model=" + model + ",kind=" + kind + ",ctx=" + std::to_string(contextTokens) + ",slots=" + std::to_string(maxConcurrent) + (thinking ? ",thinking=1" : "") + (temperature >= 0 ? ",temp=" + std::to_string(temperature) : "") + (topP >= 0 ? ",top_p=" + std::to_string(topP) : "") + (topK >= 0 ? ",top_k=" + std::to_string(topK) : "") + (presencePenalty != 0 ? ",presence=" + std::to_string(presencePenalty) : "") + (reasoningEffort.empty() ? "" : ",effort=" + reasoningEffort) + (seed >= 0 ? ",seed=" + std::to_string(seed) : "") + (cachePrompt ? "" : ",cache=0");
 }
 
 std::expected<EngineProfile, std::string> EngineProfile::parse(const std::string& text)
@@ -43,6 +43,7 @@ std::expected<EngineProfile, std::string> EngineProfile::parse(const std::string
             else if (k == "slots") p.maxConcurrent = std::atoi(v.c_str()); else if (k == "thinking") p.thinking = v == "1" || v == "true";
             else if (k == "temp") p.temperature = std::atof(v.c_str()); else if (k == "top_p") p.topP = std::atof(v.c_str()); else if (k == "top_k") p.topK = std::atoi(v.c_str());
             else if (k == "presence") p.presencePenalty = std::atof(v.c_str()); else if (k == "min_p") p.minP = std::atof(v.c_str()); else if (k == "effort") p.reasoningEffort = v;
+            else if (k == "seed") p.seed = std::atoll(v.c_str()); else if (k == "cache") p.cachePrompt = !(v == "0" || v == "false");
             else return std::unexpected("unknown engine option '" + k + "'");
         }
         first = false;
@@ -153,10 +154,12 @@ std::expected<ChatResult, std::string> chatCompleteMessages(const EngineProfile&
     json::Writer w;
     w.beginObject().kv("model", e.model).key("messages").beginArray();
     for (const auto& m : messages) w.beginObject().kv("role", m.role).kv("content", m.content).endObject();
-    w.endArray().kv("max_tokens", maxTokens).kv("temperature", e.effectiveTemperature()).kv("top_p", e.effectiveTopP()).kv("top_k", e.effectiveTopK()).kv("min_p", e.minP).kv("presence_penalty", e.presencePenalty).kvBool("stream", false).kvBool("cache_prompt", true)
+    w.endArray().kv("max_tokens", maxTokens).kv("temperature", e.effectiveTemperature()).kv("top_p", e.effectiveTopP()).kv("top_k", e.effectiveTopK()).kv("min_p", e.minP).kv("presence_penalty", e.presencePenalty).kvBool("stream", false).kvBool("cache_prompt", e.cachePrompt)
         .key("chat_template_kwargs").beginObject().kvBool("enable_thinking", e.thinking);
     if (!e.reasoningEffort.empty()) w.kv("reasoning_effort", e.reasoningEffort);
-    w.endObject().endObject();
+    w.endObject();
+    if (e.seed >= 0) w.kv("seed", static_cast<std::int64_t>(e.seed));
+    w.endObject();
     auto resp = httpRequest("POST", e.endpoint + "/chat/completions", w.take(), timeoutSec);
     if (!resp) return std::unexpected(resp.error());
     if (resp->status != 200) return std::unexpected("engine returned HTTP " + std::to_string(resp->status) + ": " + resp->body.substr(0, 300));

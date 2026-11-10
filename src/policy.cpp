@@ -35,6 +35,18 @@ Decision RulePolicy::decide(const DecisionContext& c) const
         d.reasons.push_back("attempt budget exhausted (" + std::to_string(c.maxTotalAttempts) + " attempts, divisions and rewrites included)");
         return d;
     }
+    if (c.repeatedFailure && c.hasTesterDep && !c.reviseTried) {
+        d.action = Action::reviseTests;
+        d.tier = "local";
+        d.reasons.push_back("the same tests failed with the same messages twice: repairing does not change the outcome, so the tests are suspect; send them back to the tester");
+        return d;
+    }
+    if (c.oversize && !c.decomposeTried && c.splittable && c.depth < c.maxDepth) {
+        d.action = Action::decompose;
+        d.tier = "local";
+        d.reasons.push_back("plan phase: the item is estimated too big for one attempt, so it is divided before any code is written");
+        return d;
+    }
     if (c.localAttempts < c.maxLocalAttempts) {
         d.action = Action::retry;
         d.tier = "local";

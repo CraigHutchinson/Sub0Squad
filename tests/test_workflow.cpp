@@ -108,6 +108,10 @@ int main()
         auto e = EngineProfile::parse("q=http://127.0.0.1:8342/v1,model=m,ctx=8192,slots=2");
         CHECK(e && e->model == "m" && e->contextTokens == 8192 && e->maxConcurrent == 2);
         CHECK(e && EngineProfile::parse(e->toArg()).has_value());
+        auto seeded = EngineProfile::parse("q=http://127.0.0.1:8342/v1,model=m,slots=1,seed=42,cache=0");  // a deterministic profile
+        CHECK(seeded && seeded->seed == 42 && !seeded->cachePrompt && e->seed == -1 && e->cachePrompt);
+        auto again = seeded ? EngineProfile::parse(seeded->toArg()) : std::unexpected(std::string{"x"});
+        CHECK(again && again->seed == 42 && !again->cachePrompt);
     }
     { // happy path: planner, dependency order, gates, integrator
         Sim s = startSim();
@@ -264,6 +268,20 @@ int main()
         CHECK(policy.decide(c).action == Action::decompose);
         c.localAttempts = 2; c.nearPass = false;   // not a near pass: the ladder starts at decompose
         CHECK(policy.decide(c).action == Action::decompose);
+    }
+    { RulePolicy policy; // Plan phase: an oversize verdict divides at once, before any local retry; at the depth limit it does not.
+        DecisionContext c; c.workflow = "w"; c.item = "engine"; c.attempt = 1; c.localAttempts = 1; c.failedRole = "agent"; c.splittable = true; c.oversize = true; c.totalAttempts = 1;
+        CHECK(policy.decide(c).action == Action::decompose);
+        c.depth = c.maxDepth;
+        CHECK(policy.decide(c).action == Action::retry);
+        c.depth = 0; c.decomposeTried = true;
+        CHECK(policy.decide(c).action == Action::retry);
+    }
+    { RulePolicy policy; // Repeated identical failure: the tests are sent back at once, once; afterwards the ordinary ladder applies.
+        DecisionContext c; c.workflow = "w"; c.item = "lexer"; c.attempt = 2; c.localAttempts = 2; c.failedRole = "gate"; c.hasTesterDep = true; c.repeatedFailure = true; c.nearPass = true; c.totalAttempts = 2;
+        CHECK(policy.decide(c).action == Action::reviseTests);
+        c.reviseTried = true;
+        CHECK(policy.decide(c).action != Action::reviseTests);
     }
     return finish();
 }

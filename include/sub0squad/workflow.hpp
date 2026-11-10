@@ -30,6 +30,7 @@ struct WorkflowSpec
     std::map<std::string, std::string> route;     ///< persona -> engine name, e.g. tester=qwen3-6 (extensibility: engines are per persona)
     std::string treatment = "baseline";           ///< prompt treatment of llm agents: baseline | index | planfirst (see docs/OPTIMIZATION.md)
     int repairTurns = 2;                          ///< extra turns an llm agent takes to run the tests and fix failures before it says done
+    int sizeBudget = 1800;                        ///< estimated completion tokens above which an item that has tests is divided BEFORE the first attempt (0 = never)
     int maxTokens = 3000;                         ///< completion budget of one llm attempt
 
     /// The engine profile for a persona (route, else the first engine), or nullopt when none is configured.

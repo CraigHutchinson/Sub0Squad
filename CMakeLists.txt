@@ -39,6 +39,8 @@ add_library(sub0squad_core STATIC
   src/engine.cpp
   src/ledger.cpp
   src/workflow_status.cpp
+  src/portal.cpp
+  src/portal_page.cpp
   src/event_channel.cpp
   src/calculator_templates.cpp
   src/sandbox.cpp

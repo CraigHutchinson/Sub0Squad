@@ -17,7 +17,7 @@ const char* toString(WorkflowState s)
 std::string WorkflowSpec::toJson() const
 {
     json::Writer w;
-    w.beginObject().kv("task", task).kv("taskText", taskText).kv("triage", triage).kv("sandbox", sandboxDir).kv("maxLocalAttempts", maxLocalAttempts).kv("agent", agent).kv("treatment", treatment).kv("repairTurns", repairTurns).kv("maxTokens", maxTokens).key("inject").beginArray();
+    w.beginObject().kv("task", task).kv("taskText", taskText).kv("triage", triage).kv("sandbox", sandboxDir).kv("maxLocalAttempts", maxLocalAttempts).kv("agent", agent).kv("treatment", treatment).kv("repairTurns", repairTurns).kv("sizeBudget", sizeBudget).kv("maxTokens", maxTokens).key("inject").beginArray();
     for (const auto& i : inject) w.str(i);
     w.endArray().key("engines").beginArray();
     for (const auto& e : engines) w.str(e);
@@ -44,6 +44,7 @@ std::expected<WorkflowSpec, std::string> WorkflowSpec::fromJson(std::string_view
                 else if (k == "agent") s.agent = json::toString(v);
                 else if (k == "treatment") s.treatment = json::toString(v);
                 else if (k == "repairTurns") s.repairTurns = static_cast<int>(v.get_int64());
+                else if (k == "sizeBudget") s.sizeBudget = static_cast<int>(v.get_int64());
                 else if (k == "maxTokens") s.maxTokens = static_cast<int>(v.get_int64());
                 else if (k == "engines") { for (auto x : v.get_array()) s.engines.push_back(json::toString(x.value())); }
                 else if (k == "route") { for (auto r : v.get_object()) { std::string persona{std::string_view{r.unescaped_key()}}; s.route[persona] = json::toString(r.value()); } }
@@ -233,7 +234,7 @@ JobSpec agentJob(const WorkflowRecord& wf, const WorkflowSettings& st, const Wor
     if (llm) { s.leaseResource = engine->endpoint; s.leaseCap = std::max(1, engine->maxConcurrent); }
     if (llm) {
         s.argv = {st.exe, "llm-agent", "--workflow-dir", wf.spec.sandboxDir, "--item", it.id, "--tier", tier, "--attempt", std::to_string(attempt), "--engine", engine->toArg(),
-                  "--max-tokens", std::to_string(wf.spec.maxTokens), "--timeout", "1700", "--treatment", wf.spec.treatment, "--repair-turns", std::to_string(wf.spec.repairTurns)};
+                  "--max-tokens", std::to_string(wf.spec.maxTokens), "--timeout", "1700", "--treatment", wf.spec.treatment, "--repair-turns", std::to_string(wf.spec.repairTurns), "--size-budget", std::to_string(wf.spec.sizeBudget)};
     } else {
         s.argv = {st.exe, "mock-agent", "--workflow-dir", wf.spec.sandboxDir, "--item", it.id, "--tier", tier, "--attempt", std::to_string(attempt)};
         for (const auto& i : wf.spec.inject) { s.argv.push_back("--inject"); s.argv.push_back(i); }
@@ -361,6 +362,8 @@ std::vector<WorkflowAction> advance(const WorkflowRecord& wf, const JobStore& st
             ctx.totalAttempts = n;
             ctx.splittable = v.item->files.size() > 1 || v.item->complexity >= 2;
             for (const JobRecord* g : v.gates) if (g->spec.attempt == n && g->exitJson.find("\"code\":3") != std::string::npos) ctx.nearPass = true;
+            for (const JobRecord* g : v.gates) if (g->spec.attempt == n && g->exitJson.find("\"code\":5") != std::string::npos) ctx.repeatedFailure = true;
+            if (role == "agent" && latest->exitJson.find("\"code\":4") != std::string::npos) ctx.oversize = true;
             ctx.decomposeTried = v.decomposeTried;
             ctx.rearchitectTried = v.rearchitectTried;
             for (const auto& dd : wf.decisions) if (dd.item == v.item->id && dd.action == "reviseTests") ctx.reviseTried = true;

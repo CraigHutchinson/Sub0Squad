@@ -24,7 +24,19 @@ std::string workflowStatusJson(const RuntimePaths& paths, const WorkflowStore& w
         for (const auto& j : jobs.jobs()) if (j.spec.workflow == wf.id) { ++jobsTotal; if (!isTerminal(j.state)) ++jobsActive; }
         w.kv("jobs", jobsTotal).kv("jobsActive", jobsActive);
         w.key("items").beginArray();
-        for (const auto& it : itemStatuses(wf, jobs)) w.beginObject().kv("id", it.id).kv("title", it.title).kv("status", it.status).kv("attempts", it.attempts).kv("tier", it.tier).endObject();
+        for (const auto& it : itemStatuses(wf, jobs)) {
+            const WorkItem* pi = wf.plan ? wf.plan->find(it.id) : nullptr;
+            double tin = 0, tout = 0, dur = 0;
+            std::string engine;
+            for (const auto& r : ledger) if (r.workflow == wf.id && r.item == it.id) { tin += r.tokensIn; tout += r.tokensOut; dur += r.durationSec; if (!r.engine.empty()) engine = r.engine; }
+            const auto dot = it.id.rfind('.');
+            w.beginObject().kv("id", it.id).kv("title", it.title).kv("status", it.status).kv("attempts", it.attempts).kv("tier", it.tier)
+                .kv("persona", pi ? pi->persona : std::string{}).kv("parent", dot == std::string::npos ? std::string{} : it.id.substr(0, dot))
+                .kv("tokensIn", tin).kv("tokensOut", tout).kv("durationSec", dur).kv("engine", engine);
+            w.key("deps").beginArray();
+            if (pi) for (const auto& d : pi->deps) w.str(d);
+            w.endArray().endObject();
+        }
         w.endArray().key("decisions").beginArray();
         for (const auto& d : wf.decisions) w.raw(d.json);
         w.endArray();

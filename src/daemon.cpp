@@ -202,7 +202,11 @@ struct Daemon::Impl
     int activeCount() const
     {
         int n = 0;
-        for (const auto& [id, r] : running) if (!r->finalized) ++n;
+        for (const auto& [id, r] : running) {
+            if (r->finalized) continue;
+            const JobRecord* jr = store.find(id);
+            if (!jr || !jr->spec.service) ++n;  // services (engines) hold memory, not a job slot
+        }
         return n;
     }
 

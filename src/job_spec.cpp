@@ -21,7 +21,7 @@ std::string JobSpec::toJson() const
     for (const auto& a : resumeArgv) w.str(a);
     w.endArray();
     w.kv("workflow", workflow).kv("item", item).kv("role", role).kv("attempt", attempt);
-    w.kv("leaseResource", leaseResource).kv("leaseCap", leaseCap);
+    w.kvBool("service", service).kv("leaseResource", leaseResource).kv("leaseCap", leaseCap);
     w.key("adapter").beginObject().kv("type", adapter.type).kv("path", adapter.path).kv("schema", adapter.schema).endObject();
     w.endObject();
     return w.take();
@@ -57,6 +57,7 @@ std::expected<JobSpec, std::string> JobSpec::fromJson(std::string_view text)
                 else if (key == "item") spec.item = json::toString(value);
                 else if (key == "role") spec.role = json::toString(value);
                 else if (key == "attempt") spec.attempt = value.get_int64();
+                else if (key == "service") spec.service = value.get_bool();
                 else if (key == "leaseResource") spec.leaseResource = json::toString(value);
                 else if (key == "leaseCap") spec.leaseCap = value.get_int64();
                 else if (key == "expectedEventIntervalSec") spec.expectedEventIntervalSec = value.get_int64();

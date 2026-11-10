@@ -3,6 +3,7 @@
 #include "json_util.hpp"
 #include "sub0squad/daemon.hpp"
 #include "sub0squad/frame.hpp"
+#include "sub0squad/portal.hpp"
 #include "sub0squad/job_store.hpp"
 #include "sub0squad/journal.hpp"
 #include "sub0squad/harness_web.hpp"
@@ -58,7 +59,7 @@ constexpr const char* kUsage =
     "usage: sub0squad <command> [options]\n"
     "  serve [--max-jobs N]                 run the daemon (foreground)\n"
     "  submit [opts] -- <cmd> [args...]     submit a process job; prints its id\n"
-    "         --cwd DIR  --wall SEC  --memory-mib N (refused at submit if the host lacks it)  --grace SEC  --tool NAME  --tier stub|local  --env K=V  --lease RESOURCE=CAP (at most CAP running jobs hold RESOURCE)\n"
+    "         --cwd DIR  --wall SEC  --memory-mib N (refused at submit if the host lacks it)  --grace SEC  --tool NAME  --tier stub|local  --env K=V  --lease RESOURCE=CAP (at most CAP running jobs hold RESOURCE)  --service (a server: not counted against --max-jobs)\n"
     "         --resume-arg ARG (repeatable: the command `resume` runs)  --state-file PATH --state-schema NAME\n"
     "         --spec FILE (a job-spec-1 JSON file instead of a command)\n"
     "  status [ID] [--json]                 jobs and progress (works without the daemon, from the journal)\n"
@@ -66,8 +67,9 @@ constexpr const char* kUsage =
     "  cancel ID | resume ID | wait ID [--timeout SEC] | ping | stop\n"
     "  do \"<task in words>\" [project options]   triage first, then run: a known blueprint starts at once, otherwise a needs-plan.md handoff is written\n"
     "  project submit --task calculator-basic|calculator-scientific|calculator-web [--sandbox DIR] [--inject ITEM[:N]]... [--max-local N]\n"
-    "         [--agent mock|llm] [--engine NAME=http://127.0.0.1:PORT/v1[,model=..][,ctx=N][,slots=N]]... [--engine-for PERSONA=NAME]... [--max-tokens N] [--treatment baseline|index|planfirst] [--repair-turns N]\n"
+    "         [--agent mock|llm] [--engine NAME=http://127.0.0.1:PORT/v1[,model=..][,ctx=N][,slots=N]]... [--engine-for PERSONA=NAME]... [--max-tokens N] [--treatment baseline|index|planfirst] [--repair-turns N] [--size-budget TOKENS]\n"
     "  project plan ID --file plan.json     supply the plan a workflow is awaiting (the deferred architect's answer)\n"
+    "  portal [--port N]                    read-only status portal on 127.0.0.1 (default 8780): the work graph, tokens per node, daemon jobs\n"
     "  guard [--memory-mib N] [--reserve-mib R] [--disk-path P --disk-mib N]   explicit host guards (exit 1 when refused)\n"
     "  fetch-model --url https://huggingface.co/... --out FILE [--sha256 H]   guarded, resumable, verified download (run it as a job)\n"
     "  blueprint NAME                       print a built-in plan-2 (calculator-web)\n"
@@ -257,6 +259,7 @@ int cmdSubmit(const RuntimePaths& paths, int argc, char** argv)
         else if (a == "--cwd") spec.cwd = val();
         else if (a == "--wall") spec.wallSeconds = std::atoll(val().c_str());
         else if (a == "--memory-mib") spec.memoryMiB = std::atoll(val().c_str());
+        else if (a == "--service") spec.service = true;
         else if (a == "--lease") { const std::string v = val(); const auto eq = v.rfind('='); if (eq == std::string::npos || eq == 0) { std::fprintf(stderr, "--lease wants RESOURCE=CAP\n"); return 2; } spec.leaseResource = v.substr(0, eq); spec.leaseCap = std::max(1, std::atoi(v.c_str() + eq + 1)); }
         else if (a == "--grace") spec.graceSeconds = std::atoll(val().c_str());
         else if (a == "--tool") spec.tool = val();
@@ -478,6 +481,7 @@ int parseWorkflowFlags(int argc, char** argv, int from, WorkflowSpec& spec)
             if (!p) { std::fprintf(stderr, "--engine: %s\n", p.error().c_str()); return 2; }
             spec.engines.push_back(p->toArg());
         } else if (a == "--engine-for") { std::string kv = val(); const auto eq = kv.find('='); if (eq == std::string::npos) { std::fprintf(stderr, "--engine-for takes PERSONA=ENGINE\n"); return 2; } spec.route[kv.substr(0, eq)] = kv.substr(eq + 1); }
+        else if (a == "--size-budget") spec.sizeBudget = std::atoi(val().c_str());
         else if (a == "--max-tokens") spec.maxTokens = std::atoi(val().c_str());
         else if (a == "--treatment") spec.treatment = val();
         else if (a == "--repair-turns") spec.repairTurns = std::atoi(val().c_str());
@@ -615,6 +619,16 @@ int runCli(int argc, char** argv)
         if (jsonOut) std::printf("%s\n", st->c_str());
         else { if (offline) std::fprintf(stderr, "daemon not running: showing the journal and shim records (as of now)\n"); printJobs(*st); }
         return 0;
+    }
+    if (cmd == "portal") {
+        int port = 8780;
+        for (int i = 2; i + 1 < argc; ++i) if (std::string_view{argv[i]} == "--port") port = std::atoi(argv[i + 1]);
+        return servePortal(port, [&paths] {
+            bool offline = false;
+            const std::string wf = workflowStatusAnyway(paths, "", offline);
+            auto jobs = statusAnyway(paths, "", offline);
+            return "{\"workflows\":" + (wf.empty() ? std::string{"{\"workflows\":[]}"} : wf) + ",\"jobs\":" + (jobs ? *jobs : std::string{"{\"jobs\":[]}"}) + "}";
+        });
     }
     if (cmd == "do") return cmdDo(paths, argc - 2, argv + 2);
     if (cmd == "blueprint") { if (argc < 3) { std::fputs(kUsage, stderr); return 2; } const std::string b = blueprintJson(argv[2]); if (b.empty()) { std::fprintf(stderr, "no blueprint '%s'\n", argv[2]); return 1; } std::printf("%s", b.c_str()); return 0; }
