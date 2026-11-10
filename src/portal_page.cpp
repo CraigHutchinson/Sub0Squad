@@ -327,7 +327,7 @@ function renderIntent(){
     `<span class="pill">${esc(kindLabel[r.kind]||r.kind)}</span> <b>${esc(r.title)}</b> <span class="mute">${esc(r.id)} · from ${esc(r.from)}${(r.scope||[]).length?' · scope '+esc(r.scope.join(', ')):''}${r.blocking?' · holding the work':''}</span>`+
     (r.detail?`<div style="margin-top:4px;white-space:pre-wrap">${esc(r.detail)}</div>`:'')+
     (r.kind==='escalation'&&(r.scope||[]).length===1?`<div class="mute">${fl('items/'+r.scope[0]+'/briefing-'+r.id+'.md','Briefing for a decider')} <span class="mute">(the situation, the harness facts, the evidence and what was tried, ready to hand to an architect or a frontier model)</span></div>`:'')+
-    (r.triage?`<div class="triage ${esc(r.triage)}"><b>Overseer: ${r.triage==='fatal'?'a fault no worker can fix':r.triage==='owner'?'this needs your decision':'handled automatically'}.</b> ${esc(r.analysis)}</div>`:'')+
+    (r.triage?`<div class="triage ${esc(r.triage)}"><b>Overseer: ${r.triage==='fatal'?'a fault no worker can fix':r.triage==='owner'?'the manager decides how to proceed':'handled automatically'}.</b> ${esc(r.analysis)}</div>`:'')+
     ((r.options||[]).length?`<div>${r.options.map(o=>`<button class="btn opt" data-opt="${esc(o)}">${esc(o)}</button>`).join('')}</div>`:'')+
     `<textarea rows="2" placeholder="Your answer or guidance for the nodes concerned…"></textarea>`+
     (r.kind==='escalation'?`<button class="btn" data-act="retry">Retry with this guidance</button><button class="btn warn" data-act="stop">Stop the workflow</button>`:`<button class="btn" data-act="answer">Send answer</button>`)})):[{k:'none',html:'<span class="mute">No open requests.</span>'}]);

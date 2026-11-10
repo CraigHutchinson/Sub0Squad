@@ -474,6 +474,20 @@ struct Daemon::Impl
                 break;
             }
             case WorkflowAction::Kind::raiseRequest: raiseRequest(wfId, a.request); break;
+            case WorkflowAction::Kind::setStrategy: {
+                // what the manager decided for this item, read by its next attempt: reasoning on and a bigger budget; the engine switch is made when the job is built
+                const WorkflowRecord* wf = wfStore.find(wfId);
+                if (!wf) break;
+                bool think = a.note == "think", engine = a.note == "engine";
+                for (const auto& dd : wf->decisions) if (dd.item == a.item && dd.action == "strategy") { think = think || dd.tier == "think"; engine = engine || dd.tier == "engine"; }
+                const std::filesystem::path f = std::filesystem::path{wf->spec.sandboxDir} / "items" / a.item / "strategy.json";
+                std::error_code ec;
+                std::filesystem::create_directories(f.parent_path(), ec);
+                std::ofstream o(f, std::ios::trunc);
+                o << "{\"think\":" << (think || engine ? "true" : "false") << ",\"engine\":" << (engine ? "true" : "false") << ",\"latest\":\"" << a.note << "\"}\n";
+                logf("workflow %s: manager strategy '%s' for '%s'", wfId.c_str(), a.note.c_str(), a.item.c_str());
+                break;
+            }
             case WorkflowAction::Kind::sendDown: {
                 // Pick the part the failed integration points at (a part whose file names appear in the failure; otherwise the most complex one),
                 // give it the failure as its feedback, and void its acceptance so it is redone and the coordinator integrates again.

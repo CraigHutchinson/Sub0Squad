@@ -130,11 +130,13 @@ int runLlmAgent(const std::vector<std::string>& args)
     const fs::path dir = arg(args, "workflow-dir");
     const std::string itemId = arg(args, "item"), tier = arg(args, "tier", "local");
     const int attempt = std::atoi(arg(args, "attempt", "1").c_str());
-    const int maxTokens = std::atoi(arg(args, "max-tokens", "3000").c_str());
-    const int timeoutSec = std::atoi(arg(args, "timeout", "1700").c_str());
+    int maxTokens = std::atoi(arg(args, "max-tokens", "3000").c_str());
+    int timeoutSec = std::atoi(arg(args, "timeout", "1700").c_str());
     const int repairTurns = std::max(0, std::atoi(arg(args, "repair-turns", "0").c_str()));  // extra turns after the first: run the tests, feed failures back, repeat
     const long sizeBudget = std::atol(arg(args, "size-budget", "0").c_str());  // plan phase: above this estimate an item with tests is handed back to be divided
     const std::string treatment = arg(args, "treatment", "baseline");  // baseline | index | planfirst (docs/OPTIMIZATION.md)
+    bool strategyThink = false;  // the manager's strategy for this item (written by the daemon): reasoning on and a bigger budget
+    { std::ifstream sf(fs::path(arg(args, "workflow-dir")) / "items" / arg(args, "item") / "strategy.json"); std::stringstream sss; sss << sf.rdbuf(); strategyThink = sss.str().find("\"think\":true") != std::string::npos; }
     const auto began = std::chrono::steady_clock::now();
 
     if (tier == "frontier-stub") {  // no frontier provider exists: the stub tier is the reference implementation, recorded as a stub
@@ -143,6 +145,12 @@ int runLlmAgent(const std::vector<std::string>& args)
     }
     auto engine = EngineProfile::parse(arg(args, "engine"));
     if (!engine) { std::fprintf(stderr, "llm-agent: %s\n", engine.error().c_str()); return 64; }
+    if (strategyThink) {  // the manager chose to think harder about this item: reasoning on, room for it, and time for the longer reply
+        engine->thinking = true;
+        maxTokens = std::max(maxTokens, 6000);
+        timeoutSec = std::max(timeoutSec, 3600);
+        std::printf("manager strategy: thinking on, %d token budget\n", maxTokens);
+    }
     auto plan = Plan::fromJson(slurp(dir / "plan.json"));
     if (!plan) { std::fprintf(stderr, "llm-agent: %s\n", plan.error().c_str()); return 1; }
     WorkItem effective;

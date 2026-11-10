@@ -18,7 +18,7 @@ const char* toString(WorkflowState s)
 std::string WorkflowSpec::toJson() const
 {
     json::Writer w;
-    w.beginObject().kv("task", task).kv("taskText", taskText).kv("triage", triage).kv("sandbox", sandboxDir).kv("maxLocalAttempts", maxLocalAttempts).kv("agent", agent).kv("treatment", treatment).kv("repairTurns", repairTurns).kv("sizeBudget", sizeBudget).kv("maxTokens", maxTokens).kvBool("ask", ask).key("inject").beginArray();
+    w.beginObject().kv("task", task).kv("taskText", taskText).kv("triage", triage).kv("sandbox", sandboxDir).kv("maxLocalAttempts", maxLocalAttempts).kv("agent", agent).kv("treatment", treatment).kv("repairTurns", repairTurns).kv("sizeBudget", sizeBudget).kv("maxTokens", maxTokens).kvBool("ask", ask).kv("fallbackEngine", fallbackEngine).key("inject").beginArray();
     for (const auto& i : inject) w.str(i);
     w.endArray().key("engines").beginArray();
     for (const auto& e : engines) w.str(e);
@@ -48,6 +48,7 @@ std::expected<WorkflowSpec, std::string> WorkflowSpec::fromJson(std::string_view
                 else if (k == "sizeBudget") s.sizeBudget = static_cast<int>(v.get_int64());
                 else if (k == "maxTokens") s.maxTokens = static_cast<int>(v.get_int64());
                 else if (k == "ask") s.ask = v.get_bool();
+                else if (k == "fallbackEngine") s.fallbackEngine = json::toString(v);
                 else if (k == "engines") { for (auto x : v.get_array()) s.engines.push_back(json::toString(x.value())); }
                 else if (k == "route") { for (auto r : v.get_object()) { std::string persona{std::string_view{r.unescaped_key()}}; s.route[persona] = json::toString(r.value()); } }
             }
@@ -61,6 +62,7 @@ std::expected<WorkflowSpec, std::string> WorkflowSpec::fromJson(std::string_view
     std::set<std::string> names;
     for (const auto& e : s.engines) { auto p = EngineProfile::parse(e); if (!p) return std::unexpected("engine '" + e + "': " + p.error()); names.insert(p->name); }
     if (s.agent == "llm" && s.engines.empty()) return std::unexpected("agent llm needs at least one --engine");
+    if (!s.fallbackEngine.empty() && !names.count(s.fallbackEngine)) return std::unexpected("fallback engine '" + s.fallbackEngine + "' names an unknown engine");
     for (const auto& [persona, name] : s.route) if (!names.count(name)) return std::unexpected("route " + persona + "=" + name + " names an unknown engine");
     if (s.treatment != "baseline" && s.treatment != "index" && s.treatment != "planfirst") return std::unexpected("treatment must be baseline, index or planfirst");
     if (s.maxTokens < 256 || s.maxTokens > 32768) return std::unexpected("maxTokens must be 256..32768");
@@ -287,6 +289,26 @@ const RequestRecord* escalationFor(const WorkflowRecord& wf, const std::string& 
     return nullptr;
 }
 
+// The manager's strategies, tried in order when an item's ladder is spent, before anything reaches the owner: think (reasoning on, a bigger
+// budget), then a stronger local engine when one is configured. The owner decides intent and permissions, never how to solve a task.
+std::vector<std::string> strategyOrder(const WorkflowRecord& wf)
+{
+    std::vector<std::string> o{"think"};
+    if (!wf.spec.fallbackEngine.empty()) o.push_back("engine");
+    return o;
+}
+int strategiesUsed(const WorkflowRecord& wf, const std::string& item)
+{
+    int n = 0;
+    for (const auto& d : wf.decisions) if (d.item == item && d.action == "strategy") ++n;
+    return n;
+}
+bool hasStrategy(const WorkflowRecord& wf, const std::string& item, const char* name)
+{
+    for (const auto& d : wf.decisions) if (d.item == item && d.action == "strategy" && d.tier == name) return true;
+    return false;
+}
+
 const DecisionRecord* decisionFor(const WorkflowRecord& wf, const std::string& item, int attempt)
 {
     for (const auto& d : wf.decisions) if (d.item == item && d.attempt == attempt) return &d;
@@ -295,7 +317,9 @@ const DecisionRecord* decisionFor(const WorkflowRecord& wf, const std::string& i
 
 JobSpec agentJob(const WorkflowRecord& wf, const WorkflowSettings& st, const WorkItem& it, int attempt, const std::string& tier)
 {
-    const auto engine = wf.spec.engineFor(it.persona);
+    auto engine = wf.spec.engineFor(it.persona);
+    if (!wf.spec.fallbackEngine.empty() && hasStrategy(wf, it.id, "engine"))   // the manager moved this item to the stronger engine
+        for (const auto& e : wf.spec.engines) if (auto p = EngineProfile::parse(e); p && p->name == wf.spec.fallbackEngine) engine = *p;
     const bool llm = wf.spec.agent == "llm" && engine.has_value();
     JobSpec s = baseJob(wf, st, "agent", llm ? "llm-agent" : "mock-agent", tier.c_str(), llm && tier == "local" ? 3 * 3600 : 120);
     s.item = it.id;
@@ -471,17 +495,30 @@ std::vector<WorkflowAction> advance(const WorkflowRecord& wf, const JobStore& st
             for (const auto& depId : v.item->deps) { const WorkItem* dep = plan.find(depId); if (dep && dep->persona == "tester") { tester = dep; ctx.hasTesterDep = true; break; } }
             Decision dec = policy.decide(ctx);
             const bool restore = dec.action == Action::fail && v.restorable;  // fall back to the accepted version from before the dispute
-            const bool defer = dec.action == Action::fail && !restore && wf.spec.ask;  // governance on: ask the owner instead of failing the workflow
+            const auto order = strategyOrder(wf);
+            const int usedStrategies = strategiesUsed(wf, v.item->id);
+            const bool strategy = dec.action == Action::fail && !restore && usedStrategies < static_cast<int>(order.size());  // the manager acts before anyone is asked
+            const bool defer = dec.action == Action::fail && !restore && !strategy && wf.spec.ask;  // governance on and every strategy tried: ask the owner instead of failing
             WorkflowAction rec;
             rec.kind = WorkflowAction::Kind::recordDecision;
-            rec.item = v.item->id; rec.attempt = n; rec.decisionAction = restore ? "restored" : defer ? "deferred" : toString(dec.action); rec.decisionTier = dec.tier;
+            rec.item = v.item->id; rec.attempt = n; rec.decisionAction = restore ? "restored" : strategy ? "strategy" : defer ? "deferred" : toString(dec.action); rec.decisionTier = strategy ? order[static_cast<std::size_t>(usedStrategies)] : dec.tier;
             if (restore) dec.reasons.push_back("the re-run could not pass: the version accepted before the dispute is restored and the work continues with it");
+            if (strategy) dec.reasons.push_back("the ladder is spent: the manager applies strategy '" + order[static_cast<std::size_t>(usedStrategies)] + "' (" + std::to_string(usedStrategies + 1) + " of " + std::to_string(order.size()) + ") and tries again");
             if (defer) dec.reasons.push_back("the ladder is exhausted: deferred to the owner (a blocking request), who can guide another attempt or stop");
             rec.decisionJson = toJson(ctx, dec);
             out.push_back(std::move(rec));
             switch (dec.action) {
                 case Action::fail:
-                    if (defer) {
+                    if (strategy) {
+                        WorkflowAction ss;
+                        ss.kind = WorkflowAction::Kind::setStrategy;
+                        ss.item = v.item->id; ss.note = order[static_cast<std::size_t>(usedStrategies)];
+                        out.push_back(std::move(ss));
+                        // the strategy file is written before the job starts, and the engine choice for "engine" is read from the decision just recorded
+                        WorkflowRecord shadow = wf;
+                        shadow.decisions.push_back({v.item->id, n, "strategy", order[static_cast<std::size_t>(usedStrategies)], ""});
+                        out.push_back(start(agentJob(shadow, st, *v.item, n + 1, "local")));
+                    } else if (defer) {
                         WorkflowAction rq;
                         rq.kind = WorkflowAction::Kind::raiseRequest;
                         rq.request.kind = "escalation"; rq.request.from = "engine"; rq.request.attempt = n; rq.request.blocking = true;
@@ -511,6 +548,7 @@ std::vector<WorkflowAction> advance(const WorkflowRecord& wf, const JobStore& st
         if (!d) continue;
         // A decision is recorded; act on it if its follow-up job has not been submitted yet.
         if (d->action == "fail") failedItem = v.item->id;
+        else if (d->action == "strategy") out.push_back(start(agentJob(wf, st, *v.item, n + 1, "local")));
         else if (d->action == "deferred") {
             const RequestRecord* rq = escalationFor(wf, v.item->id, n);
             if (rq && rq->status == "answered") { if (rq->resolution == "stop") failedItem = v.item->id; else out.push_back(start(agentJob(wf, st, *v.item, n + 1, "local"))); }

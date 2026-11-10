@@ -74,10 +74,10 @@ OverseerVerdict analyseEscalation(const OverseerInput& in)
     }
     // 5. The same tests failing for the same reasons after several attempts: a misreading or a wrong test. A decision, not a mechanical cause.
     if (repeated) {
-        v.analysis = "The same tests failed with the same messages across attempts: either the contract is being misread or those tests contradict it. Nothing mechanical was found; this needs a decision (clarify the contract, correct the tests, or give guidance).";
+        v.analysis = "The same tests failed with the same messages across attempts: either the contract is being misread or those tests contradict it. Nothing mechanical was found; the manager chooses a strategy (think harder, a stronger engine, a different division). This is not a question for the owner.";
         return v;
     }
-    v.analysis = "No mechanical cause was found in the failure evidence (" + std::to_string(in.gates.size()) + " recent gate outputs); this needs a decision.";
+    v.analysis = "No mechanical cause was found in the failure evidence (" + std::to_string(in.gates.size()) + " recent gate outputs); the manager chooses a strategy.";
     return v;
 }
 

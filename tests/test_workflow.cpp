@@ -41,6 +41,7 @@ struct Sim
                 case WorkflowAction::Kind::cancelJob: feed("jobCancelRequested", journalbody::cancelRequested(a.jobId, 1)); feed("jobFinished", journalbody::finished(a.jobId, 1, JobState::cancelled, "", "cancelled")); break;
                 case WorkflowAction::Kind::loadPlan: break;
                 case WorkflowAction::Kind::writeDispute: break;
+                case WorkflowAction::Kind::setStrategy: break;
                 case WorkflowAction::Kind::raiseRequest: { RequestRecord r = a.request; r.id = "r-" + std::to_string(wfs.find("w-000001")->requests.size() + 1); feed("workflowRequestRaised", wfbody::requestRaised("w-000001", r)); break; }
                 case WorkflowAction::Kind::sendDown: feed("workflowDecision", wfbody::decision("w-000001", "d2", 1, "disputed", "local", "{}")); break;  // the daemon picks the part; here always d2
                 case WorkflowAction::Kind::amendPlan: {
@@ -482,6 +483,37 @@ int main()
         CHECK_EQ(chooseLeaseSlot(8, {0, 1, 5}, 5), 2);   // preferred is taken: lowest free
         CHECK_EQ(chooseLeaseSlot(8, {0, 1}, 5), 5);      // preferred is free: kept, so the prompt cache hits
         CHECK_EQ(chooseLeaseSlot(4, {0}, 9), 1);         // preferred beyond the cap is ignored
+    }
+    { // The manager solves before anyone is asked: a spent ladder applies strategies in order (think, then a stronger engine when configured), each once;
+      // only then does the item fail (or, with --ask, go to the owner). The stronger engine is what the next attempt's job is built with.
+        for (const bool withFallback : {false, true}) {
+            Sim s;
+            s.settings.frontier = FrontierMode::off;
+            WorkflowSpec spec;
+            spec.task = "t"; spec.sandboxDir = "/sb"; spec.maxLocalAttempts = 1; spec.agent = "llm";
+            spec.engines = {"small=http://127.0.0.1:8091/v1,model=m,slots=2", "big=http://127.0.0.1:8092/v1,model=m,slots=2"};
+            if (withFallback) spec.fallbackEngine = "big";
+            s.feed("workflowSubmitted", wfbody::submitted("w-000001", spec));
+            s.feed("workflowPlanned", wfbody::planned("w-000001", [] { Plan p; p.task = "t"; p.items = {{"a", "A", "g", {"a.hpp"}, {}, 1}}; return p; }()));
+            std::vector<std::string> strategies, engineOfAgent;
+            for (int guard = 0; guard < 40 && s.wfs.find("w-000001")->state == WorkflowState::running; ++guard) {
+                const auto acts = s.step();
+                for (const auto& a : acts) {
+                    if (a.kind == WorkflowAction::Kind::setStrategy) strategies.push_back(a.note);
+                    if (a.kind == WorkflowAction::Kind::startJob && a.job.role == "agent") {
+                        std::string eng;
+                        for (std::size_t k = 0; k + 1 < a.job.argv.size(); ++k) if (a.job.argv[k] == "--engine") eng = a.job.argv[k + 1].substr(0, a.job.argv[k + 1].find('='));
+                        engineOfAgent.push_back(eng);
+                    }
+                }
+                for (const auto& id : s.run(acts)) s.finishJob(id, s.job(id)->spec.role == "rearchitect" || s.job(id)->spec.role == "decompose" ? JobState::succeeded : JobState::failed);
+            }
+            CHECK(strategies.size() == (withFallback ? 2u : 1u));
+            CHECK(!strategies.empty() && strategies[0] == "think");
+            if (withFallback) CHECK(strategies.size() == 2 && strategies[1] == "engine" && engineOfAgent.back() == "big" && engineOfAgent.front() == "small");
+            CHECK(s.wfs.find("w-000001")->state == WorkflowState::failed);   // after the strategies, a failed item fails the workflow (no --ask)
+            CHECK(s.wfs.find("w-000001")->requests.empty());                  // and nothing was ever put to the owner
+        }
     }
     return finish();
 }

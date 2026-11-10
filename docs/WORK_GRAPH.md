@@ -450,3 +450,24 @@ conditional with the condition that would reopen it (the engine, model or harnes
 challenge one with a `proposal` request citing evidence, and a challenged entry is flagged to its readers until the challenge is settled. Confidence falls
 as an entry ages or the harness changes, and the dreamer prunes: it merges duplicates and drops entries nothing has used. Lean by default, retrievable on
 demand, and open to being wrong.
+
+## 20. The owner decides intent and permissions, never tactics (owner direction, 2026-11-10)
+
+An escalation that asks the owner *how to solve* a task is the system failing at its own job. Architecture and management decisions belong to the
+squad's roles; the owner is asked only about things only the owner can settle: what is wanted (a requirement that conflicts, information the request
+leaves out), and permissions (a frontier tier, spending, anything with effects outside the sandbox).
+
+So when an item's ladder is spent, the **manager acts before anyone is asked**: it applies strategies in order, each once per item, and tries again:
+
+1. **think**: reasoning on, a 6,000 token budget and time for the longer reply (a stuck worker gets to reason).
+2. **engine**: the item moves to a stronger local engine when the workflow names one (`--fallback-engine NAME`).
+
+Only when every strategy is spent does the item fail, and the workflow fails with the evidence (or, only with `--ask`, the owner is put the question).
+The overseer's verdict follows the same rule: `guidance` is answered at once, `fatal` (the environment) is reported plainly, and the old `owner` class
+is now "no mechanical cause: the manager chooses a strategy". Decisions record each strategy (`strategy`, with its name), so the portal's decisions
+log shows what the manager did and why. The inbox stays for real owner matters: requirements and clarifications the owner raises, and questions only the
+owner can answer.
+
+Strategies not built yet, in the order I would add them: re-divide the parent (bubble up when a part keeps failing: dissolve the division and divide
+differently, or merge two parts), a different seed and temperature, a leaner card from the architect, the frontier switch as a permission request when
+the owner has allowed it, and a project-manager decision to drop an optional part with the reason recorded.

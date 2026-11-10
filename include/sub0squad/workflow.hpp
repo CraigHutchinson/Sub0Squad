@@ -32,6 +32,7 @@ struct WorkflowSpec
     int repairTurns = 2;                          ///< extra turns an llm agent takes to run the tests and fix failures before it says done
     int sizeBudget = 1800;                        ///< estimated completion tokens above which an item that has tests is divided BEFORE the first attempt (0 = never)
     int maxTokens = 3000;                         ///< completion budget of one llm attempt
+    std::string fallbackEngine;                   ///< name of a stronger engine profile the manager moves an item to when the ladder is spent (a strategy); empty = none
     bool ask = false;                             ///< governance on: an item the ladder cannot finish is deferred to the owner (a blocking request) instead of failing the workflow
 
     /// The engine profile for a persona (route, else the first engine), or nullopt when none is configured.
@@ -111,7 +112,7 @@ struct WorkflowSettings
 /// What the engine asks the daemon to do, in order.
 struct WorkflowAction
 {
-    enum class Kind { startJob, loadPlan, recordDecision, cancelJob, finish, amendPlan, writeDispute, sendDown, raiseRequest } kind = Kind::finish;
+    enum class Kind { startJob, loadPlan, recordDecision, cancelJob, finish, amendPlan, writeDispute, sendDown, raiseRequest, setStrategy } kind = Kind::finish;
     JobSpec job;                                       ///< startJob
     std::string jobId;                                 ///< cancelJob
     std::string item;                                  ///< recordDecision
