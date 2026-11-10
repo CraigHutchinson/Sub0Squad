@@ -248,3 +248,12 @@ badge comes from the engine profile that served its attempts (the ledger records
 
 **Rates.** `/slots` counts whole tokens, so a one-second difference at 5 to 8 tok/s reads as a whole number. The rate is now taken over the last
 five samples (a resolution of 0.2 tok/s).
+
+**Refresh model (portal).** The page used to rebuild whole regions every second, which reset scroll positions (the open file viewer jumped to the
+top), collapsed open `<details>`, lost selections and restarted animations. It is now retained-mode: every region is a keyed list of elements
+that are patched in place (`reconcile`) and every piece of markup is compared with what is already shown before it is written (`setInner`), so
+only what changed is touched. Events are delegated once instead of re-attached. The detail drawer is three stacked regions (what the node is,
+what is live, the lists that change with files, jobs and decisions) and the file viewer is never rewritten by a refresh. Measured on the live 9B
+run over 6 s: no mutation in the drawer, the viewer scrolled to 200 px stayed at 200 px in the same element, an open group of files stayed open
+when its list grew, the page scrolled to 400 px stayed there, and only the clock, the sampled tiles, the engine rows, the graph nodes that
+changed and the jobs table were touched (the work-package card, the nodes table and the decisions table saw no mutation at all).
