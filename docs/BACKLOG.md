@@ -7,6 +7,15 @@ holds milestones; this holds the things noticed on the way.
 
 ### Node tree presentation: grouping, ordering and connections (2026-11-10, from a screenshot of the live V run)
 
+**Status (same day): first pass built** (`portal_page.cpp`, `buildTree` and `layoutScope`). A divided parent is a container (dashed box) holding its
+parts, laid out recursively; units are layered by dependency and ordered by barycentre sweeps; placement is deterministic from the plan so a
+status change never moves a node; edges are one curve per dependency between facing sides, containers drawn under the edges and the nodes over
+them; ids are shown short inside a container; the activity icons are letters (D dividing, A card rewrite, I integrating); live text is clipped with
+an ellipsis. Measured on the live V run (13 nodes, 2 containers): **0 edge crossings, 0 edges through a node, positions identical across
+refreshes** (the screenshot below had many crossings). **Still open:** collapse a finished container to one line, zoom and pan and a mini-map,
+the V lanes (descent and ascent) and per-coordinator round markers, edge bundling for wide fan-in, focus on the active frontier, a table-of-contents
+for very large plans, and a unit-style test of the layout (crossings and containment on a fixture plan).
+
 What the screenshot of `w-000001` (a divided workflow on the 9B) shows, and what should change:
 
 - **Parts are not grouped under the node that divided them.** Nodes sit by dependency column and level, so the parts of different parents

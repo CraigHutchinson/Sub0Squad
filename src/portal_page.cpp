@@ -22,6 +22,7 @@ svg{max-width:100%}.graph svg{width:100%;height:auto;display:block;overflow:visi
 .node{cursor:pointer}.node rect.box{fill:var(--panel);stroke-width:2}.node text{fill:var(--ink);font-size:12px}.node .sub{fill:var(--mute);font-size:10.5px}.node .live{fill:var(--running);font-size:10.5px}
 .s-pending rect.box{stroke:var(--pending)}.s-running rect.box{stroke:var(--running);animation:pulse 1.4s ease-in-out infinite}.s-accepted rect.box{stroke:var(--accepted)}.s-failed rect.box{stroke:var(--failed)}
 .node.sel rect.box{stroke-width:4}
+.node.cont rect.box{fill:color-mix(in srgb,var(--ink) 4%,var(--panel));stroke-dasharray:none}.node.cont.s-pending rect.box{stroke-dasharray:6 4}
 .node.act-divide rect.box,.node.act-architect rect.box,.node.act-integrate rect.box{stroke:var(--accent);fill:color-mix(in srgb,var(--accent) 14%,var(--panel))}.node.act-integrate rect.box{stroke:#1a9a8a}
 .actdot{fill:var(--accent);stroke:var(--panel);stroke-width:2}.actdot.int{fill:#1a9a8a}.acttext{fill:#fff;font-size:13px;font-weight:700;text-anchor:middle}.badge{display:inline-block;padding:0 7px;border-radius:9px;font-size:11px;font-weight:600;border:1px solid var(--accent);color:var(--accent);vertical-align:1px;cursor:help}.badge.fr{border-color:var(--warn);color:var(--warn)}.badge.mock{border-color:var(--mute);color:var(--mute)}.bpill{fill:none;stroke:var(--accent);stroke-width:1.2}.bpill.fr{stroke:var(--warn)}.btext{fill:var(--accent);font-size:10px;font-weight:600}.btext.fr{fill:var(--warn)}@keyframes pulse{50%{stroke-opacity:.35}}
 .edge{fill:none;stroke:var(--edge);stroke-width:1.5}.edge.parent{stroke-dasharray:4 4;stroke:var(--accent)}
@@ -59,7 +60,7 @@ code{font-size:12px;word-break:break-all}
 <section class="card wide"><b>System</b> <span class="mute" id="sysnote"></span><div class="tiles" id="sys"></div></section>
 <section class="card wide"><b>Engines</b> <span class="mute">(live from each llama-server's /slots: prefill progress, tokens decoded, rates)</span><div id="engines"></div></section>
 <section class="card wide"><div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px"><b id="wfname">Work graph</b>
-<span class="legend mute"><span><i class="dot" style="border-color:var(--pending)"></i>pending</span><span><i class="dot" style="border-color:var(--running)"></i>running</span><span><i class="dot" style="border-color:var(--accepted)"></i>accepted</span><span><i class="dot" style="border-color:var(--failed)"></i>failed</span><span>solid: depends on · dashed: divided into</span></span></div>
+<span class="legend mute"><span><i class="dot" style="border-color:var(--pending)"></i>pending</span><span><i class="dot" style="border-color:var(--running)"></i>running</span><span><i class="dot" style="border-color:var(--accepted)"></i>accepted</span><span><i class="dot" style="border-color:var(--failed)"></i>failed</span><span>line: depends on · dashed box: divided into parts it integrates</span></span></div>
 <div id="graph" class="graph"></div><div class="mute" id="note" style="margin-top:6px"></div></section>
 <section class="card wide"><b>Workflow package</b> <span class="mute">the request, the plan, the deliverables and every artifact of every node</span>
 <div id="pkg"><div id="pk-info"></div><b>Deliverables</b><div id="pk-del"></div><b>Files</b> <span class="mute" id="pk-count"></span><div id="pk-top"></div><div id="pk-tree"></div></div></section>
@@ -178,11 +179,46 @@ function renderLive(){
   setText($('sysnote'),live.system&&live.system.memTotalMiB?`${Math.round(live.system.memTotalMiB/1024)} GiB RAM`:'');
 }
 // ================= work graph =================
-function layout(items){
-  const byId=Object.fromEntries(items.map(i=>[i.id,i]));const col={};
-  const colOf=id=>{if(id in col)return col[id];col[id]=0;const it=byId[id];let c=0;for(const d of it.deps||[])if(byId[d])c=Math.max(c,colOf(d)+1);if(it.parent&&byId[it.parent])c=Math.max(c,colOf(it.parent)+1);return col[id]=c};
-  items.forEach(i=>colOf(i.id));const row=i=>(i.id.match(/\./g)||[]).length;const cells={},pos={};
-  items.forEach(i=>{const k=col[i.id]+','+row(i);cells[k]=cells[k]||0;pos[i.id]={c:col[i.id],r:row(i),s:cells[k]++}});return pos;
+// ---- layered, compound layout: a divided parent is a container holding its parts; units are layered by dependency, ordered by barycentre to cut
+// ---- crossings, and placed deterministically from the plan alone (status never moves a node). Coordinates are absolute, computed in one pass.
+const GW=230,GH=76,GX=46,GY=22,CPAD=14,CHEAD=44,CFOOT=26;
+function buildTree(items){
+  const byId=Object.fromEntries(items.map(i=>[i.id,i]));
+  const parentOf=i=>{let id=i.id;while(id.includes('.')){id=id.slice(0,id.lastIndexOf('.'));const p=byId[id];if(p&&p.persona==='integrator')return id}return null};
+  const kids={},roots=[];
+  items.forEach(i=>{const p=parentOf(i);if(p)(kids[p]=kids[p]||[]).push(i.id);else roots.push(i.id)});
+  return {byId,kids,roots,order:Object.fromEntries(items.map((i,n)=>[i.id,n]))};
+}
+function layoutScope(T,unitIds){
+  // unit of an item inside this scope = the member whose subtree contains it, else null (outside this scope)
+  const subtree=id=>{const out=[id];(T.kids[id]||[]).forEach(k=>out.push(...subtree(k)));return out};
+  const unitOf={};unitIds.forEach(u=>subtree(u).forEach(x=>unitOf[x]=u));
+  const preds={},succ={};unitIds.forEach(u=>{preds[u]=new Set();succ[u]=new Set()});
+  unitIds.forEach(u=>subtree(u).forEach(x=>(T.byId[x].deps||[]).forEach(d=>{const du=unitOf[d];if(du&&du!==u){preds[u].add(du);succ[du].add(u)}})));
+  const layer={};const lay=u=>layer[u]!=null?layer[u]:(layer[u]=0,layer[u]=[...preds[u]].reduce((m,p)=>Math.max(m,lay(p)+1),0));
+  unitIds.forEach(lay);
+  const nLayers=Math.max(0,...Object.values(layer))+1,cols=Array.from({length:nLayers},()=>[]);
+  [...unitIds].sort((a,b)=>T.order[a]-T.order[b]).forEach(u=>cols[layer[u]].push(u));
+  const idx=u=>cols[layer[u]].indexOf(u);
+  const bary=(u,set)=>{const a=[...set];return a.length?a.reduce((s,p)=>s+idx(p)/Math.max(1,cols[layer[p]].length-1||1),0)/a.length:null};
+  for(let sweep=0;sweep<4;sweep++){   // down then up: order each column by the mean position of its neighbours, keeping the previous order on ties
+    for(let c=1;c<nLayers;c++){const prev=Object.fromEntries(cols[c].map((u,n)=>[u,n]));cols[c].sort((a,b)=>{const ba=bary(a,preds[a]),bb=bary(b,preds[b]);return (ba==null||bb==null)?prev[a]-prev[b]:(ba-bb)||(prev[a]-prev[b])})}
+    for(let c=nLayers-2;c>=0;c--){const prev=Object.fromEntries(cols[c].map((u,n)=>[u,n]));cols[c].sort((a,b)=>{const ba=bary(a,succ[a]),bb=bary(b,succ[b]);return (ba==null||bb==null)?prev[a]-prev[b]:(ba-bb)||(prev[a]-prev[b])})}
+  }
+  // size every unit (a container is as big as its own layout plus a header and a footer), then place the columns
+  const size={},inner={};
+  unitIds.forEach(u=>{const k=T.kids[u];if(k&&k.length){const l=layoutScope(T,k);inner[u]=l;size[u]={w:l.w+2*CPAD,h:l.h+CHEAD+CFOOT+CPAD}}else size[u]={w:GW,h:GH}});
+  const colW=cols.map(c=>Math.max(1,...c.map(u=>size[u].w))),colH=cols.map(c=>c.reduce((s,u)=>s+size[u].h,0)+GY*Math.max(0,c.length-1));
+  const H=Math.max(1,...colH);let x=0;const pos={},nodes=[],edges=[];
+  cols.forEach((c,ci)=>{let y=(H-colH[ci])/2;c.forEach(u=>{pos[u]={x,y,w:size[u].w,h:size[u].h};y+=size[u].h+GY});x+=colW[ci]+GX});
+  const W=Math.max(1,x-GX);
+  unitIds.forEach(u=>{const p=pos[u],l=inner[u];
+    if(l){nodes.push({id:u,kind:'container',x:p.x,y:p.y,w:p.w,h:p.h});
+      l.nodes.forEach(n=>nodes.push({...n,x:n.x+p.x+CPAD,y:n.y+p.y+CHEAD}));
+      l.edges.forEach(e=>edges.push({a:[e.a[0]+p.x+CPAD,e.a[1]+p.y+CHEAD],b:[e.b[0]+p.x+CPAD,e.b[1]+p.y+CHEAD]}))}
+    else nodes.push({id:u,kind:'leaf',x:p.x,y:p.y,w:p.w,h:p.h})});
+  unitIds.forEach(v=>preds[v].forEach(u=>edges.push({a:[pos[u].x+pos[u].w,pos[u].y+pos[u].h/2],b:[pos[v].x,pos[v].y+pos[v].h/2]})));
+  return {w:W,h:H,nodes,edges};
 }
 function nodeLive(i,jobsByItem,engines){
   const j=jobsByItem[i.id];if(!j)return null;
@@ -190,6 +226,7 @@ function nodeLive(i,jobsByItem,engines){
   const eng=engines.find(e=>e.base===base);const s=eng&&slotNo!=null?eng.slots.find(x=>x.id===slotNo):null;
   return {job:j,slot:s,slotNo,base};
 }
+const clipText=(s,n)=>{s=String(s);return s.length>n?s.slice(0,n-1)+'…':s};
 let graphSig=null;
 function drawGraph(items,wfId){
   const host=$('graph');
@@ -198,42 +235,45 @@ function drawGraph(items,wfId){
   // the live job behind each node; a division or a card rewrite raised by the node shows on the node itself (highest rank wins)
   const rank={decompose:4,rearchitect:3,agent:2,gate:1},jobsByItem={};
   ((state.jobs&&state.jobs.jobs)||[]).forEach(j=>{if(j.workflow===wfId&&j.item&&['running','starting'].includes(j.state)&&rank[j.role]&&(!jobsByItem[j.item]||rank[j.role]>rank[jobsByItem[j.item].role]))jobsByItem[j.item]=j});
-  const actOf=(i,j)=>!j?null:j.role==='decompose'?{cls:'act-divide',label:'dividing into parts',icon:'÷',tip:'The model is dividing this item into smaller parts ('+j.id+'). When it is done the parts appear below and this node integrates them.'}
+  const actOf=(i,j)=>!j?null:j.role==='decompose'?{cls:'act-divide',label:'dividing into parts',icon:'D',tip:'The model is dividing this item into smaller parts ('+j.id+'). When it is done the parts appear inside it and it integrates them.'}
     :j.role==='rearchitect'?{cls:'act-architect',label:'rewriting its card',icon:'A',tip:'An architect job is rewriting this item\'s work card, shorter and focused on what failed ('+j.id+').'}
-    :(i.persona==='integrator'&&j.role==='gate')?{cls:'act-integrate',label:'integrating its parts',icon:'⇄',int:true,tip:'All parts are accepted: this node runs its own tests over them together ('+j.id+').'}:null;
+    :(i.persona==='integrator'&&j.role==='gate')?{cls:'act-integrate',label:'integrating its parts',icon:'I',int:true,tip:'All parts are accepted: this node runs its own tests over them together ('+j.id+').'}:null;
   const engines=(live&&live.engines)||[];
   const wfNow=currentWf(),openReq=((wfNow&&wfNow.requests)||[]).filter(r=>r.status==='open'&&r.blocking);
   const blockedBy=id=>openReq.find(r=>!(r.scope||[]).length||r.scope.includes(id));
-  const pos=layout(items),W=215,H=74,GX=44,GY=26,PX=70,PY=34;
-  const maxC=Math.max(...Object.values(pos).map(p=>p.c)),maxR=Math.max(...Object.values(pos).map(p=>p.r));
-  const stack={};Object.values(pos).forEach(p=>{const k=p.c+','+p.r;stack[k]=Math.max(stack[k]||0,p.s+1)});
-  const rowH=r=>Math.max(1,...Object.entries(stack).filter(([k])=>+k.split(',')[1]===r).map(([,v])=>v))*(H+GY);
-  const rowY=[];let y=PY;for(let r=0;r<=maxR;r++){rowY[r]=y;y+=rowH(r)+8}
-  const width=PX+(maxC+1)*(W+GX),height=y+10,X=p=>PX+p.c*(W+GX),Y=p=>rowY[p.r]+p.s*(H+GY);
-  // the frame (lanes and edges) changes only when the plan's shape does; the nodes are patched one by one
+  const T=buildTree(items),L=layoutScope(T,T.roots),PX=14,PY=14,width=L.w+2*PX,height=L.h+2*PY;
+  // edges: one cubic per dependency, anchored mid-height on the facing sides; the shape of the plan decides when the frame is rebuilt
   let shell='';
-  for(let r=0;r<=maxR;r++)shell+=`<line class="lane" x1="0" x2="${width}" y1="${rowY[r]-10}" y2="${rowY[r]-10}"/><text class="lanelabel" x="4" y="${rowY[r]+12}">level ${r}${r==0?' (top)':''}</text>`;
-  const edge=(a,b,cls)=>{const x1=X(a)+W,y1=Y(a)+H/2,x2=X(b),y2=Y(b)+H/2,mx=(x1+x2)/2;shell+=`<path class="edge ${cls}" d="M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}"/>`};
-  items.forEach(i=>{for(const d of i.deps||[])if(pos[d])edge(pos[d],pos[i.id],'');if(i.parent&&pos[i.parent])edge(pos[i.parent],pos[i.id],'parent')});
+  L.edges.forEach(e=>{const x1=e.a[0]+PX,y1=e.a[1]+PY,x2=e.b[0]+PX,y2=e.b[1]+PY,mx=(x1+x2)/2;shell+=`<path class="edge" d="M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}"/>`});
   const sig=width+'x'+height+'|'+shell;
-  if(sig!==graphSig){graphSig=sig;host.innerHTML=`<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="work graph">${shell}<g class="layer"></g></svg>`}
-  const nodes=items.map(i=>{const p=pos[i.id],x=X(p),yy=Y(p),L=i.status=='running'?nodeLive(i,jobsByItem,engines):null,act=i.status==='running'?actOf(i,jobsByItem[i.id]):null;
-    let liveLine='';
-    if(L){const j=L.job,pr=j.progress;let t=act?`${act.label} · ${Math.round(j.elapsedSec||0)} s`:`${esc(j.role)} running ${Math.round(j.elapsedSec||0)} s`;
-      if(L.slot)t=L.slot.processing?(act?act.label+' · ':'')+slotText(L.slot):t;else if(pr&&pr.total)t+=` · ${esc(pr.phase||'')} ${pr.done}/${pr.total}`;
-      liveLine=`<text class="live" x="${x+10}" y="${yy+66}">${L.slotNo!=null?'slot '+L.slotNo+' · ':''}${t}</text>`;
-      if(L.slot)liveLine+=`<g transform="translate(${x+W-82},${yy+34})">${spark(L.slot.decodeSeries.slice(-40),72,22,'',null)}</g>`}
-    const NM=i.attempts>0||L?nodeModel(i,jobsByItem[i.id]):null;
-    const bw=NM?(NM.b.short.length+(NM.b.quant?NM.b.quant.length+1:0))*6.3+10:0;
+  if(sig!==graphSig){graphSig=sig;host.innerHTML=`<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="work graph"><g class="lc"></g>${shell}<g class="ll"></g></svg>`}   // containers underneath, then the edges (so those inside a container show), then the nodes
+  const nodes=L.nodes.slice().sort((a,b)=>(a.kind==='container'?0:1)-(b.kind==='container'?0:1)).map(n=>{
+    const i=T.byId[n.id],x=n.x+PX,yy=n.y+PY,W=n.w,H=n.h,job=jobsByItem[i.id],Lv=i.status=='running'?nodeLive(i,jobsByItem,engines):null,act=i.status==='running'?actOf(i,job):null;
+    const NM=i.attempts>0||Lv?nodeModel(i,job):null,bw=NM?(NM.b.short.length+(NM.b.quant?NM.b.quant.length+1:0))*6.3+10:0;
     const badge=NM?`<g><title>${esc(NM.title)}</title><rect class="bpill ${NM.b.cls}" x="${x+W-8-bw}" y="${yy+6}" width="${bw}" height="16" rx="8"/><text class="btext ${NM.b.cls}" x="${x+W-3-bw}" y="${yy+17}">${esc(NM.b.short)}${NM.b.quant?' '+esc(NM.b.quant):''}</text></g>`:'';
     const actIcon=act?`<g><title>${esc(act.tip)}</title><circle class="actdot${act.int?' int':''}" cx="${x}" cy="${yy}" r="11"/><text class="acttext" x="${x}" y="${yy+4.5}">${act.icon}</text></g>`:'';
     const bq=i.status!=='accepted'?blockedBy(i.id):null;
-    if(bq&&!L)liveLine=`<text class="live" x="${x+10}" y="${yy+66}" style="fill:var(--warn)">waiting for an answer (${esc(bq.id)})</text>`;
-    return {k:i.id,cls:`node s-${i.status}${act?' '+act.cls:''}${bq?' blocked':''}${sel&&sel.type=='node'&&sel.key==i.id?' sel':''}`,html:`<rect class="box" x="${x}" y="${yy}" width="${W}" height="${H}" rx="8"/>
-    <text x="${x+10}" y="${yy+18}"><tspan font-weight="600">${esc(i.id)}</tspan> <tspan class="sub">${esc(i.persona)}</tspan></text>
+    const short=i.id.includes('.')?i.id.slice(i.id.lastIndexOf('.')+1):i.id,maxId=Math.max(6,Math.floor((W-26-bw)/7));
+    const cls=`node ${n.kind==='container'?'cont ':''}s-${i.status}${act?' '+act.cls:''}${bq?' blocked':''}${sel&&sel.type=='node'&&sel.key==i.id?' sel':''}`;
+    if(n.kind==='container'){
+      const rounds=i.attempts?`round${i.attempts==1?'':'s'} ${i.attempts}`:'waiting for its parts';
+      return {k:i.id,cls,html:`<title>${esc(i.id)} · ${esc(i.title||'')}</title><rect class="box" x="${x}" y="${yy}" width="${W}" height="${H}" rx="10"/>
+      <text x="${x+12}" y="${yy+19}"><tspan font-weight="600">${esc(clipText(short,maxId))}</tspan> <tspan class="sub">integrates its parts</tspan></text>
+      <text class="sub" x="${x+12}" y="${yy+35}">${esc(act?act.label:i.status)} · ${esc(rounds)}${bq?' · waiting for an answer ('+esc(bq.id)+')':''}</text>
+      <text class="sub" x="${x+12}" y="${yy+H-9}">tokens in ${fmt(i.tokensIn)} · out ${fmt(i.tokensOut)}</text>${badge}${actIcon}`}}
+    let liveLine='';
+    if(Lv){const j=Lv.job,pr=j.progress;let t=act?`${act.label} · ${Math.round(j.elapsedSec||0)} s`:`${j.role} running ${Math.round(j.elapsedSec||0)} s`;
+      if(Lv.slot)t=Lv.slot.processing?(act?act.label+' · ':'')+slotText(Lv.slot):t;else if(pr&&pr.total)t+=` · ${pr.phase||''} ${pr.done}/${pr.total}`;
+      liveLine=`<text class="live" x="${x+10}" y="${yy+66}">${esc(clipText((Lv.slotNo!=null?'slot '+Lv.slotNo+' · ':'')+t,Math.floor((W-20)/5.6)))}</text>`;
+      if(Lv.slot)liveLine+=`<g transform="translate(${x+W-82},${yy+34})">${spark(Lv.slot.decodeSeries.slice(-40),72,22,'',null)}</g>`}
+    else if(bq)liveLine=`<text class="live" x="${x+10}" y="${yy+66}" style="fill:var(--warn)">waiting for an answer (${esc(bq.id)})</text>`;
+    return {k:i.id,cls,html:`<title>${esc(i.id)} · ${esc(i.title||'')}</title><rect class="box" x="${x}" y="${yy}" width="${W}" height="${H}" rx="8"/>
+    <text x="${x+10}" y="${yy+18}"><tspan font-weight="600">${esc(clipText(short,maxId))}</tspan> <tspan class="sub">${esc(i.persona)}</tspan></text>
     <text class="sub" x="${x+10}" y="${yy+34}">${esc(act?act.label:i.status)} · attempt${i.attempts==1?'':'s'} ${i.attempts}${i.engine?' · '+esc(i.engine):''}</text>
     <text class="sub" x="${x+10}" y="${yy+50}">tokens in ${fmt(i.tokensIn)} · out ${fmt(i.tokensOut)}</text>${liveLine}${badge}${actIcon}`}});
-  reconcile(host.querySelector('.layer'),nodes,{tag:'g',ns:'http://www.w3.org/2000/svg'});
+  const NS='http://www.w3.org/2000/svg';
+  reconcile(host.querySelector('.lc'),nodes.filter(n=>n.cls.includes(' cont ')||n.cls.startsWith('node cont')),{tag:'g',ns:NS});
+  reconcile(host.querySelector('.ll'),nodes.filter(n=>!(n.cls.includes(' cont ')||n.cls.startsWith('node cont'))),{tag:'g',ns:NS});
 }
 // ================= workflow package =================
 let pkg=null,pkgWf=null,pkgAt=0,fileView=null;
