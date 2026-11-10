@@ -1,6 +1,8 @@
 // The workflow engine as a pure function: planning, dependency order, gates, retry, escalation, failure, cancel, idempotence.
 #include "check.hpp"
 #include "sub0squad/harness_web.hpp"
+#include "sub0squad/briefing.hpp"
+#include "sub0squad/overseer.hpp"
 #include "sub0squad/triage.hpp"
 #include "sub0squad/workflow.hpp"
 
@@ -407,6 +409,32 @@ int main()
         CHECK_EQ(effectiveSizeBudget(1800, 7, 1), 1800);  // one slot: nothing to parallelise
         CHECK_EQ(effectiveSizeBudget(1800, -1, 8), 1800); // unknown state
         CHECK_EQ(effectiveSizeBudget(0, 8, 8), 0);        // size splitting off stays off
+    }
+    { // The overseer, first responder to an escalation: guidance for mechanical causes, fatal for the environment, the owner otherwise.
+        OverseerInput load; load.persona = "tester";
+        load.gates = {"GATE FAIL: only 1 test(s) ran, at least 6 are required\nFAIL 1 - tests/page.test.mjs: 'test failed'\nThe runner reported (a test file that fails while loading counts as one failed test):\n  Error: ENOENT: no such file or directory, open '/ws/style.css'\n"};
+        const auto v1 = analyseEscalation(load);
+        CHECK(v1.triage == "guidance" && v1.guidance.find("top level") != std::string::npos && v1.analysis.find("ENOENT") != std::string::npos);
+        OverseerInput stub; stub.persona = "tester"; stub.gates = {"GATE FAIL: only 18 of 27 tests fail against the stub: they do not exercise the contract"};
+        CHECK(analyseEscalation(stub).triage == "guidance");
+        OverseerInput env; env.persona = "developer"; env.agentNote = "llm-agent: engine call failed: connect to 127.0.0.1:8092: Connection refused";
+        const auto v3 = analyseEscalation(env);
+        CHECK(v3.triage == "fatal" && v3.guidance.empty());
+        OverseerInput same; same.persona = "developer";
+        same.gates = {"GATE FAIL: 2 of 20 tests failed\nFAIL 3 - rounds: 'expected 1, got 2'\n", "GATE FAIL: 2 of 20 tests failed\nFAIL 3 - rounds: 'expected 1, got 2'\n"};
+        const auto v4 = analyseEscalation(same);
+        CHECK(v4.triage == "owner" && v4.analysis.find("same tests failed") != std::string::npos);
+        OverseerInput none; none.persona = "developer"; none.gates = {"GATE FAIL: 1 of 9 tests failed\nFAIL 2 - x: 'y'\n"};
+        CHECK(analyseEscalation(none).triage == "owner");
+    }
+    { // The harness-expert's briefing carries the situation, the harness facts, the evidence, the history and the overseer's verdict.
+        BriefingInput b; b.workflow = "w-1"; b.request = "r-3"; b.kind = "escalation"; b.title = "'lexer' could not be completed"; b.task = "build a calculator";
+        b.item = "lexer"; b.persona = "developer"; b.itemTitle = "Lexer"; b.goal = "tokenise"; b.files = {"src/lexer.js"}; b.contract = "tokenize(text) returns tokens";
+        b.harnessFacts = webHarnessFacts(); b.gates = {"GATE FAIL: 1 of 10 tests failed"}; b.history = {"attempt 1: retry (local)", "attempt 2: reviseTests (local)"};
+        b.triage = "owner"; b.analysis = "needs a decision"; b.options = {"retry with my guidance", "stop the workflow"};
+        const std::string md = buildBriefing(b);
+        for (const char* part : {"# Briefing for r-3", "build a calculator", "src/lexer.js", "never throw", "70 %", "GATE FAIL: 1 of 10", "attempt 2: reviseTests", "Class: **owner**", "retry with my guidance"})
+            CHECK(md.find(part) != std::string::npos);
     }
     return finish();
 }

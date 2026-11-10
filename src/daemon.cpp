@@ -7,6 +7,9 @@
 #include "sub0squad/journal.hpp"
 #include "sub0squad/ledger.hpp"
 #include "sub0squad/triage.hpp"
+#include "sub0squad/briefing.hpp"
+#include "sub0squad/harness_web.hpp"
+#include "sub0squad/overseer.hpp"
 #include "sub0squad/progress.hpp"
 #include "sub0squad/workflow.hpp"
 #include "sub0squad/workflow_status.hpp"
@@ -600,6 +603,74 @@ struct Daemon::Impl
             }
         }
     }
+    // The first responder: analyse an escalation's evidence before the owner is asked. Guidance is answered at once (at most twice per item, so
+    // a loop cannot form); a fatal fault or a real decision stays open for the owner, with the analysis attached so the question is already framed.
+    void firstResponder(const std::string& wfId, const std::string& rid)
+    {
+        const WorkflowRecord* wf = wfStore.find(wfId);
+        if (!wf || !wf->plan) return;
+        const RequestRecord* req = nullptr;
+        for (const auto& r : wf->requests) if (r.id == rid) req = &r;
+        if (!req || req->scope.size() != 1) return;
+        const std::string item = req->scope[0];
+        const WorkItem* wi = wf->plan->find(item);
+        if (!wi) return;
+        const std::filesystem::path sandbox{wf->spec.sandboxDir};
+        OverseerInput in;
+        in.persona = wi->persona;
+        for (int k = std::max(1, req->attempt - 3); k <= req->attempt; ++k) {
+            std::ifstream f(sandbox / "items" / item / ("attempt-" + std::to_string(k)) / "gate.txt");
+            std::stringstream ss;
+            ss << f.rdbuf();
+            if (!ss.str().empty()) in.gates.push_back(ss.str());
+        }
+        const JobRecord* lastAgent = nullptr;
+        for (const auto& j : store.jobs()) if (j.spec.workflow == wfId && j.spec.item == item && j.spec.role == "agent" && (!lastAgent || j.spec.attempt >= lastAgent->spec.attempt)) lastAgent = &j;
+        if (lastAgent) {
+            std::ifstream f(opts.paths.runDir(lastAgent->id, lastAgent->run) / "stderr.log");
+            std::stringstream ss;
+            ss << f.rdbuf();
+            const std::string t = ss.str();
+            in.agentNote = t.size() > 300 ? t.substr(t.size() - 300) : t;
+        }
+        const OverseerVerdict v = analyseEscalation(in);
+        {   // the harness-expert's briefing: everything a decider needs, in one file next to the node's files
+            BriefingInput b;
+            b.workflow = wfId; b.request = rid; b.kind = req->kind; b.title = req->title; b.task = wf->spec.taskText.empty() ? wf->spec.task : wf->spec.taskText;
+            b.item = item; b.persona = wi->persona; b.itemTitle = wi->title; b.goal = wi->goal; b.files = wi->files; b.contract = wi->card.contract; b.acceptance = wi->card.acceptance;
+            b.harnessFacts = wf->plan->harness == "web-static" ? webHarnessFacts() : std::string{"(no harness facts for this project type)"};
+            b.gates = in.gates; b.agentNote = in.agentNote; b.triage = v.triage; b.analysis = v.analysis; b.options = req->options;
+            for (const auto& dd : wf->decisions) if (dd.item == item) b.history.push_back("attempt " + std::to_string(dd.attempt) + ": " + dd.action + (dd.tier.empty() ? "" : " (" + dd.tier + ")"));
+            std::error_code ec;
+            std::filesystem::create_directories(sandbox / "items" / item, ec);
+            std::ofstream o(sandbox / "items" / item / ("briefing-" + rid + ".md"), std::ios::trunc);
+            o << buildBriefing(b);
+        }
+        record("workflowRequestAnalysed", wfbody::requestAnalysed(wfId, rid, v.triage, v.analysis));
+        logf("workflow %s: overseer on %s: %s (%s)", wfId.c_str(), rid.c_str(), v.triage.c_str(), v.analysis.c_str());
+        if (v.triage != "guidance") return;
+        int autos = 0;
+        for (const auto& r : wf->requests) if (r.scope.size() == 1 && r.scope[0] == item && r.answeredBy == "overseer") ++autos;
+        if (autos >= 2) return;
+        answerRequest(wfId, rid, v.guidance, "retry", "overseer");
+    }
+    // Record an answer and hand its text to the nodes in scope as guidance. Returns an error text, empty when it took.
+    std::string answerRequest(const std::string& wfId, const std::string& rid, const std::string& answer, const std::string& resolution, const std::string& by)
+    {
+        const WorkflowRecord* wf = wfStore.find(wfId);
+        if (!wf) return "no such workflow: " + wfId;
+        const RequestRecord* req = nullptr;
+        for (const auto& r : wf->requests) if (r.id == rid) req = &r;
+        if (!req) return "no such request: " + rid;
+        if (req->status != "open") return "request " + rid + " is already answered";
+        if (answer.size() > 4000) return "answer is too long";
+        if (resolution != "" && resolution != "retry" && resolution != "stop") return "resolution must be retry or stop";
+        const RequestRecord copy = *req;
+        record("workflowRequestAnswered", wfbody::requestAnswered(wfId, rid, answer, resolution, by));
+        if (const WorkflowRecord* w2 = wfStore.find(wfId); w2 && resolution != "stop")
+            applyGuidance(*w2, copy.scope, answer, copy.kind != "escalation", by == "overseer" ? "Guidance from the overseer" : "Guidance from the owner");
+        return {};
+    }
     std::string raiseRequest(const std::string& wfId, RequestRecord r)
     {
         const WorkflowRecord* wf = wfStore.find(wfId);
@@ -607,6 +678,7 @@ struct Daemon::Impl
         r.id = "r-" + std::to_string(wf->requests.size() + 1);
         record("workflowRequestRaised", wfbody::requestRaised(wfId, r));
         logf("workflow %s: %s request %s raised by %s: %s%s", wfId.c_str(), r.kind.c_str(), r.id.c_str(), r.from.c_str(), r.title.c_str(), r.blocking ? " (blocking)" : "");
+        if (r.kind == "escalation" && r.from == "engine") firstResponder(wfId, r.id);
         return r.id;
     }
     std::string doRequestRaise(const std::string& wfId, const std::string& specJson)
@@ -666,16 +738,7 @@ struct Daemon::Impl
                 }
             });
         } catch (const simdjson::simdjson_error& e) { return errorReply(std::string{"bad answer: "} + e.what()); }
-        const RequestRecord* req = nullptr;
-        for (const auto& r : wf->requests) if (r.id == rid) req = &r;
-        if (!req) return errorReply("no such request: " + rid);
-        if (req->status != "open") return errorReply("request " + rid + " is already answered");
-        if (answer.size() > 4000) return errorReply("answer is too long");
-        if (resolution != "" && resolution != "retry" && resolution != "stop") return errorReply("resolution must be retry or stop");
-        const RequestRecord copy = *req;
-        record("workflowRequestAnswered", wfbody::requestAnswered(wfId, rid, answer, resolution, by));
-        if (const WorkflowRecord* w2 = wfStore.find(wfId); w2 && resolution != "stop")
-            applyGuidance(*w2, copy.scope, answer, copy.kind != "escalation", "Guidance from the owner");
+        if (const std::string err = answerRequest(wfId, rid, answer, resolution, by); !err.empty()) return errorReply(err);
         advanceWorkflows();
         json::Writer w;
         w.beginObject().kvBool("ok", true).kv("id", wfId).kv("rid", rid).endObject();

@@ -23,6 +23,8 @@ struct HarnessFile { std::string path; std::string content; };
 /// Mock deliverable for `path` (correct, or with the one defect that makes its item fail its gate); empty if unknown or the defect no longer matches.
 [[nodiscard]] std::string webMockFile(const std::string& path, bool buggy);
 [[nodiscard]] std::string webMockBugTarget(const std::string& item);
+/// What an expert (the overseer, an architect, the owner) needs to know about how the web harness behaves: scaffold, stubs, gates, thresholds, formats.
+[[nodiscard]] std::string webHarnessFacts();
 
 /// The calculator-web blueprint as plan-2 JSON (empty for an unknown name).
 [[nodiscard]] std::string blueprintJson(const std::string& name);

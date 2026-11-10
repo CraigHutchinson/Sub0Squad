@@ -23,7 +23,7 @@ std::string workflowStatusJson(const RuntimePaths& paths, const WorkflowStore& w
         w.key("requests").beginArray();
         for (const auto& r : wf.requests) {
             w.beginObject().kv("id", r.id).kv("kind", r.kind).kv("from", r.from).kv("title", r.title).kv("detail", r.detail).kv("attempt", r.attempt).kvBool("blocking", r.blocking)
-                .kv("status", r.status).kv("answer", r.answer).kv("resolution", r.resolution).kv("answeredBy", r.answeredBy).kv("raisedAt", r.raisedAt).kv("answeredAt", r.answeredAt);
+                .kv("status", r.status).kv("triage", r.triage).kv("analysis", r.analysis).kv("answer", r.answer).kv("resolution", r.resolution).kv("answeredBy", r.answeredBy).kv("raisedAt", r.raisedAt).kv("answeredAt", r.answeredAt);
             w.key("scope").beginArray();
             for (const auto& x : r.scope) w.str(x);
             w.endArray().key("options").beginArray();

@@ -371,6 +371,18 @@ std::size_t webScaffoldBytes()
     return n;
 }
 
+std::string webHarnessFacts()
+{
+    return "- Project type `web-static`: plain ES modules, no build step, tests run with `node --test` (node:test and node:assert/strict).\n"
+           "- The scaffold every item's workspace starts from: package.json, serve.mjs (a static server), tests/helpers/dom-stub.mjs (a fake DOM: createDom()), and STUB versions of src/calc.js, src/lexer.js, src/functions.js, src/ui.js, index.html and an empty style.css. The stubs never throw; they return undefined or do nothing, so a value test and an error test both fail against them.\n"
+           "- A workspace holds the scaffold, then the accepted outputs of every dependency, then the attempt's own files.\n"
+           "- A worker replies with whole files as `=== FILE: path === ... === END FILE ===`; anything outside the item's allowed files is rejected, and a missing or empty file fails the gate.\n"
+           "- Tester gate: the tests must load, number at least the item's minimum, and at least 70 % must FAIL against the stubs (a test that passes against a stub checks nothing). A test file that fails while loading counts as one failed test.\n"
+           "- Developer gate: every test of the item's test files must pass. A failure with at least 10 tests and at most 15 % failing is a near pass and is repaired rather than divided; the same failing tests twice in a near pass sends the tests back to the tester.\n"
+           "- Before the first attempt an item with tests is sized (about 350 tokens + 30 per test) and divided when over the budget, which follows the engine's idle slots; a divided parent stays as a coordinator that runs its own tests over its parts and sends a failure down to the part it points at.\n"
+           "- Each attempt may repair its own output for a couple of turns using the gate's failure excerpt before it is judged.\n";
+}
+
 std::string webHarnessBrief()
 {
     return "Project harness (already in the workspace, do not recreate): package.json (ES modules, tests run with `node --test`), serve.mjs (static server), "

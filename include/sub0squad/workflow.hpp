@@ -55,6 +55,7 @@ struct RequestRecord
     std::vector<std::string> scope, options;
     bool blocking = false;
     std::string status = "open";         ///< open | answered
+    std::string triage, analysis;        ///< the first responder's class (guidance | fatal | owner) and its diagnosis
     std::string answer, resolution, answeredBy;  ///< resolution: retry | stop | "" (escalations); answer is free text, handed to the scope's nodes as guidance
     double raisedAt = 0, answeredAt = 0;
 };
@@ -82,6 +83,7 @@ namespace wfbody {
 [[nodiscard]] std::string planAmended(const std::string& id, const std::string& replaced, const Plan& plan);
 [[nodiscard]] std::string amendRejected(const std::string& id, const std::string& item, int attempt, const std::string& reason);
 [[nodiscard]] std::string requestRaised(const std::string& id, const RequestRecord& r);
+[[nodiscard]] std::string requestAnalysed(const std::string& id, const std::string& rid, const std::string& triage, const std::string& analysis);
 [[nodiscard]] std::string requestAnswered(const std::string& id, const std::string& rid, const std::string& answer, const std::string& resolution, const std::string& by);
 [[nodiscard]] std::string cancelRequested(const std::string& id);
 [[nodiscard]] std::string finished(const std::string& id, WorkflowState state, const std::string& note);

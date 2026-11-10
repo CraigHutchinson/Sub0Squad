@@ -99,6 +99,12 @@ std::string requestRaised(const std::string& id, const RequestRecord& r)
     w.endArray().endObject();
     return w.take();
 }
+std::string requestAnalysed(const std::string& id, const std::string& rid, const std::string& triage, const std::string& analysis)
+{
+    json::Writer w;
+    w.beginObject().kv("id", id).kv("rid", rid).kv("triage", triage).kv("analysis", analysis).endObject();
+    return w.take();
+}
 std::string requestAnswered(const std::string& id, const std::string& rid, const std::string& answer, const std::string& resolution, const std::string& by)
 {
     json::Writer w;
@@ -129,7 +135,7 @@ void WorkflowStore::apply(const JournalRecord& rec)
     if (rec.type.rfind("workflow", 0) != 0) return;
     std::string id, state, note, item, action, tier, specJson, planJson, decisionJson;
     RequestRecord rq;
-    std::string answer, resolution, by;
+    std::string answer, resolution, by, triage, analysis;
     std::int64_t attempt = 0;
     try {
         json::withObject(rec.body, [&](simdjson::ondemand::object& obj) {
@@ -157,6 +163,8 @@ void WorkflowStore::apply(const JournalRecord& rec)
                 else if (k == "answer") answer = json::toString(v);
                 else if (k == "resolution") resolution = json::toString(v);
                 else if (k == "by") by = json::toString(v);
+                else if (k == "triage") triage = json::toString(v);
+                else if (k == "analysis") analysis = json::toString(v);
             }
         });
     } catch (const simdjson::simdjson_error&) { return; }
@@ -181,6 +189,7 @@ void WorkflowStore::apply(const JournalRecord& rec)
         for (auto& r : w->requests)
             if (r.id == rq.id) { r.status = "answered"; r.answer = answer; r.resolution = resolution; r.answeredBy = by; r.answeredAt = rec.ts; }
     }
+    else if (rec.type == "workflowRequestAnalysed") { for (auto& r : w->requests) if (r.id == rq.id) { r.triage = triage; r.analysis = analysis; } }
     else if (rec.type == "workflowCancelRequested") w->cancelRequested = true;
     else if (rec.type == "workflowFinished") {
         w->state = state == "succeeded" ? WorkflowState::succeeded : state == "cancelled" ? WorkflowState::cancelled : WorkflowState::failed;

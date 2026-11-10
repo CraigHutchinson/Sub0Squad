@@ -360,3 +360,25 @@ boundaries, exact signatures, tests per part, files covered) and the ascent (the
 proposals when a boundary was wrong). The gates are how a promise made at design time is checked at build time: a part passes its own tests,
 the whole passes the tests of the level above. Workers say it in one line each: "own one focused piece, be the expert, keep to the interfaces";
 the architect says "your job is the separation". The README states the same for people: many small minds, one whole solution.
+
+## 17. First responders and the harness-expert (owner direction, 2026-11-10)
+
+An escalation is rarely a *design* decision. Often it is a tooling or harness fault (a fatal issue) or something a small, well-informed role can
+settle (an overseer). The owner should be asked last, and asked with the question already framed. So an escalation now passes through two roles
+before it reaches a person:
+
+| Role | Does | Output |
+|---|---|---|
+| **Overseer** (built, rule based) | analyses the failure evidence and classes the request: `guidance` (a mechanical cause with advice: a test file that crashes while loading, tests that pass against the stub, files outside the allowlist, a malformed reply, a syntax error), `fatal` (the environment: engine unreachable, tool missing), or `owner` (nothing mechanical found: the same tests fail the same way, a real decision) | a verdict and a diagnosis; guidance is answered at once, at most twice per item, as the node's feedback; fatal and owner stay open with the analysis attached and the card marked |
+| **Harness-expert** (built as the briefing; a model later) | knows how the harness behaves (scaffold and stubs, the gates and their thresholds, the reply format, the sizing and coordinator rules) and **collates** the situation, the node's card, those facts, the evidence, what the ladder already tried and the overseer's analysis into one briefing | `items/<node>/briefing-<request>.md`, shown in the portal as "Briefing for a decider"; the same text is the prompt for an architect or project-manager model, or for a frontier model reached by a file handoff |
+
+Verified end to end on a governed mock run: the engine escalated, the overseer classed it `owner` ("the same tests failed with the same messages
+across attempts"), the briefing was written, and the portal card shows the class, the analysis and the briefing link. The roles are the same family
+as the architect (shapes the division), the project manager (idle-capacity pass, section 11) and the V's reviewer: each reads the keyed evidence,
+each can raise or answer requests, and each can be a rule today and a model tomorrow behind the same record. The harness-expert is the one that
+holds *tool* knowledge, so the others do not each have to rediscover it; its facts text (`webHarnessFacts`) is also what a fresh architect
+needs to write a plan that suits the harness.
+
+Next: a model-backed overseer for the `owner` class that proposes options (not only a diagnosis); harness facts per project type (C++ builds
+and tests will have their own); the briefing attached to any request, not only escalations (a node's question, a part's send-up proposal); and a
+one-click "copy as prompt" in the portal.

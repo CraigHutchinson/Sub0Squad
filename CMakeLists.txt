@@ -39,6 +39,8 @@ add_library(sub0squad_core STATIC
   src/engine.cpp
   src/ledger.cpp
   src/workflow_status.cpp
+  src/briefing.cpp
+  src/overseer.cpp
   src/plan_lint.cpp
   src/portal.cpp
   src/portal_page.cpp
