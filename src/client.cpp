@@ -5,6 +5,7 @@
 #include "sub0squad/frame.hpp"
 #include "sub0squad/plan_lint.hpp"
 #include "sub0squad/portal.hpp"
+#include "sub0squad/qa.hpp"
 #include "sub0squad/recall.hpp"
 #include "sub0squad/replay.hpp"
 #include "sub0squad/job_store.hpp"
@@ -75,6 +76,7 @@ constexpr const char* kUsage =
     "  request list [WF] | raise WF --kind K [--scope a,b] [--blocking] [--title T] [--detail D] [--option O]... | answer WF RID [--resolution retry|stop] [--answer TEXT]\n"
     "                                       the inbox: questions, clarifications, requirements, blockers, proposals, escalations\n"
     "  replay WF NODE [--seeds 1,2,3] [--think] [--decompose]   run one node again in isolation, several seeds side by side (minutes, not a whole workflow)\n"
+    "  qa DIR|WORKFLOW                      quality findings over sources: duplicated code, the same helper declared twice, very long functions\n"
     "  recall WF words... [--item NODE] [--limit N]   search what a workflow already did: conversations, replies, gate outputs, briefings\n"
     "  plan-lint FILE [--tps N]             audit a plan: width, critical path, rough time, serial tails\n"
     "  portal [--port N] [--engine-url URL]  read-only status portal on 127.0.0.1 (default 8780): the work graph, tokens per node, daemon jobs\n"
@@ -749,6 +751,7 @@ int runCli(int argc, char** argv)
             if (a == "--seeds") { ro.seeds.clear(); std::stringstream ss(val()); for (std::string x; std::getline(ss, x, ',');) if (!x.empty()) ro.seeds.push_back(std::atol(x.c_str())); }
             else if (a == "--think") ro.think = true;
             else if (a == "--decompose") ro.decompose = true;
+            else if (a == "--fork") ro.fork = true;
             else if (a == "--engine") ro.engineProfile = val();
             else if (a == "--max-tokens") ro.maxTokens = std::atoi(val().c_str());
             else if (a == "--repair-turns") ro.repairTurns = std::atoi(val().c_str());
@@ -778,6 +781,22 @@ int runCli(int argc, char** argv)
             ro.exe = n > 0 ? std::string(self, static_cast<std::size_t>(n)) : std::string{argv[0]};
         }
         return sub0squad::runReplay(ro);
+    }
+    if (cmd == "qa") {  // sub0squad qa DIR | WORKFLOW: duplication and size findings over a source tree or a workflow's accepted outputs
+        if (argc < 3) { std::fputs(kUsage, stderr); return 2; }
+        std::filesystem::path root = argv[2];
+        std::error_code qec;
+        if (!std::filesystem::is_directory(root, qec)) {
+            bool offline = false;
+            const std::string text = workflowStatusAnyway(paths, argv[2], offline);
+            std::string sandbox;
+            try { json::withObject(text, [&](simdjson::ondemand::object& obj) { for (auto f : obj) { if (json::keyOf(f) != "workflows") continue; for (auto w : f.value().get_array()) for (auto wf : w.get_object()) if (json::keyOf(wf) == "sandbox") sandbox = json::toString(wf.value()); } }); } catch (const simdjson::simdjson_error&) {}
+            if (sandbox.empty()) { std::fprintf(stderr, "no such directory or workflow: %s\n", argv[2]); return 2; }
+            root = qaCollect(sandbox, std::filesystem::path(sandbox) / "qa-tree");
+        }
+        const auto findings = qaScan(root);
+        std::fputs(qaText(findings).c_str(), stdout);
+        return 0;
     }
     if (cmd == "recall") {  // sub0squad recall WF words... [--item NODE] [--limit N]: what the workflow already did (conversations, gates, briefings)
         if (argc < 4) { std::fputs(kUsage, stderr); return 2; }

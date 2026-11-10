@@ -177,7 +177,7 @@ int runLlmArchitect(const std::vector<std::string>& args)
     ep.temperature = 0.2;
     std::vector<ChatMessage> convo = {{"system", system}, {"user", user}};
     const fs::path tracePath = attemptDir / "conversation.md";
-    traceBegin(tracePath, std::string{"Conversation of the "} + mode + " job for " + itemId + ", attempt " + std::to_string(attempt), ep, 2500);
+    traceBegin(tracePath, std::string{"Conversation of the "} + mode + " job for " + itemId + ", attempt " + std::to_string(attempt), ep, 4500);
     std::size_t tracedUpTo = 0;
     constexpr int kTurns = 3;
     double tokensIn = 0, tokensOut = 0;
@@ -186,7 +186,7 @@ int runLlmArchitect(const std::vector<std::string>& args)
         events::progress(turn, kTurns + 1, turn == 0 ? "waiting for the engine" : "repairing");
         traceSent(tracePath, turn, convo, tracedUpTo, -1);
         tracedUpTo = convo.size();
-        auto reply = chatCompleteMessages(ep, convo, 2500, timeoutSec);
+        auto reply = chatCompleteMessages(ep, convo, 4500, timeoutSec);
         if (!reply) { traceVerdict(tracePath, turn, "the engine call failed: " + reply.error()); std::fprintf(stderr, "llm-architect: engine call failed: %s\n", reply.error().c_str()); return 2; }
         traceReply(tracePath, turn, *reply);
         writeFile(attemptDir / ("reply-" + std::to_string(turn) + ".txt"), reply->content);

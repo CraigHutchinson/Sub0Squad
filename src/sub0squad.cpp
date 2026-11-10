@@ -105,6 +105,7 @@ int main(int argc, char** argv)
         if (std::strcmp(argv[1], "llm-architect") == 0) return sub0squad::runLlmArchitect(rest);
         if (std::strcmp(argv[1], "optimize-job") == 0) return sub0squad::runOptimizeJob(rest);
         if (std::strcmp(argv[1], "llm-agent") == 0) return sub0squad::runLlmAgent(rest);
+        if (std::strcmp(argv[1], "llm-fork") == 0) return sub0squad::runLlmFork(rest);
         if (std::strcmp(argv[1], "harness-gate") == 0) return sub0squad::runHarnessGate(rest);
         if (std::strcmp(argv[1], "harness-integrate") == 0) return sub0squad::runHarnessIntegrate(rest);
         if (std::strcmp(argv[1], "sandbox-gate") == 0) return sub0squad::runSandboxGate(rest);

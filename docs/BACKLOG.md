@@ -86,3 +86,10 @@ hand-written Sugiyama pass; how it works with the retained-mode patching in `por
 ## Platform
 
 - Windows and macOS builds; the HTTP stack on Boost.Beast and Asio behind the seam (DECISIONS 18); Sub0Llm roofs PR #102 follow-ups.
+
+## Feedback loops (see docs/FEEDBACK_LOOPS.md)
+- Test oracle for tester output (reference implementation / independent attempt).
+- Debugger worker: on request or repeated failure, runs the failing case under the inspector and returns expected/actual values, divergence point and trimmed stack; accepted-with-failures nodes always list which tests failed and how.
+- Bar as data; one result shape for checks; checks recorded in node history.
+- QA scan as a workflow step on idle capacity; browser smoke test; web lint profile; loop metrics.
+- CI for the squad: build, tests, ASan/UBSan, TSan, clang-tidy.

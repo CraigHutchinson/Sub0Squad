@@ -69,10 +69,31 @@ bool validPath(const std::string& p)
 }
 }  // namespace
 
+namespace {
+// Tolerant reading, because small models write what comes naturally: a single string where a list is wanted, a number or a boolean written as text.
+void readStrings(simdjson::ondemand::value v, std::vector<std::string>& out)
+{
+    if (v.type().value() == simdjson::ondemand::json_type::string) { out.push_back(json::toString(v)); return; }
+    for (auto x : v.get_array()) out.push_back(json::toString(x.value()));
+}
+int readInt(simdjson::ondemand::value v)
+{
+    if (v.type().value() == simdjson::ondemand::json_type::string) return std::atoi(json::toString(v).c_str());
+    if (v.type().value() == simdjson::ondemand::json_type::number) return static_cast<int>(v.get_double());
+    return static_cast<int>(v.get_int64());
+}
+bool readBool(simdjson::ondemand::value v)
+{
+    if (v.type().value() == simdjson::ondemand::json_type::string) { const std::string t = json::toString(v); return t == "true" || t == "yes" || t == "1"; }
+    return v.get_bool();
+}
+}  // namespace
+
 std::expected<Plan, std::string> Plan::fromJson(std::string_view text, int cardBudgetTokens)
 {
     Plan plan;
     std::string schema;
+    std::string where = "the plan";   // where the parser is, so a type error can say which field is wrong
     try {
         json::withObject(text, [&](simdjson::ondemand::object& obj) {
             for (auto f : obj) {
@@ -82,17 +103,18 @@ std::expected<Plan, std::string> Plan::fromJson(std::string_view text, int cardB
                 else if (k == "task") plan.task = json::toString(v);
                 else if (k == "harness") plan.harness = json::toString(v);
                 else if (k == "project") plan.project = json::toString(v);
-                else if (k == "reasons") { for (auto r : v.get_array()) plan.reasons.push_back(json::toString(r.value())); }
+                else if (k == "reasons") { where = "the plan: reasons"; readStrings(v.value(), plan.reasons); }
                 else if (k == "items") {
                     for (auto itv : v.get_array()) {
                         WorkItem it;
                         for (auto g : itv.get_object()) {
                             const std::string_view gk = g.unescaped_key();
                             auto gv = g.value();
+                            where = "item #" + std::to_string(plan.items.size() + 1) + (it.id.empty() ? std::string{} : " ('" + it.id + "')") + ", field '" + std::string{gk} + "'";
                             if (gk == "id") it.id = json::toString(gv);
                             else if (gk == "title") it.title = json::toString(gv);
                             else if (gk == "goal") it.goal = json::toString(gv);
-                            else if (gk == "complexity") it.complexity = static_cast<int>(gv.get_int64());
+                            else if (gk == "complexity") it.complexity = readInt(gv.value());
                             else if (gk == "persona") it.persona = json::toString(gv);
                             else if (gk == "card") {
                                 for (auto cf : gv.get_object()) {
@@ -100,22 +122,22 @@ std::expected<Plan, std::string> Plan::fromJson(std::string_view text, int cardB
                                     auto cv = cf.value();
                                     if (ck == "context") it.card.context = json::toString(cv);
                                     else if (ck == "contract") it.card.contract = json::toString(cv);
-                                    else if (ck == "acceptance") { for (auto x : cv.get_array()) it.card.acceptance.push_back(json::toString(x.value())); }
-                                    else if (ck == "include") { for (auto x : cv.get_array()) it.card.include.push_back(json::toString(x.value())); }
-                                    else if (ck == "notes") { for (auto x : cv.get_array()) it.card.notes.push_back(json::toString(x.value())); }
+                                    else if (ck == "acceptance") { where += ".acceptance"; readStrings(cv.value(), it.card.acceptance); }
+                                    else if (ck == "include") { where += ".include"; readStrings(cv.value(), it.card.include); }
+                                    else if (ck == "notes") { where += ".notes"; readStrings(cv.value(), it.card.notes); }
                                 }
                             } else if (gk == "gate") {
                                 for (auto cf : gv.get_object()) {
                                     const std::string_view ck = cf.unescaped_key();
                                     auto cv = cf.value();
                                     if (ck == "kind") it.gate.kind = json::toString(cv);
-                                    else if (ck == "minTests") it.gate.minTests = static_cast<int>(cv.get_int64());
-                                    else if (ck == "mustFailOnStub") it.gate.mustFailOnStub = cv.get_bool();
-                                    else if (ck == "tests") { for (auto x : cv.get_array()) it.gate.tests.push_back(json::toString(x.value())); }
+                                    else if (ck == "minTests") it.gate.minTests = readInt(cv.value());
+                                    else if (ck == "mustFailOnStub") it.gate.mustFailOnStub = readBool(cv.value());
+                                    else if (ck == "tests") { where += ".tests"; readStrings(cv.value(), it.gate.tests); }
                                 }
                             }
-                            else if (gk == "files") { for (auto x : gv.get_array()) it.files.push_back(json::toString(x.value())); }
-                            else if (gk == "deps") { for (auto x : gv.get_array()) it.deps.push_back(json::toString(x.value())); }
+                            else if (gk == "files") readStrings(gv.value(), it.files);
+                            else if (gk == "deps") readStrings(gv.value(), it.deps);
                         }
                         plan.items.push_back(std::move(it));
                     }
@@ -123,7 +145,7 @@ std::expected<Plan, std::string> Plan::fromJson(std::string_view text, int cardB
             }
         });
     } catch (const simdjson::simdjson_error& e) {
-        return std::unexpected(std::string{"plan is not valid JSON of the expected shape: "} + e.what());
+        return std::unexpected("plan is not valid JSON of the expected shape (at " + where + "): " + e.what());
     }
     if (schema != "plan-1" && schema != "plan-2") return std::unexpected("unsupported plan schema '" + schema + "'");
     if (plan.harness != "" && plan.harness != "web-static") return std::unexpected("unknown project harness '" + plan.harness + "' (known: web-static)");

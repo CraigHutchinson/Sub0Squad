@@ -8,6 +8,7 @@
 #include "sub0squad/division.hpp"
 #include "sub0squad/edits.hpp"
 #include "sub0squad/overseer.hpp"
+#include "sub0squad/qa.hpp"
 #include "sub0squad/recall.hpp"
 #include "sub0squad/trace.hpp"
 #include "sub0squad/triage.hpp"
@@ -486,6 +487,42 @@ int main()
         CHECK(std::find(frag.find("parser")->deps.begin(), frag.find("parser")->deps.end(), "impl-lexer") != frag.find("parser")->deps.end());   // the parser waits for the lexer's implementation
         CHECK(Plan::fromJson(frag.toJson()).has_value());
         CHECK(completeDivision(frag, *base.find("engine")).empty());                  // nothing left to add
+    }
+    { // QA: two modules that each wrote the same helper and the same block; a long function; tests and node_modules are left alone.
+        const auto root = std::filesystem::current_path() / "qa-test";
+        std::filesystem::remove_all(root);
+        std::filesystem::create_directories(root / "src");
+        std::filesystem::create_directories(root / "tests");
+        const std::string shared = "function isDigit(c) {\n  return c >= '0' && c <= '9';\n}\nfunction readNumber(text, start) {\n  let end = start;\n  while (end < text.length && isDigit(text[end])) end += 1;\n  const value = Number(text.slice(start, end));\n  return { value, end };\n}\n";
+        { std::ofstream o(root / "src" / "lexer.js"); o << shared << "export function tokenize(text) {\n  return [];\n}\n"; }
+        { std::ofstream o(root / "src" / "functions.js"); o << "export function parseArg(text) {\n  return null;\n}\n" << shared; }
+        { std::ofstream o(root / "src" / "big.js"); o << "export function big() {\n"; for (int i = 0; i < 45; ++i) o << "  const v" << i << " = compute(" << i << ", 'distinct text number " << i << "');\n"; o << "  return 0;\n}\n"; }
+        { std::ofstream o(root / "tests" / "dup.test.mjs"); o << shared; }
+        const auto f = qaScan(root);
+        bool dupHelper = false, dupBlock = false, longFn = false, testsFlagged = false;
+        for (const auto& x : f) {
+            if (x.axis == "duplication" && x.what.find("'isDigit' is declared in 2 files") != std::string::npos) dupHelper = true;
+            if (x.axis == "duplication" && x.what.find("lines appear twice") != std::string::npos) dupBlock = true;
+            if (x.axis == "simplicity" && x.what.find("'big' is 48 lines long") != std::string::npos) longFn = true;
+            for (const auto& w : x.where) if (w.find("tests/") != std::string::npos) testsFlagged = true;
+        }
+        CHECK(dupHelper && dupBlock && longFn && !testsFlagged);
+        std::filesystem::remove_all(root);
+    }
+    { // Tolerant plan reading (what the 9B wrote: notes as one string) and an error that says where a type is wrong.
+        const std::string base = "{\"schema\":\"plan-2\",\"task\":\"x\",\"harness\":\"web-static\",\"items\":[{\"id\":\"a\",\"title\":\"A\",\"persona\":\"developer\",\"goal\":\"g\",\"files\":%FILES%,\"deps\":[],\"complexity\":%CX%,"
+                                  "\"card\":{\"context\":\"c\",\"contract\":\"k\",\"acceptance\":[\"ok\"],\"notes\":%NOTES%},\"gate\":{\"kind\":\"node-test\",\"tests\":%TESTS%,\"minTests\":%MIN%,\"mustFailOnStub\":%STUB%}}]}";
+        const auto make = [&](const char* files, const char* cx, const char* notes, const char* tests, const char* mn, const char* stub) {
+            std::string t = base;
+            for (const auto& [k2, v] : std::vector<std::pair<std::string, std::string>>{{"%FILES%", files}, {"%CX%", cx}, {"%NOTES%", notes}, {"%TESTS%", tests}, {"%MIN%", mn}, {"%STUB%", stub}})
+                t.replace(t.find(k2), k2.size(), v);
+            return t;
+        };
+        CHECK(Plan::fromJson(make("[\"src/a.js\"]", "2", "[\"n\"]", "[\"tests/a.test.mjs\"]", "3", "false")).has_value());                       // the proper form
+        const auto loose = Plan::fromJson(make("\"src/a.js\"", "\"2\"", "\"Output only src/a.js\"", "\"tests/a.test.mjs\"", "\"3\"", "\"false\""));   // strings where lists, numbers and booleans are wanted
+        CHECK(loose.has_value() && loose->items[0].card.notes.size() == 1 && loose->items[0].files.size() == 1 && loose->items[0].complexity == 2 && loose->items[0].gate.minTests == 3);
+        const auto bad = Plan::fromJson(make("{\"x\":1}", "2", "[\"n\"]", "[\"t\"]", "3", "false"));                                      // an object where a list is wanted: not repairable, but it names the field
+        CHECK(!bad.has_value() && bad.error().find("item #1") != std::string::npos && bad.error().find("files") != std::string::npos);
     }
     return finish();
 }

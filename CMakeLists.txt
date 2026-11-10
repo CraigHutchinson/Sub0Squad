@@ -40,6 +40,7 @@ add_library(sub0squad_core STATIC
   src/ledger.cpp
   src/workflow_status.cpp
   src/briefing.cpp
+  src/qa.cpp
   src/division.cpp
   src/replay.cpp
   src/edits.cpp

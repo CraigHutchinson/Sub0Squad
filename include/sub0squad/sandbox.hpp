@@ -19,6 +19,8 @@ namespace sub0squad {
 /// `llm-agent --workflow-dir D --item I --tier T --attempt N --engine NAME=URL[,model=..]`: one real engine call per attempt (tier `frontier-stub` stands in
 /// with the mock templates: no frontier provider exists in this build). Reports where its tokens went.
 [[nodiscard]] int runLlmAgent(const std::vector<std::string>& args);
+/// Forked sessions: a primer writes the skeleton, each function is delegated to a session of its own (docs/WORK_GRAPH.md section 23).
+[[nodiscard]] int runLlmFork(const std::vector<std::string>& args);
 /// `mock-architect --mode decompose|rearchitect ...` and `llm-architect --mode ... --engine ...`: the dedicated jobs of the escalation ladder.
 /// decompose writes `attempt-N/fragment.json` (a plan-2 fragment the daemon merges) or declines (exit 3); rearchitect writes `card-override.json`.
 [[nodiscard]] int runMockArchitect(const std::vector<std::string>& args);

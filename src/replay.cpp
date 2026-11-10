@@ -99,7 +99,8 @@ int runReplay(const ReplayOptions& o)
         }
         std::vector<std::string> argv{o.exe.string()};
         const std::string profile = withSeed(o.engineProfile, seed, o.think);
-        if (o.decompose) argv.insert(argv.end(), {"llm-architect", "--mode", "decompose", "--workflow-dir", v.dir.string(), "--item", o.node, "--attempt", "9", "--engine", profile, "--timeout", "3600"});
+        if (o.fork) argv.insert(argv.end(), {"llm-fork", "--workflow-dir", v.dir.string(), "--item", o.node, "--attempt", "1", "--engine", profile, "--max-tokens", std::to_string(o.maxTokens), "--timeout", "3600", "--repair-turns", std::to_string(o.repairTurns)});
+        else if (o.decompose) argv.insert(argv.end(), {"llm-architect", "--mode", "decompose", "--workflow-dir", v.dir.string(), "--item", o.node, "--attempt", "9", "--engine", profile, "--timeout", "3600"});
         else argv.insert(argv.end(), {"llm-agent", "--workflow-dir", v.dir.string(), "--item", o.node, "--tier", "local", "--attempt", "1", "--engine", profile, "--max-tokens", std::to_string(o.think ? std::max(o.maxTokens, 6000) : o.maxTokens),
                                       "--timeout", "3600", "--treatment", o.treatment, "--repair-turns", std::to_string(o.repairTurns), "--size-budget", "0"});
         std::vector<char*> cargv;

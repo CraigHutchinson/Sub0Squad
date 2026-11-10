@@ -19,6 +19,7 @@ struct ReplayOptions
     std::vector<long> seeds{1};         ///< one variant per seed, run concurrently
     int maxTokens = 3500, repairTurns = 2;
     bool think = false;                 ///< try the manager's "think" strategy
+    bool fork = false;                  ///< run the node as forked sessions (skeleton, then one session per function) instead of one worker session
     bool decompose = false;             ///< replay the division of the node (the architect job) instead of the worker
     std::string treatment = "baseline";
 };

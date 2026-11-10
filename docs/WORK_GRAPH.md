@@ -487,3 +487,74 @@ The loop it enables: a node fails; read its conversation trace (what was sent, w
 keep the change if more variants pass or pass faster; add the case to a fixture list so it is replayed after later changes (a regression set of
 real failures: `ui-js.ui-eval` with its reply-format errors, `ui-page`'s division that timed out, the lexer test with positions off by one).
 Next: keep failing cases as named fixtures with their expected outcome, replay the set after each change, and report a pass rate per seed.
+
+## 22. Never discard progress (owner direction, 2026-11-10)
+
+A failed attempt is not nothing. At 3 to 5 tok/s every token that is thrown away costs seconds, so the harness iterates on work instead of replacing it,
+gives the failure back as feedback for the next round, and makes room (context, tokens) when the room is what ran out. What is kept, and where it was
+being lost:
+
+| Lost before | Kept now |
+|---|---|
+| a retry carried the best earlier files only when the gate had run and counted failing tests; a draft that crashed on a syntax error, or was cut off, was dropped | the best earlier draft of each file (fewest failing tests, else the latest that wrote it) goes back with its failure text, whatever the failure was, and edits apply to it |
+| a redo after guidance (a dispute, a send-down) got the guidance but not the draft | guidance and draft together |
+| when an item was divided, its parts started from nothing | each part's first attempt gets the parent's best draft of its file ("from before this was divided: keep what is right, fix the rest") |
+| a reply cut off at the token limit was discarded and the item re-attempted or divided | everything written so far is kept, and the next turn is asked to continue that file from where it stopped (up to three continuations, which do not use a repair turn); only a file that still does not fit after that hands the item back to be divided |
+| a division with one part missing was rejected whole, three times, unchanged | the harness completes it (a part for each file whose tests the division wrote), and stops correcting a reply that comes back unchanged |
+| a disputed (re-run) tester that failed lost its accepted tests | the earlier accepted version is restored (built earlier) |
+| a repair turn re-sent all earlier replies | the conversation stays flat: the card, the latest reply and its feedback |
+
+**Context and tokens as resources.** The conversation trace records, per turn, prompt and completion tokens and the finish reason, so a reply that ended
+because the slot's context was full (prompt plus completion at the slot size) is distinguishable from one that hit the token limit. The remedies in order:
+shrink the prompt (the flat window, the draft instead of the whole history, names instead of a whole test file on a retry), raise the reply budget for
+the continuation, and, when the slot itself is too small for the item, say so as an environment fault the manager acts on (restart the engine with larger
+slots and fewer of them; the profile's `ctx` is what the harness plans with). Not built: the engine restart as a manager strategy; a per-turn check that
+chooses between "continue" and "shrink" from the numbers.
+
+**Rule for new features.** Before a step discards something (a reply, a draft, a division, an accepted output), it must say what it keeps instead, or why
+nothing is worth keeping.
+
+## 23. Forked sessions: skeleton first, then a session per function (owner direction, 2026-11-10)
+
+Instead of one context that grows with every reply, prime one session, then fork. `llm-fork` (and `replay <workflow> <node> --fork`) runs a node like this:
+
+1. **Primer:** one session writes every file as a **skeleton**: imports, constants, every function or class declared with its exact signature and a one-line scope
+   comment, each body only `throw new Error('not implemented: <name>');`. (The same idea works for "identify the clear architectural units and list them":
+   the skeleton is that list as code, and a real artifact the others can read.)
+2. **Stubs become forks:** the harness finds the stubs. Each fork is the primed conversation (system block, card, the skeleton as the assistant's own reply) plus
+   "you are working on `<name>`; the others are written separately, use them only through the signatures above". It replies with the **body only**; the harness
+   puts it in place of the stub. The forks run side by side.
+3. **Assemble and test:** the bodies are rendered into the skeleton and the item's tests run on the whole.
+4. **Failure goes back to the sessions it points at** (functions named in the failure text; all of them when none is), each continuing its own conversation
+   ("the body you wrote may be at fault"), a few rounds.
+
+What it buys: every session is the shared start plus its own work, so context stays small and flat; the shared start is identical across forks, so a server that
+reuses its prompt cache across slots (or saves and restores a slot) does not repeat its prefill (not checked on our build); a function is the unit of delegation
+and of repair; the skeleton fixes the interfaces up front (the part the V needs an architect and per-part tests for). What it costs: the item's whole test file
+grades the assembled result, so a failure is attributed to a function only by name; the primer must produce a skeleton the harness can read. It is an alternative
+executor for a node next to one worker session and the V's divided parts; which wins on which size of item is what the replay experiments are for.
+
+## 24. The QA head: a cross-cutting quality role that talks while the work goes on (owner direction, 2026-11-10)
+
+Quality is not an afterthought. Alongside the dreamer, a QA role uses spare capacity to look at what workers have produced *while they are still iterating*, and
+feeds what it finds into the design, in several places at once. It is cross-cutting: a role with a view across nodes and across layers.
+
+**Layers it looks at:** the design (the skeleton and the interfaces: two units that need the same helper, inconsistent names, a missing shared module), the unit
+(a function's size and clarity, duplication with its siblings), the integration (code duplicated between modules, dead exports), the tests (duplicate cases, weak
+assertions such as an error test that does not check the message), and the process (a failure pattern that keeps recurring).
+**Axes:** duplication, simplicity, consistency (naming, error handling, format), safety (banned constructs), testability.
+
+**What it produces:** findings with an axis, a severity, locations and a suggestion, never a gate. Acceptance stays with the tests. They go to:
+- the **design**, as a proposal to the architect or manager while it is cheap to act (extract a shared module before the parts that would duplicate it are written;
+  add it as a part of the plan);
+- the **next attempt** of the nodes concerned, as a line of feedback once a shared module exists ("your `isDigit` duplicates `src/lexer.js`: import it");
+- a **refactor node** after acceptance, whose gate is that the same tests still pass and the finding is gone;
+- the **knowledge register**, as a quality lesson for the project (section 19).
+
+**Built (first, rule-based, no engine):** `sub0squad qa <dir|workflow>` scans the sources (accepted outputs of a workflow, or any tree; tests left out) for blocks of
+about six or more lines that appear twice, the same function declared in more than one file, and functions longer than forty lines. Run on the 35B-built
+calculator it reported no duplication between modules (they were separated cleanly) and four long functions: `evaluate` (170 lines, with the parser nested
+inside it), `tokenize` (83), `callFunction` (81) and `parsePrimary` (53). That is real signal, and exactly the kind of thing worth telling the next iteration.
+**Next:** run it automatically whenever a node is accepted, on idle capacity with the dreamer, and file its findings as non-blocking proposals into the inbox
+(the manager decides); a model-backed review that reads the code for clarity and consistency; findings on skeletons (duplicate helper names across units)
+before any body is written, which is where extracting a shared module is cheapest; a quality line in the portal's node drawer.

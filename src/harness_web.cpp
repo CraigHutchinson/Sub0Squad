@@ -264,6 +264,24 @@ int runHarnessGate(const std::vector<std::string>& args)
     for (const auto& dep : closure(*plan, itemId)) copyTree(dir / "items" / dep / "accepted", ws);
     if (!coordinator) copyTree(out, ws);
 
+    // The cheapest check first: does every file the attempt wrote even parse? `node --check` names the file, the line and the token, where a test run only says
+    // "1 test ran" (the first real failures were truncated and mixed-format files that no test could load).
+    if (!coordinator) {
+        std::string syntax;
+        for (auto& e : fs::recursive_directory_iterator(out)) {
+            const std::string ext = e.path().extension().string();
+            if (!e.is_regular_file() || (ext != ".js" && ext != ".mjs")) continue;
+            const std::string rel = fs::relative(e.path(), out).generic_string();
+            const Cmd c = run({"node", "--check", (ws / rel).string()}, ws, 15);
+            if (c.exitCode == 0) continue;
+            std::istringstream in(c.output);
+            std::string line, shown;
+            int n = 0;
+            while (std::getline(in, line) && n < 6) { if (line.find("node:internal") != std::string::npos || line.empty()) continue; shown += "  " + line.substr(0, 200) + "\n"; ++n; }
+            syntax += "syntax error in " + rel + ":\n" + shown;
+        }
+        if (!syntax.empty()) return fail(syntax + "The code does not parse, so no test could run. Fix the syntax first.");
+    }
     events::progress(1, 3, "test");
     std::vector<std::string> cmd = {"node", "--test", "--test-reporter=tap"};
     for (const auto& t : item->gate.tests) {
