@@ -6,6 +6,7 @@
 #include "sub0squad/harness_web.hpp"
 #include "sub0squad/briefing.hpp"
 #include "sub0squad/overseer.hpp"
+#include "sub0squad/recall.hpp"
 #include "sub0squad/trace.hpp"
 #include "sub0squad/triage.hpp"
 #include "sub0squad/workflow.hpp"
@@ -457,6 +458,23 @@ int main()
             CHECK(text.find(part) != std::string::npos);
         CHECK(text.find("Sent as system", text.find("## Turn 1")) == std::string::npos);   // turn 1 shows only what was new
         std::filesystem::remove_all(file.parent_path());
+    }
+    { // Recall: search a workflow's records; rank by how many words a line holds; restrict to a node; the last conversation's tail.
+        const auto root = std::filesystem::current_path() / "recall-test";
+        std::filesystem::remove_all(root);
+        std::filesystem::create_directories(root / "items" / "ui-page" / "attempt-2");
+        std::filesystem::create_directories(root / "items" / "engine" / "attempt-1");
+        { std::ofstream o(root / "items" / "ui-page" / "attempt-2" / "conversation.md"); o << "# Conversation\nthe worker appended the equals sign to the expression\nsecond line about nothing\n"; }
+        { std::ofstream o(root / "items" / "ui-page" / "attempt-2" / "gate.txt"); o << "GATE FAIL: equals evaluates the expression: expected 3 got 1+2=\n"; }
+        { std::ofstream o(root / "items" / "engine" / "attempt-1" / "gate.txt"); o << "GATE FAIL: only 1 test(s) ran: ENOENT style.css\n"; }
+        const auto hits = recallSearch(root, "appended equals expression");
+        CHECK(!hits.empty() && hits[0].kind == "conversation" && hits[0].score == 3 && hits[0].line == 2);
+        CHECK(recallSearch(root, "ENOENT style.css").size() == 1);
+        CHECK(recallSearch(root, "equals", 40, "engine").empty());              // restricted to one node
+        CHECK(recallSearch(root, "zz").empty());                                // words under three letters carry nothing
+        CHECK(recallLastConversation(root, "ui-page").find("appended the equals") != std::string::npos);
+        CHECK(recallLastConversation(root, "engine").empty());                  // no conversation file there
+        std::filesystem::remove_all(root);
     }
     return finish();
 }

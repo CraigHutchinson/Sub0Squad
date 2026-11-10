@@ -406,3 +406,47 @@ off for these workers by default, so reasoning will normally be empty; it is kep
 
 Not yet: one place that shows a node's whole history across attempts (the keyed history of section 10), a side-by-side of two attempts, and the
 trace of the V's integration rounds and send-downs as a story.
+
+## 19. Recall, the knowledge register and the dreamer (owner direction, 2026-11-10)
+
+Prior run context is evidence. A retry, the harness-expert, an architect or the owner should be able to ask what a worker saw and said when something went
+wrong, and a later run should not rediscover what an earlier one learned.
+
+**Recall (built).** `recallSearch` reads what a workflow recorded (each attempt's `conversation.md` with its reasoning, replies, prompts, gate outputs,
+briefings, sizing records) and returns the lines that hold at least half of the query's words, best first, optionally restricted to a node. It is
+reachable as `sub0squad recall <workflow> words... [--item NODE]`, as a search box in the portal's workflow package, and the briefing for an escalation now
+carries the tail of the failing node's latest conversation ("what the worker last saw and answered"). It is plain text and deterministic, so any
+role can use it; a model-backed role would call it as a tool.
+
+**The knowledge register (not built; the shape).** An append-only file per workflow (and a project-level one that outlives workflows):
+`{id, scope, kind, text, evidence, confidence, by, at}`, where scope is a node, a persona, a file type, the harness or the project; kind is `lesson`
+(what worked after what failed), `pitfall` (a mistake worth warning about), `fact` (a platform or runtime finding), `decision` (what was decided and
+which requirement it serves) or `question` (still open); evidence points at the file and line in the trace (so a claim can be checked); by is the role
+that wrote it (overseer, dreamer, owner). Entries are small (a sentence or two) and carry a confidence the readers can use to drop weak ones.
+Readers take the few that match: the harness-expert's briefing ("known pitfalls for this file type"), the decompose prompt ("what this project
+learned about dividing"), a worker's prompt for the same persona (capped at a few tokens, tried as an experiment because prompt weight costs
+speed and can distract a small model), the project-manager pass, the portal's Intent view.
+
+**The dreamer.** When engine slots are idle and nothing ready is waiting for them, a low-priority agent reads *finished* material (accepted nodes,
+settled escalations, closed rounds of the V) and writes register entries: what changed between a failing attempt and the passing one, which
+signature of failure preceded which fix, which contract wordings produced misreadings, which divisions held and which needed send-downs. It is
+preemptible: it holds a lease only on a slot nobody else wants (section 15's redundant forks and the project-manager pass use the same idle capacity,
+in that order of priority: real work, then the project-manager pass, then hedged retries, then dreaming), it is cancelled the moment real work needs the
+slot, it never touches live nodes, and everything it writes cites its evidence. A first dreamer needs no model: rules that turn the overseer's verdicts
+and the accepted-after-failure transitions into entries; the model-backed one summarises traces the rules cannot (the reasoning text, a worker's
+misreading).
+
+**Why this fits the ethos.** Small workers do small focused jobs and forget everything between them. The register is how the squad remembers: the
+architect and the manager decide with the project's accumulated experience in front of them instead of from a clean slate each time, and the design
+improves as the work progresses. Risks to design out: stale or wrong lessons (confidence, evidence, expiry, an owner veto), prompt bloat (hard caps),
+and a dreamer that steals capacity (it only runs on slots idle for a stretch and yields at once).
+
+**Clean ship, and nothing beyond question.** The register carries only what is current. An entry that is superseded (a fact that changed, a decision that was
+reversed, a lesson overtaken by a better one) moves to an archive with a line saying what replaced it and why; planning, the briefing, the dreamer and the
+prompts read the current entries only, so nobody works around concepts that no longer apply. The archive stays retrievable (recall searches it on request)
+for the one case that needs it: when the reason for a decision or a fact is questioned. And any entry can be questioned. Each one records its *basis*: if it
+rests on a temporary restriction (a small context window, an old harness threshold, one model's habit) or on an earlier mistake, it is marked
+conditional with the condition that would reopen it (the engine, model or harness version changed); a worker, the overseer, an architect or the owner can
+challenge one with a `proposal` request citing evidence, and a challenged entry is flagged to its readers until the challenge is settled. Confidence falls
+as an entry ages or the harness changes, and the dreamer prunes: it merges duplicates and drops entries nothing has used. Lean by default, retrievable on
+demand, and open to being wrong.

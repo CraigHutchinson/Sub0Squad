@@ -20,6 +20,7 @@ std::string buildBriefing(const BriefingInput& in)
     if (in.gates.empty()) o += "(none: the attempts never reached the gate)\n";
     for (std::size_t i = 0; i < in.gates.size(); ++i) o += "Attempt output " + std::to_string(i + 1) + " of " + std::to_string(in.gates.size()) + ":\n```\n" + clip(in.gates[i], 900) + "\n```\n";
     if (!in.agentNote.empty()) o += "\nWhat the worker reported:\n```\n" + clip(in.agentNote, 400) + "\n```\n";
+    if (!in.lastConversation.empty()) o += "\n## What the worker last saw and answered (tail of its conversation)\n\n" + in.lastConversation + "\n";
     o += "\n## What was already tried\n\n";
     if (in.history.empty()) o += "(nothing recorded)\n";
     for (const auto& h : in.history) o += "- " + h + "\n";

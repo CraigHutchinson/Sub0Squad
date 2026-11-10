@@ -63,7 +63,9 @@ code{font-size:12px;word-break:break-all}
 <span class="legend mute"><span><i class="dot" style="border-color:var(--pending)"></i>pending</span><span><i class="dot" style="border-color:var(--running)"></i>running</span><span><i class="dot" style="border-color:var(--accepted)"></i>accepted</span><span><i class="dot" style="border-color:var(--failed)"></i>failed</span><span>line: depends on · dashed box: divided into parts it integrates</span></span></div>
 <div id="graph" class="graph"></div><div class="mute" id="note" style="margin-top:6px"></div></section>
 <section class="card wide"><b>Workflow package</b> <span class="mute">the request, the plan, the deliverables and every artifact of every node</span>
-<div id="pkg"><div id="pk-info"></div><b>Deliverables</b><div id="pk-del"></div><b>Files</b> <span class="mute" id="pk-count"></span><div id="pk-top"></div><div id="pk-tree"></div></div></section>
+<div id="pkg"><div id="pk-info"></div><b>Deliverables</b><div id="pk-del"></div><b>Search the history</b> <span class="mute">conversations, replies, gate outputs, briefings: what a worker saw and said</span>
+<div><input id="q" type="search" placeholder="e.g. appended equals, ENOENT, style.css" style="width:min(520px,100%);font:inherit;background:var(--bg);color:var(--ink);border:1px solid var(--line);border-radius:6px;padding:4px 8px"> <span class="mute" id="q-note"></span></div><div id="q-out"></div>
+<b>Files</b> <span class="mute" id="pk-count"></span><div id="pk-top"></div><div id="pk-tree"></div></div></section>
 <section class="card"><b>Nodes</b><table><thead><tr><th>node</th><th>model</th><th>status</th><th>att.</th><th>in</th><th>out</th><th>time</th></tr></thead><tbody id="nodes"></tbody></table></section>
 <section class="card"><b>Decisions</b><table><tbody id="decisions"></tbody></table></section>
 <section class="card wide"><b>Daemon jobs</b><table><thead><tr><th>job</th><th>state</th><th>tool / role</th><th>node</th><th>progress</th><th>elapsed</th></tr></thead><tbody id="jobs"></tbody></table></section>
@@ -298,6 +300,14 @@ function renderPkg(){
     setInner(c.querySelector('summary'),`${esc(k)} <span class="mute">(${g[k].length})</span>`);
     setInner(c.querySelector('.fl'),g[k].sort((a,b)=>a.p<b.p?-1:1).map(f=>`<div>${fl(f.p,f.p.replace(k+'/',''))} <span class="mute">${fmt(f.s)} B</span></div>`).join(''));}})),{tag:'details'});
 }
+let searchTimer=null;
+$('q').addEventListener('input',()=>{clearTimeout(searchTimer);searchTimer=setTimeout(runSearch,350)});
+async function runSearch(){
+  const wf=currentWf(),text=$('q').value.trim();if(!wf)return;
+  if(text.length<3){setText($('q-note'),'');setInner($('q-out'),'');return}
+  try{const j=await (await fetch('/api/search?wf='+encodeURIComponent(wf.id)+'&q='+encodeURIComponent(text),{cache:'no-store'})).json();
+    setText($('q-note'),j.hits.length+' line'+(j.hits.length==1?'':'s')+(j.hits.length>=40?' (best 40)':''));
+    setInner($('q-out'),j.hits.map(h=>`<div class="reqline"><span class="pill">${esc(h.kind)}</span> ${fl(h.p,h.p.replace(/^items\//,''))}<span class="mute">:${h.line}</span> <span class="mute">${esc(h.text)}</span></div>`).join('')||'<span class="mute">nothing matched</span>')}catch(e){setText($('q-note'),'search failed: '+e)}}
 async function openFile(p){const wf=currentWf();if(!wf)return;sel={type:'file',key:p};fileView={p,text:'loading…',wf:wf.id};openDrawerShell();drawDrawer();
   try{const r=await fetch('/api/file?wf='+encodeURIComponent(wf.id)+'&p='+encodeURIComponent(p),{cache:'no-store'});fileView.text=r.ok?await r.text():'(not available: '+r.status+')'}catch(e){fileView.text='(error: '+e+')'}drawDrawer()}
 // ================= intent: the request, requirements, the inbox and the decisions =================

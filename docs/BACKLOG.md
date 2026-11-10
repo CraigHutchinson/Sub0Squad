@@ -62,6 +62,10 @@ hand-written Sugiyama pass; how it works with the retained-mode patching in `por
 - **Project-manager pass** on idle capacity filing proposals into the inbox (section 11); model-backed overseer that proposes options for the
   `owner` class; harness facts per project type (C++ builds and tests) (section 17).
 - **A reporter step** that decides the deliverables and writes the final report for non-web outputs (section 12).
+- **Knowledge register and the dreamer** (`WORK_GRAPH.md` section 19): the register format and its readers (briefing, decompose prompt, worker prompt as an
+  experiment, the project-manager pass); a rule-based dreamer first (overseer verdicts and accepted-after-failure transitions), then a model-backed
+  one on idle slots, preemptible and lowest priority; a project-level register that outlives workflows. Recall (`sub0squad recall`, the portal search,
+  the briefing's conversation tail) is built.
 - **Shed jobs** are requeued without costing an attempt; memory-aware engine leases (KV cost per slot) (section 11).
 - **Reuse accepted outputs across workflows** by content hash, so a rerun does not redo accepted nodes.
 - **Keyed history store and the Sub0Log trace stream**: `history-1`, scope and visit keys, `export` and `compare` (section 10).

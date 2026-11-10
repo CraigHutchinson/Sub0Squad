@@ -20,6 +20,7 @@ struct BriefingInput
     std::string harnessFacts;                        ///< how the harness behaves (scaffold, stubs, gates, thresholds, formats)
     std::vector<std::string> gates;                  ///< recent gate outputs, oldest first
     std::string agentNote;
+    std::string lastConversation;                    ///< the tail of the node's latest conversation trace (what the worker was last sent and answered)
     std::vector<std::string> history;                ///< what the ladder did, one line per decision
     std::string triage, analysis;                    ///< the overseer's verdict
     std::vector<std::string> options;

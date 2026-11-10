@@ -5,6 +5,7 @@
 #include "sub0squad/frame.hpp"
 #include "sub0squad/plan_lint.hpp"
 #include "sub0squad/portal.hpp"
+#include "sub0squad/recall.hpp"
 #include "sub0squad/job_store.hpp"
 #include "sub0squad/journal.hpp"
 #include "sub0squad/harness_web.hpp"
@@ -72,6 +73,7 @@ constexpr const char* kUsage =
     "  project plan ID --file plan.json     supply the plan a workflow is awaiting (the deferred architect's answer)\n"
     "  request list [WF] | raise WF --kind K [--scope a,b] [--blocking] [--title T] [--detail D] [--option O]... | answer WF RID [--resolution retry|stop] [--answer TEXT]\n"
     "                                       the inbox: questions, clarifications, requirements, blockers, proposals, escalations\n"
+    "  recall WF words... [--item NODE] [--limit N]   search what a workflow already did: conversations, replies, gate outputs, briefings\n"
     "  plan-lint FILE [--tps N]             audit a plan: width, critical path, rough time, serial tails\n"
     "  portal [--port N] [--engine-url URL]  read-only status portal on 127.0.0.1 (default 8780): the work graph, tokens per node, daemon jobs\n"
     "  guard [--memory-mib N] [--reserve-mib R] [--disk-path P --disk-mib N]   explicit host guards (exit 1 when refused)\n"
@@ -734,6 +736,33 @@ int runCli(int argc, char** argv)
     if (cmd == "blueprint") { if (argc < 3) { std::fputs(kUsage, stderr); return 2; } const std::string b = blueprintJson(argv[2]); if (b.empty()) { std::fprintf(stderr, "no blueprint '%s'\n", argv[2]); return 1; } std::printf("%s", b.c_str()); return 0; }
     if (cmd == "project") return cmdProject(paths, argc - 2, argv + 2);
     if (cmd == "request") return cmdRequest(paths, argc - 2, argv + 2);
+    if (cmd == "recall") {  // sub0squad recall WF words... [--item NODE] [--limit N]: what the workflow already did (conversations, gates, briefings)
+        if (argc < 4) { std::fputs(kUsage, stderr); return 2; }
+        std::string query, item;
+        int limit = 20;
+        for (int i = 3; i < argc; ++i) {
+            const std::string a = argv[i];
+            if (a == "--item" && i + 1 < argc) item = argv[++i];
+            else if (a == "--limit" && i + 1 < argc) limit = std::atoi(argv[++i]);
+            else query += (query.empty() ? "" : " ") + a;
+        }
+        bool offline = false;
+        const std::string text = workflowStatusAnyway(paths, argv[2], offline);
+        std::string sandbox;
+        try {
+            json::withObject(text, [&](simdjson::ondemand::object& obj) {
+                for (auto f : obj) {
+                    if (json::keyOf(f) != "workflows") continue;
+                    for (auto w : f.value().get_array()) for (auto wf : w.get_object()) if (json::keyOf(wf) == "sandbox") sandbox = json::toString(wf.value());
+                }
+            });
+        } catch (const simdjson::simdjson_error&) {}
+        if (sandbox.empty()) { std::fprintf(stderr, "no such workflow: %s\n", argv[2]); return 1; }
+        const auto hits = recallSearch(sandbox, query, limit, item);
+        for (const auto& h : hits) std::printf("%-12s %s:%d  %s\n", h.kind.c_str(), h.path.c_str(), h.line, h.text.c_str());
+        if (hits.empty()) std::printf("nothing matched\n");
+        return 0;
+    }
     if (cmd == "logs") return cmdLogs(paths, argc - 2, argv + 2);
     if (cmd == "wait") return cmdWait(paths, argc - 2, argv + 2);
     if (cmd == "cancel" || cmd == "resume") {

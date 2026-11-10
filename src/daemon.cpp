@@ -10,6 +10,7 @@
 #include "sub0squad/briefing.hpp"
 #include "sub0squad/harness_web.hpp"
 #include "sub0squad/overseer.hpp"
+#include "sub0squad/recall.hpp"
 #include "sub0squad/progress.hpp"
 #include "sub0squad/workflow.hpp"
 #include "sub0squad/workflow_status.hpp"
@@ -639,7 +640,7 @@ struct Daemon::Impl
             b.workflow = wfId; b.request = rid; b.kind = req->kind; b.title = req->title; b.task = wf->spec.taskText.empty() ? wf->spec.task : wf->spec.taskText;
             b.item = item; b.persona = wi->persona; b.itemTitle = wi->title; b.goal = wi->goal; b.files = wi->files; b.contract = wi->card.contract; b.acceptance = wi->card.acceptance;
             b.harnessFacts = wf->plan->harness == "web-static" ? webHarnessFacts() : std::string{"(no harness facts for this project type)"};
-            b.gates = in.gates; b.agentNote = in.agentNote; b.triage = v.triage; b.analysis = v.analysis; b.options = req->options;
+            b.gates = in.gates; b.agentNote = in.agentNote; b.lastConversation = recallLastConversation(sandbox, item); b.triage = v.triage; b.analysis = v.analysis; b.options = req->options;
             for (const auto& dd : wf->decisions) if (dd.item == item) b.history.push_back("attempt " + std::to_string(dd.attempt) + ": " + dd.action + (dd.tier.empty() ? "" : " (" + dd.tier + ")"));
             std::error_code ec;
             std::filesystem::create_directories(sandbox / "items" / item, ec);

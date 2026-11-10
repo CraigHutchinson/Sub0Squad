@@ -2,6 +2,7 @@
 
 #include "json_util.hpp"
 #include "sub0squad/engine.hpp"
+#include "sub0squad/recall.hpp"
 
 #include <arpa/inet.h>
 #include <poll.h>
@@ -619,6 +620,18 @@ int servePortal(int port, const std::function<std::string()>& state, const std::
             else if (path == "/api/files") {  // the packages of one workflow: its files and its deliverables manifest
                 const std::string root = sandboxOf(live, queryParam(target, "wf"));
                 if (root.empty()) respond(c, 404, "text/plain", "unknown workflow\n"); else respond(c, 200, "application/json", filesJson(root));
+            }
+            else if (path == "/api/search") {  // what the workflow already did: conversations, gate outputs, briefings, sizing; read only
+                const std::string root = sandboxOf(live, queryParam(target, "wf"));
+                if (root.empty()) respond(c, 404, "text/plain", "unknown workflow\n");
+                else {
+                    json::Writer w;
+                    w.beginObject().key("hits").beginArray();
+                    for (const auto& h : recallSearch(root, queryParam(target, "q"), 40, queryParam(target, "item")))
+                        w.beginObject().kv("p", h.path).kv("kind", h.kind).kv("line", h.line).kv("score", h.score).kv("text", h.text).endObject();
+                    w.endArray().endObject();
+                    respond(c, 200, "application/json", w.take());
+                }
             }
             else if (path == "/api/file") {  // one file as plain text (the request, a prompt, a reply, a gate output, an artifact), capped
                 const std::string root = sandboxOf(live, queryParam(target, "wf"));
