@@ -108,6 +108,8 @@ struct Daemon::Impl
         pid_t shimPid = 0;
         bool finalized = false;
         bool hasPipeline = false;
+        int leaseIndex = -1;           ///< slot of the job's lease (0..cap-1), passed to the job as SUB0SQUAD_LEASE_INDEX; -1 = none or adopted
+        std::string leaseResource;
         sub0pipeline::Completion done;
         std::jthread runner;
     };
@@ -210,16 +212,66 @@ struct Daemon::Impl
         return n;
     }
 
+    // ---- memory pressure: shed work before the kernel kills something that matters ---------------------------------------------------
+    // Jobs and servers run with a high oom_score_adj (shim), so the kernel's last resort picks them before the owner's session; this is the
+    // controlled first line: cancel the newest job when available memory falls below the reserve, servers only after every job, and admit nothing new.
+    std::int64_t availableMiB() const
+    {
+        if (const char* f = std::getenv("SUB0SQUAD_FAKE_MEMAVAILABLE_FILE"); f && *f) {  // tests inject the number
+            std::ifstream in(f);
+            std::int64_t v = 0;
+            if (in >> v) return v;
+        }
+        return readHostMemory().availableMiB;
+    }
+    bool underPressure() const { return opts.memShedMiB > 0 && availableMiB() < opts.memShedMiB + 512; }  // admission stops 512 MiB before shedding starts
+    bool hasWorkToWatch() const
+    {
+        if (opts.memShedMiB <= 0) return false;
+        if (activeCount() > 0) return true;
+        for (const auto& j : store.jobs()) if (j.state == JobState::queued) return true;
+        return false;
+    }
+    void shedIfPressured()
+    {
+        if (opts.memShedMiB <= 0 || stopping) return;
+        const std::int64_t avail = availableMiB();
+        watchMs = avail < 2 * static_cast<std::int64_t>(opts.memShedMiB) ? 1000 : 5000;  // quiet: a check every 5 s (idle stays near zero wake-ups); close to the reserve: every second
+        if (avail >= opts.memShedMiB) return;
+        const JobRecord* victim = nullptr;
+        for (bool services : {false, true}) {  // every plain job before any server
+            for (const auto& [id, r] : running) {
+                const JobRecord* jr = store.find(id);
+                if (r->finalized || !jr || jr->state == JobState::cancelling || jr->spec.service != services) continue;
+                if (services && avail >= opts.memShedMiB / 2) continue;  // servers are only shed when memory is critically low
+                if (!victim || jr->startedAt > victim->startedAt) victim = jr;
+            }
+            if (victim) break;
+        }
+        if (!victim) return;
+        shedNote[victim->id] = "shed: memory pressure (" + std::to_string(avail) + " MiB available, reserve " + std::to_string(opts.memShedMiB) + " MiB)";
+        logf("memory pressure: %lld MiB available, shedding %s%s", static_cast<long long>(avail), victim->id.c_str(), victim->spec.service ? " (a server)" : "");
+        (void)doCancel(victim->id);  // one per tick: give the kernel time to reclaim before shedding more
+    }
+    std::map<std::string, std::string> shedNote;  ///< jobs cancelled by the memory guard: the reason recorded when they finish
+    std::chrono::steady_clock::time_point lastMemCheck{};
+    int watchMs = 5000;
+
     void scheduleQueued()
     {
         if (stopping || !journalOk) return;
+        if (underPressure()) return;  // admit nothing while memory is short; the periodic check retries
         for (;;) {
             if (activeCount() >= opts.maxJobs) return;
             // Lease occupancy of the jobs that are running now: a queued job whose shared resource (an engine's slots) is full waits
             // without blocking later jobs that need nothing or a different resource.
             std::map<std::string, std::int64_t> held;
+            std::map<std::string, std::set<int>> usedIndex;
             for (const auto& [id, r] : running)
-                if (!r->finalized) if (const JobRecord* jr = store.find(id); jr && !jr->spec.leaseResource.empty()) ++held[jr->spec.leaseResource];
+                if (!r->finalized) if (const JobRecord* jr = store.find(id); jr && !jr->spec.leaseResource.empty()) {
+                    ++held[jr->spec.leaseResource];
+                    if (r->leaseIndex >= 0) usedIndex[jr->spec.leaseResource].insert(r->leaseIndex);
+                }
             const JobRecord* next = nullptr;
             for (const auto& j : store.jobs()) {
                 if (j.state != JobState::queued || running.count(j.id)) continue;
@@ -227,22 +279,27 @@ struct Daemon::Impl
                 if (!next || j.submittedAt < next->submittedAt) next = &j;
             }
             if (!next) return;
-            startRun(*next);
+            int idx = -1;
+            if (!next->spec.leaseResource.empty()) { idx = 0; while (usedIndex[next->spec.leaseResource].count(idx)) ++idx; }  // the lowest free slot of the lease
+            startRun(*next, idx);
         }
     }
 
-    void startRun(const JobRecord& job)
+    void startRun(const JobRecord& job, int leaseIndex = -1)
     {
         const auto runDir = opts.paths.runDir(job.id, job.run);
         std::error_code ec;
         std::filesystem::create_directories(runDir, ec);
         JobSpec spec = job.spec;
+        if (leaseIndex >= 0) spec.env["SUB0SQUAD_LEASE_INDEX"] = std::to_string(leaseIndex);
         if (job.run > 1 && !spec.resumeArgv.empty()) spec.argv = spec.resumeArgv;
         { std::ofstream o(runDir / "spec.json"); o << spec.toJson(); }
         auto entry = std::make_unique<Running>();
         entry->id = job.id;
         entry->run = job.run;
         entry->hasPipeline = true;
+        entry->leaseIndex = leaseIndex;
+        entry->leaseResource = job.spec.leaseResource;
         auto pipe = std::make_shared<sub0pipeline::Pipeline>();
         auto node = pipe->emplaceDeferred([this, id = job.id, run = job.run](sub0pipeline::Completion done) {
             post([this, id, run, d = std::move(done)]() mutable { onShimStart(id, run, std::move(d)); });
@@ -302,7 +359,9 @@ struct Daemon::Impl
     void finalizeWith(const std::string& id, JobState state, const std::string& exitJson, const std::string& note)
     {
         const JobRecord* job = store.find(id);
-        if (job) record("jobFinished", journalbody::finished(id, job->run, state, exitJson, note));
+        std::string finalNote = note;
+        if (auto sn = shedNote.find(id); sn != shedNote.end()) { finalNote = sn->second; shedNote.erase(sn); }
+        if (job) record("jobFinished", journalbody::finished(id, job->run, state, exitJson, finalNote));
         logf("job %s finished: %s (%s)", id.c_str(), std::string{toString(state)}.c_str(), note.c_str());
         auto it = running.find(id);
         if (it != running.end()) {
@@ -694,8 +753,14 @@ struct Daemon::Impl
     {
         epoll_event evs[32];
         while (!stopping) {
-            const int n = ::epoll_wait(epfd, evs, 32, -1);  // blocks: this is the idle state
+            // Blocks when there is nothing to watch (the idle state: no wake-ups); with jobs running or queued it wakes every 5 s (1 s near the reserve) to check memory.
+            const int n = ::epoll_wait(epfd, evs, 32, hasWorkToWatch() ? watchMs : -1);
             if (n < 0) { if (errno == EINTR) continue; return 1; }
+            if (const auto now = std::chrono::steady_clock::now(); now - lastMemCheck >= std::chrono::milliseconds(watchMs) && hasWorkToWatch()) {
+                lastMemCheck = now;
+                shedIfPressured();
+                scheduleQueued();  // memory recovered: admit what was held back
+            }
             for (int i = 0; i < n; ++i) {
                 const auto kind = static_cast<Kind>(evs[i].data.u64 >> 32);
                 const int fd = static_cast<int>(evs[i].data.u64 & 0xFFFFFFFFu);

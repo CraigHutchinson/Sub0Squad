@@ -70,7 +70,7 @@ export function createDom(keys = DEFAULT_KEYS) {
 )JS";
 
 const char* kStubCalc = "// harness stub: the developer replaces this file\nexport function evaluate(expr, options = {}) { throw new Error('not implemented'); }\n";
-const char* kStubUi = "// harness stub: the developer replaces this file\nexport function mount(document) { throw new Error('not implemented'); }\n";
+const char* kStubUi = "// harness stub: the developer replaces this file\nexport function mount(document, evaluate) { throw new Error('not implemented'); }\n";
 const char* kStubLexer = "// harness stub: the developer replaces this file\nexport function tokenize(text) { throw new Error('not implemented'); }\n";
 const char* kStubFunctions = "// harness stub: the developer replaces this file\nexport function constant(name) { throw new Error('not implemented'); }\nexport function callFunction(name, args, degrees = false) { throw new Error('not implemented'); }\nexport function factorial(n) { throw new Error('not implemented'); }\n";
 const char* kStubIndex = "<!doctype html><title>stub</title>\n";

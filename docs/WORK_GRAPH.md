@@ -173,3 +173,50 @@ spreadsheet, a notebook or the portal's history tab; policies can be replayed of
 **Build order addition:** (a) the key types and `history-1` writer, populated from what the daemon already knows (jobs, decisions, ledger),
 so the portal and `export` work on existing runs; (b) scope and visit keys when per-node integration and review exist (section 7);
 (c) the Sub0Log trace spike; (d) `compare`.
+
+## 11. Orchestration at the top, a project-manager pass, and memory safety (owner direction, 2026-11-10)
+
+**Front-load parallelism.** The first calculator plan put the whole page behind the engine (`eval-tests -> engine -> ui`), so the last and
+a large stage ran alone and a failure there (the page, decomposed after two failures) cost the most. The orchestrating level must shape a plan
+for width and small packages in its early phases: independent tester items together, then many small developer items, with a dependency only
+where an artifact is really needed. The page now shows how: inject the dependency (`mount(document, evaluate)`) so the page script is graded
+against a fake and the markup against file checks, and neither waits for the parser.
+`sub0squad plan-lint FILE` (built) audits a plan before it runs: levels, width, critical path in estimated tokens and rough minutes, and
+warnings for a large last stage, a narrow plan and multi-file items. Measured on the two plans: the original (widest 2, critical path 76 % of
+the work) against `docs/calculator-web-parallel.plan.json` (widest 5, critical path 31 %, about 14 minutes against 44 run serially at one
+request). Estimates are rough and complexity based; the lint exists to make shape visible, not to predict.
+
+**A project-manager pass, run when there is capacity.** A recurring audit job that the daemon schedules when engine slots are idle and the
+ready queue is thin, or after a node divides or finishes:
+
+- Inputs: the work graph, node histories, the ledger and the live metrics (idle slots, tokens per node, repeated failures, decisions).
+- Outputs, as *proposals* the daemon validates like amended plans: add items that have become visible (a child's discovered sub-task), pull
+  forward work that no longer needs its dependency, split a node whose estimate or history says it is too big, merge trivial ones, tighten
+  or relax budgets, reorder the ready queue by critical path.
+- Limits: only pending nodes change (accepted work is untouchable unless reopened by a verdict), every change is journaled with its reasons
+  and shown in the portal, and anything beyond the depth, item or token budgets goes to the owner. It runs only while capacity is free and
+  yields to real work.
+- First version: rule based (plan-lint rules applied to the live graph, repeated-failure and idle-slot triggers); a model-backed version later.
+
+**Memory safety (incident 2026-11-10).** Memory pressure killed the owner's Claude session while the squad ran: the kernel's out-of-memory
+killer fired at 12:41 and took the 35B `llama-server` (18 GB, at that time `oom_score_adj` 200 inherited from the desktop app), and the
+session died as well. A Firefox content process held 21.6 GB at the time; the portal page had been open in Firefox, and the page was not
+ruled out (below). The squad must shed its own processes before anything else is lost:
+
+1. **OOM priority (built).** The shim sets `oom_score_adj` for each job's process group: 600 for jobs, 900 for servers (raising needs no
+   privilege). The kernel's last resort now prefers squad processes over the owner's session and the daemon.
+2. **Shed before the kernel does (built).** The daemon watches `MemAvailable` while work exists (every 5 s, every 1 s within twice the
+   reserve; fully idle it still blocks with no wake-ups). Below `--mem-shed-mib` (default 1536) it cancels the newest plain job, one per
+   check, and admits nothing new until memory recovers; servers are shed last, only when available memory falls below half the reserve. A
+   shed job records `shed: memory pressure (...)`. Tested with an injected memory figure.
+3. **Still to do:** a shed job currently counts as a failed attempt for the policy (it should be requeued without costing an attempt);
+   memory-aware engine leases (KV cost per slot); the shed decision should prefer low-value work (a long-running near-done job is worth more
+   than a new one) and consult the node history.
+
+**The portal and Firefox.** The page cannot be proved innocent in Firefox, and a stalled server is the one mechanism found: the page used to
+start a request every second whether or not the previous one had returned, and the server answered one request at a time while waiting on
+the daemon, which is slow when the host is swapping. Changes (built): the HTTP loop serves a cached state refreshed by the sampler thread,
+the page keeps one request in flight per endpoint with a 5 s timeout, does nothing while the tab is hidden, and repaints only when its markup
+changed. Measured in the built-in browser (Chromium): 300 forced refreshes left the DOM at 359 nodes and the JS heap at a few MB; with the
+server stalled, 100 poll attempts started 2 requests. A 21.6 GB process is far beyond what this page's data (a few hundred KB) can explain,
+so the Firefox process may be another tab; the way to settle it is `about:processes` in Firefox, which shows the page for each process.

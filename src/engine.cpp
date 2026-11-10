@@ -159,6 +159,7 @@ std::expected<ChatResult, std::string> chatCompleteMessages(const EngineProfile&
     if (!e.reasoningEffort.empty()) w.kv("reasoning_effort", e.reasoningEffort);
     w.endObject();
     if (e.seed >= 0) w.kv("seed", static_cast<std::int64_t>(e.seed));
+    if (const char* slot = std::getenv("SUB0SQUAD_LEASE_INDEX"); slot && *slot && std::atoi(slot) < e.maxConcurrent) w.kv("id_slot", std::atoi(slot));  // pin the request to the lease's slot so the portal can attribute live slot activity to this job
     w.endObject();
     auto resp = httpRequest("POST", e.endpoint + "/chat/completions", w.take(), timeoutSec);
     if (!resp) return std::unexpected(resp.error());

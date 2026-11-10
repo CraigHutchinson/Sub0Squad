@@ -3,6 +3,7 @@
 #include "json_util.hpp"
 #include "sub0squad/daemon.hpp"
 #include "sub0squad/frame.hpp"
+#include "sub0squad/plan_lint.hpp"
 #include "sub0squad/portal.hpp"
 #include "sub0squad/job_store.hpp"
 #include "sub0squad/journal.hpp"
@@ -57,7 +58,7 @@ namespace {
 
 constexpr const char* kUsage =
     "usage: sub0squad <command> [options]\n"
-    "  serve [--max-jobs N]                 run the daemon (foreground)\n"
+    "  serve [--max-jobs N] [--mem-shed-mib N]   run the daemon (foreground); sheds jobs below N MiB available memory (default 1536, 0 = off)\n"
     "  submit [opts] -- <cmd> [args...]     submit a process job; prints its id\n"
     "         --cwd DIR  --wall SEC  --memory-mib N (refused at submit if the host lacks it)  --grace SEC  --tool NAME  --tier stub|local  --env K=V  --lease RESOURCE=CAP (at most CAP running jobs hold RESOURCE)  --service (a server: not counted against --max-jobs)\n"
     "         --resume-arg ARG (repeatable: the command `resume` runs)  --state-file PATH --state-schema NAME\n"
@@ -69,7 +70,8 @@ constexpr const char* kUsage =
     "  project submit --task calculator-basic|calculator-scientific|calculator-web [--sandbox DIR] [--inject ITEM[:N]]... [--max-local N]\n"
     "         [--agent mock|llm] [--engine NAME=http://127.0.0.1:PORT/v1[,model=..][,ctx=N][,slots=N]]... [--engine-for PERSONA=NAME]... [--max-tokens N] [--treatment baseline|index|planfirst] [--repair-turns N] [--size-budget TOKENS]\n"
     "  project plan ID --file plan.json     supply the plan a workflow is awaiting (the deferred architect's answer)\n"
-    "  portal [--port N]                    read-only status portal on 127.0.0.1 (default 8780): the work graph, tokens per node, daemon jobs\n"
+    "  plan-lint FILE [--tps N]             audit a plan: width, critical path, rough time, serial tails\n"
+    "  portal [--port N] [--engine-url URL]  read-only status portal on 127.0.0.1 (default 8780): the work graph, tokens per node, daemon jobs\n"
     "  guard [--memory-mib N] [--reserve-mib R] [--disk-path P --disk-mib N]   explicit host guards (exit 1 when refused)\n"
     "  fetch-model --url https://huggingface.co/... --out FILE [--sha256 H]   guarded, resumable, verified download (run it as a job)\n"
     "  blueprint NAME                       print a built-in plan-2 (calculator-web)\n"
@@ -596,6 +598,7 @@ int runCli(int argc, char** argv)
         const ssize_t n = ::readlink("/proc/self/exe", self, sizeof self - 1);
         opts.exe = n > 0 ? std::string(self, static_cast<std::size_t>(n)) : std::string{argv[0]};
         for (int i = 2; i + 1 < argc; ++i) {
+            if (std::string_view{argv[i]} == "--mem-shed-mib") opts.memShedMiB = std::max(0, std::atoi(argv[i + 1]));
             if (std::string_view{argv[i]} == "--max-jobs") opts.maxJobs = std::max(1, std::atoi(argv[i + 1]));
             if (std::string_view{argv[i]} == "--frontier") {
                 const std::string_view m = argv[i + 1];
@@ -620,15 +623,29 @@ int runCli(int argc, char** argv)
         else { if (offline) std::fprintf(stderr, "daemon not running: showing the journal and shim records (as of now)\n"); printJobs(*st); }
         return 0;
     }
+    if (cmd == "plan-lint") {  // audit a plan's parallelism before running it: sub0squad plan-lint FILE [--tps N]
+        if (argc < 3) { std::fputs(kUsage, stderr); return 2; }
+        double tps = 5.0;
+        for (int i = 3; i + 1 < argc; ++i) if (std::string_view{argv[i]} == "--tps") tps = std::atof(argv[i + 1]);
+        const std::string text = slurpFile(argv[2]);
+        auto plan = Plan::fromJson(text);
+        if (!plan) { std::fprintf(stderr, "plan rejected: %s\n", plan.error().c_str()); return 1; }
+        std::fputs(lintPlan(*plan, tps).toText().c_str(), stdout);
+        return 0;
+    }
     if (cmd == "portal") {
         int port = 8780;
-        for (int i = 2; i + 1 < argc; ++i) if (std::string_view{argv[i]} == "--port") port = std::atoi(argv[i + 1]);
+        std::vector<std::string> engines;
+        for (int i = 2; i + 1 < argc; ++i) {
+            if (std::string_view{argv[i]} == "--port") port = std::atoi(argv[i + 1]);
+            else if (std::string_view{argv[i]} == "--engine-url") engines.push_back(argv[i + 1]);
+        }
         return servePortal(port, [&paths] {
             bool offline = false;
             const std::string wf = workflowStatusAnyway(paths, "", offline);
             auto jobs = statusAnyway(paths, "", offline);
             return "{\"workflows\":" + (wf.empty() ? std::string{"{\"workflows\":[]}"} : wf) + ",\"jobs\":" + (jobs ? *jobs : std::string{"{\"jobs\":[]}"}) + "}";
-        });
+       }, engines);
     }
     if (cmd == "do") return cmdDo(paths, argc - 2, argv + 2);
     if (cmd == "blueprint") { if (argc < 3) { std::fputs(kUsage, stderr); return 2; } const std::string b = blueprintJson(argv[2]); if (b.empty()) { std::fprintf(stderr, "no blueprint '%s'\n", argv[2]); return 1; } std::printf("%s", b.c_str()); return 0; }

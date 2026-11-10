@@ -17,6 +17,9 @@ std::string workflowStatusJson(const RuntimePaths& paths, const WorkflowStore& w
         if (!onlyId.empty() && wf.id != onlyId) continue;
         w.beginObject().kv("id", wf.id).kv("task", wf.spec.task).kv("state", toString(wf.state)).kv("note", wf.note).kv("sandbox", wf.spec.sandboxDir)
             .kv("submittedAt", wf.submittedAt).kv("finishedAt", wf.finishedAt);
+        w.key("engines").beginArray();
+        for (const auto& e : wf.spec.engines) w.str(e);
+        w.endArray();
         w.key("reasons").beginArray();
         if (wf.plan) for (const auto& r : wf.plan->reasons) w.str(r);
         w.endArray();

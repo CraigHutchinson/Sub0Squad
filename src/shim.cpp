@@ -139,6 +139,9 @@ bool Shim::start()
     if (child_ == 0) {
         ::setpgid(0, 0);
         sigprocmask(SIG_SETMASK, &origMask_, nullptr);
+        // Make the job (and what it spawns) the kernel's preferred victim under memory pressure, ahead of the owner's session and the daemon:
+        // raising oom_score_adj needs no privilege. Servers (engines, the biggest holders) are 900, other jobs 600.
+        if (const int fd = ::open("/proc/self/oom_score_adj", O_WRONLY); fd >= 0) { const char* v = spec_.service ? "900" : "600"; (void)!::write(fd, v, std::strlen(v)); ::close(fd); }
         const int devnull = ::open("/dev/null", O_RDONLY);
         // Move the three write ends to fixed numbers without clobbering one another: stdin=0, stdout=1, stderr=2, events=3.
         int ev = pe[1], so = po[1], se = pr[1];

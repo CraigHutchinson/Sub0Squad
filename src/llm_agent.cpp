@@ -207,6 +207,7 @@ int runLlmAgent(const std::vector<std::string>& args)
 
     bool est1 = false, est2 = false, est3 = false;
     const long tSystem = countTokens(*engine, system, est1), tCard = countTokens(*engine, card.str(), est2), tFeedback = feedback.empty() ? 0 : countTokens(*engine, feedback, est3);
+    if (const char* slot = std::getenv("SUB0SQUAD_LEASE_INDEX"); slot && *slot) events::metric("engine.slot", static_cast<double>(std::atoi(slot)));
     events::progress(0, 2, "waiting for the engine");
     events::metric("tokens.system", static_cast<double>(tSystem));
     events::metric("tokens.card", static_cast<double>(tCard));

@@ -153,5 +153,48 @@ int main(int, char** argv)
         CHECK(peak == 2);
         for (const auto& id : ids) CHECK(sq.waitState(id, "succeeded"));
     }
+    { // OOM priority: jobs run with oom_score_adj 600 and servers 900, so the kernel's last resort takes them before the owner's session.
+        Squad sq(exe, "oomadj");
+        sq.startDaemon();
+        const std::string job = sq.submitWorker("oj", {"--steps", "200", "--step-ms", "50"});
+        const std::string srv = sq.submitWorker("os", {"--steps", "200", "--step-ms", "50"}, {"--service"});
+        CHECK(sq.waitState(job, "running") && sq.waitState(srv, "running"));
+        for (int i = 0; i < 200 && (pidsByTag("oj").empty() || pidsByTag("os").empty()); ++i) sleepMs(10);
+        const auto adj = [](const std::string& tag) {
+            const auto pids = pidsByTag(tag);
+            if (pids.empty()) return -1;
+            std::ifstream in("/proc/" + std::to_string(pids.front()) + "/oom_score_adj");
+            int v = -1;
+            in >> v;
+            return v;
+        };
+        CHECK(adj("oj") >= 600);
+        CHECK(adj("os") >= 900);
+        (void)sq.cli({"cancel", job});
+        (void)sq.cli({"cancel", srv});
+    }
+    { // Memory pressure: below the reserve the daemon sheds the newest job and admits nothing; servers only when critically low; it recovers.
+        const std::string fake = (std::filesystem::current_path() / "fake-memavail.txt").string();
+        { std::ofstream o(fake); o << 100000; }
+        ::setenv("SUB0SQUAD_FAKE_MEMAVAILABLE_FILE", fake.c_str(), 1);
+        Squad sq(exe, "shed");
+        sq.startDaemon(4, {"--mem-shed-mib", "2000"});
+        const std::string older = sq.submitWorker("sa", {"--steps", "400", "--step-ms", "50"});
+        CHECK(sq.waitState(older, "running"));
+        sleepMs(300);
+        const std::string newer = sq.submitWorker("sb", {"--steps", "400", "--step-ms", "50"});
+        const std::string srv = sq.submitWorker("ss", {"--steps", "400", "--step-ms", "50"}, {"--service"});
+        CHECK(sq.waitState(newer, "running") && sq.waitState(srv, "running"));
+        { std::ofstream o(fake, std::ios::trunc); o << 1500; }  // under the 2000 reserve, above half of it
+        CHECK(sq.waitState(newer, "cancelled", 12000));          // the newest plain job goes first
+        CHECK(sq.statusField(newer, "note").find("shed: memory pressure") != std::string::npos);
+        CHECK(sq.statusField(srv, "state") == "running");        // the server survives while memory is only low
+        { std::ofstream o(fake, std::ios::trunc); o << 100000; }
+        const std::string after = sq.submitWorker("sc", {"--steps", "2", "--step-ms", "20"});
+        CHECK(sq.waitState(after, "succeeded", 12000));          // admission resumes once memory recovers
+        ::unsetenv("SUB0SQUAD_FAKE_MEMAVAILABLE_FILE");
+        (void)sq.cli({"cancel", older});
+        (void)sq.cli({"cancel", srv});
+    }
     return finish();
 }
