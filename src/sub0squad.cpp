@@ -5,6 +5,8 @@
 #include "sub0pub/sub0pub.hpp"
 #include <simdjson.h>
 
+#include <string_view>
+#include <sub0squad/build_info.hpp>
 #include "sub0squad/client.hpp"
 #include "sub0squad/mock_worker.hpp"
 #include "sub0squad/harness_web.hpp"
@@ -112,6 +114,6 @@ int main(int argc, char** argv)
         if (std::strcmp(argv[1], "sandbox-integrate") == 0) return sub0squad::runSandboxIntegrate(rest);
     }
     if (argc > 1 && std::strcmp(argv[1], "--selftest") == 0) return selftest();
-    if (argc > 1 && std::strcmp(argv[1], "--version") == 0) { std::puts("sub0squad 0.0.0 (working title, M1 in progress)"); return 0; }
+    if (argc > 1 && std::strcmp(argv[1], "--version") == 0) { std::printf("sub0squad %s (working title) %s%s\n", SUB0SQUAD_VERSION, SUB0SQUAD_GIT_SHA, std::string_view{SUB0SQUAD_GIT_DIRTY} == "1" ? "-dirty" : ""); return 0; }
     return sub0squad::runCli(argc, argv);
 }
