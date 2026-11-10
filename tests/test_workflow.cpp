@@ -283,5 +283,15 @@ int main()
         c.reviseTried = true;
         CHECK(policy.decide(c).action != Action::reviseTests);
     }
+    { RulePolicy policy; // The frontier stub is only used when it has a reference; a repeated failure disputes the tests only when it is a near pass.
+        DecisionContext c; c.workflow = "w"; c.item = "lexer"; c.attempt = 6; c.localAttempts = 2; c.failedRole = "gate"; c.totalAttempts = 6;
+        c.decomposeTried = c.reviseTried = c.rearchitectTried = true; c.splittable = true;
+        CHECK(policy.decide(c).action == Action::escalate);
+        c.frontierHasReference = false;
+        CHECK(policy.decide(c).action == Action::fail);
+        DecisionContext r; r.workflow = "w"; r.item = "ui-js"; r.attempt = 2; r.localAttempts = 2; r.failedRole = "gate"; r.hasTesterDep = true; r.splittable = true; r.totalAttempts = 2;
+        r.repeatedFailure = false;  // 3 of 7 failing twice is not a near pass, so the gate does not flag it: the ordinary ladder applies
+        CHECK(policy.decide(r).action == Action::decompose);
+    }
     return finish();
 }

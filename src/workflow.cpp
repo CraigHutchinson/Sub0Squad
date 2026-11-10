@@ -2,6 +2,7 @@
 
 #include "json_util.hpp"
 
+#include "sub0squad/harness_web.hpp"
 #include <algorithm>
 #include <set>
 #include <cstdio>
@@ -186,6 +187,7 @@ struct ItemView
     const WorkItem* item = nullptr;
     std::vector<const JobRecord*> attempts, gates;  ///< attempt-like jobs (agent, decompose, rearchitect) and gate jobs
     bool accepted = false, active = false;
+    bool restorable = false;  ///< an earlier attempt passed before a dispute voided it: its accepted output is still on disk
     int maxAttempt = 0;
     int localAttempts = 0, frontierAttempts = 0;
     bool decomposeTried = false, rearchitectTried = false;
@@ -213,8 +215,12 @@ ItemView viewOf(const WorkItem& it, const Mine& mine, const WorkflowRecord& wf)
         } else if (role == "gate") {
             v.gates.push_back(j);
             if (j->state == JobState::succeeded && j->spec.attempt > disputedAt) v.accepted = true;  // a dispute voids earlier acceptances
+            else if (j->state == JobState::succeeded) v.restorable = true;
         }
     }
+    // A disputed item whose re-run could not pass keeps its earlier accepted version: the dispute ended with the decision "restored".
+    if (!v.accepted && v.restorable)
+        for (const auto& d : wf.decisions) if (d.item == it.id && d.action == "restored" && d.attempt > disputedAt) v.accepted = true;
     return v;
 }
 
@@ -364,18 +370,22 @@ std::vector<WorkflowAction> advance(const WorkflowRecord& wf, const JobStore& st
             for (const JobRecord* g : v.gates) if (g->spec.attempt == n && g->exitJson.find("\"code\":3") != std::string::npos) ctx.nearPass = true;
             for (const JobRecord* g : v.gates) if (g->spec.attempt == n && g->exitJson.find("\"code\":5") != std::string::npos) ctx.repeatedFailure = true;
             if (role == "agent" && latest->exitJson.find("\"code\":4") != std::string::npos) ctx.oversize = true;
+            if (wf.plan && wf.plan->harness == "web-static") { ctx.frontierHasReference = !v.item->files.empty(); for (const auto& f : v.item->files) if (webMockFile(f, false).empty()) ctx.frontierHasReference = false; }
             ctx.decomposeTried = v.decomposeTried;
             ctx.rearchitectTried = v.rearchitectTried;
             for (const auto& dd : wf.decisions) if (dd.item == v.item->id && dd.action == "reviseTests") ctx.reviseTried = true;
             const WorkItem* tester = nullptr;
             for (const auto& depId : v.item->deps) { const WorkItem* dep = plan.find(depId); if (dep && dep->persona == "tester") { tester = dep; ctx.hasTesterDep = true; break; } }
-            const Decision dec = policy.decide(ctx);
+            Decision dec = policy.decide(ctx);
+            const bool restore = dec.action == Action::fail && v.restorable;  // fall back to the accepted version from before the dispute
             WorkflowAction rec;
             rec.kind = WorkflowAction::Kind::recordDecision;
-            rec.item = v.item->id; rec.attempt = n; rec.decisionAction = toString(dec.action); rec.decisionTier = dec.tier; rec.decisionJson = toJson(ctx, dec);
+            rec.item = v.item->id; rec.attempt = n; rec.decisionAction = restore ? "restored" : toString(dec.action); rec.decisionTier = dec.tier;
+            if (restore) dec.reasons.push_back("the re-run could not pass: the version accepted before the dispute is restored and the work continues with it");
+            rec.decisionJson = toJson(ctx, dec);
             out.push_back(std::move(rec));
             switch (dec.action) {
-                case Action::fail: failedItem = v.item->id; break;
+                case Action::fail: if (!restore) failedItem = v.item->id; break;
                 case Action::retry: case Action::escalate: out.push_back(start(agentJob(wf, st, *v.item, n + 1, dec.tier))); break;
                 case Action::decompose: out.push_back(start(architectJob(wf, st, *v.item, n + 1, "decompose"))); break;
                 case Action::rearchitect: out.push_back(start(architectJob(wf, st, *v.item, n + 1, "rearchitect"))); break;

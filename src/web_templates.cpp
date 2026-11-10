@@ -69,10 +69,10 @@ export function createDom(keys = DEFAULT_KEYS) {
 }
 )JS";
 
-const char* kStubCalc = "// harness stub: the developer replaces this file\nexport function evaluate(expr, options = {}) { throw new Error('not implemented'); }\n";
-const char* kStubUi = "// harness stub: the developer replaces this file\nexport function mount(document, evaluate) { throw new Error('not implemented'); }\n";
-const char* kStubLexer = "// harness stub: the developer replaces this file\nexport function tokenize(text) { throw new Error('not implemented'); }\n";
-const char* kStubFunctions = "// harness stub: the developer replaces this file\nexport function constant(name) { throw new Error('not implemented'); }\nexport function callFunction(name, args, degrees = false) { throw new Error('not implemented'); }\nexport function factorial(n) { throw new Error('not implemented'); }\n";
+const char* kStubCalc = "// harness stub: the developer replaces this file\nexport function evaluate(expr, options = {}) { /* stub: returns undefined, never throws, so value tests and error tests both fail against it */ }\n";
+const char* kStubUi = "// harness stub: the developer replaces this file\nexport function mount(document, evaluate) { /* stub: does nothing */ }\n";
+const char* kStubLexer = "// harness stub: the developer replaces this file\nexport function tokenize(text) { /* stub: returns undefined */ }\n";
+const char* kStubFunctions = "// harness stub: the developer replaces this file\nexport function constant(name) { /* stub */ }\nexport function callFunction(name, args, degrees = false) { /* stub */ }\nexport function factorial(n) { /* stub */ }\n";
 const char* kStubIndex = "<!doctype html><title>stub</title>\n";
 
 const char* kCalc = R"JS(const CONST = { pi: Math.PI, e: Math.E, tau: 2 * Math.PI };
@@ -373,7 +373,7 @@ std::size_t webScaffoldBytes()
 std::string webHarnessBrief()
 {
     return "Project harness (already in the workspace, do not recreate): package.json (ES modules, tests run with `node --test`), serve.mjs (static server), "
-           "tests/helpers/dom-stub.mjs (exports createDom(): a fake DOM for UI tests), and stub versions of src/calc.js, src/ui.js and index.html that throw 'not implemented'. "
+           "tests/helpers/dom-stub.mjs (exports createDom(): a fake DOM for UI tests), and stub versions of src/calc.js, src/ui.js and index.html that return undefined (they never throw, so error-case tests fail against them too). "
            "Plain browser JavaScript (ES modules), no dependencies, no build step.";
 }
 

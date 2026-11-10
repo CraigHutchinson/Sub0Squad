@@ -32,6 +32,7 @@ struct DecisionContext
     bool hasTesterDep = false;     ///< the item is graded by tests another item produced
     bool repeatedFailure = false;  ///< the same tests failed with the same messages as the previous attempt (gate exit code 5)
     bool oversize = false;         ///< the attempt did not run: the agent measured the item as too big for one attempt (agent exit code 4)
+    bool frontierHasReference = true;  ///< the frontier stub can produce this item (a reference exists); false = escalation would only repeat a failure
     bool nearPass = false;         ///< the failed gate had at least 10 tests and at most 15 % of them failing (gate exit code 3)
     int maxNearPassRepairs = 2;    ///< extra local repair attempts granted to a near pass before the ladder moves on
     bool decomposeTried = false, reviseTried = false, rearchitectTried = false;

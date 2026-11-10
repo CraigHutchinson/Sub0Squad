@@ -78,14 +78,14 @@ Decision RulePolicy::decide(const DecisionContext& c) const
         d.reasons.push_back("a dedicated job rewrites the work card, shorter and focused on the failures");
         return d;
     }
-    if (c.frontier != FrontierMode::off && c.frontierAttempts < c.maxFrontierAttempts) {
+    if (c.frontier != FrontierMode::off && c.frontierAttempts < c.maxFrontierAttempts && c.frontierHasReference) {
         d.action = Action::escalate;
         d.tier = "frontier-stub";
         d.reasons.push_back("every local rung was tried: escalate once to the frontier tier (stub: nothing leaves the machine)");
         return d;
     }
     d.action = Action::fail;
-    d.reasons.push_back(c.frontier == FrontierMode::off ? "frontier mode is off: no escalation allowed" : "frontier attempts exhausted");
+    d.reasons.push_back(c.frontier == FrontierMode::off ? "frontier mode is off: no escalation allowed" : !c.frontierHasReference ? "the frontier stub has no reference for this item, so escalating would only repeat the failure" : "frontier attempts exhausted");
     return d;
 }
 
