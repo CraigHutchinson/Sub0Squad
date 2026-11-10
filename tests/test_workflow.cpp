@@ -34,6 +34,7 @@ struct Sim
                 case WorkflowAction::Kind::cancelJob: feed("jobCancelRequested", journalbody::cancelRequested(a.jobId, 1)); feed("jobFinished", journalbody::finished(a.jobId, 1, JobState::cancelled, "", "cancelled")); break;
                 case WorkflowAction::Kind::loadPlan: break;
                 case WorkflowAction::Kind::writeDispute: break;
+                case WorkflowAction::Kind::sendDown: feed("workflowDecision", wfbody::decision("w-000001", "d2", 1, "disputed", "local", "{}")); break;  // the daemon picks the part; here always d2
                 case WorkflowAction::Kind::amendPlan: {
                     auto merged = Plan::amended(*wfs.find("w-000001")->plan, a.item, fragment);
                     if (merged) feed("workflowPlanAmended", wfbody::planAmended("w-000001", a.item, *merged));
@@ -292,6 +293,67 @@ int main()
         DecisionContext r; r.workflow = "w"; r.item = "ui-js"; r.attempt = 2; r.localAttempts = 2; r.failedRole = "gate"; r.hasTesterDep = true; r.splittable = true; r.totalAttempts = 2;
         r.repeatedFailure = false;  // 3 of 7 failing twice is not a near pass, so the gate does not flag it: the ordinary ladder applies
         CHECK(policy.decide(r).action == Action::decompose);
+    }
+    { // The V's ascent: a coordinator integrates its parts, a failed round is sent down to a part, the part is redone, the coordinator integrates again.
+        Plan p; p.task = "v"; p.harness = "web-static";
+        auto gate = [](const char* t, bool stub) { GateSpec g; g.kind = "node-test"; g.tests = {t}; g.minTests = 1; g.mustFailOnStub = stub; return g; };
+        WorkItem t; t.id = "t"; t.persona = "tester"; t.files = {"tests/t.test.mjs"}; t.gate = gate("tests/t.test.mjs", true);
+        WorkItem d1; d1.id = "d1"; d1.persona = "developer"; d1.files = {"src/a.js"}; d1.deps = {"t"}; d1.gate = gate("tests/t.test.mjs", false);
+        WorkItem d2; d2.id = "d2"; d2.persona = "developer"; d2.files = {"src/b.js"}; d2.deps = {"t"}; d2.gate = gate("tests/t.test.mjs", false);
+        WorkItem co; co.id = "co"; co.persona = "integrator"; co.deps = {"d1", "d2"}; co.gate = gate("tests/t.test.mjs", false);
+        p.items = {t, d1, d2, co};
+        CHECK(Plan::fromJson(p.toJson()).has_value());                                                   // an integrator with parts and tests is a valid item
+        Plan bad = p; bad.items[3].deps.clear();
+        CHECK(!Plan::fromJson(bad.toJson()).has_value());                                                // but not without parts
+        Sim s = startSim();
+        s.run(s.step());
+        s.finishJob("j-000001", JobState::succeeded);
+        s.feed("workflowPlanned", wfbody::planned("w-000001", p));
+        // drive every started job to success except the coordinator's first gate
+        int coGates = 0, sendDowns = 0;
+        bool finished = false;
+        for (int round = 0; round < 40 && !finished; ++round) {
+            const auto acts = s.step();
+            for (const auto& a : acts) if (a.kind == WorkflowAction::Kind::sendDown) ++sendDowns;
+            const auto started = s.run(acts);
+            for (const auto& id : started) {
+                const auto* j = s.job(id);
+                const bool isCoGate = j->spec.role == "gate" && j->spec.item == "co";
+                if (isCoGate) ++coGates;
+                s.finishJob(id, isCoGate && coGates == 1 ? JobState::failed : JobState::succeeded);
+            }
+            for (const auto& a : acts) if (a.kind == WorkflowAction::Kind::finish) finished = true;
+        }
+        CHECK(finished);
+        CHECK_EQ(coGates, 2);       // round 1 failed, round 2 passed
+        CHECK_EQ(sendDowns, 1);     // exactly one send-down in between
+        int d2Agents = 0;
+        for (const auto& id : {"j-000002","j-000003","j-000004","j-000005","j-000006","j-000007","j-000008","j-000009","j-000010","j-000011","j-000012","j-000013","j-000014","j-000015"})
+            if (const auto* j = s.job(id); j && j->spec.role == "agent" && j->spec.item == "d2") ++d2Agents;
+        CHECK_EQ(d2Agents, 2);      // the part pointed at was redone
+    }
+    { // A division on a web project keeps the parent as a coordinator, and refuses parts graded by the parent's own tests.
+        Plan base; base.task = "x"; base.harness = "web-static";
+        auto gate = [](const char* t, bool stub) { GateSpec g; g.kind = "node-test"; g.tests = {t}; g.minTests = 1; g.mustFailOnStub = stub; return g; };
+        WorkItem tt; tt.id = "tt"; tt.persona = "tester"; tt.files = {"tests/e.test.mjs"}; tt.gate = gate("tests/e.test.mjs", true);
+        WorkItem eng; eng.id = "eng"; eng.persona = "developer"; eng.files = {"src/e.js", "src/f.js"}; eng.deps = {"tt"}; eng.complexity = 3; eng.gate = gate("tests/e.test.mjs", false);
+        WorkItem after; after.id = "after"; after.persona = "developer"; after.files = {"src/g.js"}; after.deps = {"eng"}; after.gate = gate("tests/g.test.mjs", false);
+        WorkItem gt; gt.id = "gt"; gt.persona = "tester"; gt.files = {"tests/g.test.mjs"}; gt.gate = gate("tests/g.test.mjs", true);
+        after.deps.push_back("gt");
+        base.items = {tt, eng, gt, after};
+        Plan frag; frag.task = "x"; frag.harness = "web-static";
+        WorkItem ft; ft.id = "t-f"; ft.persona = "tester"; ft.files = {"tests/f.test.mjs"}; ft.gate = gate("tests/f.test.mjs", true);
+        WorkItem fe; fe.id = "d-e"; fe.persona = "developer"; fe.files = {"src/e.js"}; fe.gate = gate("tests/e.test.mjs", false);   // graded by the parent's tests
+        WorkItem ff; ff.id = "d-f"; ff.persona = "developer"; ff.files = {"src/f.js"}; ff.deps = {"t-f"}; ff.gate = gate("tests/f.test.mjs", false);
+        frag.items = {ft, fe, ff};
+        CHECK(!Plan::amended(base, "eng", frag).has_value());                                              // d-e is graded by tests/e.test.mjs, the parent's
+        frag.items[1].deps = {"t-f"}; frag.items[1].gate = gate("tests/f.test.mjs", false);
+        auto merged = Plan::amended(base, "eng", frag);
+        CHECK(merged.has_value());
+        const WorkItem* coord = merged ? merged->find("eng") : nullptr;
+        CHECK(coord && coord->persona == "integrator" && coord->files.empty() && coord->deps.size() == 2);   // the parent stays, waiting for both parts
+        const WorkItem* dependent = merged ? merged->find("after") : nullptr;
+        CHECK(dependent && std::find(dependent->deps.begin(), dependent->deps.end(), std::string{"eng"}) != dependent->deps.end());   // dependents still wait for it
     }
     return finish();
 }

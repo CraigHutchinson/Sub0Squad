@@ -463,6 +463,46 @@ struct Daemon::Impl
                   << ss.str() << "Check each failing test against the contract and fix the tests that are wrong; keep the ones that are right.\n";
                 break;
             }
+            case WorkflowAction::Kind::sendDown: {
+                // Pick the part the failed integration points at (a part whose file names appear in the failure; otherwise the most complex one),
+                // give it the failure as its feedback, and void its acceptance so it is redone and the coordinator integrates again.
+                const WorkflowRecord* wf = wfStore.find(wfId);
+                if (!wf || !wf->plan) break;
+                const std::filesystem::path sandbox{wf->spec.sandboxDir};
+                std::ifstream in(sandbox / "items" / a.item / ("attempt-" + std::to_string(a.attempt)) / "gate.txt");
+                std::stringstream ss;
+                ss << in.rdbuf();
+                const std::string failure = ss.str();
+                const WorkItem* coordinatorItem = wf->plan->find(a.item);
+                const WorkItem* pick = nullptr;
+                int bestScore = -1;
+                for (const auto& d : coordinatorItem ? coordinatorItem->deps : std::vector<std::string>{}) {
+                    for (const auto& it : wf->plan->items) {   // the part and every part below it (a part may itself have been divided)
+                        if (it.persona != "developer" || (it.id != d && it.id.rfind(d + ".", 0) != 0)) continue;
+                        int score = 0;
+                        for (const auto& f : it.files) {
+                            if (failure.find(f) != std::string::npos) score += 10;
+                            const auto slash = f.rfind('/');
+                            if (failure.find(slash == std::string::npos ? f : f.substr(slash + 1)) != std::string::npos) score += 5;
+                        }
+                        score = score * 10 + it.complexity;
+                        if (score > bestScore) { bestScore = score; pick = &it; }
+                    }
+                }
+                if (!pick) break;
+                int childAttempt = 1;
+                for (const auto& j : store.jobs()) if (j.spec.workflow == wfId && j.spec.item == pick->id) childAttempt = std::max<int>(childAttempt, static_cast<int>(j.spec.attempt));
+                std::ofstream o(sandbox / "items" / pick->id / "dispute.txt", std::ios::trunc);
+                o << "Your part of '" << a.item << "' passed its own tests, but the integration of '" << a.item << "' (its tests over all the parts together) failed. Failures reported:\n"
+                  << failure << "Fix your part so the combined result passes; keep what already works.\n";
+                o.close();
+                json::Writer w;
+                w.beginObject().kv("action", "disputed").key("reasons").beginArray().str("integration of '" + a.item + "' failed and points at '" + pick->id + "': it is redone").endArray()
+                    .key("inputs").beginObject().kv("item", pick->id).kv("attempt", childAttempt).kv("from", a.item).endObject().endObject();
+                record("workflowDecision", wfbody::decision(wfId, pick->id, childAttempt, "disputed", "local", w.take()));
+                logf("workflow %s: integration of '%s' failed: sent down to '%s' (attempt %d redone)", wfId.c_str(), a.item.c_str(), pick->id.c_str(), childAttempt + 1);
+                break;
+            }
             case WorkflowAction::Kind::finish:
                 record("workflowFinished", wfbody::finished(wfId, a.finalState, a.note));
                 logf("workflow %s finished: %s (%s)", wfId.c_str(), toString(a.finalState), a.note.c_str());

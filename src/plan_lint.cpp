@@ -9,6 +9,7 @@ namespace sub0squad {
 
 double estimateItemTokens(const WorkItem& item)
 {
+    if (item.persona == "integrator") return 100.0;  // runs tests only
     return item.persona == "tester" ? 1000.0 + 250.0 * item.complexity : 400.0 + 500.0 * item.complexity;
 }
 

@@ -245,15 +245,16 @@ int runHarnessGate(const std::vector<std::string>& args)
         return 1;
     };
 
+    const bool coordinator = item->persona == "integrator";  // writes nothing: its tests run over the merged outputs of its parts
     events::progress(0, 3, "allowlist");
     std::set<std::string> allowed(item->files.begin(), item->files.end());
-    if (!fs::exists(out)) return fail("the agent wrote nothing");
-    for (auto& e : fs::recursive_directory_iterator(out)) {
+    if (!coordinator && !fs::exists(out)) return fail("the agent wrote nothing");
+    if (!coordinator) for (auto& e : fs::recursive_directory_iterator(out)) {
         if (!e.is_regular_file()) continue;
         const std::string rel = fs::relative(e.path(), out).generic_string();
         if (!allowed.count(rel)) return fail("'" + rel + "' is outside the item's editable files (" + item->files.front() + "...)");
     }
-    for (const auto& f : item->files) if (!fs::exists(out / f) || fs::file_size(out / f) == 0) return fail("expected file '" + f + "' is missing or empty");
+    if (!coordinator) for (const auto& f : item->files) if (!fs::exists(out / f) || fs::file_size(out / f) == 0) return fail("expected file '" + f + "' is missing or empty");
 
     // Workspace: harness scaffold and stubs, then accepted outputs of dependencies, then this attempt's files.
     const fs::path ws = attemptDir / "ws";
@@ -261,7 +262,7 @@ int runHarnessGate(const std::vector<std::string>& args)
     fs::remove_all(ws, ec);
     for (const auto& f : webScaffold()) writeFile(ws / f.path, f.content);
     for (const auto& dep : closure(*plan, itemId)) copyTree(dir / "items" / dep / "accepted", ws);
-    copyTree(out, ws);
+    if (!coordinator) copyTree(out, ws);
 
     events::progress(1, 3, "test");
     std::vector<std::string> cmd = {"node", "--test", "--test-reporter=tap"};
@@ -292,7 +293,7 @@ int runHarnessGate(const std::vector<std::string>& args)
         return tap.tests >= 10 && tap.fail * 100 <= tap.tests * 15 ? 3 : code;
     }
     const bool publish = one(a, "no-publish").empty();  // the optimiser judges attempts without touching the accepted outputs
-    if (publish) { fs::remove_all(dir / "items" / itemId / "accepted", ec); copyTree(out, dir / "items" / itemId / "accepted"); }
+    if (publish) { fs::remove_all(dir / "items" / itemId / "accepted", ec); if (coordinator) fs::create_directories(dir / "items" / itemId / "accepted", ec); else copyTree(out, dir / "items" / itemId / "accepted"); }
     if (publish) writeFile(dir / "items" / itemId / "accepted.json", "{\"item\":\"" + itemId + "\",\"attempt\":" + std::to_string(attempt) + "}");
     writeFile(attemptDir / "gate.txt", "GATE PASS\n");
     events::progress(3, 3, "accepted");

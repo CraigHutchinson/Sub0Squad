@@ -144,7 +144,8 @@ std::expected<void, std::string> Plan::validate(int cardBudgetTokens) const
         if (!validId(it.id)) return std::unexpected("invalid item id '" + it.id + "'");
         if (!ids.insert(it.id).second) return std::unexpected("duplicate item id '" + it.id + "'");
         if (it.complexity < 1 || it.complexity > 5) return std::unexpected("item '" + it.id + "': complexity must be 1..5");
-        if (it.persona != "developer" && it.persona != "tester") return std::unexpected("item '" + it.id + "': unknown persona '" + it.persona + "'");
+        // "integrator" is a coordinator: it writes nothing, waits for its parts and runs its own level's tests over them (the V's ascent)
+        if (it.persona != "developer" && it.persona != "tester" && it.persona != "integrator") return std::unexpected("item '" + it.id + "': unknown persona '" + it.persona + "'");
         if (it.card.estimatedTokens() > cardBudgetTokens)
             return std::unexpected("item '" + it.id + "': work card is about " + std::to_string(it.card.estimatedTokens()) + " tokens, over the budget of " + std::to_string(cardBudgetTokens));
         if (!it.gate.kind.empty() && it.gate.kind != "node-test") return std::unexpected("item '" + it.id + "': unknown gate kind '" + it.gate.kind + "'");
@@ -152,7 +153,8 @@ std::expected<void, std::string> Plan::validate(int cardBudgetTokens) const
         if (!plan.harness.empty() && it.gate.kind.empty()) return std::unexpected("item '" + it.id + "': a harness project needs a gate");
         for (const auto& t : it.gate.tests) if (!validPath(t)) return std::unexpected("item '" + it.id + "': bad gate test path '" + t + "'");
         for (const auto& t : it.card.include) if (!validPath(t)) return std::unexpected("item '" + it.id + "': bad include path '" + t + "'");
-        if (it.files.empty()) return std::unexpected("item '" + it.id + "' has no editable files");
+        if (it.files.empty() && it.persona != "integrator") return std::unexpected("item '" + it.id + "' has no editable files");
+        if (it.persona == "integrator" && (it.deps.empty() || it.gate.tests.empty())) return std::unexpected("item '" + it.id + "': an integrator needs parts to wait for and tests to run");
         for (const auto& f : it.files) {
             if (!validPath(f)) return std::unexpected("item '" + it.id + "': bad file path '" + f + "'");
             if (!plan.harness.empty()) {
@@ -192,6 +194,19 @@ std::expected<Plan, std::string> Plan::amended(const Plan& base, const std::stri
     std::set<std::string> fragIds, depended;
     for (const auto& f : fragment.items) fragIds.insert(f.id);
     for (const auto& f : fragment.items) for (const auto& d : f.deps) depended.insert(d);
+    // The V: on a web project the parent stays in the plan as a coordinator that integrates its parts. Each part must be gradeable on its own:
+    // a part whose gate is the parent's test file could only pass when every other part's code exists too (the first real page item).
+    const bool coordinate = base.harness == "web-static" && parent->persona != "integrator";
+    if (coordinate) {
+        const std::set<std::string> parentTests(parent->gate.tests.begin(), parent->gate.tests.end());
+        int developers = 0;
+        for (const auto& f : fragment.items) if (f.persona == "developer") ++developers;
+        if (developers >= 2)
+            for (const auto& f : fragment.items)
+                if (f.persona == "developer")
+                    for (const auto& t : f.gate.tests)
+                        if (parentTests.count(t)) return std::unexpected("part '" + f.id + "' is graded by the parent's test file '" + t + "', which needs the other parts' code too: give each part its own tests (a tester item first)");
+    }
     std::set<std::string> covered;
     Plan out = base;
     out.items.clear();
@@ -210,11 +225,27 @@ std::expected<Plan, std::string> Plan::amended(const Plan& base, const std::stri
     for (const auto& file : parent->files)
         if (!covered.count(file)) return std::unexpected("the division does not cover '" + file + "', which the original item delivered");
     for (const auto& it : base.items) {
-        if (it.id == parentId) { for (auto& c : children) out.items.push_back(c); continue; }
+        if (it.id == parentId) {
+            for (auto& c : children) out.items.push_back(c);
+            if (coordinate) {  // the same id, so whatever depended on the parent still does; it now waits for the integration too
+                WorkItem co;
+                co.id = parentId;
+                co.title = parent->title + " (integration)";
+                co.goal = "Integrate the parts of '" + parentId + "' and pass its tests";
+                co.persona = "integrator";
+                co.complexity = 1;
+                co.deps = leaves;
+                co.card = parent->card;
+                co.gate = parent->gate;
+                co.gate.mustFailOnStub = false;
+                out.items.push_back(std::move(co));
+            }
+            continue;
+        }
         WorkItem copy = it;
         std::vector<std::string> deps;
         for (const auto& d : it.deps) {
-            if (d != parentId) deps.push_back(d);
+            if (d != parentId || coordinate) deps.push_back(d);
             else for (const auto& leaf : leaves) deps.push_back(leaf);
         }
         copy.deps = deps;

@@ -91,7 +91,7 @@ struct WorkflowSettings
 /// What the engine asks the daemon to do, in order.
 struct WorkflowAction
 {
-    enum class Kind { startJob, loadPlan, recordDecision, cancelJob, finish, amendPlan, writeDispute } kind = Kind::finish;
+    enum class Kind { startJob, loadPlan, recordDecision, cancelJob, finish, amendPlan, writeDispute, sendDown } kind = Kind::finish;
     JobSpec job;                                       ///< startJob
     std::string jobId;                                 ///< cancelJob
     std::string item;                                  ///< recordDecision

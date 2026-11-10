@@ -257,3 +257,25 @@ what is live, the lists that change with files, jobs and decisions) and the file
 run over 6 s: no mutation in the drawer, the viewer scrolled to 200 px stayed at 200 px in the same element, an open group of files stayed open
 when its list grew, the page scrolled to 400 px stayed there, and only the clock, the sampled tiles, the engine rows, the graph nodes that
 changed and the jobs table were touched (the work-package card, the nodes table and the decisions table saw no mutation at all).
+
+## 13. The V, first build (2026-11-10)
+
+Built (rule based, web harness): when an item is divided, its parent **stays in the plan as a coordinator** (`persona: integrator`, the same id so
+whatever depended on it still does, no files of its own, its parts as dependencies, its original tests as its gate). It has no agent step.
+
+- **Ascent.** When its parts are accepted, a gate job runs the coordinator's tests over the merged outputs of everything below it (a round per
+  gate job). Pass: the node is accepted and its dependents proceed.
+- **Send down.** A failing round is recorded as `sendDown` and the daemon picks the part the failure points at (a developer part, at any depth,
+  whose file names appear in the failure output; otherwise the most complex part), writes the failure as that part's feedback, and voids its
+  acceptance (the same mechanism as a test dispute). The part is redone (its next attempt starts with the feedback), is gated by its own tests, and
+  the coordinator integrates again.
+- **Oscillation budget.** Three send-downs per coordinator; the fourth failure fails the item with the evidence (the bubble-up to a
+  rearchitect of the parent is not built).
+- **Scoped parts.** A division is refused when a developer part is graded by the parent's own test file while another developer part exists: that
+  part could only pass when every other part's code did too (the page item that failed in the first modular run). Each part needs its own tests.
+- Not built yet: attribution by a model (today by file names), review (a model reading the combined result against the card), send-up proposals
+  against a parent's interface, per-level integration for plans written by hand without division, the visual V in the portal, and the keyed
+  history of section 10.
+
+Tests: `Plan::amended` keeps the coordinator, keeps dependents on the parent id and refuses the unscoped part; the engine integrates, sends down
+once, redoes the part and integrates again (two coordinator gates, one send-down, the part's agent run twice).

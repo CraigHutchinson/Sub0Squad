@@ -333,6 +333,35 @@ std::vector<WorkflowAction> advance(const WorkflowRecord& wf, const JobStore& st
         allAccepted = false;
         if (v.active) continue;
         if (!std::all_of(v.item->deps.begin(), v.item->deps.end(), isAccepted)) continue;
+        if (v.item->persona == "integrator") {
+            // The V's ascent. A coordinator has no agent step: when its parts are accepted its own tests run over them (a gate per round). A
+            // failing round is sent down to the part the failure points at (the daemon picks it and writes the feedback), the part is redone,
+            // and the coordinator integrates again, up to kMaxRoundTrips times; then the item fails with the evidence.
+            constexpr int kMaxRoundTrips = 3;
+            int round = 0;
+            const JobRecord* g = nullptr;
+            for (const JobRecord* x : v.gates) if (x->spec.attempt >= round) { round = static_cast<int>(x->spec.attempt); g = x; }
+            if (!g) { out.push_back(start(gateJob(wf, st, *v.item, 1, "local"))); continue; }
+            const DecisionRecord* cd = decisionFor(wf, v.item->id, round);
+            if (!cd) {
+                int sends = 0;
+                for (const auto& dd : wf.decisions) if (dd.item == v.item->id && dd.action == "sendDown") ++sends;
+                const bool giveUp = sends >= kMaxRoundTrips;
+                WorkflowAction rec;
+                rec.kind = WorkflowAction::Kind::recordDecision;
+                rec.item = v.item->id; rec.attempt = round; rec.decisionTier = "local";
+                rec.decisionAction = giveUp ? "fail" : "sendDown";
+                rec.decisionJson = std::string{"{\"action\":\""} + rec.decisionAction + "\",\"reasons\":[\"integration of '" + v.item->id + "' failed in round " + std::to_string(round) + "\",\"" +
+                                   (giveUp ? "the round-trip budget (" + std::to_string(kMaxRoundTrips) + ") is spent: the item fails with the evidence" : "send the failure down to the part it points at, redo that part, integrate again") +
+                                   "\"],\"inputs\":{\"item\":\"" + v.item->id + "\",\"attempt\":" + std::to_string(round) + ",\"sends\":" + std::to_string(sends) + "}}";
+                out.push_back(std::move(rec));
+                if (giveUp) failedItem = v.item->id;
+                else { WorkflowAction sd; sd.kind = WorkflowAction::Kind::sendDown; sd.item = v.item->id; sd.attempt = round; out.push_back(std::move(sd)); }
+            } else if (cd->action == "sendDown") {
+                out.push_back(start(gateJob(wf, st, *v.item, round + 1, "local")));  // the redone part is accepted again: integrate once more
+            } else failedItem = v.item->id;
+            continue;
+        }
         if (v.maxAttempt == 0) { out.push_back(start(agentJob(wf, st, *v.item, 1, "local"))); continue; }
         const int n = v.maxAttempt;
         const JobRecord* latest = v.latest;
@@ -441,7 +470,8 @@ std::vector<ItemStatus> itemStatuses(const WorkflowRecord& wf, const JobStore& s
         const ItemView v = viewOf(it, mine, wf);
         ItemStatus s;
         s.id = it.id; s.title = it.title; s.attempts = v.maxAttempt; s.tier = v.latestTier;
-        const DecisionRecord* d = v.maxAttempt ? decisionFor(wf, it.id, v.maxAttempt) : nullptr;
+        if (it.persona == "integrator") { for (const JobRecord* x : v.gates) s.attempts = std::max<int>(s.attempts, static_cast<int>(x->spec.attempt)); s.tier = v.gates.empty() ? "" : "local"; }
+        const DecisionRecord* d = s.attempts ? decisionFor(wf, it.id, s.attempts) : nullptr;
         s.status = v.accepted ? "accepted" : v.active ? "running" : (d && d->action == "fail") ? "failed" : "pending";
         r.push_back(std::move(s));
     }
