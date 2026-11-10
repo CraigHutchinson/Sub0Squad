@@ -84,6 +84,14 @@ static Sim startSim(int maxLocal = 2, FrontierMode fm = FrontierMode::stub, bool
 
 int main()
 {
+    { // failure detail: expected and actual values reach the worker
+        const std::string tap = "TAP version 13\nnot ok 1 - adds\n  ---\n  location: '/x/a.test.mjs:2:1'\n  error: |-\n    Expected values to be strictly equal:\n  code: 'ERR_ASSERTION'\n  expected: 3\n  actual: 2\n  ...\n# tests 1\n# pass 0\n# fail 1\n";
+        const std::string ex = webFailureExcerpt(tap);
+        CHECK(ex.find("FAIL 1 - adds") != std::string::npos || ex.find("FAIL adds") != std::string::npos);
+        CHECK(ex.find("expected 3 but the code gave 2") != std::string::npos);
+        CHECK(ex.find("a.test.mjs:2:1") != std::string::npos);
+    }
+
     { // plan validation
         CHECK(Plan::fromJson(makePlan().toJson()).has_value());
         Plan dup = makePlan(); dup.items[2].files = {"a.hpp"};

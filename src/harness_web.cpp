@@ -1,4 +1,5 @@
 #include "sub0squad/harness_web.hpp"
+#include "sub0squad/qa.hpp"
 
 #include "json_util.hpp"
 #include "sub0squad/engine.hpp"
@@ -166,7 +167,7 @@ Tap parseTap(const std::string& out)
     // Counts come from the summary lines. The excerpt lists LEAF failures (nested subtests too) with their first error lines; a parent whose
     // only message is "N subtests failed" adds nothing for a model that has to fix the code.
     Tap t;
-    struct Failure { std::string name, error; };
+    struct Failure { std::string name, error, expected, actual, where; };
     std::vector<Failure> failures;
     std::istringstream in(out);
     std::string line;
@@ -178,8 +179,15 @@ Tap parseTap(const std::string& out)
         if (line.rfind("# pass ", 0) == 0) { t.pass = std::atoi(line.c_str() + 7); continue; }
         if (line.rfind("# fail ", 0) == 0) { t.fail = std::atoi(line.c_str() + 7); continue; }
         const std::string tl = trimmed(line);
-        if (tl.rfind("not ok ", 0) == 0) { failures.push_back({tl.substr(7), ""}); inError = false; errLines = 0; continue; }
+        if (tl.rfind("not ok ", 0) == 0) { failures.push_back({tl.substr(7), "", "", "", ""}); inError = false; errLines = 0; continue; }
         if (failures.empty()) continue;
+        // The runner's own observed values: what the test wanted, what the code gave, and the line of the assertion.
+        if (tl.rfind("expected: ", 0) == 0 && failures.back().expected.empty()) failures.back().expected = tl.substr(10, 120);
+        else if (tl.rfind("actual: ", 0) == 0 && failures.back().actual.empty()) failures.back().actual = tl.substr(8, 120);
+        else if (tl.rfind("location: ", 0) == 0 && failures.back().where.empty()) {
+            std::string w = tl.substr(10); w.erase(std::remove(w.begin(), w.end(), '\''), w.end());
+            const auto slash = w.rfind('/'); failures.back().where = slash == std::string::npos ? w : w.substr(slash + 1);
+        }
         if (tl.rfind("error: ", 0) == 0) {
             inError = true; errLines = 0;
             std::string e = tl.substr(7);
@@ -195,6 +203,8 @@ Tap parseTap(const std::string& out)
         if (f.error.find("subtest") != std::string::npos && f.error.find("failed") != std::string::npos) continue;  // a parent summary
         if (shown++ >= 6 || t.excerpt.size() > 1300) break;
         t.excerpt += "FAIL " + f.name + (f.error.empty() ? "" : ": " + f.error.substr(0, 300)) + "\n";
+        if (!f.expected.empty() || !f.actual.empty())
+            t.excerpt += "  the test expected " + f.expected + " but the code gave " + f.actual + (f.where.empty() ? "" : " (" + f.where + ")") + "\n";
     }
     if (t.excerpt.empty() && !failures.empty()) t.excerpt = "FAIL " + failures.front().name + "\n";
     return t;
@@ -222,6 +232,8 @@ std::set<std::string> closure(const Plan& plan, const std::string& id)
 }
 
 }  // namespace
+
+std::string webFailureExcerpt(const std::string& tapOutput) { return parseTap(tapOutput).excerpt; }
 
 std::string blueprintJson(const std::string& name) { return name == "calculator-web" ? std::string{kCalculatorWeb} : std::string{}; }
 
@@ -307,6 +319,34 @@ int runHarnessGate(const std::vector<std::string>& args)
     if (item->gate.mustFailOnStub) {
         // A tester's tests must be about something real: against the stubs most of them must fail.
         if (tap.fail * 10 < tap.tests * 7) return fail("only " + std::to_string(tap.fail) + " of " + std::to_string(tap.tests) + " tests fail against the stub: they do not exercise the contract");
+        // Test oracle (off unless SUB0SQUAD_ORACLE_DIR names a reference project): the same tests against an independent implementation. Tests the
+        // reference fails are suspect (the first real runs lost whole ladders to tests that expected positions off by one). Advisory by default,
+        // a gate with SUB0SQUAD_ORACLE_MODE=gate; the verdict is written to oracle.txt for the history either way.
+        if (const char* od = std::getenv("SUB0SQUAD_ORACLE_DIR"); od && *od && fs::exists(fs::path(od) / "src")) {
+            const fs::path ows = attemptDir / "oracle-ws";
+            fs::remove_all(ows, ec);
+            for (const auto& f : webScaffold()) writeFile(ows / f.path, f.content);
+            copyTree(fs::path(od) / "src", ows / "src");
+            copyTree(out, ows);
+            for (auto& e : fs::recursive_directory_iterator(out)) {  // keep the tester's own files, not the reference's (the tests are what is being judged)
+                if (!e.is_regular_file()) continue;
+                const std::string rel = fs::relative(e.path(), out).generic_string();
+                if (rel.rfind("src/", 0) == 0) fs::copy_file(fs::path(od) / rel, ows / rel, fs::copy_options::overwrite_existing, ec);
+            }
+            std::vector<std::string> ocmd = {"node", "--test", "--test-reporter=tap"};
+            for (const auto& t : item->gate.tests) ocmd.push_back(t);
+            const Cmd o = run(ocmd, ows, 90);
+            const Tap ot = parseTap(o.output);
+            std::string verdict;
+            if (ot.tests > 0 && ot.fail > 0)
+                verdict = "the reference implementation fails " + std::to_string(ot.fail) + " of " + std::to_string(ot.tests) + " of these tests, so they may be wrong:\n" + ot.excerpt;
+            writeFile(attemptDir / "oracle.txt", verdict.empty() ? "ORACLE AGREES\n" : "ORACLE DISAGREES: " + verdict);
+            if (!verdict.empty() && ot.fail * 100 > ot.tests * 15) {
+                const char* mode = std::getenv("SUB0SQUAD_ORACLE_MODE");
+                if (mode && std::string(mode) == "gate") return fail("test oracle: " + verdict + "Correct the expectations the reference contradicts, keep those it confirms.");
+                std::printf("ORACLE NOTE: %s", verdict.c_str());
+            }
+        }
     } else if (tap.fail != 0 || r.exitCode != 0) {
         const int code = fail(std::to_string(tap.fail) + " of " + std::to_string(tap.tests) + " tests failed\n" + tap.excerpt);
         // Exit 5: the same tests fail with the same messages as the previous attempt. A model that cannot change the outcome by repairing is
@@ -377,6 +417,11 @@ int runHarnessIntegrate(const std::vector<std::string>& args)
             md += " |\n";
         }
         md += "\n## Verification\n\n" + std::to_string(tap.pass) + " tests passed over the merged project; the page and its modules were fetched from the static server.\n\n## Run it\n\n```sh\ncd project\nnode --test tests/\nnode serve.mjs 8080   # then open http://127.0.0.1:8080\n```\n";
+        {   // Quality (advisory): duplicated blocks, helpers declared twice, long functions. Never a gate; findings go into the report and qa.txt for the next iteration.
+            const std::string q = qaText(qaScan(project / "src"));
+            writeFile(dir / "qa.txt", q);
+            md += "\n## Quality findings (advisory)\n\n" + (q.empty() ? std::string{"none\n"} : "```\n" + q + "```\n");
+        }
         if (!plan->reasons.empty()) { md += "\n## Why this split\n\n"; for (const auto& r : plan->reasons) md += "- " + r + "\n"; }
         writeFile(dir / "report.md", md);
         json::Writer w;

@@ -29,6 +29,10 @@ struct HarnessFile { std::string path; std::string content; };
 /// The calculator-web blueprint as plan-2 JSON (empty for an unknown name).
 [[nodiscard]] std::string blueprintJson(const std::string& name);
 
+/// The feedback a worker gets from a `node --test` TAP report: each leaf failure with its message and, when the runner gives them, the expected and
+/// actual values and the assertion's file (an empty string when nothing failed).
+[[nodiscard]] std::string webFailureExcerpt(const std::string& tapOutput);
+
 /// `harness-gate --workflow-dir D --item I --attempt N`
 [[nodiscard]] int runHarnessGate(const std::vector<std::string>& args);
 /// `harness-integrate --workflow-dir D`

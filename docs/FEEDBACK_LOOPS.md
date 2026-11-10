@@ -142,3 +142,13 @@ ASan + UBSan build (`out/build/asan`, RelWithDebInfo, `-fno-sanitize-recover=und
 failures were artefacts of the instrumented build, not defects: `test_shim` expects the crashing child to die by SIGSEGV, but ASan's handler turns that
 into an exit code; `test_e2e` failed once on the memory-shed timing check under ASan's 3x slowdown and passed on rerun (timing-sensitive; to be made
 tolerant). Not yet done: TSan build, clang-tidy, leak detection (disabled: the daemon tests fork).
+
+## 10. Built so far from this review (2026-11-10)
+
+| Item | State |
+|---|---|
+| Failure detail (the mechanical first step of the debugger idea) | **Built.** The web gate's feedback now includes, for each failing test, the runner's expected and actual values and the assertion's file (unit-tested). A model-driven debugger worker (inspector over CDP, stack and locals) is not built. |
+| Test oracle | **Built, off by default.** `SUB0SQUAD_ORACLE_DIR=<reference project>` runs a tester's tests against the reference; `oracle.txt` records the verdict; advisory, or a gate with `SUB0SQUAD_ORACLE_MODE=gate` (more than 15 % disagreeing). Checked by hand on the real lexer tests (agrees) and a corrupted copy (disagrees, gate mode fails it); no automated test yet. |
+| QA in the workflow | **Partly.** The integrator runs the QA scan and puts findings in `report.md` and `qa.txt`. Not yet run on idle slots during the run, nor fed into the next attempt. |
+| Sanitizers | ASan+UBSan clean (section 9). TSan, clang-tidy, CI: not built. |
+| Bar as data, browser smoke test, web lint, loop metrics, debugger worker, C++ harness | Not built. |
