@@ -34,6 +34,7 @@ struct Sim
                 case WorkflowAction::Kind::cancelJob: feed("jobCancelRequested", journalbody::cancelRequested(a.jobId, 1)); feed("jobFinished", journalbody::finished(a.jobId, 1, JobState::cancelled, "", "cancelled")); break;
                 case WorkflowAction::Kind::loadPlan: break;
                 case WorkflowAction::Kind::writeDispute: break;
+                case WorkflowAction::Kind::raiseRequest: { RequestRecord r = a.request; r.id = "r-" + std::to_string(wfs.find("w-000001")->requests.size() + 1); feed("workflowRequestRaised", wfbody::requestRaised("w-000001", r)); break; }
                 case WorkflowAction::Kind::sendDown: feed("workflowDecision", wfbody::decision("w-000001", "d2", 1, "disputed", "local", "{}")); break;  // the daemon picks the part; here always d2
                 case WorkflowAction::Kind::amendPlan: {
                     auto merged = Plan::amended(*wfs.find("w-000001")->plan, a.item, fragment);
@@ -57,7 +58,7 @@ static Plan makePlan()
     return p;
 }
 
-static Sim startSim(int maxLocal = 2, FrontierMode fm = FrontierMode::stub)
+static Sim startSim(int maxLocal = 2, FrontierMode fm = FrontierMode::stub, bool ask = false)
 {
     Sim s;
     s.settings.frontier = fm;
@@ -65,6 +66,7 @@ static Sim startSim(int maxLocal = 2, FrontierMode fm = FrontierMode::stub)
     spec.task = "t";
     spec.sandboxDir = "/sb";
     spec.maxLocalAttempts = maxLocal;
+    spec.ask = ask;
     s.feed("workflowSubmitted", wfbody::submitted("w-000001", spec));
     return s;
 }
@@ -354,6 +356,45 @@ int main()
         CHECK(coord && coord->persona == "integrator" && coord->files.empty() && coord->deps.size() == 2);   // the parent stays, waiting for both parts
         const WorkItem* dependent = merged ? merged->find("after") : nullptr;
         CHECK(dependent && std::find(dependent->deps.begin(), dependent->deps.end(), std::string{"eng"}) != dependent->deps.end());   // dependents still wait for it
+    }
+    { // Requests: a blocking request holds only the nodes in its scope; answering releases them.
+        Sim s = startSim();
+        s.feed("workflowPlanned", wfbody::planned("w-000001", makePlan()));
+        RequestRecord r; r.id = "r-1"; r.kind = "question"; r.from = "a"; r.title = "which rounding?"; r.blocking = true; r.scope = {"a"};
+        s.feed("workflowRequestRaised", wfbody::requestRaised("w-000001", r));
+        auto first = s.run(s.step());                       // a is held; c has nothing to wait for
+        CHECK_EQ(first.size(), 1u);
+        CHECK(s.job(first[0])->spec.item == "c");
+        s.feed("workflowRequestAnswered", wfbody::requestAnswered("w-000001", "r-1", "round half up", "", "user"));
+        const auto released = s.run(s.step());
+        bool aStarted = false;
+        for (const auto& id : released) if (s.job(id)->spec.item == "a") aStarted = true;
+        CHECK(aStarted);
+        CHECK(s.wfs.find("w-000001")->requests.size() == 1 && s.wfs.find("w-000001")->requests[0].status == "answered");
+    }
+    { // Governance on: an item the ladder cannot finish is deferred to the owner (a blocking request), not failed; the owner decides.
+        for (const char* resolution : {"retry", "stop"}) {
+            Sim s = startSim(2, FrontierMode::off, true);
+            s.feed("workflowPlanned", wfbody::planned("w-000001", [] { Plan p; p.task = "t"; p.items = {{"a", "A", "g", {"a.hpp"}, {}, 1}}; return p; }()));
+            bool deferred = false, raised = false;
+            for (int guard = 0; guard < 14 && !raised; ++guard) {
+                const auto acts = s.step();
+                for (const auto& a : acts) {
+                    if (a.kind == WorkflowAction::Kind::recordDecision && a.decisionAction == "deferred") deferred = true;
+                    if (a.kind == WorkflowAction::Kind::raiseRequest) raised = true;
+                }
+                for (const auto& id : s.run(acts)) s.finishJob(id, s.job(id)->spec.role == "rearchitect" ? JobState::succeeded : JobState::failed);
+            }
+            CHECK(deferred && raised);
+            CHECK(s.wfs.find("w-000001")->state == WorkflowState::running);       // not failed: waiting for the owner
+            CHECK(s.step().empty() || s.step().front().kind != WorkflowAction::Kind::startJob);  // and nothing new starts meanwhile
+            const auto& req = s.wfs.find("w-000001")->requests.at(0);
+            CHECK(req.kind == "escalation" && req.blocking && req.scope.size() == 1 && req.scope[0] == "a");
+            s.feed("workflowRequestAnswered", wfbody::requestAnswered("w-000001", req.id, "use a simpler approach", resolution, "user"));
+            const auto acts = s.step();
+            if (std::string_view{resolution} == "retry") { bool started = false; for (const auto& a : acts) if (a.kind == WorkflowAction::Kind::startJob && a.job.role == "agent") started = true; CHECK(started); }
+            else { bool failed = false; for (const auto& a : acts) if (a.kind == WorkflowAction::Kind::finish && a.finalState == WorkflowState::failed) failed = true; CHECK(failed); }
+        }
     }
     return finish();
 }

@@ -279,3 +279,41 @@ whatever depended on it still does, no files of its own, its parts as dependenci
 
 Tests: `Plan::amended` keeps the coordinator, keeps dependents on the parent id and refuses the unscoped part; the engine integrates, sends down
 once, redoes the part and integrates again (two coordinator gates, one send-down, the part's agent run twice).
+
+## 14. Intent, requests and the layers of orchestration (owner direction, 2026-11-10)
+
+A project starts as words ("write a calculator web app with scientific functions") and its plan, requirements and decisions *evolve* from them
+while it runs: work raises questions, later requirements and clarifications arrive, platform and runtime facts surface and have to propagate.
+That needs more than one plane of control. The layers, from the top, each with its own authority, rate of change and record:
+
+| Layer | Question it answers | Owner | Record |
+|---|---|---|---|
+| Intent | what is wanted, and what changed since | the owner | requirement register (REQ-n: the prompt, then each requirement or clarification, with scope and who/when) |
+| Architecture | what shape satisfies it: modules, interfaces, platform, constraints | architect (a frontier model or the owner; a model later) | decisions (ADR-style, with the requirement they serve), interface contracts in the cards |
+| Plan / orchestration | in what order, how wide, how small, with which engines | project manager (rule based now, a model when idle capacity exists) | the work graph, the plan-lint view, budgets |
+| Execution | do the work and verify it | the squad (the V) | jobs, ledger, node histories |
+| Governance | who may decide what, and what is held until then | the daemon, from policy and the owner's switches | the **requests inbox** and its decisions |
+
+**Requests are the connective tissue.** Anything below can raise a request to the layer above (or the owner): `question` (a decision a node
+cannot make), `clarification`, `requirement` (a change or addition), `blocker` (a platform or runtime fact), `proposal` (a contract change from a
+part to its parent: the V's send-up), `escalation` (the ladder is spent). A request has a scope (the nodes it concerns), an owner by kind, and
+may be **blocking**: it holds the nodes in its scope (all nodes when the scope is empty) until it is answered; nothing else stops. An answer
+is free text plus, for an escalation, a resolution (retry or stop); the text becomes guidance for the nodes in scope (the feedback of their
+next attempt). A requirement or clarification also voids the nodes that were already accepted, so they redo their work under the new words.
+
+**Built (2026-11-10):** the inbox end to end. Journal records `workflowRequestRaised` and `workflowRequestAnswered`; the engine holds nodes behind
+blocking requests and will not integrate while one is open; with `--ask` an item the ladder cannot finish is deferred to the owner instead
+of failing the workflow (a blocking escalation; the owner answers retry-with-guidance or stop); `sub0squad request list|raise|answer`; the
+portal's Intent view (REQ-1 and later requirements, the assumptions made when planning, the open inbox with answer forms, the decisions log,
+and a form that adds a requirement, clarification or question to a running project); nodes held by a request are drawn dashed with the
+request's id. The portal's two POST routes need the per-run token embedded in the page and a same-origin request; a generated site is on
+another origin and has neither. Tests: a blocking request holds only its scope and releases on answer; deferral then retry or stop; the CLI
+round trip, including refusals (unknown kind, unknown request, already answered, finished workflow).
+
+**Not built yet** (the order I would take them): (1) agents raising requests themselves (a reply block asking a question or reporting a blocker,
+instead of guessing); (2) impact analysis: a requirement change finds the affected nodes and their dependents from the graph and the keyed history
+instead of relying on the scope the owner ticks; (3) the architect view: proposals from parts against interfaces, the decision log with the
+requirements each serves, interface contracts as first-class nodes; (4) the project-manager pass (section 11) filing proposals into the
+same inbox when capacity is free, so its suggestions are visible and answerable; (5) quotas and the frontier switch as governance requests
+(the owner approves a frontier escalation per item instead of a global switch); (6) the V (section 13) raising `proposal` requests for
+send-up and `escalation` when its round-trip budget is spent.

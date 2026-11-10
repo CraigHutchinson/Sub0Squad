@@ -463,6 +463,7 @@ struct Daemon::Impl
                   << ss.str() << "Check each failing test against the contract and fix the tests that are wrong; keep the ones that are right.\n";
                 break;
             }
+            case WorkflowAction::Kind::raiseRequest: raiseRequest(wfId, a.request); break;
             case WorkflowAction::Kind::sendDown: {
                 // Pick the part the failed integration points at (a part whose file names appear in the failure; otherwise the most complex one),
                 // give it the failure as its feedback, and void its acceptance so it is redone and the coordinator integrates again.
@@ -571,6 +572,113 @@ struct Daemon::Impl
         advanceWorkflows();
         json::Writer w;
         w.beginObject().kvBool("ok", true).kv("id", id).kv("items", static_cast<std::int64_t>(plan->items.size())).endObject();
+        return w.take();
+    }
+
+    // ---- requests: what nodes, the engine or the owner raise, and the owner's or architect's answers ------------------------------------
+    // Guidance reaches the nodes in scope as the feedback of their next attempt; for a requirement or clarification the nodes that were already
+    // accepted are voided too, so they redo their work under the new words (impact on dependents follows the scope the owner chose).
+    void applyGuidance(const WorkflowRecord& wf, const std::vector<std::string>& scope, const std::string& text, bool voidAccepted, const std::string& source)
+    {
+        if (!wf.plan || text.empty()) return;
+        const std::filesystem::path sandbox{wf.spec.sandboxDir};
+        std::vector<std::string> items = scope;
+        if (items.empty()) for (const auto& it : wf.plan->items) if (it.persona != "integrator") items.push_back(it.id);
+        for (const auto& id : items) {
+            const WorkItem* it = wf.plan->find(id);
+            if (!it || it->persona == "integrator") continue;
+            std::error_code ec;
+            std::filesystem::create_directories(sandbox / "items" / id, ec);
+            { std::ofstream o(sandbox / "items" / id / "dispute.txt", std::ios::trunc); o << source << " about your work:\n" << text << "\nTake it into account and keep what already works.\n"; }
+            if (voidAccepted && std::filesystem::exists(sandbox / "items" / id / "accepted.json")) {
+                int attempt = 1;
+                for (const auto& j : store.jobs()) if (j.spec.workflow == wf.id && j.spec.item == id) attempt = std::max<int>(attempt, static_cast<int>(j.spec.attempt));
+                json::Writer w;
+                w.beginObject().kv("action", "disputed").key("reasons").beginArray().str(source + " changed what '" + id + "' must deliver: it is redone").endArray()
+                    .key("inputs").beginObject().kv("item", id).kv("attempt", attempt).endObject().endObject();
+                record("workflowDecision", wfbody::decision(wf.id, id, attempt, "disputed", "local", w.take()));
+            }
+        }
+    }
+    std::string raiseRequest(const std::string& wfId, RequestRecord r)
+    {
+        const WorkflowRecord* wf = wfStore.find(wfId);
+        if (!wf) return {};
+        r.id = "r-" + std::to_string(wf->requests.size() + 1);
+        record("workflowRequestRaised", wfbody::requestRaised(wfId, r));
+        logf("workflow %s: %s request %s raised by %s: %s%s", wfId.c_str(), r.kind.c_str(), r.id.c_str(), r.from.c_str(), r.title.c_str(), r.blocking ? " (blocking)" : "");
+        return r.id;
+    }
+    std::string doRequestRaise(const std::string& wfId, const std::string& specJson)
+    {
+        const WorkflowRecord* wf = wfStore.find(wfId);
+        if (!wf) return errorReply("no such workflow: " + wfId);
+        RequestRecord r;
+        try {
+            json::withObject(specJson, [&](simdjson::ondemand::object& obj) {
+                for (auto f : obj) {
+                    const std::string_view k = f.unescaped_key();
+                    auto v = f.value();
+                    if (k == "kind") r.kind = json::toString(v);
+                    else if (k == "from") r.from = json::toString(v);
+                    else if (k == "title") r.title = json::toString(v);
+                    else if (k == "detail") r.detail = json::toString(v);
+                    else if (k == "blocking") r.blocking = v.get_bool();
+                    else if (k == "scope") { for (auto x : v.get_array()) r.scope.push_back(json::toString(x.value())); }
+                    else if (k == "options") { for (auto x : v.get_array()) r.options.push_back(json::toString(x.value())); }
+                }
+            });
+        } catch (const simdjson::simdjson_error& e) { return errorReply(std::string{"bad request: "} + e.what()); }
+        static const std::set<std::string> kinds{"question", "clarification", "requirement", "blocker", "proposal", "escalation"};
+        if (!kinds.count(r.kind)) return errorReply("kind must be one of question, clarification, requirement, blocker, proposal, escalation");
+        if (r.title.empty() && r.detail.empty()) return errorReply("a request needs a title or a detail");
+        if (r.title.size() > 300 || r.detail.size() > 4000) return errorReply("request text is too long");
+        if (r.from.empty()) r.from = "user";
+        if (wf->state != WorkflowState::running && wf->state != WorkflowState::awaitingPlan) return errorReply("workflow " + wfId + " is " + toString(wf->state));
+        if (r.title.empty()) r.title = r.detail.substr(0, 80);
+        for (const auto& s : r.scope) if (!wf->plan || !wf->plan->find(s)) return errorReply("unknown node in scope: " + s);
+        const std::string rid = raiseRequest(wfId, r);
+        // The owner stating a requirement or clarification is a decision already made: it takes effect now.
+        if (r.from == "user" && (r.kind == "requirement" || r.kind == "clarification")) {
+            const std::string text = r.detail.empty() ? r.title : r.detail;
+            record("workflowRequestAnswered", wfbody::requestAnswered(wfId, rid, text, "", "user"));
+            if (const WorkflowRecord* w2 = wfStore.find(wfId)) applyGuidance(*w2, r.scope, text, true, "A requirement from the owner");
+        }
+        advanceWorkflows();
+        json::Writer w;
+        w.beginObject().kvBool("ok", true).kv("id", wfId).kv("rid", rid).endObject();
+        return w.take();
+    }
+    std::string doRequestAnswer(const std::string& wfId, const std::string& specJson)
+    {
+        const WorkflowRecord* wf = wfStore.find(wfId);
+        if (!wf) return errorReply("no such workflow: " + wfId);
+        std::string rid, answer, resolution, by = "user";
+        try {
+            json::withObject(specJson, [&](simdjson::ondemand::object& obj) {
+                for (auto f : obj) {
+                    const std::string_view k = f.unescaped_key();
+                    auto v = f.value();
+                    if (k == "rid") rid = json::toString(v);
+                    else if (k == "answer") answer = json::toString(v);
+                    else if (k == "resolution") resolution = json::toString(v);
+                    else if (k == "by") by = json::toString(v);
+                }
+            });
+        } catch (const simdjson::simdjson_error& e) { return errorReply(std::string{"bad answer: "} + e.what()); }
+        const RequestRecord* req = nullptr;
+        for (const auto& r : wf->requests) if (r.id == rid) req = &r;
+        if (!req) return errorReply("no such request: " + rid);
+        if (req->status != "open") return errorReply("request " + rid + " is already answered");
+        if (answer.size() > 4000) return errorReply("answer is too long");
+        if (resolution != "" && resolution != "retry" && resolution != "stop") return errorReply("resolution must be retry or stop");
+        const RequestRecord copy = *req;
+        record("workflowRequestAnswered", wfbody::requestAnswered(wfId, rid, answer, resolution, by));
+        if (const WorkflowRecord* w2 = wfStore.find(wfId); w2 && resolution != "stop")
+            applyGuidance(*w2, copy.scope, answer, copy.kind != "escalation", "Guidance from the owner");
+        advanceWorkflows();
+        json::Writer w;
+        w.beginObject().kvBool("ok", true).kv("id", wfId).kv("rid", rid).endObject();
         return w.take();
     }
 
@@ -715,6 +823,10 @@ struct Daemon::Impl
             send(c, workflowStatusJson(opts.paths, wfStore, store, req->id, "live"));
         } else if (cmd == "workflowPlan") {
             send(c, doWorkflowPlan(req->id, req->specJson));
+        } else if (cmd == "requestRaise") {
+            send(c, doRequestRaise(req->id, req->specJson));
+        } else if (cmd == "requestAnswer") {
+            send(c, doRequestAnswer(req->id, req->specJson));
         } else if (cmd == "workflowCancel") {
             send(c, doWorkflowCancel(req->id));
         } else if (cmd == "shutdown") {

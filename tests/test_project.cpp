@@ -178,5 +178,21 @@ int main(int, char** argv)
         CHECK(waitWorkflow(sq, wf, "succeeded", 90000));
         CHECK(sq.cli({"project", "plan", wf, "--file", planFile.string()}).exitCode != 0);  // no longer awaiting
     }
+    { // The request inbox from the CLI: raise a blocking question, see it open, answer it, see the answer.
+        Squad sq(exe, "inbox");
+        sq.startDaemon(2);
+        const Result d = sq.cli({"do", "build a unit converter page with length and mass"});   // no blueprint: the workflow waits for a plan
+        CHECK(d.exitCode == 0);
+        const Result raised = sq.cli({"request", "raise", "w-000001", "--kind", "question", "--title", "metric only?", "--blocking", "--option", "metric", "--option", "metric and imperial"});
+        CHECK(raised.exitCode == 0 && raised.out.find("\"rid\":\"r-1\"") != std::string::npos);
+        const Result open = sq.cli({"request", "list", "w-000001"});
+        CHECK(open.out.find("r-1") != std::string::npos && open.out.find("open") != std::string::npos && open.out.find("(blocking)") != std::string::npos);
+        CHECK(sq.cli({"request", "raise", "w-000001", "--kind", "nonsense", "--title", "x"}).exitCode != 0);       // unknown kind refused
+        CHECK(sq.cli({"request", "answer", "w-000001", "r-9", "--answer", "x"}).exitCode != 0);                    // unknown request refused
+        CHECK(sq.cli({"request", "answer", "w-000001", "r-1", "--answer", "metric and imperial"}).exitCode == 0);
+        const Result done = sq.cli({"request", "list", "w-000001"});
+        CHECK(done.out.find("answered") != std::string::npos && done.out.find("=> metric and imperial") != std::string::npos);
+        CHECK(sq.cli({"request", "answer", "w-000001", "r-1", "--answer", "again"}).exitCode != 0);                // already answered
+    }
     return finish();
 }

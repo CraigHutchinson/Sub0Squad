@@ -68,8 +68,10 @@ constexpr const char* kUsage =
     "  cancel ID | resume ID | wait ID [--timeout SEC] | ping | stop\n"
     "  do \"<task in words>\" [project options]   triage first, then run: a known blueprint starts at once, otherwise a needs-plan.md handoff is written\n"
     "  project submit --task calculator-basic|calculator-scientific|calculator-web [--sandbox DIR] [--inject ITEM[:N]]... [--max-local N]\n"
-    "         [--agent mock|llm] [--engine NAME=http://127.0.0.1:PORT/v1[,model=..][,ctx=N][,slots=N]]... [--engine-for PERSONA=NAME]... [--max-tokens N] [--treatment baseline|index|planfirst] [--repair-turns N] [--size-budget TOKENS]\n"
+    "         [--agent mock|llm] [--engine NAME=http://127.0.0.1:PORT/v1[,model=..][,ctx=N][,slots=N]]... [--engine-for PERSONA=NAME]... [--max-tokens N] [--treatment baseline|index|planfirst] [--repair-turns N] [--size-budget TOKENS] [--ask]\n"
     "  project plan ID --file plan.json     supply the plan a workflow is awaiting (the deferred architect's answer)\n"
+    "  request list [WF] | raise WF --kind K [--scope a,b] [--blocking] [--title T] [--detail D] [--option O]... | answer WF RID [--resolution retry|stop] [--answer TEXT]\n"
+    "                                       the inbox: questions, clarifications, requirements, blockers, proposals, escalations\n"
     "  plan-lint FILE [--tps N]             audit a plan: width, critical path, rough time, serial tails\n"
     "  portal [--port N] [--engine-url URL]  read-only status portal on 127.0.0.1 (default 8780): the work graph, tokens per node, daemon jobs\n"
     "  guard [--memory-mib N] [--reserve-mib R] [--disk-path P --disk-mib N]   explicit host guards (exit 1 when refused)\n"
@@ -484,6 +486,7 @@ int parseWorkflowFlags(int argc, char** argv, int from, WorkflowSpec& spec)
             spec.engines.push_back(p->toArg());
         } else if (a == "--engine-for") { std::string kv = val(); const auto eq = kv.find('='); if (eq == std::string::npos) { std::fprintf(stderr, "--engine-for takes PERSONA=ENGINE\n"); return 2; } spec.route[kv.substr(0, eq)] = kv.substr(eq + 1); }
         else if (a == "--size-budget") spec.sizeBudget = std::atoi(val().c_str());
+        else if (a == "--ask") spec.ask = true;
         else if (a == "--max-tokens") spec.maxTokens = std::atoi(val().c_str());
         else if (a == "--treatment") spec.treatment = val();
         else if (a == "--repair-turns") spec.repairTurns = std::atoi(val().c_str());
@@ -515,6 +518,81 @@ int cmdDo(const RuntimePaths& paths, int argc, char** argv)
     catch (const simdjson::simdjson_error&) { return 1; }
     if (t.blueprint.empty()) std::printf("awaiting a plan: see needs-plan.md in the workflow sandbox, then `sub0squad project plan <id> --file plan.json`\n");
     return 0;
+}
+
+// `sub0squad request list|raise|answer`: the inbox of a workflow (questions, clarifications, requirements, blockers, proposals, escalations).
+int cmdRequest(const RuntimePaths& paths, int argc, char** argv)
+{
+    if (argc < 1) { std::fputs(kUsage, stderr); return 2; }
+    const std::string sub = argv[0];
+    if (sub == "list") {
+        bool offline = false;
+        const std::string text = workflowStatusAnyway(paths, argc > 1 ? argv[1] : "", offline);
+        try {
+            json::withObject(text, [&](simdjson::ondemand::object& obj) {
+                for (auto f : obj) {
+                    if (json::keyOf(f) != "workflows") continue;
+                    for (auto w : f.value().get_array()) {
+                        for (auto wf : w.get_object()) {
+                            if (json::keyOf(wf) != "requests") continue;
+                            for (auto r : wf.value().get_array()) {
+                                std::string id, kind, from, title, status, answer;
+                                bool blocking = false;
+                                for (auto rf : r.get_object()) {
+                                    const auto k = json::keyOf(rf);
+                                    if (k == "id") id = json::toString(rf.value());
+                                    else if (k == "kind") kind = json::toString(rf.value());
+                                    else if (k == "from") from = json::toString(rf.value());
+                                    else if (k == "title") title = json::toString(rf.value());
+                                    else if (k == "status") status = json::toString(rf.value());
+                                    else if (k == "answer") answer = json::toString(rf.value());
+                                    else if (k == "blocking") blocking = rf.value().get_bool();
+                                }
+                                std::printf("%-5s %-8s %-13s %-8s%s  %s%s\n", id.c_str(), status.c_str(), kind.c_str(), from.c_str(), blocking ? " (blocking)" : "", title.c_str(), answer.empty() ? "" : ("  => " + answer).c_str());
+                            }
+                        }
+                    }
+                }
+            });
+        } catch (const simdjson::simdjson_error&) { std::fprintf(stderr, "cannot read requests\n"); return 1; }
+        return 0;
+    }
+    if ((sub == "raise" && argc >= 2) || (sub == "answer" && argc >= 3)) {
+        const std::string wf = argv[1];
+        json::Writer w;
+        w.beginObject();
+        std::string kind = "question", from = "user", title, detail, answer, resolution;
+        std::vector<std::string> scope, options;
+        bool blocking = false;
+        const int first = sub == "raise" ? 2 : 3;
+        for (int i = first; i < argc; ++i) {
+            const std::string a = argv[i];
+            auto val = [&]() -> std::string { return i + 1 < argc ? argv[++i] : ""; };
+            if (a == "--kind") kind = val(); else if (a == "--from") from = val(); else if (a == "--title") title = val(); else if (a == "--detail") detail = val();
+            else if (a == "--answer") answer = val(); else if (a == "--resolution") resolution = val(); else if (a == "--blocking") blocking = true;
+            else if (a == "--option") options.push_back(val());
+            else if (a == "--scope") { std::stringstream ss(val()); for (std::string x; std::getline(ss, x, ',');) if (!x.empty()) scope.push_back(x); }
+        }
+        if (sub == "raise") {
+            w.kv("kind", kind).kv("from", from).kv("title", title).kv("detail", detail).kvBool("blocking", blocking);
+            w.key("scope").beginArray();
+            for (const auto& s : scope) w.str(s);
+            w.endArray().key("options").beginArray();
+            for (const auto& o : options) w.str(o);
+            w.endArray();
+        } else w.kv("rid", argv[2]).kv("answer", answer).kv("resolution", resolution).kv("by", "user");
+        w.endObject();
+        auto client = ControlClient::connect(paths);
+        if (!client) { std::fprintf(stderr, "%s\n", client.error().message.c_str()); return 3; }
+        auto reply = client->request(sub == "raise" ? "requestRaise" : "requestAnswer", "\"id\":\"" + wf + "\",\"spec\":" + w.take());
+        if (!reply) { std::fprintf(stderr, "%s\n", reply.error().c_str()); return 1; }
+        const Reply r = parseReply(*reply);
+        if (!r.ok) { std::fprintf(stderr, "error: %s\n", r.error.c_str()); return 1; }
+        std::printf("%s\n", reply->c_str());
+        return 0;
+    }
+    std::fputs(kUsage, stderr);
+    return 2;
 }
 
 int cmdProject(const RuntimePaths& paths, int argc, char** argv)
@@ -645,11 +723,17 @@ int runCli(int argc, char** argv)
             const std::string wf = workflowStatusAnyway(paths, "", offline);
             auto jobs = statusAnyway(paths, "", offline);
             return "{\"workflows\":" + (wf.empty() ? std::string{"{\"workflows\":[]}"} : wf) + ",\"jobs\":" + (jobs ? *jobs : std::string{"{\"jobs\":[]}"}) + "}";
-       }, engines);
+       }, engines, [&paths](const std::string& command, const std::string& workflow, const std::string& spec) -> std::string {
+            auto client = ControlClient::connect(paths);
+            if (!client) return "{\"ok\":false,\"error\":\"the daemon is not running\"}";
+            auto reply = client->request(command, "\"id\":\"" + workflow + "\",\"spec\":" + spec);
+            return reply ? *reply : "{\"ok\":false,\"error\":\"" + reply.error() + "\"}";
+        });
     }
     if (cmd == "do") return cmdDo(paths, argc - 2, argv + 2);
     if (cmd == "blueprint") { if (argc < 3) { std::fputs(kUsage, stderr); return 2; } const std::string b = blueprintJson(argv[2]); if (b.empty()) { std::fprintf(stderr, "no blueprint '%s'\n", argv[2]); return 1; } std::printf("%s", b.c_str()); return 0; }
     if (cmd == "project") return cmdProject(paths, argc - 2, argv + 2);
+    if (cmd == "request") return cmdRequest(paths, argc - 2, argv + 2);
     if (cmd == "logs") return cmdLogs(paths, argc - 2, argv + 2);
     if (cmd == "wait") return cmdWait(paths, argc - 2, argv + 2);
     if (cmd == "cancel" || cmd == "resume") {

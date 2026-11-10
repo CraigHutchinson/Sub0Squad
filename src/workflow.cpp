@@ -18,7 +18,7 @@ const char* toString(WorkflowState s)
 std::string WorkflowSpec::toJson() const
 {
     json::Writer w;
-    w.beginObject().kv("task", task).kv("taskText", taskText).kv("triage", triage).kv("sandbox", sandboxDir).kv("maxLocalAttempts", maxLocalAttempts).kv("agent", agent).kv("treatment", treatment).kv("repairTurns", repairTurns).kv("sizeBudget", sizeBudget).kv("maxTokens", maxTokens).key("inject").beginArray();
+    w.beginObject().kv("task", task).kv("taskText", taskText).kv("triage", triage).kv("sandbox", sandboxDir).kv("maxLocalAttempts", maxLocalAttempts).kv("agent", agent).kv("treatment", treatment).kv("repairTurns", repairTurns).kv("sizeBudget", sizeBudget).kv("maxTokens", maxTokens).kvBool("ask", ask).key("inject").beginArray();
     for (const auto& i : inject) w.str(i);
     w.endArray().key("engines").beginArray();
     for (const auto& e : engines) w.str(e);
@@ -47,6 +47,7 @@ std::expected<WorkflowSpec, std::string> WorkflowSpec::fromJson(std::string_view
                 else if (k == "repairTurns") s.repairTurns = static_cast<int>(v.get_int64());
                 else if (k == "sizeBudget") s.sizeBudget = static_cast<int>(v.get_int64());
                 else if (k == "maxTokens") s.maxTokens = static_cast<int>(v.get_int64());
+                else if (k == "ask") s.ask = v.get_bool();
                 else if (k == "engines") { for (auto x : v.get_array()) s.engines.push_back(json::toString(x.value())); }
                 else if (k == "route") { for (auto r : v.get_object()) { std::string persona{std::string_view{r.unescaped_key()}}; s.route[persona] = json::toString(r.value()); } }
             }
@@ -87,6 +88,23 @@ std::string decision(const std::string& id, const std::string& item, int attempt
 std::string awaitingPlan(const std::string& id, const std::string& packetPath) { json::Writer w; w.beginObject().kv("id", id).kv("note", packetPath).endObject(); return w.take(); }
 std::string planAmended(const std::string& id, const std::string& replaced, const Plan& plan) { json::Writer w; w.beginObject().kv("id", id).kv("item", replaced).kvRaw("plan", plan.toJson()).endObject(); return w.take(); }
 std::string amendRejected(const std::string& id, const std::string& item, int attempt, const std::string& reason) { json::Writer w; w.beginObject().kv("id", id).kv("item", item).kv("attempt", attempt).kv("note", reason).endObject(); return w.take(); }
+std::string requestRaised(const std::string& id, const RequestRecord& r)
+{
+    json::Writer w;
+    w.beginObject().kv("id", id).kv("rid", r.id).kv("kind", r.kind).kv("from", r.from).kv("title", r.title).kv("detail", r.detail).kv("attempt", r.attempt).kvBool("blocking", r.blocking);
+    w.key("scope").beginArray();
+    for (const auto& s : r.scope) w.str(s);
+    w.endArray().key("options").beginArray();
+    for (const auto& o : r.options) w.str(o);
+    w.endArray().endObject();
+    return w.take();
+}
+std::string requestAnswered(const std::string& id, const std::string& rid, const std::string& answer, const std::string& resolution, const std::string& by)
+{
+    json::Writer w;
+    w.beginObject().kv("id", id).kv("rid", rid).kv("answer", answer).kv("resolution", resolution).kv("by", by).endObject();
+    return w.take();
+}
 std::string cancelRequested(const std::string& id) { json::Writer w; w.beginObject().kv("id", id).endObject(); return w.take(); }
 std::string finished(const std::string& id, WorkflowState state, const std::string& note) { json::Writer w; w.beginObject().kv("id", id).kv("state", toString(state)).kv("note", note).endObject(); return w.take(); }
 }  // namespace wfbody
@@ -110,6 +128,8 @@ void WorkflowStore::apply(const JournalRecord& rec)
 {
     if (rec.type.rfind("workflow", 0) != 0) return;
     std::string id, state, note, item, action, tier, specJson, planJson, decisionJson;
+    RequestRecord rq;
+    std::string answer, resolution, by;
     std::int64_t attempt = 0;
     try {
         json::withObject(rec.body, [&](simdjson::ondemand::object& obj) {
@@ -126,6 +146,17 @@ void WorkflowStore::apply(const JournalRecord& rec)
                 else if (k == "spec") { std::string_view r = v.raw_json(); specJson.assign(r); }
                 else if (k == "plan") { std::string_view r = v.raw_json(); planJson.assign(r); }
                 else if (k == "decision") { std::string_view r = v.raw_json(); decisionJson.assign(r); }
+                else if (k == "rid") rq.id = json::toString(v);
+                else if (k == "kind") rq.kind = json::toString(v);
+                else if (k == "from") rq.from = json::toString(v);
+                else if (k == "title") rq.title = json::toString(v);
+                else if (k == "detail") rq.detail = json::toString(v);
+                else if (k == "blocking") rq.blocking = v.get_bool();
+                else if (k == "scope") { for (auto x : v.get_array()) rq.scope.push_back(json::toString(x.value())); }
+                else if (k == "options") { for (auto x : v.get_array()) rq.options.push_back(json::toString(x.value())); }
+                else if (k == "answer") answer = json::toString(v);
+                else if (k == "resolution") resolution = json::toString(v);
+                else if (k == "by") by = json::toString(v);
             }
         });
     } catch (const simdjson::simdjson_error&) { return; }
@@ -145,6 +176,11 @@ void WorkflowStore::apply(const JournalRecord& rec)
     else if (rec.type == "workflowAmendRejected") w->rejectedAmends.insert(item + "#" + std::to_string(attempt));
     else if (rec.type == "workflowAwaitingPlan") { w->state = WorkflowState::awaitingPlan; w->note = "needs a plan: see " + note; }
     else if (rec.type == "workflowDecision") w->decisions.push_back({item, static_cast<int>(attempt), action, tier, decisionJson});
+    else if (rec.type == "workflowRequestRaised") { rq.attempt = static_cast<int>(attempt); rq.raisedAt = rec.ts; w->requests.push_back(std::move(rq)); }
+    else if (rec.type == "workflowRequestAnswered") {
+        for (auto& r : w->requests)
+            if (r.id == rq.id) { r.status = "answered"; r.answer = answer; r.resolution = resolution; r.answeredBy = by; r.answeredAt = rec.ts; }
+    }
     else if (rec.type == "workflowCancelRequested") w->cancelRequested = true;
     else if (rec.type == "workflowFinished") {
         w->state = state == "succeeded" ? WorkflowState::succeeded : state == "cancelled" ? WorkflowState::cancelled : WorkflowState::failed;
@@ -222,6 +258,24 @@ ItemView viewOf(const WorkItem& it, const Mine& mine, const WorkflowRecord& wf)
     if (!v.accepted && v.restorable)
         for (const auto& d : wf.decisions) if (d.item == it.id && d.action == "restored" && d.attempt > disputedAt) v.accepted = true;
     return v;
+}
+
+// An open blocking request holds the nodes in its scope (every node when the scope is empty): nothing new starts for them.
+bool blockedByRequest(const WorkflowRecord& wf, const std::string& item)
+{
+    for (const auto& r : wf.requests)
+        if (r.status == "open" && r.blocking && (r.scope.empty() || std::find(r.scope.begin(), r.scope.end(), item) != r.scope.end())) return true;
+    return false;
+}
+bool anyOpenBlocking(const WorkflowRecord& wf)
+{
+    for (const auto& r : wf.requests) if (r.status == "open" && r.blocking) return true;
+    return false;
+}
+const RequestRecord* escalationFor(const WorkflowRecord& wf, const std::string& item, int attempt)
+{
+    for (const auto& r : wf.requests) if (r.kind == "escalation" && r.attempt == attempt && r.scope.size() == 1 && r.scope[0] == item) return &r;
+    return nullptr;
 }
 
 const DecisionRecord* decisionFor(const WorkflowRecord& wf, const std::string& item, int attempt)
@@ -333,6 +387,7 @@ std::vector<WorkflowAction> advance(const WorkflowRecord& wf, const JobStore& st
         allAccepted = false;
         if (v.active) continue;
         if (!std::all_of(v.item->deps.begin(), v.item->deps.end(), isAccepted)) continue;
+        if (blockedByRequest(wf, v.item->id)) continue;  // waiting for the owner or the architect: nothing new starts for this node
         if (v.item->persona == "integrator") {
             // The V's ascent. A coordinator has no agent step: when its parts are accepted its own tests run over them (a gate per round). A
             // failing round is sent down to the part the failure points at (the daemon picks it and writes the feedback), the part is redone,
@@ -407,14 +462,27 @@ std::vector<WorkflowAction> advance(const WorkflowRecord& wf, const JobStore& st
             for (const auto& depId : v.item->deps) { const WorkItem* dep = plan.find(depId); if (dep && dep->persona == "tester") { tester = dep; ctx.hasTesterDep = true; break; } }
             Decision dec = policy.decide(ctx);
             const bool restore = dec.action == Action::fail && v.restorable;  // fall back to the accepted version from before the dispute
+            const bool defer = dec.action == Action::fail && !restore && wf.spec.ask;  // governance on: ask the owner instead of failing the workflow
             WorkflowAction rec;
             rec.kind = WorkflowAction::Kind::recordDecision;
-            rec.item = v.item->id; rec.attempt = n; rec.decisionAction = restore ? "restored" : toString(dec.action); rec.decisionTier = dec.tier;
+            rec.item = v.item->id; rec.attempt = n; rec.decisionAction = restore ? "restored" : defer ? "deferred" : toString(dec.action); rec.decisionTier = dec.tier;
             if (restore) dec.reasons.push_back("the re-run could not pass: the version accepted before the dispute is restored and the work continues with it");
+            if (defer) dec.reasons.push_back("the ladder is exhausted: deferred to the owner (a blocking request), who can guide another attempt or stop");
             rec.decisionJson = toJson(ctx, dec);
             out.push_back(std::move(rec));
             switch (dec.action) {
-                case Action::fail: if (!restore) failedItem = v.item->id; break;
+                case Action::fail:
+                    if (defer) {
+                        WorkflowAction rq;
+                        rq.kind = WorkflowAction::Kind::raiseRequest;
+                        rq.request.kind = "escalation"; rq.request.from = "engine"; rq.request.attempt = n; rq.request.blocking = true;
+                        rq.request.scope = {v.item->id};
+                        rq.request.title = "'" + v.item->id + "' could not be completed";
+                        rq.request.detail = "Every rung of the ladder was tried (" + std::to_string(ctx.totalAttempts) + " attempts). Last failure: " + ctx.failure + ". " + (dec.reasons.empty() ? std::string{} : dec.reasons.front() + ".");
+                        rq.request.options = {"retry with my guidance", "stop the workflow"};
+                        out.push_back(std::move(rq));
+                    } else if (!restore) failedItem = v.item->id;
+                    break;
                 case Action::retry: case Action::escalate: out.push_back(start(agentJob(wf, st, *v.item, n + 1, dec.tier))); break;
                 case Action::decompose: out.push_back(start(architectJob(wf, st, *v.item, n + 1, "decompose"))); break;
                 case Action::rearchitect: out.push_back(start(architectJob(wf, st, *v.item, n + 1, "rearchitect"))); break;
@@ -434,6 +502,10 @@ std::vector<WorkflowAction> advance(const WorkflowRecord& wf, const JobStore& st
         if (!d) continue;
         // A decision is recorded; act on it if its follow-up job has not been submitted yet.
         if (d->action == "fail") failedItem = v.item->id;
+        else if (d->action == "deferred") {
+            const RequestRecord* rq = escalationFor(wf, v.item->id, n);
+            if (rq && rq->status == "answered") { if (rq->resolution == "stop") failedItem = v.item->id; else out.push_back(start(agentJob(wf, st, *v.item, n + 1, "local"))); }
+        }
         else if (d->action == "decompose") out.push_back(start(architectJob(wf, st, *v.item, n + 1, "decompose")));
         else if (d->action == "rearchitect") out.push_back(start(architectJob(wf, st, *v.item, n + 1, "rearchitect")));
         else out.push_back(start(agentJob(wf, st, *v.item, n + 1, d->tier.empty() ? "local" : d->tier)));  // retry, escalate, reviseTests, disputed
@@ -445,7 +517,7 @@ std::vector<WorkflowAction> advance(const WorkflowRecord& wf, const JobStore& st
     }
 
     // 3. Integrator.
-    if (allAccepted) {
+    if (allAccepted && !anyOpenBlocking(wf)) {
         const JobRecord* integ = nullptr;
         for (const JobRecord* j : mine.all) if (j->spec.role == "integrator") integ = j;
         if (!integ) {

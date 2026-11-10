@@ -36,11 +36,24 @@ tr.click{cursor:pointer}tr.click:hover,tr.selrow{background:var(--bg)}
 pre.viewer{white-space:pre-wrap;word-break:break-word;font-size:12px;max-height:78vh;overflow:auto;border:1px solid var(--line);padding:8px;border-radius:6px}
 details>summary{cursor:pointer}.fl{padding-left:12px;font-size:13px}
 code{font-size:12px;word-break:break-all}
+.rq{border:1px solid var(--line);border-radius:8px;padding:8px 10px;margin:6px 0}.rq.block{border-color:var(--warn)}.rq textarea,.addform textarea{width:100%;font:inherit;background:var(--bg);color:var(--ink);border:1px solid var(--line);border-radius:6px;padding:6px;margin:6px 0}
+.btn{font:inherit;cursor:pointer;border:1px solid var(--accent);color:var(--accent);background:none;border-radius:6px;padding:2px 10px;margin:2px 6px 2px 0}.btn.warn{border-color:var(--failed);color:var(--failed)}.btn.opt{border-color:var(--line);color:var(--mute)}
+.addform label{display:inline-block;margin-right:12px;font-size:13px}.node.blocked rect.box{stroke-dasharray:6 4}
+.reqline{margin:2px 0}
 @media(min-width:900px){main{grid-template-columns:3fr 2fr}.wide{grid-column:1/-1}}
 </style></head><body>
 <header><h1>Sub0Squad portal</h1><span id="asof" class="mute">connecting…</span><span class="mute">read-only · loopback · live 1 s · click anything for detail</span></header>
 <main>
 <section class="card wide"><div class="kpis" id="kpis"></div></section>
+<section class="card wide" id="intent"><b>Intent</b> <span class="mute">what was asked, what was added or decided since, and what is waiting for an answer</span>
+<div id="in-req"></div>
+<b>Inbox</b> <span class="mute" id="in-count"></span><div id="inbox"></div>
+<details id="addbox"><summary>Add a requirement, clarification or question to the running project</summary>
+<div class="addform"><div><label><input type="radio" name="addkind" value="requirement" checked> requirement</label><label><input type="radio" name="addkind" value="clarification"> clarification</label><label><input type="radio" name="addkind" value="question"> question for the architect</label></div>
+<div class="mute" style="margin-top:4px">Scope (the nodes it concerns; none ticked = all):</div><div id="add-scope"></div>
+<textarea id="add-text" rows="3" placeholder="e.g. The result should keep a history of the last five calculations."></textarea>
+<button class="btn" id="add-go">Add to the project</button> <span class="mute" id="in-msg"></span></div></details>
+<b>Decisions</b><div id="in-log"></div></section>
 <section class="card wide"><b>System</b> <span class="mute" id="sysnote"></span><div class="tiles" id="sys"></div></section>
 <section class="card wide"><b>Engines</b> <span class="mute">(live from each llama-server's /slots: prefill progress, tokens decoded, rates)</span><div id="engines"></div></section>
 <section class="card wide"><div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px"><b id="wfname">Work graph</b>
@@ -59,6 +72,7 @@ const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&g
 const fmt=n=>n==null||isNaN(n)?'–':n>=10000?(n/1000).toFixed(1)+'k':n>=1000?(n/1000).toFixed(2)+'k':Math.round(n);
 const f1=n=>n==null||isNaN(n)?'–':(+n).toFixed(1);
 const last=a=>a&&a.length?a[a.length-1]:null;
+const TOKEN='__PORTAL_TOKEN__';   // per run; only this page has it, so a generated page cannot post to the inbox
 let state=null,live=null,sel=null,big=null,bigAt=0;   // sel: {type:'node'|'tile'|'engine'|'engtile'|'slot'|'file', key}
 
 // ================= retained-mode DOM updates =================
@@ -181,6 +195,8 @@ function drawGraph(items,wfId){
   if(!items.length){if(graphSig!=='none'){graphSig='none';host.innerHTML='<p class="mute">No work items yet.</p>'}return}
   const jobsByItem={};((state.jobs&&state.jobs.jobs)||[]).forEach(j=>{if(j.workflow===wfId&&j.item&&['running','starting'].includes(j.state)&&['agent','gate'].includes(j.role)&&(!jobsByItem[j.item]||j.role=='agent'))jobsByItem[j.item]=j});
   const engines=(live&&live.engines)||[];
+  const wfNow=currentWf(),openReq=((wfNow&&wfNow.requests)||[]).filter(r=>r.status==='open'&&r.blocking);
+  const blockedBy=id=>openReq.find(r=>!(r.scope||[]).length||r.scope.includes(id));
   const pos=layout(items),W=215,H=74,GX=44,GY=26,PX=70,PY=34;
   const maxC=Math.max(...Object.values(pos).map(p=>p.c)),maxR=Math.max(...Object.values(pos).map(p=>p.r));
   const stack={};Object.values(pos).forEach(p=>{const k=p.c+','+p.r;stack[k]=Math.max(stack[k]||0,p.s+1)});
@@ -203,7 +219,9 @@ function drawGraph(items,wfId){
     const NM=i.attempts>0||L?nodeModel(i,jobsByItem[i.id]):null;
     const bw=NM?(NM.b.short.length+(NM.b.quant?NM.b.quant.length+1:0))*6.3+10:0;
     const badge=NM?`<g><title>${esc(NM.title)}</title><rect class="bpill ${NM.b.cls}" x="${x+W-8-bw}" y="${yy+6}" width="${bw}" height="16" rx="8"/><text class="btext ${NM.b.cls}" x="${x+W-3-bw}" y="${yy+17}">${esc(NM.b.short)}${NM.b.quant?' '+esc(NM.b.quant):''}</text></g>`:'';
-    return {k:i.id,cls:`node s-${i.status}${sel&&sel.type=='node'&&sel.key==i.id?' sel':''}`,html:`<rect class="box" x="${x}" y="${yy}" width="${W}" height="${H}" rx="8"/>
+    const bq=i.status!=='accepted'?blockedBy(i.id):null;
+    if(bq&&!L)liveLine=`<text class="live" x="${x+10}" y="${yy+66}" style="fill:var(--warn)">waiting for an answer (${esc(bq.id)})</text>`;
+    return {k:i.id,cls:`node s-${i.status}${bq?' blocked':''}${sel&&sel.type=='node'&&sel.key==i.id?' sel':''}`,html:`<rect class="box" x="${x}" y="${yy}" width="${W}" height="${H}" rx="8"/>
     <text x="${x+10}" y="${yy+18}"><tspan font-weight="600">${esc(i.id)}</tspan> <tspan class="sub">${esc(i.persona)}</tspan></text>
     <text class="sub" x="${x+10}" y="${yy+34}">${esc(i.status)} · attempt${i.attempts==1?'':'s'} ${i.attempts}${i.engine?' · '+esc(i.engine):''}</text>
     <text class="sub" x="${x+10}" y="${yy+50}">tokens in ${fmt(i.tokensIn)} · out ${fmt(i.tokensOut)}</text>${liveLine}${badge}`}});
@@ -234,6 +252,40 @@ function renderPkg(){
 }
 async function openFile(p){const wf=currentWf();if(!wf)return;sel={type:'file',key:p};fileView={p,text:'loading…',wf:wf.id};openDrawerShell();drawDrawer();
   try{const r=await fetch('/api/file?wf='+encodeURIComponent(wf.id)+'&p='+encodeURIComponent(p),{cache:'no-store'});fileView.text=r.ok?await r.text():'(not available: '+r.status+')'}catch(e){fileView.text='(error: '+e+')'}drawDrawer()}
+// ================= intent: the request, requirements, the inbox and the decisions =================
+const kindLabel={question:'question',clarification:'clarification',requirement:'requirement',blocker:'blocker',proposal:'proposal',escalation:'escalation'};
+function renderIntent(){
+  const wf=currentWf();if(!wf){return}
+  const rq=wf.requests||[];
+  const reqs=[{n:'REQ-1',t:wf.taskText||wf.task,by:'owner',when:wf.submittedAt}].concat(rq.filter(r=>r.kind==='requirement'&&r.status==='answered').map((r,i)=>({n:'REQ-'+(i+2),t:r.answer||r.detail||r.title,by:r.answeredBy||r.from,when:r.answeredAt,scope:r.scope})));
+  setInner($('in-req'),reqs.map(r=>`<div class="reqline"><span class="pill">${esc(r.n)}</span> ${esc(r.t)} <span class="mute">· ${esc(r.by)}${r.scope&&r.scope.length?' · applies to '+esc(r.scope.join(', ')):''}</span></div>`).join('')+((wf.reasons||[]).length?`<div class="mute" style="margin-top:4px">Assumptions made when planning: ${(wf.reasons||[]).map(esc).join(' · ')}</div>`:''));
+  const open=rq.filter(r=>r.status==='open'),openBlocking=open.filter(r=>r.blocking).length;
+  setText($('in-count'),open.length?`${open.length} open${openBlocking?`, ${openBlocking} holding work`:''}`:'nothing waiting');
+  reconcile($('inbox'),open.length?open.map(r=>({k:r.id,cls:'rq'+(r.blocking?' block':''),data:{rid:r.id,kind:r.kind},html:
+    `<span class="pill">${esc(kindLabel[r.kind]||r.kind)}</span> <b>${esc(r.title)}</b> <span class="mute">${esc(r.id)} · from ${esc(r.from)}${(r.scope||[]).length?' · scope '+esc(r.scope.join(', ')):''}${r.blocking?' · holding the work':''}</span>`+
+    (r.detail?`<div style="margin-top:4px;white-space:pre-wrap">${esc(r.detail)}</div>`:'')+
+    ((r.options||[]).length?`<div>${r.options.map(o=>`<button class="btn opt" data-opt="${esc(o)}">${esc(o)}</button>`).join('')}</div>`:'')+
+    `<textarea rows="2" placeholder="Your answer or guidance for the nodes concerned…"></textarea>`+
+    (r.kind==='escalation'?`<button class="btn" data-act="retry">Retry with this guidance</button><button class="btn warn" data-act="stop">Stop the workflow</button>`:`<button class="btn" data-act="answer">Send answer</button>`)})):[{k:'none',html:'<span class="mute">No open requests.</span>'}]);
+  const done=rq.filter(r=>r.status==='answered').slice().reverse();
+  setInner($('in-log'),done.length?done.map(r=>`<div class="reqline"><span class="pill">${esc(kindLabel[r.kind]||r.kind)}</span> <b>${esc(r.title)}</b> <span class="mute">${esc(r.id)} · ${esc(r.from)} → ${esc(r.answeredBy||'')}${r.resolution?' · '+esc(r.resolution):''}</span>${r.answer?`<div class="mute" style="white-space:pre-wrap">${esc(r.answer)}</div>`:''}</div>`).join(''):'<span class="mute">None yet.</span>');
+  reconcile($('add-scope'),wf.items.map(i=>({k:i.id,cls:'',html:`<label><input type="checkbox" value="${esc(i.id)}"> ${esc(i.id)}</label>`})),{tag:'span'});
+}
+async function postJson(path,body){const r=await fetch(path,{method:'POST',headers:{'content-type':'application/json','x-portal-token':TOKEN},body:JSON.stringify(body)});try{return await r.json()}catch(e){return {ok:false,error:'HTTP '+r.status}}}
+$('inbox').addEventListener('click',async ev=>{
+  const card=ev.target.closest('.rq');if(!card)return;const wf=currentWf();if(!wf)return;
+  const opt=ev.target.closest('[data-opt]');if(opt){const ta=card.querySelector('textarea');ta.value=opt.getAttribute('data-opt');ta.focus();return}
+  const btn=ev.target.closest('[data-act]');if(!btn)return;
+  const res=btn.getAttribute('data-act'),answer=card.querySelector('textarea').value.trim();
+  const out=await postJson('/api/answer',{wf:wf.id,spec:{rid:card.getAttribute('data-rid'),answer,resolution:res==='retry'||res==='stop'?res:'',by:'owner'}});
+  setText($('in-msg'),out.ok?`answered ${card.getAttribute('data-rid')}`:('not sent: '+(out.error||'?')));tickState()});
+$('add-go').addEventListener('click',async()=>{
+  const wf=currentWf();if(!wf)return;const text=$('add-text').value.trim();if(!text){setText($('in-msg'),'write something first');return}
+  const kind=(document.querySelector('input[name=addkind]:checked')||{}).value||'requirement';
+  const scope=[...document.querySelectorAll('#add-scope input:checked')].map(x=>x.value);
+  const out=await postJson('/api/raise',{wf:wf.id,spec:{kind,from:'user',title:text.slice(0,80),detail:text,scope,blocking:kind==='question',options:[]}});
+  if(out.ok){$('add-text').value='';document.querySelectorAll('#add-scope input').forEach(x=>x.checked=false)}
+  setText($('in-msg'),out.ok?`added as ${out.rid}`:('not sent: '+(out.error||'?')));tickState()});
 // ================= nodes, decisions, jobs =================
 function render(){
   if(!state)return;
@@ -245,10 +297,11 @@ function render(){
   else{
     const L=wf.ledger||{},eng=Object.entries(L.byEngine||{}).map(([n,e])=>{const pr=profiles()[n],b=pr?badgeOf(modelInfo(pr.base),pr.model):null;return `${esc(n)}${b?' '+badgeHtml(b,modelTitle(modelInfo(pr.base),pr)):''} ${e.decodeTps.toFixed(1)} tok/s (finished)`}).join(' · ')||'—';
     const done=wf.items.filter(i=>i.status=='accepted').length;
-    reconcile($('kpis'),[['workflow',esc(wf.id)+' <span class="pill">'+esc(wf.state)+'</span>'],['items accepted',done+' / '+wf.items.length],['jobs active',wf.jobsActive+' of '+wf.jobs],
+    reconcile($('kpis'),[['workflow',esc(wf.id)+' <span class="pill">'+esc(wf.state)+'</span>'],['items accepted',done+' / '+wf.items.length],['jobs active',wf.jobsActive+' of '+wf.jobs],['open requests',String((wf.requests||[]).filter(r=>r.status==='open').length)],
       ['tokens (finished)',fmt(L.totalTokens||0)],['work ratio',((L.workRatio||0)*100).toFixed(1)+' %'],['rework tokens',fmt(L.reworkTokens||0)],['engine',eng]].map(([k,v])=>({k,cls:'kpi',html:`<span class="mute">${k}</span><b>${v}</b>`})));
     setText($('wfname'),'Work graph · '+wf.id+' · '+wf.task);setText($('note'),wf.note||'');
     drawGraph(wf.items,wf.id);
+    renderIntent();
     reconcile($('nodes'),wf.items.map(i=>({tokensIn:0,tokensOut:0,durationSec:0,...i})).map(i=>{const nm=i.attempts>0?nodeModel(i,null):null;
       return {k:i.id,cls:'click'+(sel&&sel.type=='node'&&sel.key==i.id?' selrow':''),html:`<td>${esc(i.id)}</td><td>${nm?badgeHtml(nm.b,nm.title):''}</td><td>${esc(i.status)}</td><td>${i.attempts}</td><td>${fmt(i.tokensIn)}</td><td>${fmt(i.tokensOut)}</td><td>${Math.round(i.durationSec)} s</td>`}}),{tag:'tr'});
     const ds=(wf.decisions||[]).slice(-12).reverse();

@@ -20,6 +20,17 @@ std::string workflowStatusJson(const RuntimePaths& paths, const WorkflowStore& w
         w.key("engines").beginArray();
         for (const auto& e : wf.spec.engines) w.str(e);
         w.endArray();
+        w.key("requests").beginArray();
+        for (const auto& r : wf.requests) {
+            w.beginObject().kv("id", r.id).kv("kind", r.kind).kv("from", r.from).kv("title", r.title).kv("detail", r.detail).kv("attempt", r.attempt).kvBool("blocking", r.blocking)
+                .kv("status", r.status).kv("answer", r.answer).kv("resolution", r.resolution).kv("answeredBy", r.answeredBy).kv("raisedAt", r.raisedAt).kv("answeredAt", r.answeredAt);
+            w.key("scope").beginArray();
+            for (const auto& x : r.scope) w.str(x);
+            w.endArray().key("options").beginArray();
+            for (const auto& x : r.options) w.str(x);
+            w.endArray().endObject();
+        }
+        w.endArray();
         w.key("reasons").beginArray();
         if (wf.plan) for (const auto& r : wf.plan->reasons) w.str(r);
         w.endArray();

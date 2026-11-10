@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
@@ -458,8 +459,32 @@ void respond(int fd, int code, const char* type, const std::string& body, const 
 
 }  // namespace
 
-int servePortal(int port, const std::function<std::string()>& state, const std::vector<std::string>& extraEngines)
+namespace {
+std::string randomToken()
 {
+    unsigned char b[16] = {};
+    if (std::FILE* f = std::fopen("/dev/urandom", "rb")) { (void)!std::fread(b, 1, sizeof b, f); std::fclose(f); }
+    static const char* hex = "0123456789abcdef";
+    std::string t;
+    for (unsigned char c : b) { t += hex[c >> 4]; t += hex[c & 15]; }
+    return t;
+}
+std::string headerValue(const std::string& req, const std::string& name)  // case-insensitive, first occurrence
+{
+    std::string lower = req;
+    std::transform(lower.begin(), lower.end(), lower.begin(), [](unsigned char c) { return std::tolower(c); });
+    const std::string key = "\r\n" + name + ":";
+    const auto p = lower.find(key);
+    if (p == std::string::npos) return {};
+    auto s = p + key.size();
+    while (s < req.size() && req[s] == ' ') ++s;
+    return req.substr(s, req.find("\r\n", s) - s);
+}
+}  // namespace
+
+int servePortal(int port, const std::function<std::string()>& state, const std::vector<std::string>& extraEngines, const PortalAct& act)
+{
+    const std::string token = randomToken();
     const int srv = ::socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
     if (srv < 0) { std::perror("portal: socket"); return 1; }
     int one = 1;
@@ -523,12 +548,48 @@ int servePortal(int port, const std::function<std::string()>& state, const std::
             if (n <= 0) break;
             req.append(buf, static_cast<std::size_t>(n));
         }
-        if (req.rfind("GET ", 0) != 0) respond(c, 405, "text/plain", "read-only portal: GET only\n");
+        if (req.rfind("POST ", 0) == 0) {  // the owner's inbox: same-origin, tokened, small
+            const std::string target = req.substr(5, req.find(' ', 5) - 5);
+            const auto headEnd = req.find("\r\n\r\n");
+            const std::size_t want = static_cast<std::size_t>(std::clamp<long>(std::atol(headerValue(req, "content-length").c_str()), 0, 65536));
+            while (headEnd != std::string::npos && req.size() < headEnd + 4 + want) {
+                const ssize_t n = ::recv(c, buf, sizeof buf, 0);
+                if (n <= 0) break;
+                req.append(buf, static_cast<std::size_t>(n));
+            }
+            const std::string origin = headerValue(req, "origin"), host = headerValue(req, "host");
+            const std::string self1 = "127.0.0.1:" + std::to_string(port), self2 = "localhost:" + std::to_string(port);
+            const bool sameOrigin = (origin.empty() || origin == "http://" + self1 || origin == "http://" + self2) && (host == self1 || host == self2);
+            if (!act || onSite || (target != "/api/raise" && target != "/api/answer")) respond(c, 404, "text/plain", "not found\n");
+            else if (!sameOrigin || headerValue(req, "x-portal-token") != token) respond(c, 403, "text/plain", "forbidden\n");
+            else {
+                std::string wf, spec;
+                try {
+                    simdjson::ondemand::parser parser;
+                    simdjson::padded_string body{req.substr(headEnd + 4)};
+                    auto doc = parser.iterate(body);
+                    for (auto f : doc.get_object()) {
+                        const std::string_view k = f.unescaped_key();
+                        if (k == "wf") wf = std::string{std::string_view{f.value().get_string()}};
+                        else if (k == "spec") spec = std::string{f.value().raw_json().value()};
+                    }
+                } catch (const simdjson::simdjson_error&) {}
+                const bool okId = !wf.empty() && wf.size() < 20 && std::all_of(wf.begin(), wf.end(), [](unsigned char ch) { return std::isalnum(ch) || ch == '-'; });
+                if (!okId || spec.empty()) respond(c, 400, "application/json", "{\"ok\":false,\"error\":\"bad request\"}");
+                else respond(c, 200, "application/json", act(target == "/api/raise" ? "requestRaise" : "requestAnswer", wf, spec));
+            }
+        }
+        else if (req.rfind("GET ", 0) != 0) respond(c, 405, "text/plain", "read-only portal: GET and the two inbox POSTs only\n");
         else {
             const std::string target = req.substr(4, req.find(' ', 4) - 4);
             const std::string path = target.substr(0, target.find('?'));
             if (onSite && path.rfind("/site/", 0) != 0) respond(c, 404, "text/plain", "this port serves /site/<workflow>/ only\n");
-            else if (path == "/" || path == "/index.html") respond(c, 200, "text/html; charset=utf-8", portalPage());
+            else if (path == "/" || path == "/index.html") {
+                std::string page = portalPage();
+                const std::string ph = "__PORTAL_TOKEN__";
+                for (auto at = page.find(ph); at != std::string::npos; at = page.find(ph, at + token.size())) page.replace(at, ph.size(), token);
+                respond(c, 200, "text/html; charset=utf-8", page);
+            }
             else if (path == "/api/state") { std::string cached; { std::lock_guard lock(live.m); cached = live.stateJson; } respond(c, 200, "application/json", cached); }
             else if (path == "/api/live") {
                 std::size_t n = 120;
