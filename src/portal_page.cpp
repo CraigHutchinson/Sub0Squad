@@ -42,7 +42,7 @@ code{font-size:12px;word-break:break-all}
 .reqline{margin:2px 0}
 @media(min-width:900px){main{grid-template-columns:3fr 2fr}.wide{grid-column:1/-1}}
 </style></head><body>
-<header><h1>Sub0Squad portal</h1><span id="asof" class="mute">connecting…</span><span class="mute">read-only · loopback · live 1 s · click anything for detail</span></header>
+<header><h1>Sub0Squad portal</h1><span class="mute" title="The squad is part of your team: complete solutions, delegated and shared among workers.">Many small minds, one whole solution.</span><span id="asof" class="mute">connecting…</span><span class="mute">read-only · loopback · live 1 s · click anything for detail</span></header>
 <main>
 <section class="card wide"><div class="kpis" id="kpis"></div></section>
 <section class="card wide" id="intent"><b>Intent</b> <span class="mute">what was asked, what was added or decided since, and what is waiting for an answer</span>
