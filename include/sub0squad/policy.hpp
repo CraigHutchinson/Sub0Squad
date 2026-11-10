@@ -55,11 +55,12 @@ struct Decision
 [[nodiscard]] const char* toString(Action a);
 [[nodiscard]] std::string toJson(const DecisionContext& ctx, const Decision& d);
 
-/// Split for parallelism, not only for size. The size budget (estimated tokens above which an item is divided before it is attempted) follows the
-/// engine's spare capacity: with plenty of idle slots (at least three and half of them) parts can run side by side, so it is halved (never
-/// below 400); when the engine is busy (at most one idle slot) a split would only queue, so it is raised by half. `totalSlots <= 1` or an unknown
-/// state leaves the budget as given.
-[[nodiscard]] int effectiveSizeBudget(int budget, int idleSlots, int totalSlots);
+/// Divide an item before it is attempted? A division is not free: an architect job writes about 2,700 tokens (10 to 15 minutes at 3 to 5 tok/s on the
+/// 9B) before any part starts, plus the parts' own tests and the integration. So: always when the estimate cannot fit one attempt (`ceiling`);
+/// never at or under the soft budget; in between only when the time saved on the critical path, `estimate x (1 - 1/parallelism)` with the parallelism the
+/// engine's idle slots allow (at most 4), is more than the division costs. On a slow engine this is nearly the ceiling alone; on a fast one it divides
+/// more. An unknown engine state counts as no spare capacity.
+[[nodiscard]] bool shouldDivide(long estimate, long softBudget, long ceiling, int idleSlots, int totalSlots, long divisionCost = 2700);
 
 /// Which slot of a lease a starting job takes: the one its node used last time when it is free (the server keeps that slot's cache, so a retry
 /// skips the prefill of the card and tests it shares with the earlier attempt: measured 19 s cold against 4.5 s warm for a 3,000 token prompt on the 9B),

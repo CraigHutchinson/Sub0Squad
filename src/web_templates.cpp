@@ -385,9 +385,11 @@ std::string webHarnessFacts()
 
 std::string webHarnessBrief()
 {
-    return "Project harness (already in the workspace, do not recreate): package.json (ES modules, tests run with `node --test`), serve.mjs (static server), "
-           "tests/helpers/dom-stub.mjs (exports createDom(): a fake DOM for UI tests), and stub versions of src/calc.js, src/ui.js and index.html that return undefined (they never throw, so error-case tests fail against them too). "
-           "Plain browser JavaScript (ES modules), no dependencies, no build step.";
+    // Generated from the scaffold, so it cannot go stale: which files already exist, and what the stubs do.
+    std::string stubs;
+    for (const auto& f : webScaffold()) if (f.path.rfind("src/", 0) == 0 || f.path == "index.html" || f.path == "style.css") stubs += (stubs.empty() ? "" : ", ") + f.path;
+    return "Already in the workspace (do not recreate): package.json (ES modules; tests run with `node --test`), serve.mjs, tests/helpers/dom-stub.mjs (createDom(): a fake DOM), and do-nothing stubs of " + stubs +
+           " (they return undefined and never throw). Plain browser JavaScript, ES modules, no dependencies, no build step.";
 }
 
 std::string webMockFile(const std::string& path, bool buggy)

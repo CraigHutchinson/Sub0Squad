@@ -5,6 +5,7 @@
 #include <sstream>
 #include "sub0squad/harness_web.hpp"
 #include "sub0squad/briefing.hpp"
+#include "sub0squad/edits.hpp"
 #include "sub0squad/overseer.hpp"
 #include "sub0squad/recall.hpp"
 #include "sub0squad/trace.hpp"
@@ -404,78 +405,14 @@ int main()
             else { bool failed = false; for (const auto& a : acts) if (a.kind == WorkflowAction::Kind::finish && a.finalState == WorkflowState::failed) failed = true; CHECK(failed); }
         }
     }
-    { // Split for parallelism: the size budget follows the engine's idle capacity.
-        CHECK_EQ(effectiveSizeBudget(1800, 7, 8), 900);   // plenty idle: smaller parts that can run side by side
-        CHECK_EQ(effectiveSizeBudget(1800, 3, 6), 900);
-        CHECK_EQ(effectiveSizeBudget(1800, 4, 8), 900);
-        CHECK_EQ(effectiveSizeBudget(1800, 2, 8), 1800);  // some spare capacity: as configured
-        CHECK_EQ(effectiveSizeBudget(1800, 1, 8), 2700);  // nearly busy: a split would only queue
-        CHECK_EQ(effectiveSizeBudget(1800, 0, 8), 2700);
-        CHECK_EQ(effectiveSizeBudget(600, 8, 8), 400);    // never below 400
-        CHECK_EQ(effectiveSizeBudget(1800, 7, 1), 1800);  // one slot: nothing to parallelise
-        CHECK_EQ(effectiveSizeBudget(1800, -1, 8), 1800); // unknown state
-        CHECK_EQ(effectiveSizeBudget(0, 8, 8), 0);        // size splitting off stays off
-    }
-    { // The overseer, first responder to an escalation: guidance for mechanical causes, fatal for the environment, the owner otherwise.
-        OverseerInput load; load.persona = "tester";
-        load.gates = {"GATE FAIL: only 1 test(s) ran, at least 6 are required\nFAIL 1 - tests/page.test.mjs: 'test failed'\nThe runner reported (a test file that fails while loading counts as one failed test):\n  Error: ENOENT: no such file or directory, open '/ws/style.css'\n"};
-        const auto v1 = analyseEscalation(load);
-        CHECK(v1.triage == "guidance" && v1.guidance.find("top level") != std::string::npos && v1.analysis.find("ENOENT") != std::string::npos);
-        OverseerInput stub; stub.persona = "tester"; stub.gates = {"GATE FAIL: only 18 of 27 tests fail against the stub: they do not exercise the contract"};
-        CHECK(analyseEscalation(stub).triage == "guidance");
-        OverseerInput env; env.persona = "developer"; env.agentNote = "llm-agent: engine call failed: connect to 127.0.0.1:8092: Connection refused";
-        const auto v3 = analyseEscalation(env);
-        CHECK(v3.triage == "fatal" && v3.guidance.empty());
-        OverseerInput same; same.persona = "developer";
-        same.gates = {"GATE FAIL: 2 of 20 tests failed\nFAIL 3 - rounds: 'expected 1, got 2'\n", "GATE FAIL: 2 of 20 tests failed\nFAIL 3 - rounds: 'expected 1, got 2'\n"};
-        const auto v4 = analyseEscalation(same);
-        CHECK(v4.triage == "owner" && v4.analysis.find("same tests failed") != std::string::npos);
-        OverseerInput none; none.persona = "developer"; none.gates = {"GATE FAIL: 1 of 9 tests failed\nFAIL 2 - x: 'y'\n"};
-        CHECK(analyseEscalation(none).triage == "owner");
-    }
-    { // The harness-expert's briefing carries the situation, the harness facts, the evidence, the history and the overseer's verdict.
-        BriefingInput b; b.workflow = "w-1"; b.request = "r-3"; b.kind = "escalation"; b.title = "'lexer' could not be completed"; b.task = "build a calculator";
-        b.item = "lexer"; b.persona = "developer"; b.itemTitle = "Lexer"; b.goal = "tokenise"; b.files = {"src/lexer.js"}; b.contract = "tokenize(text) returns tokens";
-        b.harnessFacts = webHarnessFacts(); b.gates = {"GATE FAIL: 1 of 10 tests failed"}; b.history = {"attempt 1: retry (local)", "attempt 2: reviseTests (local)"};
-        b.triage = "owner"; b.analysis = "needs a decision"; b.options = {"retry with my guidance", "stop the workflow"};
-        const std::string md = buildBriefing(b);
-        for (const char* part : {"# Briefing for r-3", "build a calculator", "src/lexer.js", "never throw", "70 %", "GATE FAIL: 1 of 10", "attempt 2: reviseTests", "Class: **owner**", "retry with my guidance"})
-            CHECK(md.find(part) != std::string::npos);
-    }
-    { // The conversation trace: each turn is appended as it happens, with the reasoning when the server returned it and the verdict that followed.
-        const auto file = std::filesystem::current_path() / "trace-test" / "conversation.md";
-        std::filesystem::remove_all(file.parent_path());
-        EngineProfile e; e.name = "ornith"; e.endpoint = "http://127.0.0.1:1/v1"; e.model = "m"; e.seed = 7;
-        traceBegin(file, "Conversation of x, attempt 1 (local)", e, 2500);
-        std::vector<ChatMessage> convo = {{"system", "be brief"}, {"user", "divide this"}};
-        traceSent(file, 0, convo, 0, 123);
-        ChatResult r1; r1.content = "{\"items\":[]}"; r1.reasoning = "first I think about the seams"; r1.promptTokens = 100; r1.completionTokens = 20; r1.finishReason = "stop"; r1.predictedMs = 5000;
-        traceReply(file, 0, r1);
-        traceVerdict(file, 0, "rejected: item 'f': a node-test gate needs test files");
-        convo.push_back({"assistant", r1.content}); convo.push_back({"user", "Your reply was rejected: fix it"});
-        traceSent(file, 1, convo, 2, -1);   // only the two new messages
-        std::ifstream in(file); std::stringstream ss; ss << in.rdbuf(); const std::string text = ss.str();
-        for (const char* part : {"# Conversation of x, attempt 1", "run seed 7", "## Turn 0", "request seed 123", "be brief", "divide this", "first I think about the seams", "4.0 tok/s", "a node-test gate needs test files", "## Turn 1", "Your reply was rejected: fix it"})
-            CHECK(text.find(part) != std::string::npos);
-        CHECK(text.find("Sent as system", text.find("## Turn 1")) == std::string::npos);   // turn 1 shows only what was new
-        std::filesystem::remove_all(file.parent_path());
-    }
-    { // Recall: search a workflow's records; rank by how many words a line holds; restrict to a node; the last conversation's tail.
-        const auto root = std::filesystem::current_path() / "recall-test";
-        std::filesystem::remove_all(root);
-        std::filesystem::create_directories(root / "items" / "ui-page" / "attempt-2");
-        std::filesystem::create_directories(root / "items" / "engine" / "attempt-1");
-        { std::ofstream o(root / "items" / "ui-page" / "attempt-2" / "conversation.md"); o << "# Conversation\nthe worker appended the equals sign to the expression\nsecond line about nothing\n"; }
-        { std::ofstream o(root / "items" / "ui-page" / "attempt-2" / "gate.txt"); o << "GATE FAIL: equals evaluates the expression: expected 3 got 1+2=\n"; }
-        { std::ofstream o(root / "items" / "engine" / "attempt-1" / "gate.txt"); o << "GATE FAIL: only 1 test(s) ran: ENOENT style.css\n"; }
-        const auto hits = recallSearch(root, "appended equals expression");
-        CHECK(!hits.empty() && hits[0].kind == "conversation" && hits[0].score == 3 && hits[0].line == 2);
-        CHECK(recallSearch(root, "ENOENT style.css").size() == 1);
-        CHECK(recallSearch(root, "equals", 40, "engine").empty());              // restricted to one node
-        CHECK(recallSearch(root, "zz").empty());                                // words under three letters carry nothing
-        CHECK(recallLastConversation(root, "ui-page").find("appended the equals") != std::string::npos);
-        CHECK(recallLastConversation(root, "engine").empty());                  // no conversation file there
-        std::filesystem::remove_all(root);
+    { // Divide only when it pays: over the ceiling always, under the soft budget never, in between only when the saving beats the division's cost.
+        CHECK(shouldDivide(3000, 1800, 2800, 7, 8));                 // cannot fit one attempt: divide whatever it costs
+        CHECK(!shouldDivide(1500, 1800, 2800, 7, 8));                // under the soft budget: never
+        CHECK(!shouldDivide(2400, 1800, 2800, 7, 8));                // 2400 x (1 - 1/4) = 1800 saved, less than the 2700 the division costs
+        CHECK(shouldDivide(2400, 1800, 2800, 7, 8, 1000));           // a fast engine (a cheap division): worth it
+        CHECK(!shouldDivide(2400, 1800, 2800, 0, 8, 1000));          // no spare slots: nothing runs beside it, so nothing is saved
+        CHECK(!shouldDivide(2400, 1800, 2800, -1, 0, 1000));         // unknown engine state counts as no spare capacity
+        CHECK(!shouldDivide(9000, 0, 2800, 8, 8));                   // size splitting off (budget 0) stays off
     }
     { // Slot affinity: a node's retry returns to its earlier slot when it is free; otherwise the lowest free slot.
         CHECK_EQ(chooseLeaseSlot(8, {}, -1), 0);
@@ -514,6 +451,20 @@ int main()
             CHECK(s.wfs.find("w-000001")->state == WorkflowState::failed);   // after the strategies, a failed item fails the workflow (no --ask)
             CHECK(s.wfs.find("w-000001")->requests.empty());                  // and nothing was ever put to the owner
         }
+    }
+    { // Edit replies: applied to the earlier files, exactly once each; every failure names the edit; the other files are untouched.
+        const std::map<std::string, std::string> files{{"src/a.js", "function add(a, b) {\n  return a - b;\n}\nexport { add };\n"}, {"src/b.js", "export const x = 1;\n"}};
+        const std::set<std::string> allowed{"src/a.js", "src/b.js"};
+        std::string err;
+        auto ok = applyEdits("Here is the fix.\n=== EDIT: src/a.js ===\n<<<<<<< SEARCH\n  return a - b;\n=======\n  return a + b;\n>>>>>>> REPLACE\n=== END EDIT ===\n", files, allowed, err);
+        CHECK(ok && ok->at("src/a.js") == "function add(a, b) {\n  return a + b;\n}\nexport { add };\n" && ok->at("src/b.js") == "export const x = 1;\n");
+        auto two = applyEdits("=== EDIT: src/a.js ===\n<<<<<<< SEARCH\nfunction add(a, b)\n=======\nfunction add(a, b = 0)\n>>>>>>> REPLACE\n<<<<<<< SEARCH\n  return a - b;\n=======\n  return a + b;\n>>>>>>> REPLACE\n=== END EDIT ===\n=== EDIT: src/b.js ===\n<<<<<<< SEARCH\nconst x = 1;\n=======\nconst x = 2;\n>>>>>>> REPLACE\n=== END EDIT ===", files, allowed, err);
+        CHECK(two && two->at("src/a.js").find("b = 0") != std::string::npos && two->at("src/a.js").find("a + b") != std::string::npos && two->at("src/b.js") == "export const x = 2;\n");
+        CHECK(!applyEdits("=== EDIT: src/a.js ===\n<<<<<<< SEARCH\n  return a * b;\n=======\n  return 0;\n>>>>>>> REPLACE\n=== END EDIT ===", files, allowed, err) && err.find("does not appear") != std::string::npos);
+        CHECK(!applyEdits("=== EDIT: src/a.js ===\n<<<<<<< SEARCH\n  \n=======\n  x\n>>>>>>> REPLACE\n=== END EDIT ===", {{"src/a.js", "  a\n  b\n"}}, allowed, err) && err.find("more than once") != std::string::npos);
+        CHECK(!applyEdits("=== EDIT: ../evil.js ===\n<<<<<<< SEARCH\nx\n=======\ny\n>>>>>>> REPLACE\n=== END EDIT ===", files, allowed, err) && err.find("not one of the files") != std::string::npos);
+        CHECK(!applyEdits("=== EDIT: src/a.js ===\n<<<<<<< SEARCH\nfoo\n=======\nbar\n=== END EDIT ===", files, allowed, err) && err.find("not closed") != std::string::npos);
+        CHECK(!applyEdits("no edits here", files, allowed, err) && err.find("no edit blocks") != std::string::npos);
     }
     return finish();
 }

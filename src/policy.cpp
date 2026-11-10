@@ -33,12 +33,14 @@ int chooseLeaseSlot(int cap, const std::set<int>& used, int preferred)
     return i;
 }
 
-int effectiveSizeBudget(int budget, int idleSlots, int totalSlots)
+bool shouldDivide(long estimate, long softBudget, long ceiling, int idleSlots, int totalSlots, long divisionCost)
 {
-    if (budget <= 0 || totalSlots <= 1 || idleSlots < 0) return budget;
-    if (idleSlots >= 3 && idleSlots * 2 >= totalSlots) return std::max(400, budget / 2);
-    if (idleSlots <= 1) return budget + budget / 2;
-    return budget;
+    if (softBudget <= 0) return false;
+    if (estimate > ceiling) return true;
+    if (estimate <= softBudget) return false;
+    const int parallelism = (totalSlots <= 1 || idleSlots < 0) ? 1 : std::clamp(idleSlots + 1, 1, 4);
+    const double saved = static_cast<double>(estimate) * (1.0 - 1.0 / parallelism);
+    return saved > static_cast<double>(divisionCost);
 }
 
 Decision RulePolicy::decide(const DecisionContext& c) const

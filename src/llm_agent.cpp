@@ -1,3 +1,4 @@
+#include "sub0squad/edits.hpp"
 #include "sub0squad/engine.hpp"
 #include "sub0squad/event_channel.hpp"
 #include "sub0squad/harness_web.hpp"
@@ -13,6 +14,7 @@
 #include <filesystem>
 #include <fstream>
 #include <map>
+#include <optional>
 #include <set>
 #include <sstream>
 
@@ -40,13 +42,13 @@ std::string clip(const std::string& s, std::size_t n) { return s.size() <= n ? s
 
 std::string systemBlock(const std::string& persona, const std::string& harnessBrief)
 {
-    std::string s = "You are the " + persona + " on a small software squad: you own one small, focused piece of a whole solution: be the expert and do it as well as it can be done, and keep to your contract and the exact interfaces you are given so the other pieces fit. ";
-    if (persona == "tester") s += "Write tests for the contract you are given. Do not write the implementation. ";
-    else s += "Implement the contract so that the provided tests pass. ";
-    s += "Write only the files you are asked to write.\n"
-         "Reply with the complete content of every file in exactly this format and nothing else (no explanations, no markdown fences):\n"
-         "=== FILE: <path> ===\n<file content>\n=== END FILE ===\n";
+    // Persona-neutral text first (the same for every item, so the server's prompt cache shares it), the persona sentence last.
+    std::string s = "Reply with the complete content of every file you are asked for, in exactly this format and nothing else (no explanations, no markdown fences):\n"
+                    "=== FILE: <path> ===\n<file content>\n=== END FILE ===\n";
     if (!harnessBrief.empty()) s += harnessBrief + "\n";
+    s += "You are the " + persona + " on a small software squad: you own one small, focused piece of a whole solution. Be the expert and do it as well as it can be done, "
+         "keep to your contract and the exact interfaces you are given so the other pieces fit, and write only the files you are asked to write. ";
+    s += persona == "tester" ? "Write tests for the contract; do not write the implementation.\n" : "Implement the contract so that the provided tests pass.\n";
     return s;
 }
 
@@ -122,6 +124,11 @@ std::set<std::string> closure(const Plan& plan, const std::string& id)
     return seen;
 }
 
+const char* kEditSyntax =
+    "Reply with EDITS, not the whole files, in this form (one block per change; SEARCH must match the current text exactly and occur once):\n"
+    "=== EDIT: <path> ===\n<<<<<<< SEARCH\n<exact lines to replace>\n=======\n<new lines>\n>>>>>>> REPLACE\n=== END EDIT ===\n"
+    "If most of a file changes, reply with the complete file in the usual === FILE: <path> === form instead.";
+
 }  // namespace
 
 int runLlmAgent(const std::vector<std::string>& args)
@@ -179,6 +186,7 @@ int runLlmAgent(const std::vector<std::string>& args)
     }
     if (!item->card.notes.empty()) { card << "\nNotes:\n"; for (const auto& x : item->card.notes) card << "- " << x << "\n"; }
     std::string feedback;
+    std::map<std::string, std::string> baselineFiles;  // the best earlier version a retry starts from: its edits apply to these
     const fs::path disputeFile = dir / "items" / itemId / "dispute.txt";
     if (fs::exists(disputeFile)) {  // the tests of this item were disputed by a failing developer: this is the feedback, consumed once
         feedback = clip(slurp(disputeFile), 1500);
@@ -198,26 +206,24 @@ int runLlmAgent(const std::vector<std::string>& args)
         const std::string g = slurp(bestDir / "gate.txt");
         std::string code;
         if (!g.empty() && bestFail < (1 << 29))
-            for (const auto& f : item->files) { const std::string c = slurp(bestDir / "out" / f); if (!c.empty()) code += "=== FILE: " + f + " ===\n" + clip(c, 7000) + "\n=== END FILE ===\n"; }
-        if (!g.empty() && !code.empty()) feedback = "Your best earlier version (attempt " + std::to_string(best) + ") is below. It was rejected:\n" + clip(g, 1200) + "\n" + code + "Change only what these failures need, keep everything else, and write the complete files again.\n";
+            for (const auto& f : item->files) { const std::string c = slurp(bestDir / "out" / f); if (!c.empty()) { code += "=== FILE: " + f + " ===\n" + clip(c, 7000) + "\n=== END FILE ===\n"; baselineFiles[f] = c; } }
+        if (!g.empty() && !code.empty()) feedback = "Your best earlier version (attempt " + std::to_string(best) + ") is below. It was rejected:\n" + clip(g, 1200) + "\n" + code + "Change only what these failures need and keep everything else. " + kEditSyntax + "\n";
         else if (!g.empty()) feedback = "Your previous attempt was rejected:\n" + clip(g, 1200) + "\nFix exactly this and write the complete files again.\n";
         else feedback = "Your previous attempt produced no usable files. Reply in the required file format.\n";
     }
     // ---- plan phase: size the work before writing any of it. Calibrated on the first real run: about 350 tokens plus 30 per test
     // (69 tests came to about 2,400 tokens). Too big for the budget and still divisible: exit 4 hands the item back to be divided.
     const long estimate = 350 + 30 * testCount;
-    // Split for parallelism, not only for size: the budget follows the engine's spare capacity (see effectiveSizeBudget).
-    long budget = sizeBudget;
+    // Divide only when it pays (shouldDivide): the item cannot fit one attempt, or the time saved by running parts side by side beats the cost of the division.
     std::string capacity;
-    if (sizeBudget > 0 && attempt == 1 && feedback.empty()) {
-        if (const auto sc = engineSlots(*engine)) {
-            budget = effectiveSizeBudget(static_cast<int>(sizeBudget), sc->idle, sc->total);
-            capacity = std::to_string(sc->idle) + " of " + std::to_string(sc->total) + " engine slots idle";
-            events::metric("size.budget.effective", static_cast<double>(budget));
-        }
+    bool divide = false;
+    if (sizeBudget > 0 && attempt == 1 && feedback.empty() && testCount > 0 && std::count(itemId.begin(), itemId.end(), '.') < 2) {
+        int idle = -1, total = 0;
+        if (const auto sc = engineSlots(*engine)) { idle = sc->idle; total = sc->total; capacity = std::to_string(sc->idle) + " of " + std::to_string(sc->total) + " engine slots idle"; }
+        divide = shouldDivide(estimate, sizeBudget, static_cast<long>(maxTokens) * 8 / 10, idle, total);
     }
-    events::metric("size.estimate", static_cast<double>(estimate));
-    if (sizeBudget > 0 && attempt == 1 && feedback.empty() && testCount > 0 && estimate > budget && std::count(itemId.begin(), itemId.end(), '.') < 2) {
+    const long budget = sizeBudget;
+    if (divide) {
         writeFile(dir / "items" / itemId / "size.json", "{\"estimateTokens\":" + std::to_string(estimate) + ",\"budget\":" + std::to_string(budget) + ",\"configuredBudget\":" + std::to_string(sizeBudget) + ",\"capacity\":\"" + capacity + "\",\"tests\":" + std::to_string(testCount) + ",\"verdict\":\"split\"}\n");
         writeFile(dir / "items" / itemId / "attempt-1" / "gate.txt", "PLAN PHASE: not attempted. Estimated " + std::to_string(estimate) + " completion tokens for " + std::to_string(testCount) + " tests, over the budget of " + std::to_string(sizeBudget) + ". Divide the item so each part is small.\n");
         events::note("plan phase: estimated " + std::to_string(estimate) + " tokens against a budget of " + std::to_string(budget) + (capacity.empty() ? std::string{} : " (" + capacity + ")") + ": split before implementing");
@@ -260,6 +266,7 @@ int runLlmAgent(const std::vector<std::string>& args)
     std::string lastFinish, lastGate, previousFiles;
     bool stagnated = false;
     std::size_t lastFiles = 0, lastRejected = 0;
+    std::map<std::string, std::string> currentFiles = baselineFiles;  // the files of the latest turn (or the best earlier attempt): what an edit applies to
     for (int turn = 0; turn <= repairTurns; ++turn) {
         events::progress(turn, repairTurns + 1, turn == 0 ? "generating" : "repairing");
         EngineProfile turnEngine = *engine;
@@ -282,7 +289,26 @@ int runLlmAgent(const std::vector<std::string>& args)
         traceReply(tracePath, turn, *reply);
         writeFile(attemptDir / ("reply-" + std::to_string(turn) + ".txt"), reply->content);
         writeFile(attemptDir / "reply.txt", reply->content);
-        const Parsed parsed = parseReply(reply->content, allowed);
+        Parsed parsed = parseReply(reply->content, allowed);
+        if (parsed.files.empty() && !currentFiles.empty() && reply->content.find("=== EDIT:") != std::string::npos) {
+            std::string editError;
+            if (auto merged = applyEdits(reply->content, currentFiles, allowed, editError)) {
+                parsed.files = *merged;
+                parsed.fileChars = reply->content.size();
+                std::printf("turn %d: edits applied to %zu file(s)\n", turn, parsed.files.size());
+            } else {
+                traceVerdict(tracePath, turn, "the edit could not be applied: " + editError);
+                std::printf("turn %d: edit rejected: %s\n", turn, editError.c_str());
+                if (turn == repairTurns) break;
+                convo.push_back({"assistant", reply->content});
+                convo.push_back({"user", "Your edit could not be applied: " + editError + ". Fix that edit, or reply with the complete files in the === FILE: <path> === form."});
+                continue;
+            }
+        } else if (!parsed.files.empty() && !currentFiles.empty()) {  // a whole-file reply may hold only some of the files: keep the others
+            auto merged = currentFiles;
+            for (const auto& [path, text] : parsed.files) merged[path] = text;
+            parsed.files = std::move(merged);
+        }
         totIn += static_cast<double>(reply->promptTokens);
         totOut += static_cast<double>(reply->completionTokens);
         const double totalChars = std::max<double>(1.0, static_cast<double>(reply->content.size() + reply->reasoningChars));  // thinking is overhead, not deliverable
@@ -313,6 +339,7 @@ int runLlmAgent(const std::vector<std::string>& args)
         fs::create_directories(out, ec);
         for (const auto& [path, text] : parsed.files) if (!writeFile(out / path, text)) { std::fprintf(stderr, "llm-agent: cannot write %s\n", path.c_str()); return 1; }
         haveFiles = true;
+        currentFiles = parsed.files;
         if (plan->harness != "web-static") break;
         const int rc = runHarnessGate({"--workflow-dir", dir.string(), "--item", itemId, "--attempt", std::to_string(attempt), "--no-publish", "1"});
         lastGate = slurp(attemptDir / "gate.txt");
@@ -321,7 +348,7 @@ int runLlmAgent(const std::vector<std::string>& args)
         if (rc == 0) { verified = true; break; }
         if (turn == repairTurns) break;
         convo.push_back({"assistant", reply->content});
-        convo.push_back({"user", "Your files were checked by running the tests and failed:\n" + clip(lastGate, 1500) + "\nFix exactly these failures and reply with the complete files again, in the same format."});
+        convo.push_back({"user", "Your files were checked by running the tests and failed:\n" + clip(lastGate, 1500) + "\nFix exactly these failures. " + std::string{kEditSyntax}});
     }
     events::metric("tokens.in", totIn);
     events::metric("tokens.out", totOut);
