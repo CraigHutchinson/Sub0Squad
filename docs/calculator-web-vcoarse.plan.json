@@ -1,0 +1,218 @@
+{
+ "schema": "plan-2",
+ "task": "calculator-web",
+ "harness": "web-static",
+ "project": "sci-calc",
+ "reasons": [
+  "coarse plan for the V: the engine is one big item (three files, about 60 tests) that the squad divides itself, test-first, with the parent kept as an integrating coordinator",
+  "the page is decoupled from the engine (evaluate is injected), so it runs beside the engine"
+ ],
+ "items": [
+  {
+   "id": "eval-tests",
+   "title": "Engine tests",
+   "persona": "tester",
+   "complexity": 2,
+   "goal": "Write tests for the calculator expression engine before it exists",
+   "files": [
+    "tests/eval.test.mjs"
+   ],
+   "deps": [],
+   "card": {
+    "context": "A developer will implement the engine against your tests, so they must be correct and specific.",
+    "contract": "src/calc.js exports evaluate(expr, options) returning a number. expr is a string; options.degrees (boolean, default false) makes sin cos tan take degrees and asin acos atan return degrees. Operators: + - * / % ^ (right associative; binds tighter than unary minus, so -2^2 is -4), postfix ! (factorial), parentheses, unary + and -. Numbers: 12, 1.5, .5, 1.5e2. Constants: pi e tau. One-argument functions: sin cos tan asin acos atan sinh cosh tanh ln log (base 10) log2 sqrt cbrt abs exp floor ceil round fact. Two-argument functions: pow min max. Invalid input must throw an Error: division or modulo by zero, unknown names or functions, wrong argument count, sqrt of a negative, unbalanced parentheses, a trailing operator, unexpected characters.",
+    "acceptance": [
+     "uses node:test and node:assert/strict and imports { evaluate } from '../src/calc.js'",
+     "at least 10 test cases: operators, precedence, ^ associativity, factorial, decimals, constants, radians and degrees, logs, two-argument functions, error cases",
+     "floating point results are compared with a tolerance of 1e-9, never with strict equality",
+     "tests do not depend on each other"
+    ],
+    "include": [],
+    "notes": [
+     "Output only tests/eval.test.mjs"
+    ]
+   },
+   "gate": {
+    "kind": "node-test",
+    "tests": [
+     "tests/eval.test.mjs"
+    ],
+    "minTests": 8,
+    "mustFailOnStub": true
+   }
+  },
+  {
+   "id": "ui-tests",
+   "title": "Page tests",
+   "persona": "tester",
+   "complexity": 2,
+   "goal": "Write tests for the calculator page's behaviour using the harness fake DOM and an injected evaluate function",
+   "files": [
+    "tests/ui.test.mjs"
+   ],
+   "deps": [],
+   "card": {
+    "context": "A developer will build the page against your tests. The fake DOM replaces a browser.",
+    "contract": "src/ui.js exports mount(document, evaluate). evaluate(expr, { degrees }) is passed in by the caller (the page passes the real engine; your tests pass a fake such as (e, o) => 42, and one that throws new Error('bad input')). ui.js must not import the engine. It uses #expr (input, .value), #result (output, .textContent), #degrees (checkbox, .checked) and every button[data-key] from document.querySelectorAll('button[data-key]'). Clicking a button appends its data-key to #expr.value, except: 'C' clears #expr and #result; 'DEL' removes the last character of #expr; '=' evaluates #expr.value with evaluate(value, { degrees: #degrees.checked }) (the injected function) and sets #result.textContent to the number, or to 'Error: ' + message if it throws. A keydown event with key 'Enter' on #expr also evaluates. The harness file tests/helpers/dom-stub.mjs exports createDom() returning { document, expr, result, degrees, buttons, press(key), keydown(key) }.",
+    "acceptance": [
+     "imports createDom from './helpers/dom-stub.mjs' and mount from '../src/ui.js', and uses node:test and node:assert/strict",
+     "at least 6 tests: building an expression, equals calls the injected evaluate with the expression and the degrees flag, clear, delete, error display, the Enter key, degrees mode",
+     "each test creates its own dom with createDom() and calls mount(dom.document, fakeEvaluate)",
+     "do not read index.html (another item tests the page)"
+    ],
+    "include": [],
+    "notes": [
+     "Output only tests/ui.test.mjs"
+    ]
+   },
+   "gate": {
+    "kind": "node-test",
+    "tests": [
+     "tests/ui.test.mjs"
+    ],
+    "minTests": 6,
+    "mustFailOnStub": true
+   }
+  },
+  {
+   "id": "page-tests",
+   "title": "Page tests",
+   "persona": "tester",
+   "complexity": 1,
+   "goal": "Write tests for index.html and style.css before they exist",
+   "files": [
+    "tests/page.test.mjs"
+   ],
+   "deps": [],
+   "card": {
+    "context": "A developer will write the page against your tests. They read files only; no browser is involved.",
+    "contract": "index.html must contain: an element with id expr (input), id result (output) and id degrees (checkbox input), and a <button data-key=\"KEY\"> for every key in: 0-9 . + - * / % ^ ( ) ! pi e sin( cos( tan( asin( acos( atan( ln( log( sqrt( C DEL = (the keys written as data-key values, e.g. data-key=\"sin(\" and data-key=\"=\"); a <link rel=\"stylesheet\" href=\"style.css\">; and an inline <script type=\"module\"> that imports { evaluate } from './src/calc.js' and { mount } from './src/ui.js' and calls mount(document, evaluate). style.css must exist and be non-empty. Read the files with node:fs and path from the project root: new URL('../index.html', import.meta.url).",
+    "acceptance": [
+     "uses node:test and node:assert/strict and node:fs only",
+     "at least 6 test cases: each id, every key button present (loop over the key list), the stylesheet link, the module script wiring, style.css non-empty",
+     "tests do not depend on each other"
+    ],
+    "include": [],
+    "notes": [
+     "Output only tests/page.test.mjs"
+    ]
+   },
+   "gate": {
+    "kind": "node-test",
+    "tests": [
+     "tests/page.test.mjs"
+    ],
+    "minTests": 6,
+    "mustFailOnStub": true
+   }
+  },
+  {
+   "id": "ui-js",
+   "title": "Calculator page script",
+   "persona": "developer",
+   "complexity": 2,
+   "goal": "Implement src/ui.js so the provided tests pass",
+   "files": [
+    "src/ui.js"
+   ],
+   "deps": [
+    "ui-tests"
+   ],
+   "card": {
+    "context": "Replace the stub src/ui.js. The engine is injected, so you do not need it: the tests pass a fake.",
+    "contract": "export function mount(document, evaluate): wire the page as the tests describe. Use #expr (input, .value), #result (output, .textContent), #degrees (checkbox, .checked) and every button[data-key] from document.querySelectorAll('button[data-key]'). A click appends the button's data-key to #expr.value, except 'C' clears #expr and #result, 'DEL' removes the last character, and '=' calls evaluate(#expr.value, { degrees: #degrees.checked }) and sets #result.textContent to Number(value.toPrecision(12)) as text, or 'Error: ' + message if it throws. A keydown event with key 'Enter' on #expr also evaluates. Do not import anything and do nothing at import time: the page calls mount(document, evaluate).",
+    "acceptance": [
+     "every test in tests/ui.test.mjs passes",
+     "plain ES module, no imports"
+    ],
+    "include": [
+     "tests/ui.test.mjs"
+    ],
+    "notes": [
+     "Output only src/ui.js"
+    ]
+   },
+   "gate": {
+    "kind": "node-test",
+    "tests": [
+     "tests/ui.test.mjs"
+    ],
+    "minTests": 6,
+    "mustFailOnStub": false
+   }
+  },
+  {
+   "id": "ui-page",
+   "title": "Calculator page markup and style",
+   "persona": "developer",
+   "complexity": 2,
+   "goal": "Write index.html and style.css so the provided page tests pass and it works in a browser",
+   "files": [
+    "index.html",
+    "style.css"
+   ],
+   "deps": [
+    "page-tests"
+   ],
+   "card": {
+    "context": "Replace the stub index.html and add style.css. The tests below are the specification.",
+    "contract": "index.html: <input id=\"expr\">, <output id=\"result\">, <input type=\"checkbox\" id=\"degrees\"> with a label, a <button data-key=\"KEY\">KEY</button> for each key in: 0-9 . + - * / % ^ ( ) ! pi e sin( cos( tan( asin( acos( atan( ln( log( sqrt( C DEL =, <link rel=\"stylesheet\" href=\"style.css\">, and <script type=\"module\">import { evaluate } from './src/calc.js'; import { mount } from './src/ui.js'; mount(document, evaluate);</script>. style.css: a simple readable calculator layout (a grid of buttons, a large result), no frameworks.",
+    "acceptance": [
+     "every test in tests/page.test.mjs passes",
+     "the page works in a browser served by node serve.mjs"
+    ],
+    "include": [
+     "tests/page.test.mjs"
+    ],
+    "notes": [
+     "Output index.html and style.css"
+    ]
+   },
+   "gate": {
+    "kind": "node-test",
+    "tests": [
+     "tests/page.test.mjs"
+    ],
+    "minTests": 6,
+    "mustFailOnStub": false
+   }
+  },
+  {
+   "id": "engine",
+   "title": "Expression engine",
+   "persona": "developer",
+   "complexity": 3,
+   "goal": "Implement the expression engine so the provided tests pass",
+   "files": [
+    "src/calc.js",
+    "src/lexer.js",
+    "src/functions.js"
+   ],
+   "deps": [
+    "eval-tests"
+   ],
+   "card": {
+    "context": "Replace the stub src/calc.js with a real implementation; the tests below are the specification.",
+    "contract": "export function evaluate(expr, options = {}) returning a number; options.degrees switches trig functions to degrees. Support + - * / % ^ (right associative, tighter than unary minus), postfix !, parentheses, constants pi e tau, functions sin cos tan asin acos atan sinh cosh tanh ln log log2 sqrt cbrt abs exp floor ceil round fact, and pow min max. Throw an Error with a clear message on any invalid input. The code may be split over src/calc.js (parser and evaluator, exports evaluate), src/lexer.js (tokenizer) and src/functions.js (math functions, constants, factorial).",
+    "acceptance": [
+     "every test in tests/eval.test.mjs passes",
+     "plain ES module, no dependencies, no eval() and no new Function()"
+    ],
+    "include": [
+     "tests/eval.test.mjs"
+    ],
+    "notes": [
+     "Output src/calc.js, and src/lexer.js and src/functions.js if you split it"
+    ]
+   },
+   "gate": {
+    "kind": "node-test",
+    "tests": [
+     "tests/eval.test.mjs"
+    ],
+    "minTests": 8,
+    "mustFailOnStub": false
+   }
+  }
+ ]
+}

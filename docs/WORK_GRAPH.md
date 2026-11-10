@@ -317,3 +317,36 @@ requirements each serves, interface contracts as first-class nodes; (4) the proj
 same inbox when capacity is free, so its suggestions are visible and answerable; (5) quotas and the frontier switch as governance requests
 (the owner approves a frontier escalation per item instead of a global switch); (6) the V (section 13) raising `proposal` requests for
 send-up and `escalation` when its round-trip budget is spent.
+
+## 15. Parallelism inside a node: fork or stay in one context (owner question, 2026-11-10)
+
+When a node's plan phase finds N separate areas (a lexer, a function table and a parser inside one engine item), there are four ways to run
+them. They are different things and want different triggers:
+
+| Mode | What it is | Good when | Costs |
+|---|---|---|---|
+| **Serial in one context** | one conversation, area by area, a gate or test run between areas (the repair-turn loop, extended from "fix failures" to "next area") | the areas share a lot of context or one interface, the total fits one attempt, capacity is short | wall time is the sum of the areas at one request's decode speed; one area's failure stalls the rest; the context grows |
+| **Partition fork** | N sub-nodes with disjoint files, each with its own tests, under a coordinator that integrates them (the V, already built) | the areas can be specified by exact signatures, each is big enough to matter (about 600 tokens or more), engine slots and memory are free | the interfaces must be fixed up front; each fork repeats the shared prefix (prefill) and the integration is a step of its own |
+| **Redundant fork** | N attempts at the *same* area, different derived seeds, first to pass its gate wins and the rest are cancelled | slots would otherwise be idle and a retry is the expected cost (a weak model, a flaky area) | tokens for the losers; only free capacity should pay it |
+| **Pipeline** | producer and checker overlap (tests are written while another area is being implemented) | the test-first handoff, already used | none to speak of |
+
+**The decision is data, not taste.** The plan phase returns the areas as a structure (name, exported signatures, files, estimated tokens, which
+areas each uses), and the harness chooses by rule: the estimated time serial (the sum of the areas' tokens over one request's measured decode
+speed) against forked (the largest area's tokens over the per-request speed at that many requests in flight), with the engine's idle slots and
+free memory as constraints and the node's coupling as a veto. The speed curve is measured on this host: aggregate decode over concurrent
+requests was 6.95 tok/s at 1 and 12.0 at 4 for the 35B-A3B (so a 4-way fork speeds up about 1.7x), 1.38 to 9.17 at 16 for the dense 27B
+(6.6x), 5.2 to 19.9 at 8 for the 9B (3.8x). A fork that gains less than about 1.3x, or that needs more slots than are free, stays serial.
+
+**Dynamic, not decided once.** Start serial when the node is small. Fork when the plan phase's estimate says so, when the first serial attempt
+shows the node is hard (a near pass that stalls, a repeated failure), or when the project-manager pass sees idle slots and a ready queue that
+is too thin (section 11). Take back to serial when memory pressure is on (section 11): forks are the first thing to shed.
+
+**One cost worth cutting later.** Forks that share a long prefix (the contract, the included tests) repeat its prefill. llama.cpp can save and
+restore a slot's cache (`/slots/{id}?action=save|restore` with `--slot-save-path`) and reuse a prefix (`--cache-reuse`); prefilling the shared
+context once and restoring it into N slots would remove the repeat. Not checked on our build yet.
+
+**Where it lands in the build.** (1) The plan phase emits areas with interface skeletons (today it is a size estimate and, on failure, a
+division written by the architect job). (2) A partition fork is already a division under a coordinator; the change is that the *node itself*
+proposes it before generating anything, validated by the same rules (scoped tests, covered files). (3) Serial-in-context gains area turns: after
+an area the agent runs that area's tests, then continues in the same conversation. (4) Redundant forks use the lease: they hold only slots no
+other ready item wants. All four are recorded in the ledger by mode so each can be judged on tokens, time and success.

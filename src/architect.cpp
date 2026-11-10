@@ -151,7 +151,9 @@ int runLlmArchitect(const std::vector<std::string>& args)
                  "\"files\":[\"paths\"],\"deps\":[\"ids of items in THIS reply only\"],\"complexity\":1,\"card\":{\"context\":\"1-2 sentences\",\"contract\":\"exact interface\",\"acceptance\":[\"checks\"],\"include\":[],\"notes\":[]},"
                  "\"gate\":{\"kind\":\"node-test\",\"tests\":[\"tests/x.test.mjs\"],\"minTests\":3,\"mustFailOnStub\":false}}]}\n"
                  "Rules: testers write only under tests/ (their gate has mustFailOnStub true); developers never write tests; every file the original item delivered must be delivered by some new item; "
-                 "items must not share files; a developer item depends on the tester item whose test file it includes (list it in card.include); keep each card under 300 words.";
+                 "items must not share files; a developer item depends on the tester item whose test file it includes (list it in card.include); keep each card under 300 words. "
+                 "Every developer part gets its OWN tester item with a NEW test file (never the original item's test file, which needs all the parts together: it is run on the whole afterwards). "
+                 "Because the parts are built independently, each card must state the exact exports and signatures of the other parts it uses.";
         user = cardText(it) + (failure.empty() ? "" : "\nFailures so far:\n" + failure + "\n") + "\nDivide this item.";
     } else if (mode == "rearchitect") {
         system = "You rewrite work cards for a small model that keeps failing a task. Make the card shorter, concrete and focused on what failed: exact interface, worked input/output examples, the specific pitfalls. "
