@@ -1,7 +1,7 @@
 # Sub0Squad (working title)
 
-**Many small minds, one whole solution.** The squad is part of your team: it delivers complete solutions, delegated and shared among workers,
-each part small, tested and handed on.
+**Many small minds, one whole solution.** Small work: be the expert and do it as well as it can be done. Larger work: divide it well, and make
+sure the separation and the interactions hold. The squad is part of your team, delivering complete solutions, delegated and shared among workers.
 
 A native C++23 toolbox for **delegated background work**: submit a job, check its progress, follow its log, cancel it,
 resume it. Jobs run in **parallel** on workers that **share resources** (cores, memory, a model server, the exclusive

@@ -350,3 +350,13 @@ division written by the architect job). (2) A partition fork is already a divisi
 proposes it before generating anything, validated by the same rules (scoped tests, covered files). (3) Serial-in-context gains area turns: after
 an area the agent runs that area's tests, then continues in the same conversation. (4) Redundant forks use the lease: they hold only slots no
 other ready item wants. All four are recorded in the ledger by mode so each can be judged on tokens, time and success.
+
+## 16. Ethos: craft on the small, separation and interactions on the large
+
+Two kinds of work, two stances, one graph. A **leaf** is small and focused: its worker is the expert on that one thing and does it as well as it
+can be done (a tight card, exact interfaces, its own tests, the repair loop). A **larger** piece is not done better by trying harder: the
+work is to divide it well and to make sure that the designed separation and the interactions hold. In the V that is the descent (clean
+boundaries, exact signatures, tests per part, files covered) and the ascent (the coordinator's integration gate, scoped send-down, send-up
+proposals when a boundary was wrong). The gates are how a promise made at design time is checked at build time: a part passes its own tests,
+the whole passes the tests of the level above. Workers say it in one line each: "own one focused piece, be the expert, keep to the interfaces";
+the architect says "your job is the separation". The README states the same for people: many small minds, one whole solution.

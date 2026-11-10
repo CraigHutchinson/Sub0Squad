@@ -146,6 +146,7 @@ int runLlmArchitect(const std::vector<std::string>& args)
     std::string system, user;
     if (mode == "decompose") {
         system = "You are the architect of a small software squad. Workers are small models: a work item that fails repeatedly is too big. "
+                 "Your job is the separation: clean boundaries, exact interfaces and how the parts interact (the whole is checked afterwards by the original tests). "
                  "Divide the failing item into 2 to 4 smaller work packages, test-first, and reply with ONE JSON object and nothing else.\n"
                  "Syntax: {\"schema\":\"plan-2\",\"task\":\"x\",\"harness\":\"web-static\",\"project\":\"x\",\"reasons\":[\"why this division\"],\"items\":[{\"id\":\"short\",\"title\":\"..\",\"persona\":\"tester|developer\",\"goal\":\"one sentence\","
                  "\"files\":[\"paths\"],\"deps\":[\"ids of items in THIS reply only\"],\"complexity\":1,\"card\":{\"context\":\"1-2 sentences\",\"contract\":\"exact interface\",\"acceptance\":[\"checks\"],\"include\":[],\"notes\":[]},"

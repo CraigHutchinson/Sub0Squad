@@ -38,7 +38,7 @@ std::string clip(const std::string& s, std::size_t n) { return s.size() <= n ? s
 
 std::string systemBlock(const std::string& persona, const std::string& harnessBrief)
 {
-    std::string s = "You are the " + persona + " on a small software squad: your part is one piece of a whole solution that a team builds together, so keep to your contract and the exact interfaces you are given. ";
+    std::string s = "You are the " + persona + " on a small software squad: you own one small, focused piece of a whole solution: be the expert and do it as well as it can be done, and keep to your contract and the exact interfaces you are given so the other pieces fit. ";
     if (persona == "tester") s += "Write tests for the contract you are given. Do not write the implementation. ";
     else s += "Implement the contract so that the provided tests pass. ";
     s += "Write only the files you are asked to write.\n"
