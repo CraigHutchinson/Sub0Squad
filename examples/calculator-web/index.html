@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Calculator</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="calculator">
+        <input type="text" id="expr" placeholder="Expression">
+        <output id="result">0</output>
+        <div class="controls">
+            <input type="checkbox" id="degrees">
+            <label for="degrees">Deg</label>
+        </div>
+        <div class="buttons">
+            <button data-key="7">7</button>
+            <button data-key="8">8</button>
+            <button data-key="9">9</button>
+            <button data-key="/">/</button>
+            <button data-key="4">4</button>
+            <button data-key="5">5</button>
+            <button data-key="6">6</button>
+            <button data-key="*">*</button>
+            <button data-key="1">1</button>
+            <button data-key="2">2</button>
+            <button data-key="3">3</button>
+            <button data-key="-">-</button>
+            <button data-key="0">0</button>
+            <button data-key=".">.</button>
+            <button data-key="=">=</button>
+            <button data-key="+">+</button>
+            <button data-key="C">C</button>
+            <button data-key="DEL">DEL</button>
+            <button data-key="(">(</button>
+            <button data-key=")">)</button>
+            <button data-key="^">^</button>
+            <button data-key="%">%</button>
+            <button data-key="!">!</button>
+            <button data-key="pi">pi</button>
+            <button data-key="e">e</button>
+            <button data-key="sin(">sin(</button>
+            <button data-key="cos(">cos(</button>
+            <button data-key="tan(">tan(</button>
+            <button data-key="asin(">asin(</button>
+            <button data-key="acos(">acos(</button>
+            <button data-key="atan(">atan(</button>
+            <button data-key="ln(">ln(</button>
+            <button data-key="log(">log(</button>
+            <button data-key="sqrt(">sqrt(</button>
+        </div>
+    </div>
+    <script type="module">
+        import { evaluate } from './src/calc.js';
+        import { mount } from './src/ui.js';
+        mount(document, evaluate);
+    </script>
+</body>
+</html>

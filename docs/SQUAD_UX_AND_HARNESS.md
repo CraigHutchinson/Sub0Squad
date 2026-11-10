@@ -151,3 +151,20 @@ splits tokens and decode speed per engine.
 5. **A second real engine was not exercised.** The snap's server holds about 25 GB resident of this host's 29.6 GiB, so loading the Qwen3.8-27B
    IQ1_S model beside it was not safe and the snap was not stopped. Run 2 exercised the routing with two profiles pointing at the same snap.
    The 27B model remains to be tried when the snap is idle or in a session of its own.
+
+## 9. First complete run: a working calculator (2026-11-10)
+
+Plan `docs/calculator-web-parallel.plan.json` (ten items, five independent testers first, the page decoupled from the parser by injecting
+`evaluate`), engine Qwen3.6-35B-A3B Q4_K_M on our own `llama-server` (`-np 8`, 8k per slot), run seed 42, `--max-jobs 8`, frontier stub unused.
+
+| | Original plan, serial (1 slot) | Modular plan, 8 slots | Parallel plan, 8 slots |
+|---|---|---|---|
+| Result | cancelled after ~80 min, 7 % work ratio | failed at the page after ~70 min | **succeeded, 33 min (2,001 s)** |
+| Items | 4 (engine decomposed into 7) | 9 | 10, all accepted, integration passed |
+| Attempts beyond the first | many | 17 engine calls | 2 retries (`fn-tests`, `calc` twice) |
+| Work ratio | 7.5 % | 9.9 % | 22.9 % |
+
+The product passes its own 133 tests and 12 behaviours driven through the page in a browser (examples/calculator-web). Three changes made the
+difference, each found from a failed run: the page no longer waits for the parser (injection), an item estimated too big is divided before any
+code is written (the plan phase fired once, on `calc`), and repeated identical failures send the tests back instead of looping on repairs.
+Engine decode averaged 4.4 tok/s per request with up to five requests in flight; the five testers ran at once.
