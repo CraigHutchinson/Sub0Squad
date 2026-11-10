@@ -6,6 +6,7 @@
 #include "sub0squad/plan_lint.hpp"
 #include "sub0squad/portal.hpp"
 #include "sub0squad/recall.hpp"
+#include "sub0squad/replay.hpp"
 #include "sub0squad/job_store.hpp"
 #include "sub0squad/journal.hpp"
 #include "sub0squad/harness_web.hpp"
@@ -73,6 +74,7 @@ constexpr const char* kUsage =
     "  project plan ID --file plan.json     supply the plan a workflow is awaiting (the deferred architect's answer)\n"
     "  request list [WF] | raise WF --kind K [--scope a,b] [--blocking] [--title T] [--detail D] [--option O]... | answer WF RID [--resolution retry|stop] [--answer TEXT]\n"
     "                                       the inbox: questions, clarifications, requirements, blockers, proposals, escalations\n"
+    "  replay WF NODE [--seeds 1,2,3] [--think] [--decompose]   run one node again in isolation, several seeds side by side (minutes, not a whole workflow)\n"
     "  recall WF words... [--item NODE] [--limit N]   search what a workflow already did: conversations, replies, gate outputs, briefings\n"
     "  plan-lint FILE [--tps N]             audit a plan: width, critical path, rough time, serial tails\n"
     "  portal [--port N] [--engine-url URL]  read-only status portal on 127.0.0.1 (default 8780): the work graph, tokens per node, daemon jobs\n"
@@ -737,6 +739,46 @@ int runCli(int argc, char** argv)
     if (cmd == "blueprint") { if (argc < 3) { std::fputs(kUsage, stderr); return 2; } const std::string b = blueprintJson(argv[2]); if (b.empty()) { std::fprintf(stderr, "no blueprint '%s'\n", argv[2]); return 1; } std::printf("%s", b.c_str()); return 0; }
     if (cmd == "project") return cmdProject(paths, argc - 2, argv + 2);
     if (cmd == "request") return cmdRequest(paths, argc - 2, argv + 2);
+    if (cmd == "replay") {  // sub0squad replay WF NODE [--seeds 1,2,3] [--think] [--decompose] [--engine PROFILE] [--max-tokens N] [--repair-turns N]
+        if (argc < 4) { std::fputs(kUsage, stderr); return 2; }
+        sub0squad::ReplayOptions ro;
+        ro.node = argv[3];
+        for (int i = 4; i < argc; ++i) {
+            const std::string a = argv[i];
+            auto val = [&]() -> std::string { return i + 1 < argc ? argv[++i] : ""; };
+            if (a == "--seeds") { ro.seeds.clear(); std::stringstream ss(val()); for (std::string x; std::getline(ss, x, ',');) if (!x.empty()) ro.seeds.push_back(std::atol(x.c_str())); }
+            else if (a == "--think") ro.think = true;
+            else if (a == "--decompose") ro.decompose = true;
+            else if (a == "--engine") ro.engineProfile = val();
+            else if (a == "--max-tokens") ro.maxTokens = std::atoi(val().c_str());
+            else if (a == "--repair-turns") ro.repairTurns = std::atoi(val().c_str());
+            else if (a == "--treatment") ro.treatment = val();
+        }
+        if (ro.seeds.empty()) ro.seeds = {1};
+        bool offline = false;
+        const std::string text = workflowStatusAnyway(paths, argv[2], offline);
+        std::string firstEngine;
+        try {
+            json::withObject(text, [&](simdjson::ondemand::object& obj) {
+                for (auto f : obj) {
+                    if (json::keyOf(f) != "workflows") continue;
+                    for (auto w : f.value().get_array()) for (auto wf : w.get_object()) {
+                        const auto k = json::keyOf(wf);
+                        if (k == "sandbox") ro.sandbox = json::toString(wf.value());
+                        else if (k == "engines") { for (auto e : wf.value().get_array()) if (firstEngine.empty()) firstEngine = json::toString(e.value()); }
+                    }
+                }
+            });
+        } catch (const simdjson::simdjson_error&) {}
+        if (ro.sandbox.empty()) { std::fprintf(stderr, "no such workflow: %s\n", argv[2]); return 2; }
+        if (ro.engineProfile.empty()) ro.engineProfile = firstEngine;
+        {
+            char self[4096];
+            const ssize_t n = ::readlink("/proc/self/exe", self, sizeof self - 1);
+            ro.exe = n > 0 ? std::string(self, static_cast<std::size_t>(n)) : std::string{argv[0]};
+        }
+        return sub0squad::runReplay(ro);
+    }
     if (cmd == "recall") {  // sub0squad recall WF words... [--item NODE] [--limit N]: what the workflow already did (conversations, gates, briefings)
         if (argc < 4) { std::fputs(kUsage, stderr); return 2; }
         std::string query, item;

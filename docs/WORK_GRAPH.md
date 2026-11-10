@@ -471,3 +471,19 @@ owner can answer.
 Strategies not built yet, in the order I would add them: re-divide the parent (bubble up when a part keeps failing: dissolve the division and divide
 differently, or merge two parts), a different seed and temperature, a leaner card from the architect, the frontier switch as a permission request when
 the owner has allowed it, and a project-manager decision to drop an optional part with the reason recorded.
+
+## 21. Isolate and iterate (2026-11-10)
+
+A whole workflow on the 9B takes one to two hours, so a failure found in it cannot be learned from at that pace. When a node fails, take it out and
+iterate on it alone. `sub0squad replay <workflow> <node> [--seeds 1,2,3] [--think] [--decompose]` rebuilds exactly what the node is given (the plan, the
+accepted outputs of everything it depends on, its card override, its earlier failure text) in a scratch directory under the workflow
+(`replays/<node>-<time>/s<seed>/`), runs the worker (or, with `--decompose`, the architect's division) again, one process per seed side by side on the
+engine's idle slots, and prints a table: result, turns, completion tokens, wall seconds, the first failure, and the path of each variant's conversation
+trace. A single node takes minutes; several seeds say whether a result is luck, and `--think` tries the manager's strategy. It uses the current
+binary, so a change to a prompt, a gate or a strategy is tried on the failing node first and only then in a full run. The node's drawer in the portal
+shows the command for any node that needed more than one attempt or failed.
+
+The loop it enables: a node fails; read its conversation trace (what was sent, what came back, the verdict); change one thing; replay with a few seeds;
+keep the change if more variants pass or pass faster; add the case to a fixture list so it is replayed after later changes (a regression set of
+real failures: `ui-js.ui-eval` with its reply-format errors, `ui-page`'s division that timed out, the lexer test with positions off by one).
+Next: keep failing cases as named fixtures with their expected outcome, replay the set after each change, and report a pass rate per seed.
