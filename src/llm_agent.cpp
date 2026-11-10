@@ -213,7 +213,7 @@ int runLlmAgent(const std::vector<std::string>& args)
     }
     // ---- plan phase: size the work before writing any of it. Calibrated on the first real run: about 350 tokens plus 30 per test
     // (69 tests came to about 2,400 tokens). Too big for the budget and still divisible: exit 4 hands the item back to be divided.
-    const long estimate = 350 + 30 * testCount;
+    const long estimate = std::max(350 + 30 * testCount, 1200L * static_cast<long>(item->files.size()));  // tests-based, with a floor of about 1,200 tokens per file (the 9B wrote an engine of three files past 3,500)
     // Divide only when it pays (shouldDivide): the item cannot fit one attempt, or the time saved by running parts side by side beats the cost of the division.
     std::string capacity;
     bool divide = false;
@@ -260,6 +260,14 @@ int runLlmAgent(const std::vector<std::string>& args)
     const fs::path tracePath = attemptDir / "conversation.md";
     traceBegin(tracePath, "Conversation of " + itemId + ", attempt " + std::to_string(attempt) + " (" + tier + ")", *engine, maxTokens);
     std::size_t tracedUpTo = 0;
+    // Keep the conversation flat: the system block, the card, and only the latest reply with its feedback. Older replies are stale copies of the files, and a
+    // reply cut off at the token limit is not repeated at all (the first real run overflowed its 8,192 token slot on the second turn).
+    auto continueWith = [&](const std::string& assistantText, bool cutOff, const std::string& userText) {
+        convo.resize(2);
+        convo.push_back({"assistant", cutOff ? std::string{"[your previous reply was cut off at the token limit and is not repeated here]"} : assistantText});
+        convo.push_back({"user", userText});
+        tracedUpTo = 2;
+    };
     double totIn = static_cast<double>(extraIn), totOut = static_cast<double>(extraOut), lastWork = 0, decodeTps = 0, prefillTps = 0;
     int turns = 0;
     bool verified = false, haveFiles = false;
@@ -290,6 +298,19 @@ int runLlmAgent(const std::vector<std::string>& args)
         writeFile(attemptDir / ("reply-" + std::to_string(turn) + ".txt"), reply->content);
         writeFile(attemptDir / "reply.txt", reply->content);
         Parsed parsed = parseReply(reply->content, allowed);
+        if (!currentFiles.empty() && parsed.files.find("") == parsed.files.end()) {   // SEARCH/REPLACE markers inside a file block: the model mixed the two formats; read it as an edit
+            std::string asEdits;
+            for (const auto& [path, text] : parsed.files)
+                if (text.find("<<<<<<< SEARCH") != std::string::npos) asEdits += "=== EDIT: " + path + " ===\n" + text + "\n=== END EDIT ===\n";
+            if (!asEdits.empty()) {
+                std::string conflictError;
+                if (auto merged = applyEdits(asEdits, currentFiles, allowed, conflictError)) {
+                    for (auto it = parsed.files.begin(); it != parsed.files.end();) { if (it->second.find("<<<<<<< SEARCH") != std::string::npos) it = parsed.files.erase(it); else ++it; }
+                    for (const auto& [path, text] : *merged) if (!parsed.files.count(path)) parsed.files[path] = text;
+                    std::printf("turn %d: edit markers inside a file block were read as edits\n", turn);
+                } else parsed.files.clear();   // unusable: falls through to the "no usable files" feedback
+            }
+        }
         if (parsed.files.empty() && !currentFiles.empty() && reply->content.find("=== EDIT:") != std::string::npos) {
             std::string editError;
             if (auto merged = applyEdits(reply->content, currentFiles, allowed, editError)) {
@@ -300,8 +321,7 @@ int runLlmAgent(const std::vector<std::string>& args)
                 traceVerdict(tracePath, turn, "the edit could not be applied: " + editError);
                 std::printf("turn %d: edit rejected: %s\n", turn, editError.c_str());
                 if (turn == repairTurns) break;
-                convo.push_back({"assistant", reply->content});
-                convo.push_back({"user", "Your edit could not be applied: " + editError + ". Fix that edit, or reply with the complete files in the === FILE: <path> === form."});
+                continueWith(reply->content, reply->finishReason == "length", "Your edit could not be applied: " + editError + ". Fix that edit, or reply with the complete files in the === FILE: <path> === form.");
                 continue;
             }
         } else if (!parsed.files.empty() && !currentFiles.empty()) {  // a whole-file reply may hold only some of the files: keep the others
@@ -321,8 +341,7 @@ int runLlmAgent(const std::vector<std::string>& args)
         if (parsed.files.empty()) {
             traceVerdict(tracePath, turn, "no usable files in the reply (finish " + reply->finishReason + ")");
             if (turn == repairTurns) break;
-            convo.push_back({"assistant", reply->content});
-            convo.push_back({"user", "Your reply contained none of the requested files. Reply with the complete content of every file in the required format: === FILE: <path> === ... === END FILE ==="});
+            continueWith(reply->content, reply->finishReason == "length", std::string{reply->finishReason == "length" ? "Your reply was cut off at the token limit before it finished. Write less: shorter code, no comments, fewer helpers. " : ""} + "Your reply contained none of the requested files. Reply with the complete content of every file in the required format: === FILE: <path> === ... === END FILE ===");
             continue;
         }
         std::string filesKey;
@@ -347,8 +366,7 @@ int runLlmAgent(const std::vector<std::string>& args)
         events::note(rc == 0 ? "self-check passed" : "self-check failed");
         if (rc == 0) { verified = true; break; }
         if (turn == repairTurns) break;
-        convo.push_back({"assistant", reply->content});
-        convo.push_back({"user", "Your files were checked by running the tests and failed:\n" + clip(lastGate, 1500) + "\nFix exactly these failures. " + std::string{kEditSyntax}});
+        continueWith(reply->content, reply->finishReason == "length", std::string{reply->finishReason == "length" ? "Your reply was cut off at the token limit, so the file is incomplete. " : ""} + "Your files were checked by running the tests and failed:\n" + clip(lastGate, 1500) + "\nFix exactly these failures. " + std::string{kEditSyntax});
     }
     events::metric("tokens.in", totIn);
     events::metric("tokens.out", totOut);
@@ -369,6 +387,11 @@ int runLlmAgent(const std::vector<std::string>& args)
         m << "{\"treatment\":\"" << treatment << "\",\"engine\":\"" << engine->name << "\",\"tokensIn\":" << totIn << ",\"tokensOut\":" << totOut
           << ",\"tokensWork\":" << static_cast<long>(lastWork) << ",\"turns\":" << turns << ",\"selfcheck\":" << (verified ? "true" : "false") << ",\"seconds\":" << secs << "}";
         writeFile(attemptDir / "agent.json", m.str());
+    }
+    if (!verified && lastFinish == "length") {   // cut off at the token limit and not passing: it does not fit one attempt, so hand it back to be divided at once
+        events::note("reply cut off at the token limit: the item is too big for one attempt");
+        std::printf("size verdict: split (the reply was cut off at the %d token limit)\n", maxTokens);
+        return 4;
     }
     return 0;
 }

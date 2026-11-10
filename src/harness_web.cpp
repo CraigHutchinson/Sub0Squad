@@ -297,7 +297,7 @@ int runHarnessGate(const std::vector<std::string>& args)
             const auto failLines = [](const std::string& g) { std::set<std::string> s; std::istringstream in(g); for (std::string l; std::getline(in, l);) if (l.rfind("FAIL ", 0) == 0) s.insert(l); return s; };
             const auto now = failLines(slurp(attemptDir / "gate.txt"));
             const auto before = failLines(slurp(dir / "items" / itemId / ("attempt-" + std::to_string(attempt - 1)) / "gate.txt"));
-            if (!now.empty() && now == before && tap.tests >= 10 && tap.fail * 100 <= tap.tests * 15) return 5;  // only a near pass: 3 of 7 failing is a misunderstanding, not a wrong test
+            if (!now.empty() && now == before && tap.tests >= 5 && tap.fail * 100 <= tap.tests * 40) return 5;  // two different attempts failing the same few tests the same way: the tests are suspect (the 9B tester wrote a regex for mount(document) against a contract of mount(document, evaluate))
         }
         // Exit 3 marks a near pass (at least 10 tests, at most 15 % failing): the decision policy repairs it instead of dividing the item.
         return tap.tests >= 10 && tap.fail * 100 <= tap.tests * 15 ? 3 : code;
