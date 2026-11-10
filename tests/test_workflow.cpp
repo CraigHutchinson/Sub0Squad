@@ -1,8 +1,12 @@
 // The workflow engine as a pure function: planning, dependency order, gates, retry, escalation, failure, cancel, idempotence.
 #include "check.hpp"
+#include <filesystem>
+#include <fstream>
+#include <sstream>
 #include "sub0squad/harness_web.hpp"
 #include "sub0squad/briefing.hpp"
 #include "sub0squad/overseer.hpp"
+#include "sub0squad/trace.hpp"
 #include "sub0squad/triage.hpp"
 #include "sub0squad/workflow.hpp"
 
@@ -435,6 +439,24 @@ int main()
         const std::string md = buildBriefing(b);
         for (const char* part : {"# Briefing for r-3", "build a calculator", "src/lexer.js", "never throw", "70 %", "GATE FAIL: 1 of 10", "attempt 2: reviseTests", "Class: **owner**", "retry with my guidance"})
             CHECK(md.find(part) != std::string::npos);
+    }
+    { // The conversation trace: each turn is appended as it happens, with the reasoning when the server returned it and the verdict that followed.
+        const auto file = std::filesystem::current_path() / "trace-test" / "conversation.md";
+        std::filesystem::remove_all(file.parent_path());
+        EngineProfile e; e.name = "ornith"; e.endpoint = "http://127.0.0.1:1/v1"; e.model = "m"; e.seed = 7;
+        traceBegin(file, "Conversation of x, attempt 1 (local)", e, 2500);
+        std::vector<ChatMessage> convo = {{"system", "be brief"}, {"user", "divide this"}};
+        traceSent(file, 0, convo, 0, 123);
+        ChatResult r1; r1.content = "{\"items\":[]}"; r1.reasoning = "first I think about the seams"; r1.promptTokens = 100; r1.completionTokens = 20; r1.finishReason = "stop"; r1.predictedMs = 5000;
+        traceReply(file, 0, r1);
+        traceVerdict(file, 0, "rejected: item 'f': a node-test gate needs test files");
+        convo.push_back({"assistant", r1.content}); convo.push_back({"user", "Your reply was rejected: fix it"});
+        traceSent(file, 1, convo, 2, -1);   // only the two new messages
+        std::ifstream in(file); std::stringstream ss; ss << in.rdbuf(); const std::string text = ss.str();
+        for (const char* part : {"# Conversation of x, attempt 1", "run seed 7", "## Turn 0", "request seed 123", "be brief", "divide this", "first I think about the seams", "4.0 tok/s", "a node-test gate needs test files", "## Turn 1", "Your reply was rejected: fix it"})
+            CHECK(text.find(part) != std::string::npos);
+        CHECK(text.find("Sent as system", text.find("## Turn 1")) == std::string::npos);   // turn 1 shows only what was new
+        std::filesystem::remove_all(file.parent_path());
     }
     return finish();
 }

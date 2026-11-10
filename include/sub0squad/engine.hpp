@@ -49,6 +49,7 @@ struct ChatResult
     long promptTokens = 0, completionTokens = 0;
     double promptMs = 0, predictedMs = 0;
     std::size_t reasoningChars = 0;   ///< characters of reasoning_content (thinking), which the completion token count includes
+    std::string reasoning;            ///< the reasoning text itself when the server returns it (kept in the conversation trace)
 };
 
 struct ChatMessage { std::string role, content; };

@@ -196,7 +196,7 @@ std::expected<ChatResult, std::string> chatCompleteMessages(const EngineProfile&
                         for (auto cf : ch.get_object()) {
                             const std::string_view ck = cf.unescaped_key();
                             if (ck == "finish_reason") r.finishReason = json::toString(cf.value());
-                            else if (ck == "message") for (auto mf : cf.value().get_object()) { const std::string_view mk = mf.unescaped_key(); if (mk == "content") r.content = json::toString(mf.value()); else if (mk == "reasoning_content") r.reasoningChars = json::toString(mf.value()).size(); }
+                            else if (ck == "message") for (auto mf : cf.value().get_object()) { const std::string_view mk = mf.unescaped_key(); if (mk == "content") r.content = json::toString(mf.value()); else if (mk == "reasoning_content") { r.reasoning = json::toString(mf.value()); r.reasoningChars = r.reasoning.size(); } }
                         }
                         break;
                     }

@@ -4,6 +4,7 @@
 #include "json_util.hpp"
 #include "sub0squad/engine.hpp"
 #include "sub0squad/event_channel.hpp"
+#include "sub0squad/trace.hpp"
 #include "sub0squad/harness_web.hpp"
 #include "sub0squad/plan.hpp"
 #include "sub0squad/sandbox.hpp"
@@ -133,6 +134,7 @@ int runMockArchitect(const std::vector<std::string>& args)
 
 int runLlmArchitect(const std::vector<std::string>& args)
 {
+    std::setvbuf(stdout, nullptr, _IOLBF, 0);  // a killed job must not lose what it already printed
     const std::string mode = arg(args, "mode"), itemId = arg(args, "item");
     const fs::path dir = arg(args, "workflow-dir");
     const int attempt = std::atoi(arg(args, "attempt", "1").c_str());
@@ -172,13 +174,19 @@ int runLlmArchitect(const std::vector<std::string>& args)
     EngineProfile ep = *engine;
     ep.temperature = 0.2;
     std::vector<ChatMessage> convo = {{"system", system}, {"user", user}};
+    const fs::path tracePath = attemptDir / "conversation.md";
+    traceBegin(tracePath, std::string{"Conversation of the "} + mode + " job for " + itemId + ", attempt " + std::to_string(attempt), ep, 2500);
+    std::size_t tracedUpTo = 0;
     constexpr int kTurns = 3;
     double tokensIn = 0, tokensOut = 0;
     std::string lastError = "no reply";
     for (int turn = 0; turn < kTurns; ++turn) {
         events::progress(turn, kTurns + 1, turn == 0 ? "waiting for the engine" : "repairing");
+        traceSent(tracePath, turn, convo, tracedUpTo, -1);
+        tracedUpTo = convo.size();
         auto reply = chatCompleteMessages(ep, convo, 2500, timeoutSec);
-        if (!reply) { std::fprintf(stderr, "llm-architect: engine call failed: %s\n", reply.error().c_str()); return 2; }
+        if (!reply) { traceVerdict(tracePath, turn, "the engine call failed: " + reply.error()); std::fprintf(stderr, "llm-architect: engine call failed: %s\n", reply.error().c_str()); return 2; }
+        traceReply(tracePath, turn, *reply);
         writeFile(attemptDir / ("reply-" + std::to_string(turn) + ".txt"), reply->content);
         writeFile(attemptDir / "reply.txt", reply->content);
         tokensIn += reply->promptTokens; tokensOut += reply->completionTokens;
@@ -193,6 +201,7 @@ int runLlmArchitect(const std::vector<std::string>& args)
             if (!fragment) error = "the proposed division is invalid: " + fragment.error();
             else if (auto merged = Plan::amended(*plan, itemId, *fragment); !merged) error = merged.error();  // would it merge now, so the daemon's later merge is no surprise
             else {
+                traceVerdict(tracePath, turn, "accepted: a division into " + std::to_string(fragment->items.size()) + " items");
                 if (!writeFile(attemptDir / "fragment.json", fragment->toJson())) return 1;
                 std::printf("proposed a division of '%s' into %zu items%s\n", itemId.c_str(), fragment->items.size(), turn ? (" (after " + std::to_string(turn) + " correction" + (turn > 1 ? "s" : "") + ")").c_str() : "");
                 return 0;
@@ -202,6 +211,7 @@ int runLlmArchitect(const std::vector<std::string>& args)
             if (!parseCard(json, card)) error = "the rewritten card is not valid";
             else if (card.estimatedTokens() > 1500) error = "the rewritten card is over the token budget";
             else {
+                traceVerdict(tracePath, turn, "accepted: the card was rewritten");
                 if (!writeFile(dir / "items" / itemId / "card-override.json", cardJson(card))) return 1;
                 events::progress(kTurns, kTurns, "rewritten");
                 std::printf("rewrote the card of '%s' (about %d tokens)\n", itemId.c_str(), card.estimatedTokens());
@@ -209,6 +219,7 @@ int runLlmArchitect(const std::vector<std::string>& args)
             }
         }
         lastError = error;
+        traceVerdict(tracePath, turn, "rejected: " + error + (turn + 1 < kTurns ? "\n(sent back for a correction)" : "\n(no corrections left)"));
         std::printf("turn %d rejected: %s\n", turn, error.c_str());
         convo.push_back({"assistant", reply->content});
         convo.push_back({"user", "Your reply was rejected: " + error + ". Reply again with the corrected JSON object only, changing just what the error names."});

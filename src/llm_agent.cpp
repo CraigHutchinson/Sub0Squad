@@ -3,6 +3,7 @@
 #include "sub0squad/harness_web.hpp"
 #include "sub0squad/plan.hpp"
 #include "sub0squad/policy.hpp"
+#include "sub0squad/trace.hpp"
 #include "sub0squad/sandbox.hpp"
 
 #include <algorithm>
@@ -125,6 +126,7 @@ std::set<std::string> closure(const Plan& plan, const std::string& id)
 
 int runLlmAgent(const std::vector<std::string>& args)
 {
+    std::setvbuf(stdout, nullptr, _IOLBF, 0);  // a killed job must not lose what it already printed
     const fs::path dir = arg(args, "workflow-dir");
     const std::string itemId = arg(args, "item"), tier = arg(args, "tier", "local");
     const int attempt = std::atoi(arg(args, "attempt", "1").c_str());
@@ -241,6 +243,9 @@ int runLlmAgent(const std::vector<std::string>& args)
     // The agent checks its own work: write the files, run the item's tests (the same gate, without publishing), and on failure continue the
     // SAME conversation with the failure excerpt, up to `repairTurns` more times. Only then is it done.
     std::vector<ChatMessage> convo = {{"system", system}, {"user", userFinal}};
+    const fs::path tracePath = attemptDir / "conversation.md";
+    traceBegin(tracePath, "Conversation of " + itemId + ", attempt " + std::to_string(attempt) + " (" + tier + ")", *engine, maxTokens);
+    std::size_t tracedUpTo = 0;
     double totIn = static_cast<double>(extraIn), totOut = static_cast<double>(extraOut), lastWork = 0, decodeTps = 0, prefillTps = 0;
     int turns = 0;
     bool verified = false, haveFiles = false;
@@ -256,13 +261,17 @@ int runLlmAgent(const std::vector<std::string>& args)
             turnEngine.seed = static_cast<long long>(h & 0x7fffffffull);
             std::printf("seed for turn %d: %lld (run seed %lld)\n", turn, turnEngine.seed, engine->seed);
         }
+        traceSent(tracePath, turn, convo, tracedUpTo, turnEngine.seed);
+        tracedUpTo = convo.size();
         auto reply = chatCompleteMessages(turnEngine, convo, maxTokens, timeoutSec);
         if (!reply) {
+            traceVerdict(tracePath, turn, "the engine call failed: " + reply.error());
             std::fprintf(stderr, "llm-agent: engine call failed: %s\n", reply.error().c_str());
             if (!haveFiles) return 2;
             break;  // keep the files of the earlier turn
         }
         ++turns;
+        traceReply(tracePath, turn, *reply);
         writeFile(attemptDir / ("reply-" + std::to_string(turn) + ".txt"), reply->content);
         writeFile(attemptDir / "reply.txt", reply->content);
         const Parsed parsed = parseReply(reply->content, allowed);
@@ -276,6 +285,7 @@ int runLlmAgent(const std::vector<std::string>& args)
         std::printf("turn %d, engine %s: %ld prompt tokens (system %ld, card %ld, feedback %ld), %ld completion tokens, finish=%s, %zu file(s), %zu rejected chars\n",
                     turn, engine->name.c_str(), reply->promptTokens, tSystem, tCard, tFeedback, reply->completionTokens, reply->finishReason.c_str(), parsed.files.size(), parsed.rejectedChars);
         if (parsed.files.empty()) {
+            traceVerdict(tracePath, turn, "no usable files in the reply (finish " + reply->finishReason + ")");
             if (turn == repairTurns) break;
             convo.push_back({"assistant", reply->content});
             convo.push_back({"user", "Your reply contained none of the requested files. Reply with the complete content of every file in the required format: === FILE: <path> === ... === END FILE ==="});
@@ -285,6 +295,7 @@ int runLlmAgent(const std::vector<std::string>& args)
         for (const auto& [path, text] : parsed.files) filesKey += path + "\n" + text + "\n";
         if (turn > 0 && filesKey == previousFiles) {  // the same files again: another turn would repeat the same mistake, hand the item back to the ladder
             stagnated = true;
+            traceVerdict(tracePath, turn, "stagnated: the repair turn returned identical files, so the self-check loop stopped");
             events::note("stagnated: the repair turn returned identical files");
             std::printf("turn %d returned files identical to the previous turn: stopping the self-check loop (stagnated)\n", turn);
             break;
@@ -297,6 +308,7 @@ int runLlmAgent(const std::vector<std::string>& args)
         if (plan->harness != "web-static") break;
         const int rc = runHarnessGate({"--workflow-dir", dir.string(), "--item", itemId, "--attempt", std::to_string(attempt), "--no-publish", "1"});
         lastGate = slurp(attemptDir / "gate.txt");
+        traceVerdict(tracePath, turn, rc == 0 ? "self-check passed: the item's tests pass" : lastGate);
         events::note(rc == 0 ? "self-check passed" : "self-check failed");
         if (rc == 0) { verified = true; break; }
         if (turn == repairTurns) break;

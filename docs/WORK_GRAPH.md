@@ -382,3 +382,27 @@ needs to write a plan that suits the harness.
 Next: a model-backed overseer for the `owner` class that proposes options (not only a diagnosis); harness facts per project type (C++ builds
 and tests will have their own); the briefing attached to any request, not only escalations (a node's question, a part's send-up proposal); and a
 one-click "copy as prompt" in the portal.
+
+## 18. Traceability: what is kept for every attempt and job (2026-11-10)
+
+Question from the owner, after a division of `ui-page` failed: is the conversation, the thinking, persisted for a job or a node, and can it be reached?
+What the first real runs actually kept, and what was missing:
+
+- **Kept:** per attempt, `prompt.txt` (the first system and user message), `reply.txt` and `reply-<turn>.txt` (each model answer), `gate.txt`, the files the
+  attempt wrote (`out/`) and the accepted outputs; per job, `spec.json`, `events.ndjson`, `exit.json` and the two output streams.
+- **Missing:** the *repair* prompts (the feedback the worker was sent between turns), the settings and seed of each call, the model's reasoning text
+  (the server returned it or not; the code only counted its characters), the numbers of each call, and the verdict after each turn. Worse, a job's
+  printed output was block buffered, so a job that was killed or timed out lost it: the failed `ui-page` division had run its first turn, been rejected for a
+  reason that was printed and then lost, and timed out during the correction (an architect job had 30 minutes of wall time for three turns of up to 28 minutes).
+  And the portal could open a node's files but not a job's logs.
+
+Now: every llm worker and architect writes `items/<node>/attempt-N/conversation.md`, appended turn by turn and flushed at once: the settings of the call
+(engine, model, sampling, request seed), every message sent (the full first prompt, then only what was new each turn), each reply with its tokens, speed,
+finish reason and the reasoning text when the server returns it, and the verdict that followed (the validation error, the gate output, "accepted",
+"stagnated"). Job output is line buffered. Architect jobs get wall time for all three turns. The portal opens a job's `stdout`, `stderr`, `exit` and
+events from the Jobs tables and from a node's drawer (`@jobs/<job>/run-N/<file>`, a fixed list of names under the jobs directory), and shows a job's
+note ("wall time budget exceeded") next to its state. The conversation file is in the node's Artifacts list like any other file. Thinking is
+off for these workers by default, so reasoning will normally be empty; it is kept when a profile turns thinking on.
+
+Not yet: one place that shows a node's whole history across attempts (the keyed history of section 10), a side-by-side of two attempts, and the
+trace of the V's integration rounds and send-downs as a story.

@@ -416,6 +416,26 @@ const char* mimeOf(const std::string& path)
     return "text/plain; charset=utf-8";
 }
 
+// A job's own files (its output and error streams, events, exit record) live beside the workflows, not inside one: `@jobs/j-000006/run-1/stdout.log`.
+bool jobFilePath(const fs::path& sandbox, const std::string& rel, fs::path& out)
+{
+    if (rel.rfind("@jobs/", 0) != 0) return false;
+    std::vector<std::string> parts;
+    std::stringstream ss(rel.substr(6));
+    for (std::string x; std::getline(ss, x, '/');) parts.push_back(x);
+    const auto digitsAfter = [](const std::string& s, const char* prefix) {
+        const std::string pre = prefix;
+        return s.size() > pre.size() && s.compare(0, pre.size(), pre) == 0 && std::all_of(s.begin() + static_cast<long>(pre.size()), s.end(), [](unsigned char c) { return std::isdigit(c); });
+    };
+    static const std::set<std::string> files{"stdout.log", "stderr.log", "events.ndjson", "exit.json", "spec.json", "shim.json"};
+    if (parts.size() != 3 || !digitsAfter(parts[0], "j-") || !digitsAfter(parts[1], "run-") || !files.count(parts[2])) return false;
+    std::error_code ec;
+    const fs::path jobs = fs::weakly_canonical(sandbox.parent_path().parent_path() / "jobs", ec);
+    if (ec) return false;
+    out = jobs / parts[0] / parts[1] / parts[2];
+    return true;
+}
+
 // Everything worth opening in a sandbox, without the duplicated per-attempt workspaces (`ws/`): path and size.
 std::string filesJson(const fs::path& root)
 {
@@ -603,7 +623,7 @@ int servePortal(int port, const std::function<std::string()>& state, const std::
             else if (path == "/api/file") {  // one file as plain text (the request, a prompt, a reply, a gate output, an artifact), capped
                 const std::string root = sandboxOf(live, queryParam(target, "wf"));
                 fs::path full;
-                if (root.empty() || !insideSandbox(root, queryParam(target, "p"), full) || !fs::is_regular_file(full)) respond(c, 404, "text/plain", "not found\n");
+                if (root.empty() || !(jobFilePath(root, queryParam(target, "p"), full) || insideSandbox(root, queryParam(target, "p"), full)) || !fs::is_regular_file(full)) respond(c, 404, "text/plain", "not found\n");
                 else { std::string body = slurp(full); const bool cut = body.size() > 400000; if (cut) body.resize(400000); respond(c, 200, "text/plain; charset=utf-8", body + (cut ? "\n[... cut at 400 KB]\n" : "")); }
             }
             else if (onSite && path.rfind("/site/", 0) != 0) respond(c, 404, "text/plain", "this port serves /site/<workflow>/ only\n");

@@ -325,7 +325,7 @@ JobSpec architectJob(const WorkflowRecord& wf, const WorkflowSettings& st, const
 {
     const auto engine = wf.spec.engineFor("architect");
     const bool llm = wf.spec.agent == "llm" && engine.has_value();
-    JobSpec s = baseJob(wf, st, mode, llm ? "llm-architect" : "mock-architect", "local", llm ? 1800 : 120);
+    JobSpec s = baseJob(wf, st, mode, llm ? "llm-architect" : "mock-architect", "local", llm ? 5400 : 120);  // three turns of up to 1700 s each: the first real timeout killed a correction mid-turn
     s.item = it.id;
     s.attempt = attempt;
     s.argv = {st.exe, llm ? "llm-architect" : "mock-architect", "--mode", mode, "--workflow-dir", wf.spec.sandboxDir, "--item", it.id, "--attempt", std::to_string(attempt)};
