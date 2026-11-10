@@ -105,3 +105,11 @@ out/build/dev/sub0squad serve --max-jobs 4 &                           # mock wo
 out/build/dev/sub0squad do "write a scientific calculator as a web page" --inject eval-tests:1 --inject engine
 out/build/dev/sub0squad guard --memory-mib 17500                       # before loading a model
 ```
+
+
+## 7. Update 2026-11-10: concurrency, memory, and the plan-act-iterate direction
+
+- Built and pushed (7df930b): engine-slot leases (`submit --lease`, engine jobs lease their endpoint at `slots=`), near-pass repair (gate exit 3), retries seeded from the best earlier code.
+- Measured on the Qwen3.6 snap (4 server slots): aggregate decode 6.95 tok/s at 1 request, 12.0 at 4 (1.7x, warm). **But 4 concurrent long prompts pushed the server to 25.4 GB resident on 29.6 GiB, 8 GB swap filled and decode fell to 0.6 tok/s.** Use `slots=2` here until leases are memory-aware (docs/WORK_GRAPH.md section 5).
+- The modular calculator plan (`docs/calculator-web-modular.plan.json`, supplied with `project plan`) is untested end to end: the run was cancelled while swapping. No finished calculator page exists yet.
+- Owner direction: per-item plan-act-iterate with size verdicts, strong delegation (skeleton plus signature delegation, rearchitect and respond back), a work graph plus an information graph: docs/WORK_GRAPH.md.

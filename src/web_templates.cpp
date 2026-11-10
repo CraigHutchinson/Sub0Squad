@@ -71,6 +71,8 @@ export function createDom(keys = DEFAULT_KEYS) {
 
 const char* kStubCalc = "// harness stub: the developer replaces this file\nexport function evaluate(expr, options = {}) { throw new Error('not implemented'); }\n";
 const char* kStubUi = "// harness stub: the developer replaces this file\nexport function mount(document) { throw new Error('not implemented'); }\n";
+const char* kStubLexer = "// harness stub: the developer replaces this file\nexport function tokenize(text) { throw new Error('not implemented'); }\n";
+const char* kStubFunctions = "// harness stub: the developer replaces this file\nexport function constant(name) { throw new Error('not implemented'); }\nexport function callFunction(name, args, degrees = false) { throw new Error('not implemented'); }\nexport function factorial(n) { throw new Error('not implemented'); }\n";
 const char* kStubIndex = "<!doctype html><title>stub</title>\n";
 
 const char* kCalc = R"JS(const CONST = { pi: Math.PI, e: Math.E, tau: 2 * Math.PI };
@@ -356,7 +358,7 @@ const std::vector<HarnessFile>& webScaffold()
 {
     static const std::vector<HarnessFile> files = {
         {"package.json", kPackage}, {"serve.mjs", kServe}, {"tests/helpers/dom-stub.mjs", kDomStub},
-        {"src/calc.js", kStubCalc}, {"src/ui.js", kStubUi}, {"index.html", kStubIndex},
+        {"src/calc.js", kStubCalc}, {"src/lexer.js", kStubLexer}, {"src/functions.js", kStubFunctions}, {"src/ui.js", kStubUi}, {"index.html", kStubIndex},
     };
     return files;
 }

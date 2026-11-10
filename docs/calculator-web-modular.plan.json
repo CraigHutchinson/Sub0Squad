@@ -1,0 +1,289 @@
+{
+ "schema": "plan-2",
+ "task": "calculator-web",
+ "harness": "web-static",
+ "project": "sci-calc",
+ "reasons": [
+  "modular plan: four independent test items run together, then the lexer and function library in parallel, then the parser, then the page",
+  "interfaces are fixed in the cards so modules do not wait on each other's code"
+ ],
+ "items": [
+  {
+   "id": "lexer-tests",
+   "title": "Lexer tests",
+   "persona": "tester",
+   "complexity": 1,
+   "goal": "Write tests for the tokenizer module before it exists",
+   "files": [
+    "tests/lexer.test.mjs"
+   ],
+   "deps": [],
+   "card": {
+    "context": "A developer will implement this module against your tests, so they must be correct and specific.",
+    "contract": "src/lexer.js exports tokenize(text) returning an array of tokens {type, value, pos}. type is 'num' (value is a Number: 12, 1.5, .5, 1.5e2), 'id' (value is the lowercase name: letters, digits and underscore, starting with a letter), 'op' (value is one of + - * / % ^ !), 'lp' (value '('), 'rp' (value ')') or 'comma' (value ','). pos is the index of the token's first character. Whitespace is skipped. Any other character throws an Error whose message contains the character and its position. An empty string returns [].",
+    "acceptance": [
+     "uses node:test and node:assert/strict and imports { tokenize } from '../src/lexer.js'",
+     "at least 8 test cases: each token type, decimals and exponents, whitespace, positions, an empty string, an unexpected character",
+     "tests do not depend on each other"
+    ],
+    "include": [],
+    "notes": [
+     "Output only tests/lexer.test.mjs"
+    ]
+   },
+   "gate": {
+    "kind": "node-test",
+    "tests": [
+     "tests/lexer.test.mjs"
+    ],
+    "minTests": 6,
+    "mustFailOnStub": true
+   }
+  },
+  {
+   "id": "fn-tests",
+   "title": "Function library tests",
+   "persona": "tester",
+   "complexity": 1,
+   "goal": "Write tests for the math function module before it exists",
+   "files": [
+    "tests/functions.test.mjs"
+   ],
+   "deps": [],
+   "card": {
+    "context": "A developer will implement this module against your tests, so they must be correct and specific.",
+    "contract": "src/functions.js exports: constant(name) returns pi, e or tau as a number, or undefined for any other name; factorial(n) returns n! for a non-negative integer n and throws an Error for a negative or non-integer n; callFunction(name, args, degrees) returns a number. args is an array. One-argument functions (exactly one arg): sin cos tan asin acos atan sinh cosh tanh ln log (base 10) log2 sqrt cbrt abs exp floor ceil round fact. Two-argument functions (exactly two args): pow min max. When degrees is true, sin cos tan take their argument in degrees and asin acos atan return degrees. It throws an Error for an unknown name, a wrong argument count (min and max take exactly two arguments), sqrt of a negative, and ln or log of a value that is not positive.",
+    "acceptance": [
+     "uses node:test and node:assert/strict and imports { constant, callFunction, factorial } from '../src/functions.js'",
+     "at least 10 test cases: constants, factorial, trig in radians and degrees, logs, roots, pow min max, and every error case",
+     "floating point results are compared with a tolerance of 1e-9, never with strict equality"
+    ],
+    "include": [],
+    "notes": [
+     "Output only tests/functions.test.mjs"
+    ]
+   },
+   "gate": {
+    "kind": "node-test",
+    "tests": [
+     "tests/functions.test.mjs"
+    ],
+    "minTests": 8,
+    "mustFailOnStub": true
+   }
+  },
+  {
+   "id": "eval-tests",
+   "title": "Engine tests",
+   "persona": "tester",
+   "complexity": 2,
+   "goal": "Write tests for the calculator expression engine before it exists",
+   "files": [
+    "tests/eval.test.mjs"
+   ],
+   "deps": [],
+   "card": {
+    "context": "A developer will implement the engine against your tests, so they must be correct and specific.",
+    "contract": "src/calc.js exports evaluate(expr, options) returning a number. expr is a string; options.degrees (boolean, default false) makes sin cos tan take degrees and asin acos atan return degrees. Operators: + - * / % ^ (right associative; binds tighter than unary minus, so -2^2 is -4), postfix ! (factorial), parentheses, unary + and -. Numbers: 12, 1.5, .5, 1.5e2. Constants: pi e tau. One-argument functions: sin cos tan asin acos atan sinh cosh tanh ln log (base 10) log2 sqrt cbrt abs exp floor ceil round fact. Two-argument functions: pow min max. Invalid input must throw an Error: division or modulo by zero, unknown names or functions, wrong argument count, sqrt of a negative, unbalanced parentheses, a trailing operator, unexpected characters.",
+    "acceptance": [
+     "uses node:test and node:assert/strict and imports { evaluate } from '../src/calc.js'",
+     "at least 10 test cases: operators, precedence, ^ associativity, factorial, decimals, constants, radians and degrees, logs, two-argument functions, error cases",
+     "floating point results are compared with a tolerance of 1e-9, never with strict equality",
+     "tests do not depend on each other"
+    ],
+    "include": [],
+    "notes": [
+     "Output only tests/eval.test.mjs"
+    ]
+   },
+   "gate": {
+    "kind": "node-test",
+    "tests": [
+     "tests/eval.test.mjs"
+    ],
+    "minTests": 8,
+    "mustFailOnStub": true
+   }
+  },
+  {
+   "id": "ui-tests",
+   "title": "Page tests",
+   "persona": "tester",
+   "complexity": 2,
+   "goal": "Write tests for the calculator page's behaviour using the harness fake DOM",
+   "files": [
+    "tests/ui.test.mjs"
+   ],
+   "deps": [],
+   "card": {
+    "context": "A developer will build the page against your tests. The fake DOM replaces a browser.",
+    "contract": "src/ui.js exports mount(document). It uses #expr (input, .value), #result (output, .textContent), #degrees (checkbox, .checked) and every button[data-key] from document.querySelectorAll('button[data-key]'). Clicking a button appends its data-key to #expr.value, except: 'C' clears #expr and #result; 'DEL' removes the last character of #expr; '=' evaluates #expr.value with evaluate(value, { degrees: #degrees.checked }) from ./calc.js and sets #result.textContent to the number, or to 'Error: ' + message if it throws. A keydown event with key 'Enter' on #expr also evaluates. index.html contains elements with ids expr, result and degrees, a button with data-key=\"=\", and <script type=\"module\" src=\"src/ui.js\">. The harness file tests/helpers/dom-stub.mjs exports createDom() returning { document, expr, result, degrees, buttons, press(key), keydown(key) }.",
+    "acceptance": [
+     "imports createDom from './helpers/dom-stub.mjs', mount from '../src/ui.js', and uses node:test and node:assert/strict",
+     "at least 6 tests: building an expression, equals, clear, delete, error display, the Enter key, degrees mode, and one that reads index.html with node:fs and checks the required ids",
+     "each test creates its own dom with createDom() and calls mount(dom.document)"
+    ],
+    "include": [],
+    "notes": [
+     "Output only tests/ui.test.mjs"
+    ]
+   },
+   "gate": {
+    "kind": "node-test",
+    "tests": [
+     "tests/ui.test.mjs"
+    ],
+    "minTests": 6,
+    "mustFailOnStub": true
+   }
+  },
+  {
+   "id": "lexer",
+   "title": "Lexer",
+   "persona": "developer",
+   "complexity": 1,
+   "goal": "Implement the tokenizer so the provided tests pass",
+   "files": [
+    "src/lexer.js"
+   ],
+   "deps": [
+    "lexer-tests"
+   ],
+   "card": {
+    "context": "Replace the harness stub; the tests below are the specification.",
+    "contract": "src/lexer.js exports tokenize(text) returning an array of tokens {type, value, pos}. type is 'num' (value is a Number: 12, 1.5, .5, 1.5e2), 'id' (value is the lowercase name: letters, digits and underscore, starting with a letter), 'op' (value is one of + - * / % ^ !), 'lp' (value '('), 'rp' (value ')') or 'comma' (value ','). pos is the index of the token's first character. Whitespace is skipped. Any other character throws an Error whose message contains the character and its position. An empty string returns [].",
+    "acceptance": [
+     "every test in tests/lexer.test.mjs passes",
+     "plain ES module, no dependencies"
+    ],
+    "include": [
+     "tests/lexer.test.mjs"
+    ],
+    "notes": [
+     "Output only src/lexer.js"
+    ]
+   },
+   "gate": {
+    "kind": "node-test",
+    "tests": [
+     "tests/lexer.test.mjs"
+    ],
+    "minTests": 6,
+    "mustFailOnStub": false
+   }
+  },
+  {
+   "id": "fn",
+   "title": "Function library",
+   "persona": "developer",
+   "complexity": 1,
+   "goal": "Implement the math function module so the provided tests pass",
+   "files": [
+    "src/functions.js"
+   ],
+   "deps": [
+    "fn-tests"
+   ],
+   "card": {
+    "context": "Replace the harness stub; the tests below are the specification.",
+    "contract": "src/functions.js exports: constant(name) returns pi, e or tau as a number, or undefined for any other name; factorial(n) returns n! for a non-negative integer n and throws an Error for a negative or non-integer n; callFunction(name, args, degrees) returns a number. args is an array. One-argument functions (exactly one arg): sin cos tan asin acos atan sinh cosh tanh ln log (base 10) log2 sqrt cbrt abs exp floor ceil round fact. Two-argument functions (exactly two args): pow min max. When degrees is true, sin cos tan take their argument in degrees and asin acos atan return degrees. It throws an Error for an unknown name, a wrong argument count (min and max take exactly two arguments), sqrt of a negative, and ln or log of a value that is not positive.",
+    "acceptance": [
+     "every test in tests/functions.test.mjs passes",
+     "plain ES module, no dependencies"
+    ],
+    "include": [
+     "tests/functions.test.mjs"
+    ],
+    "notes": [
+     "Output only src/functions.js"
+    ]
+   },
+   "gate": {
+    "kind": "node-test",
+    "tests": [
+     "tests/functions.test.mjs"
+    ],
+    "minTests": 6,
+    "mustFailOnStub": false
+   }
+  },
+  {
+   "id": "calc",
+   "title": "Expression parser and evaluator",
+   "persona": "developer",
+   "complexity": 3,
+   "goal": "Implement the expression engine so the provided tests pass",
+   "files": [
+    "src/calc.js"
+   ],
+   "deps": [
+    "eval-tests",
+    "lexer",
+    "fn"
+   ],
+   "card": {
+    "context": "Replace the stub src/calc.js. The lexer (src/lexer.js) and the function library (src/functions.js) already exist and pass their own tests; use them, do not rewrite them.",
+    "contract": "export function evaluate(expr, options = {}) returning a number; options.degrees switches trig functions to degrees. Use tokenize(text) from ./lexer.js (tokens {type: num|id|op|lp|rp|comma, value, pos}) and constant(name), callFunction(name, args, degrees), factorial(n) from ./functions.js. This file only parses and evaluates: a recursive descent parser with precedence + - then * / % then unary + - then ^ (right associative, binds tighter than unary minus, so -2^2 is -4 and 2^-1 is 0.5) then postfix ! then primary (number, constant, parenthesised expression, or name(args) with comma separated args). Throw an Error for division or modulo by zero, an unknown name, unbalanced parentheses, a trailing operator and trailing tokens. min and max take exactly two arguments.",
+    "acceptance": [
+     "every test in tests/eval.test.mjs passes",
+     "plain ES module, no dependencies, no eval() and no new Function()"
+    ],
+    "include": [
+     "tests/eval.test.mjs"
+    ],
+    "notes": [
+     "Output only src/calc.js",
+     "An id not followed by '(' is a constant: constant(name) returns undefined for unknown names, which must throw"
+    ]
+   },
+   "gate": {
+    "kind": "node-test",
+    "tests": [
+     "tests/eval.test.mjs"
+    ],
+    "minTests": 8,
+    "mustFailOnStub": false
+   }
+  },
+  {
+   "id": "ui",
+   "title": "Calculator page",
+   "persona": "developer",
+   "complexity": 2,
+   "goal": "Build the page, its script and its style so the provided tests pass and it works in a browser",
+   "files": [
+    "index.html",
+    "src/ui.js",
+    "style.css"
+   ],
+   "deps": [
+    "ui-tests",
+    "calc"
+   ],
+   "card": {
+    "context": "Replace the stubs index.html and src/ui.js; add style.css. The tests below are the specification.",
+    "contract": "src/ui.js: export function mount(document) as described in the tests; import { evaluate } from './calc.js'; at the end call mount(document) when typeof document !== 'undefined'. index.html: a page with <input id=\"expr\">, <output id=\"result\">, <input type=\"checkbox\" id=\"degrees\"> with a label, and a button for each key as <button data-key=\"KEY\">KEY</button>, then <script type=\"module\" src=\"src/ui.js\"></script>, and <link rel=\"stylesheet\" href=\"style.css\">. Keys: 0-9 . + - * / % ^ ( ) ! pi e sin( cos( tan( asin( acos( atan( ln( log( sqrt( C DEL =",
+    "acceptance": [
+     "every test in tests/ui.test.mjs passes",
+     "the page works in a browser served by node serve.mjs",
+     "style.css is simple and readable, no frameworks"
+    ],
+    "include": [
+     "tests/ui.test.mjs"
+    ],
+    "notes": [
+     "Format the result with Number(value.toPrecision(12)) so 0.1+0.2 shows 0.3",
+     "Output index.html, src/ui.js and style.css"
+    ]
+   },
+   "gate": {
+    "kind": "node-test",
+    "tests": [
+     "tests/ui.test.mjs"
+    ],
+    "minTests": 6,
+    "mustFailOnStub": false
+   }
+  }
+ ]
+}
