@@ -5,6 +5,7 @@
 #include <sstream>
 #include "sub0squad/harness_web.hpp"
 #include "sub0squad/briefing.hpp"
+#include "sub0squad/division.hpp"
 #include "sub0squad/edits.hpp"
 #include "sub0squad/overseer.hpp"
 #include "sub0squad/recall.hpp"
@@ -465,6 +466,26 @@ int main()
         CHECK(!applyEdits("=== EDIT: ../evil.js ===\n<<<<<<< SEARCH\nx\n=======\ny\n>>>>>>> REPLACE\n=== END EDIT ===", files, allowed, err) && err.find("not one of the files") != std::string::npos);
         CHECK(!applyEdits("=== EDIT: src/a.js ===\n<<<<<<< SEARCH\nfoo\n=======\nbar\n=== END EDIT ===", files, allowed, err) && err.find("not closed") != std::string::npos);
         CHECK(!applyEdits("no edits here", files, allowed, err) && err.find("no edit blocks") != std::string::npos);
+    }
+    { // The division the 9B wrote three times: tests for the lexer, parts for the functions and the parser, no part for src/lexer.js. The harness completes it.
+        Plan base; base.task = "x"; base.harness = "web-static";
+        auto gate = [](const char* t, bool stub) { GateSpec g; g.kind = "node-test"; g.tests = {t}; g.minTests = 3; g.mustFailOnStub = stub; return g; };
+        WorkItem et; et.id = "eval-tests"; et.persona = "tester"; et.files = {"tests/eval.test.mjs"}; et.gate = gate("tests/eval.test.mjs", true);
+        WorkItem eng; eng.id = "engine"; eng.persona = "developer"; eng.files = {"src/calc.js", "src/lexer.js", "src/functions.js"}; eng.deps = {"eval-tests"}; eng.complexity = 3; eng.gate = gate("tests/eval.test.mjs", false);
+        base.items = {et, eng};
+        Plan frag; frag.task = "x"; frag.harness = "web-static";
+        WorkItem lx; lx.id = "lexer"; lx.persona = "tester"; lx.files = {"tests/lexer.test.mjs"}; lx.gate = gate("tests/lexer.test.mjs", true);
+        WorkItem fn; fn.id = "functions"; fn.persona = "developer"; fn.files = {"src/functions.js"}; fn.deps = {"lexer"}; fn.gate = gate("tests/lexer.test.mjs", false);
+        WorkItem ps; ps.id = "parser"; ps.persona = "developer"; ps.files = {"src/calc.js"}; ps.deps = {"lexer", "functions"}; ps.gate = gate("tests/lexer.test.mjs", false);
+        frag.items = {lx, fn, ps};
+        CHECK(!Plan::amended(base, "engine", frag).has_value());                       // as written: src/lexer.js is delivered by no part
+        const auto added = completeDivision(frag, *base.find("engine"));
+        CHECK(added.size() == 1 && added[0].find("src/lexer.js") != std::string::npos);
+        const WorkItem* impl = frag.find("impl-lexer");
+        CHECK(impl && impl->persona == "developer" && impl->files == std::vector<std::string>{"src/lexer.js"} && impl->deps == std::vector<std::string>{"lexer"} && impl->gate.tests == std::vector<std::string>{"tests/lexer.test.mjs"});
+        CHECK(std::find(frag.find("parser")->deps.begin(), frag.find("parser")->deps.end(), "impl-lexer") != frag.find("parser")->deps.end());   // the parser waits for the lexer's implementation
+        CHECK(Plan::fromJson(frag.toJson()).has_value());
+        CHECK(completeDivision(frag, *base.find("engine")).empty());                  // nothing left to add
     }
     return finish();
 }

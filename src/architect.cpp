@@ -3,6 +3,7 @@
 // Each is an ordinary job and counts as an attempt. The mock versions are deterministic stand-ins for tests.
 #include "json_util.hpp"
 #include "sub0squad/engine.hpp"
+#include "sub0squad/division.hpp"
 #include "sub0squad/event_channel.hpp"
 #include "sub0squad/trace.hpp"
 #include "sub0squad/harness_web.hpp"
@@ -10,6 +11,7 @@
 #include "sub0squad/sandbox.hpp"
 
 #include <algorithm>
+#include <set>
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
@@ -198,6 +200,11 @@ int runLlmArchitect(const std::vector<std::string>& args)
         if (json.empty()) error = "the reply contained no JSON object";
         else if (mode == "decompose") {
             auto fragment = Plan::fromJson(json);
+            if (fragment) {
+                const auto completed = completeDivision(*fragment, it);
+                for (const auto& c : completed) { traceVerdict(tracePath, turn, "the harness completed the division: it forgot " + c); std::printf("completed the division: added a part for %s\n", c.c_str()); }
+                if (!completed.empty()) { auto again = Plan::fromJson(fragment->toJson()); if (again) fragment = std::move(again); }   // re-validate with the added parts
+            }
             if (!fragment) error = "the proposed division is invalid: " + fragment.error();
             else if (auto merged = Plan::amended(*plan, itemId, *fragment); !merged) error = merged.error();  // would it merge now, so the daemon's later merge is no surprise
             else {
@@ -218,6 +225,7 @@ int runLlmArchitect(const std::vector<std::string>& args)
                 return 0;
             }
         }
+        if (turn > 0 && reply->content == convo[convo.size() - 2].content) { lastError = error + " (the correction changed nothing, so it was not asked again)"; traceVerdict(tracePath, turn, "rejected, and identical to the previous reply: " + error); break; }
         lastError = error;
         traceVerdict(tracePath, turn, "rejected: " + error + (turn + 1 < kTurns ? "\n(sent back for a correction)" : "\n(no corrections left)"));
         std::printf("turn %d rejected: %s\n", turn, error.c_str());
