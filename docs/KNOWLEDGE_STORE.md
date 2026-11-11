@@ -1,18 +1,22 @@
 # The knowledge store: the larger proving-ground project, and a core Sub0Squad component
 
 Status: design, 2026-11-11 (owner choice: something useful and relevant to Sub0Squad, the knowledge database). Working title only; the product name is the
-owner's call. It realises the knowledge register of `docs/WORK_GRAPH.md` section 19 (designed, never built) and replaces the line-grep in
-`src/recall.cpp`.
+owner's call.
+
+**It stays a sandbox project** (owner direction, 2026-11-11): it lives under `examples/`, is built by the squad like any other sandbox project, and is never
+linked into the daemon. It is *related and comparable* to the squad's own knowledge register (`docs/WORK_GRAPH.md` section 19, designed, not built) and
+to `src/recall.cpp`: the same entry shape and the same questions, so its results can be set beside the real component's, but it is a separate artifact
+with its own spec. Whether the real register is ever built from it, beside it or by hand is a later and separate decision.
 
 ## 1. Why this one
 
-* **Useful to us:** the squad forgets everything between small jobs. The store is how it remembers lessons, pitfalls, facts, decisions and open
+* **Relevant to us:** the squad forgets everything between small jobs. The store is how it remembers lessons, pitfalls, facts, decisions and open
   questions, with evidence, so later plans and briefings start from experience (section 19).
 * **A real proving ground:** it is a native C++ library with durable storage, an index, a query language, lifecycle rules, a CLI and a web viewer:
   five or six layers with contracts between them, both harnesses (`cpp-cmake` for the core, `web-static` for the viewer), and checkable behaviour
   without a person.
-* **It dogfoods:** once it passes its own suite the squad adopts it (the register, the dreamer's output, recall). A defect found by the squad's own use
-  becomes a new test in the suite. The squad then keeps building the thing it depends on.
+* **Comparable:** the spec is the register's, so a recorded run can be put through both the sandbox store and `recall` and the answers compared. That
+  comparison is a measurement of the method (what a squad-built component does against a hand-built one), not an integration.
 * **Staged, so it measures rework:** each slice adds a layer or changes a contract the earlier slices assumed.
 
 ## 2. What it stores (from section 19, made exact)
@@ -53,7 +57,8 @@ the very case `docs/PROCESS_DESIGN.md` is built for.
    migration (`record-2`) with read compatibility for `record-1`. About 12 items.
 4. **Slice 4, store facade and compaction:** concurrency, snapshots, compaction; the TSan stress test. About 10 items.
 5. **Slice 5, the viewer:** the web part, built by the `web-static` harness over the exported JSON. About 6 items.
-6. **Slice 6, adoption:** `recall` and the briefing read through the store; the dreamer writes into it. Done by the squad on itself.
+6. **Slice 6, comparison:** load a recorded run's records into the store and answer a fixed set of recall questions with both the store and `src/recall.cpp`;
+   report where they agree, differ and which is better. Read-only on the real component; nothing is wired in.
 
 Total roughly 50 to 60 items: the size at which the per-item numbers of a run (section 3 of `PROVING_GROUND.md`) mean something.
 
@@ -64,15 +69,15 @@ Total roughly 50 to 60 items: the size at which the per-item numbers of a run (s
   mechanism as the web calculator's reference implementation).
 * **Sanitizers:** the integrator builds everything under ASan and UBSan, and slice 4 under TSan.
 * **Performance floor:** a fixed corpus of 100,000 entries must query in a stated time on this host (a regression gate, not a benchmark).
-* **Self-hosting check:** at slice 6 the squad's recall results over a recorded run must match the old line-grep on a set of fixed questions, or beat it
-  on a stated measure.
+* **Comparison check:** at slice 6 the store's answers to a fixed set of questions over a recorded run are set beside the line-grep's and judged on a stated
+  measure; the result is a report, not a gate.
 
 ## 6. Risks
 
 * **Too hard for a 9B at the storage layers.** That is information, not failure: it tells us where the ladder, divisions and contracts must carry the
   work, and which leaves need the larger local model. Slices 1 and 2 are the test of whether the method scales.
-* **A bug in the store corrupts the squad's memory.** The store is adopted only at slice 6, behind a flag that is off by default, with the old recall kept
-  until the golden comparison passes. The journal stays the authority; the store is a derived index of what the squad learned.
+* **Confusion with the real component.** The sandbox project has its own directory, name and spec version and nothing in the daemon depends on it, so a defect in it
+  cannot touch the squad's memory.
 * **Scope creep into a general database.** The entry shape is fixed; there are no user schemas, no SQL, no network service.
 
 ## 7. Prerequisites in the harness

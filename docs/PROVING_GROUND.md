@@ -13,7 +13,7 @@ previous one cannot.
 | 1 | calculator-web (exists) | `web-static` | 4 to 12 | the V, test-first, ladder, 9B workers, TAP feedback |
 | 2 | calculator-cpp (next) | `cpp-cmake` | 4 to 12 | a second toolchain: compile diagnostics as feedback, CMake, sanitizers, a CLI app, text-screen capture |
 | 3 | spreadsheet (web UI and native core) | both | 20 to 40 | reuse (the calculator engine becomes a part), cross-harness contracts, a dependency graph with cycles, UI capture |
-| 4 | **knowledge store** (native core, web viewer; `docs/KNOWLEDGE_STORE.md`) | both | 50 to 60 | depth: layers with versioned contracts, property and crash tests, model-based oracle, sanitizers; a component the squad then adopts |
+| 4 | **knowledge store** (native core, web viewer; `docs/KNOWLEDGE_STORE.md`) | both | 50 to 60 | depth: layers with versioned contracts, property and crash tests, model-based oracle, sanitizers; related to, and comparable with, the squad's own register (still a sandbox project, not adopted) |
 | side | CHIP-8 or 6502 emulator | `cpp-cmake` + capture | 15 to 30 | pixel/framebuffer capture as a gate (test ROMs show a known image) |
 
 Each rung reuses the one below, so a regression in a lower rung is visible in every higher one.
