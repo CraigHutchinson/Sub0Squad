@@ -109,7 +109,19 @@ Findings that are not yet fixed: the excerpt cuts expected and actual values at 
 frame); Python's `assertEqual` on a tuple prints a diff of the whole tuple, so a tester should compare the parts separately; the per-job timeout of 120 s
 for a gate may be short for a cold C++ build on a loaded host.
 
-## 7. Order of work
+## 7. The model bar: the 35B is the minimum (owner decision, 2026-11-11)
+
+Qwen3.6-35B-A3B (Q4_K_M, a mixture of experts with about 3B active parameters) is the **minimum model the workflow is proven on**. The 9B is a harder
+target than the workflow needs to show: on the first C++ run it spent over an hour without an accepted item, failing to compile test files that misused the
+scaffold's own helpers (catalogue rows 25 to 27). Hardening the harness against a model that weak was useful (it found rows 24 to 27), but proving the
+workflow, the V and the platforms needs a worker that is reliable enough that a failure points at the harness. The 9B stays as a stress target for
+harness hardening, not as the bar.
+
+Practice: one engine at a time (the 35B takes about 22 GB of the 30 GB host, so the 9B and the 35B cannot both be resident); the engine is a service job under
+the `run-ornith1` daemon (now the 35B on :8092, 4 slots of 8192 tokens, alias `qwen35`); the first proof runs are the C++, Python and web calculators from their
+blueprints, each recorded in `out/archive` with the build sha. A platform is proven when the same plan passes with zero manual mends.
+
+## 8. Order of work
 
 Done 2026-11-11: `harness_common` and the registry fields; `cpp-cmake` and `py-unittest` harnesses with reference files; triage routing; the shared
 calculator spec; `test_platforms` (real compiler and interpreter, no model).
