@@ -71,3 +71,16 @@ drafted, and a leaf's partial output is a legitimate contribution (a draft, a sk
   and integration jobs (one slot), let leaves use the rest, and re-run the structural step when enough leaf drafts have landed to inform it.
 - **Bar:** the share of contract amendments that originate from a leaf (up-transfer is used), the rework avoided per amendment (parts kept as drafts versus restarted), and rounds
   to integrate. Until the up-transfer exists, all three are zero by construction.
+
+## Widen before retrying (owner direction, 2026-11-11)
+
+A failure is first classified by the **scope it belongs to**, and only then handed to a worker. Retrying the same leaf is right for a wrong result in one file
+(a bug) and wrong for a gap between modules (a name one side needs that the other never promised), which no number of attempts at one file can close.
+The first run on the 9B lost an item to exactly that: a tester's file imported an export the contract never named, and the loop retried the developer six times.
+
+Built: the gate recognises an **interface gap** (a missing export, import, member or symbol, for JavaScript, C++ and Python), exits 6 with the names the tests
+import, and the policy takes the next rung up at once (the card is rewritten to name every export) before any further attempt at the leaf.
+
+To build, following the same rule: a cross-module review step that runs when a level's parts are first all drafted (before integration), comparing every name
+a test or caller uses with every name a module declares, and amending the contract through the V (`docs/PROCESS_DESIGN.md`, contract amendment up-transfer);
+and QA findings (duplicated helpers, a name defined twice) read at the same level, not only in the final report.

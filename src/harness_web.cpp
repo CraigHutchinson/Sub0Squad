@@ -108,136 +108,90 @@ std::string webFailureExcerpt(const std::string& tapOutput) { return parseTap(ta
 
 std::string blueprintJson(const std::string& name) { return name == "calculator-web" ? std::string{kCalculatorWeb} : std::string{}; }
 
-// ---- gate -----------------------------------------------------------------------------------------------------------------------
-int runHarnessGate(const std::vector<std::string>& args)
+// ---- gate: the shared flow with web hooks ----------------------------------------------------------------------------------------
+namespace {
+
+std::string webPrecheck(const fs::path& out, const fs::path& ws)
 {
-    const auto a = parseArgs(args);
-    const fs::path dir = one(a, "workflow-dir");
-    const std::string itemId = one(a, "item");
-    const int attempt = std::atoi(one(a, "attempt", "1").c_str());
-    auto plan = Plan::fromJson(slurp(dir / "plan.json"));
-    if (!plan) { std::printf("GATE FAIL: cannot load plan: %s\n", plan.error().c_str()); return 1; }
-    const WorkItem* item = plan->find(itemId);
-    if (!item) { std::printf("GATE FAIL: no item '%s'\n", itemId.c_str()); return 1; }
-    const fs::path attemptDir = dir / "items" / itemId / ("attempt-" + std::to_string(attempt));
-    const fs::path out = attemptDir / "out";
-    const auto fail = [&](const std::string& why) {
-        const std::string msg = "GATE FAIL: " + why + "\n";
-        writeFile(attemptDir / "gate.txt", msg);
-        std::fputs(msg.c_str(), stdout);
-        return 1;
-    };
-
-    const bool coordinator = item->persona == "integrator";  // writes nothing: its tests run over the merged outputs of its parts
-    events::progress(0, 3, "allowlist");
-    std::set<std::string> allowed(item->files.begin(), item->files.end());
-    if (!coordinator && !fs::exists(out)) return fail("the agent wrote nothing");
-    if (!coordinator) for (auto& e : fs::recursive_directory_iterator(out)) {
-        if (!e.is_regular_file()) continue;
-        const std::string rel = fs::relative(e.path(), out).generic_string();
-        if (!allowed.count(rel)) return fail("'" + rel + "' is outside the item's editable files (" + item->files.front() + "...)");
-    }
-    if (!coordinator) for (const auto& f : item->files) if (!fs::exists(out / f) || fs::file_size(out / f) == 0) return fail("expected file '" + f + "' is missing or empty");
-
-    // Workspace: harness scaffold and stubs, then accepted outputs of dependencies, then this attempt's files.
-    const fs::path ws = attemptDir / "ws";
-    std::error_code ec;
-    fs::remove_all(ws, ec);
-    for (const auto& f : webScaffold()) writeFile(ws / f.path, f.content);
-    for (const auto& dep : closure(*plan, itemId)) copyTree(dir / "items" / dep / "accepted", ws);
-    if (!coordinator) copyTree(out, ws);
-
     // The cheapest check first: does every file the attempt wrote even parse? `node --check` names the file, the line and the token, where a test run only says
     // "1 test ran" (the first real failures were truncated and mixed-format files that no test could load).
-    if (!coordinator) {
-        std::string syntax;
-        for (auto& e : fs::recursive_directory_iterator(out)) {
-            const std::string ext = e.path().extension().string();
-            if (!e.is_regular_file() || (ext != ".js" && ext != ".mjs")) continue;
-            const std::string rel = fs::relative(e.path(), out).generic_string();
-            const Cmd c = run({"node", "--check", (ws / rel).string()}, ws, 15);
-            if (c.exitCode == 0) continue;
-            std::istringstream in(c.output);
-            std::string line, shown;
-            int n = 0;
-            while (std::getline(in, line) && n < 6) { if (line.find("node:internal") != std::string::npos || line.empty()) continue; shown += "  " + line.substr(0, 200) + "\n"; ++n; }
-            syntax += "syntax error in " + rel + ":\n" + shown;
-        }
-        if (!syntax.empty()) return fail(syntax + "The code does not parse, so no test could run. Fix the syntax first.");
+    std::string syntax;
+    for (auto& e : fs::recursive_directory_iterator(out)) {
+        const std::string ext = e.path().extension().string();
+        if (!e.is_regular_file() || (ext != ".js" && ext != ".mjs")) continue;
+        const std::string rel = fs::relative(e.path(), out).generic_string();
+        const Cmd c = run({"node", "--check", (ws / rel).string()}, ws, 15);
+        if (c.exitCode == 0) continue;
+        std::istringstream in(c.output);
+        std::string line, shown;
+        int n = 0;
+        while (std::getline(in, line) && n < 6) { if (line.find("node:internal") != std::string::npos || line.empty()) continue; shown += "  " + line.substr(0, 200) + "\n"; ++n; }
+        syntax += "syntax error in " + rel + ":\n" + shown;
     }
-    events::progress(1, 3, "test");
+    return syntax.empty() ? syntax : syntax + "The code does not parse, so no test could run. Fix the syntax first.";
+}
+
+std::string webBuildAndRun(const fs::path& ws, const std::vector<std::string>& tests, Tap& tap, bool& timedOut)
+{
     std::vector<std::string> cmd = {"node", "--test", "--test-reporter=tap"};
-    for (const auto& t : item->gate.tests) {
-        if (!fs::exists(ws / t)) return fail("gate test file '" + t + "' does not exist in the workspace");
-        cmd.push_back(t);
-    }
+    for (const auto& t : tests) cmd.push_back(t);
     const Cmd r = run(cmd, ws, 90);
-    const Tap tap = parseTap(r.output);
-    if (r.timedOut) return fail("tests timed out");
-    events::progress(2, 3, "judge");
-    if (tap.tests < 0) return fail("the test runner produced no result:\n" + r.output.substr(0, 700));
-    if (tap.tests < item->gate.minTests) {
-        // A test file that crashes while loading (a read at the top of the file, an import that does not exist) counts as one failed test with the
-        // message "test failed": say what the runner actually reported, or the model cannot know what to fix.
-        std::string why;
-        int shown = 0;
-        std::istringstream in(r.output);
-        for (std::string line; std::getline(in, line) && shown < 4;)
-            if (line.find("Error") != std::string::npos || line.find("ENOENT") != std::string::npos || line.find("Cannot find") != std::string::npos) { why += "  " + line.substr(0, 200) + "\n"; ++shown; }
-        return fail("only " + std::to_string(tap.tests) + " test(s) ran, at least " + std::to_string(item->gate.minTests) + " are required\n" + tap.excerpt +
-                    (why.empty() ? std::string{} : "The runner reported (a test file that fails while loading counts as one failed test):\n" + why));
+    timedOut = r.timedOut;
+    tap = parseTap(r.output);
+    if (r.timedOut) return {};
+    if (tap.tests < 0) return "the test runner produced no result:\n" + r.output.substr(0, 700);
+    // A test file that crashes while loading (a read at the top of the file, an import that does not exist) counts as one failed test with the message
+    // "test failed": say what the runner actually reported, or the model cannot know what to fix.
+    int shown = 0;
+    std::istringstream in(r.output);
+    for (std::string line; std::getline(in, line) && shown < 4;)
+        if (line.find("Error") != std::string::npos || line.find("ENOENT") != std::string::npos || line.find("Cannot find") != std::string::npos) { tap.note += "  " + line.substr(0, 200) + "\n"; ++shown; }
+    // A passing near-miss is judged by the shared flow; a run that exited non-zero with no failing test is still a failure.
+    if (r.exitCode != 0 && tap.fail == 0) tap.fail = 1;
+    return {};
+}
+
+std::string webOracle(const GateContext& c, const Tap& tap)
+{
+    // Test oracle (off unless SUB0SQUAD_ORACLE_DIR names a reference project): the same tests against an independent implementation. Tests the
+    // reference fails are suspect (the first real runs lost whole ladders to tests that expected positions off by one). Advisory by default,
+    // a gate with SUB0SQUAD_ORACLE_MODE=gate; the verdict is written to oracle.txt for the history either way.
+    (void)tap;
+    const char* od = std::getenv("SUB0SQUAD_ORACLE_DIR");
+    if (!od || !*od || !fs::exists(fs::path(od) / "src")) return {};
+    std::error_code ec;
+    const fs::path ows = c.attemptDir / "oracle-ws";
+    fs::remove_all(ows, ec);
+    for (const auto& f : webScaffold()) writeFile(ows / f.path, f.content);
+    copyTree(fs::path(od) / "src", ows / "src");
+    copyTree(c.out, ows);
+    for (auto& e : fs::recursive_directory_iterator(c.out)) {  // keep the tester's own files, not the reference's (the tests are what is being judged)
+        if (!e.is_regular_file()) continue;
+        const std::string rel = fs::relative(e.path(), c.out).generic_string();
+        if (rel.rfind("src/", 0) == 0) fs::copy_file(fs::path(od) / rel, ows / rel, fs::copy_options::overwrite_existing, ec);
     }
-    if (item->gate.mustFailOnStub) {
-        // A tester's tests must be about something real: against the stubs most of them must fail.
-        if (tap.fail * 10 < tap.tests * 7) return fail("only " + std::to_string(tap.fail) + " of " + std::to_string(tap.tests) + " tests fail against the stub: they do not exercise the contract");
-        // Test oracle (off unless SUB0SQUAD_ORACLE_DIR names a reference project): the same tests against an independent implementation. Tests the
-        // reference fails are suspect (the first real runs lost whole ladders to tests that expected positions off by one). Advisory by default,
-        // a gate with SUB0SQUAD_ORACLE_MODE=gate; the verdict is written to oracle.txt for the history either way.
-        if (const char* od = std::getenv("SUB0SQUAD_ORACLE_DIR"); od && *od && fs::exists(fs::path(od) / "src")) {
-            const fs::path ows = attemptDir / "oracle-ws";
-            fs::remove_all(ows, ec);
-            for (const auto& f : webScaffold()) writeFile(ows / f.path, f.content);
-            copyTree(fs::path(od) / "src", ows / "src");
-            copyTree(out, ows);
-            for (auto& e : fs::recursive_directory_iterator(out)) {  // keep the tester's own files, not the reference's (the tests are what is being judged)
-                if (!e.is_regular_file()) continue;
-                const std::string rel = fs::relative(e.path(), out).generic_string();
-                if (rel.rfind("src/", 0) == 0) fs::copy_file(fs::path(od) / rel, ows / rel, fs::copy_options::overwrite_existing, ec);
-            }
-            std::vector<std::string> ocmd = {"node", "--test", "--test-reporter=tap"};
-            for (const auto& t : item->gate.tests) ocmd.push_back(t);
-            const Cmd o = run(ocmd, ows, 90);
-            const Tap ot = parseTap(o.output);
-            std::string verdict;
-            if (ot.tests > 0 && ot.fail > 0)
-                verdict = "the reference implementation fails " + std::to_string(ot.fail) + " of " + std::to_string(ot.tests) + " of these tests, so they may be wrong:\n" + ot.excerpt;
-            writeFile(attemptDir / "oracle.txt", verdict.empty() ? "ORACLE AGREES\n" : "ORACLE DISAGREES: " + verdict);
-            if (!verdict.empty() && ot.fail * 100 > ot.tests * 15) {
-                const char* mode = std::getenv("SUB0SQUAD_ORACLE_MODE");
-                if (mode && std::string(mode) == "gate") return fail("test oracle: " + verdict + "Correct the expectations the reference contradicts, keep those it confirms.");
-                std::printf("ORACLE NOTE: %s", verdict.c_str());
-            }
-        }
-    } else if (tap.fail != 0 || r.exitCode != 0) {
-        const int code = fail(std::to_string(tap.fail) + " of " + std::to_string(tap.tests) + " tests failed\n" + tap.excerpt);
-        // Exit 5: the same tests fail with the same messages as the previous attempt. A model that cannot change the outcome by repairing is
-        // more likely facing a wrong test (the first real lexer run: the test expected positions off by one), so the policy sends the tests back.
-        if (attempt > 1) {
-            const auto failLines = [](const std::string& g) { std::set<std::string> s; std::istringstream in(g); for (std::string l; std::getline(in, l);) if (l.rfind("FAIL ", 0) == 0) s.insert(l); return s; };
-            const auto now = failLines(slurp(attemptDir / "gate.txt"));
-            const auto before = failLines(slurp(dir / "items" / itemId / ("attempt-" + std::to_string(attempt - 1)) / "gate.txt"));
-            if (!now.empty() && now == before && tap.tests >= 5 && tap.fail * 100 <= tap.tests * 40) return 5;  // two different attempts failing the same few tests the same way: the tests are suspect (the 9B tester wrote a regex for mount(document) against a contract of mount(document, evaluate))
-        }
-        // Exit 3 marks a near pass (at least 10 tests, at most 15 % failing): the decision policy repairs it instead of dividing the item.
-        return tap.tests >= 10 && tap.fail * 100 <= tap.tests * 15 ? 3 : code;
+    std::vector<std::string> ocmd = {"node", "--test", "--test-reporter=tap"};
+    for (const auto& t : c.item->gate.tests) ocmd.push_back(t);
+    const Cmd o = run(ocmd, ows, 90);
+    const Tap ot = parseTap(o.output);
+    std::string verdict;
+    if (ot.tests > 0 && ot.fail > 0)
+        verdict = "the reference implementation fails " + std::to_string(ot.fail) + " of " + std::to_string(ot.tests) + " of these tests, so they may be wrong:\n" + ot.excerpt;
+    writeFile(c.attemptDir / "oracle.txt", verdict.empty() ? "ORACLE AGREES\n" : "ORACLE DISAGREES: " + verdict);
+    if (!verdict.empty() && ot.fail * 100 > ot.tests * 15) {
+        const char* mode = std::getenv("SUB0SQUAD_ORACLE_MODE");
+        if (mode && std::string(mode) == "gate") return "test oracle: " + verdict + "Correct the expectations the reference contradicts, keep those it confirms.";
+        std::printf("ORACLE NOTE: %s", verdict.c_str());
     }
-    const bool publish = one(a, "no-publish").empty();  // the optimiser judges attempts without touching the accepted outputs
-    if (publish) { fs::remove_all(dir / "items" / itemId / "accepted", ec); if (coordinator) fs::create_directories(dir / "items" / itemId / "accepted", ec); else copyTree(out, dir / "items" / itemId / "accepted"); }
-    if (publish) writeFile(dir / "items" / itemId / "accepted.json", "{\"item\":\"" + itemId + "\",\"attempt\":" + std::to_string(attempt) + "}");
-    writeFile(attemptDir / "gate.txt", "GATE PASS\n");
-    events::progress(3, 3, "accepted");
-    std::printf("GATE PASS: %s attempt %d (%d tests, %d failing against stubs where expected)\n", itemId.c_str(), attempt, tap.tests, tap.fail);
-    return 0;
+    return {};
+}
+
+}  // namespace
+
+int runHarnessGate(const std::vector<std::string>& args)
+{
+    static const GateHooks hooks = {&webScaffold, &webPrecheck, &webBuildAndRun, &webOracle};
+    return runGateFlow(hooks, args);
 }
 
 // ---- integrator -----------------------------------------------------------------------------------------------------------------

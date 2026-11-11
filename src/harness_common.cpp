@@ -10,6 +10,7 @@
 #include <chrono>
 #include <cstdlib>
 #include <fstream>
+#include <regex>
 #include <sstream>
 
 namespace sub0squad::harnessutil {
@@ -146,6 +147,33 @@ std::set<std::string> closure(const Plan& plan, const std::string& id)
 }
 
 
+
+bool interfaceGap(const std::string& t)
+{
+    for (const char* sig : {"does not provide an export named", "cannot import name", "undefined reference to", "is not a member of", "no member named", "was not declared in this scope",
+                            "has no attribute", "is not a function", "is not exported", "No module named"})
+        if (t.find(sig) != std::string::npos) return true;
+    return false;
+}
+
+std::string importedNames(const fs::path& ws, const std::vector<std::string>& testFiles)
+{
+    static const std::regex js(R"(import\s*\{([^}]*)\}\s*from\s*['"]([^'"]+)['"])");
+    static const std::regex py(R"(from\s+([\w.]+)\s+import\s+([\w, ]+))");
+    std::string out;
+    for (const auto& t : testFiles) {
+        const std::string text = slurp(ws / t);
+        for (std::sregex_iterator it(text.begin(), text.end(), js), end; it != end; ++it) {
+            std::string names = (*it)[1].str();
+            names.erase(std::remove_if(names.begin(), names.end(), [](char c) { return c == '\n' || c == '\r'; }), names.end());
+            out += t + " imports {" + names + " } from " + (*it)[2].str() + "\n";
+        }
+        for (std::sregex_iterator it(text.begin(), text.end(), py), end; it != end; ++it)
+            if ((*it)[1].str().rfind("calc", 0) == 0) out += t + " imports " + (*it)[2].str() + " from " + (*it)[1].str() + "\n";
+    }
+    return out;
+}
+
 // ---- the shared gate ----------------------------------------------------------------------------------------------------------------
 namespace {
 std::set<std::string> failLines(const std::string& gateText)
@@ -194,23 +222,34 @@ int runGateFlow(const GateHooks& hooks, const std::vector<std::string>& args)
     for (const auto& dep : closure(*plan, itemId)) copyTree(dir / "items" / dep / "accepted", ws);
     if (!coordinator) copyTree(out, ws);
 
+    const auto failWidely = [&](const std::string& why) {
+        // An interface mismatch is not a bug in this one file: say which names the tests need, and exit 6 so the policy goes up a scope.
+        if (!interfaceGap(why)) return fail(why);
+        const std::string names = importedNames(ws, item->gate.tests);
+        fail("INTERFACE MISMATCH: " + why + (names.empty() ? std::string{} : "The tests need these names from the module (provide exactly these, with these spellings):\n" + names));
+        return 6;
+    };
     events::progress(1, 4, "check");
-    if (!coordinator && hooks.precheck) if (const std::string bad = hooks.precheck(out, ws); !bad.empty()) return fail(bad);
+    if (!coordinator && hooks.precheck) if (const std::string bad = hooks.precheck(out, ws); !bad.empty()) return failWidely(bad);
     for (const auto& t : item->gate.tests) if (!fs::exists(ws / t)) return fail("gate test file '" + t + "' does not exist in the workspace");
 
     events::progress(2, 4, "test");
     Tap tap;
     bool timedOut = false;
-    if (const std::string bad = hooks.buildAndRun(ws, item->gate.tests, tap, timedOut); !bad.empty()) return fail(bad);
+    if (const std::string bad = hooks.buildAndRun(ws, item->gate.tests, tap, timedOut); !bad.empty()) return failWidely(bad);
     if (timedOut) return fail("tests timed out");
     events::progress(3, 4, "judge");
     if (tap.tests < 0) return fail("the test runner produced no result");
     if (tap.tests < item->gate.minTests)
-        return fail("only " + std::to_string(tap.tests) + " test(s) ran, at least " + std::to_string(item->gate.minTests) + " are required\n" + tap.excerpt);
+        return failWidely("only " + std::to_string(tap.tests) + " test(s) ran, at least " + std::to_string(item->gate.minTests) + " are required\n" + tap.excerpt +
+                    (tap.note.empty() ? std::string{} : "The runner reported (a test file that fails while loading counts as one failed test):\n" + tap.note));
     if (item->gate.mustFailOnStub) {
         // A tester's tests must be about something real: against the stubs most of them must fail.
         if (tap.fail * 10 < tap.tests * 7) return fail("only " + std::to_string(tap.fail) + " of " + std::to_string(tap.tests) + " tests fail against the stub: they do not exercise the contract");
+        if (hooks.afterTesterJudged) if (const std::string bad = hooks.afterTesterJudged(GateContext{item, dir, attemptDir, out, ws, attempt}, tap); !bad.empty()) return fail(bad);
     } else if (tap.fail != 0) {
+        const std::string failedText = std::to_string(tap.fail) + " of " + std::to_string(tap.tests) + " tests failed\n" + tap.excerpt + tap.note;
+        if (interfaceGap(failedText)) return failWidely(failedText);
         const int code = fail(std::to_string(tap.fail) + " of " + std::to_string(tap.tests) + " tests failed\n" + tap.excerpt);
         if (attempt > 1) {
             const auto now = failLines(slurp(attemptDir / "gate.txt"));

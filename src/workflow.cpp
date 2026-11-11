@@ -487,6 +487,7 @@ std::vector<WorkflowAction> advance(const WorkflowRecord& wf, const JobStore& st
             ctx.splittable = v.item->files.size() > 1 || v.item->complexity >= 2;
             for (const JobRecord* g : v.gates) if (g->spec.attempt == n && g->exitJson.find("\"code\":3") != std::string::npos) ctx.nearPass = true;
             for (const JobRecord* g : v.gates) if (g->spec.attempt == n && g->exitJson.find("\"code\":5") != std::string::npos) ctx.repeatedFailure = true;
+            for (const JobRecord* g : v.gates) if (g->spec.attempt == n && g->exitJson.find("\"code\":6") != std::string::npos) ctx.interfaceGap = true;
             if (role == "agent" && latest->exitJson.find("\"code\":4") != std::string::npos) ctx.oversize = true;
             if (const Harness* hs = wf.plan ? findHarness(wf.plan->harness) : nullptr; hs && hs->mockFile) { ctx.frontierHasReference = !v.item->files.empty(); for (const auto& f : v.item->files) if (hs->mockFile(f, false).empty()) ctx.frontierHasReference = false; }
             ctx.decomposeTried = v.decomposeTried;

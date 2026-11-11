@@ -31,7 +31,10 @@ std::string diagnostics(const std::string& output, int maxErrors)
     std::string line, shown;
     int errors = 0, context = 0;
     while (std::getline(in, line)) {
-        if (line.find(" error: ") != std::string::npos || line.find(" error:") != std::string::npos) {
+        if (line.find("undefined reference to") != std::string::npos) {  // a link error: the symbol is the evidence ("collect2: error: ld returned 1" says nothing)
+            if (errors++ >= maxErrors) break;
+            shown += "  " + line.substr(0, 240) + "\n";
+        } else if (line.find(" error: ") != std::string::npos || line.find(" error:") != std::string::npos) {
             if (errors++ >= maxErrors) break;
             context = 2;
             shown += "  " + line.substr(0, 240) + "\n";

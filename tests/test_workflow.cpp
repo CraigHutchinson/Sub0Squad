@@ -299,6 +299,12 @@ int main()
         c.depth = 0; c.decomposeTried = true;
         CHECK(policy.decide(c).action == Action::retry);
     }
+    { RulePolicy policy; // Interface mismatch (gate exit 6): go up a scope at once (the card is rewritten to name every export), not another leaf attempt; once only.
+        DecisionContext c; c.workflow = "w"; c.item = "functions"; c.attempt = 1; c.localAttempts = 1; c.failedRole = "gate"; c.hasTesterDep = true; c.interfaceGap = true; c.totalAttempts = 1;
+        CHECK(policy.decide(c).action == Action::rearchitect);
+        c.rearchitectTried = true;
+        CHECK(policy.decide(c).action == Action::retry);
+    }
     { RulePolicy policy; // Repeated identical failure: the tests are sent back at once, once; afterwards the ordinary ladder applies.
         DecisionContext c; c.workflow = "w"; c.item = "lexer"; c.attempt = 2; c.localAttempts = 2; c.failedRole = "gate"; c.hasTesterDep = true; c.repeatedFailure = true; c.nearPass = true; c.totalAttempts = 2;
         CHECK(policy.decide(c).action == Action::reviseTests);

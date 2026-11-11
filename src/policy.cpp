@@ -59,6 +59,13 @@ Decision RulePolicy::decide(const DecisionContext& c) const
         d.reasons.push_back("the same tests failed with the same messages twice: repairing does not change the outcome, so the tests are suspect; send them back to the tester");
         return d;
     }
+    if (c.interfaceGap && !c.rearchitectTried) {
+        // Widen before retrying: a missing export or symbol is a gap between two modules' contracts, which a second attempt at one file cannot close.
+        d.action = Action::rearchitect;
+        d.tier = "local";
+        d.reasons.push_back("interface mismatch (a name the tests need is not provided): the contract is incomplete or the tests overreach, so the next scope up rewrites the card to name every export before another attempt at the file");
+        return d;
+    }
     if (c.oversize && !c.decomposeTried && c.splittable && c.depth < c.maxDepth) {
         d.action = Action::decompose;
         d.tier = "local";

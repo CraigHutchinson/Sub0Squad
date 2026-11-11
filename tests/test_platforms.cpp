@@ -5,6 +5,7 @@
 #include "sub0squad/harness.hpp"
 #include "sub0squad/harness_cpp.hpp"
 #include "sub0squad/harness_py.hpp"
+#include "sub0squad/harness_web.hpp"
 #include "sub0squad/plan.hpp"
 #include "sub0squad/sandbox.hpp"
 
@@ -98,6 +99,15 @@ int main()
         const std::string g2 = slurp(d / "items" / "app" / "attempt-2" / "gate.txt");
         CHECK(g2.find(appFile) != std::string::npos);
         CHECK(g2.find(std::string(p.harness) == "cpp-cmake" ? "does not compile" : "syntax error") != std::string::npos);
+        // An interface mismatch (the engine does not provide the name the tests import) exits 6 and lists the names the tests need.
+        {
+            const std::string engineFile = h->mockBugTarget("engine");
+            put(d / "items" / "engine" / "attempt-5" / "out" / engineFile, std::string(p.harness) == "cpp-cmake" ? "int unrelated() { return 1; }\n" : "def other(expr, degrees=False):\n    return 0\n");
+            CHECK_EQ(gate(p, d, "engine", 5), 6);
+            const std::string g5 = slurp(d / "items" / "engine" / "attempt-5" / "gate.txt");
+            CHECK(g5.find("INTERFACE MISMATCH") != std::string::npos);
+            if (std::string(p.harness) == "py-unittest") CHECK(g5.find("evaluate") != std::string::npos);
+        }
         // An edit outside the allowlist is refused.
         put(d / "items" / "app" / "attempt-3" / "out" / appFile, h->mockFile(appFile, false));
         put(d / "items" / "app" / "attempt-3" / "out" / "stray.txt", "x");
@@ -112,6 +122,19 @@ int main()
         CHECK(slurp(d / "capture.txt").find("= 512") != std::string::npos);
         CHECK(fs::exists(d / "report.md"));
         CHECK(slurp(d / "deliverables.json").find("screen-capture") != std::string::npos);
+    }
+
+    // The same rule on the web platform: the real failure of run w-000002 (a test imports a name the module does not export).
+    {
+        const fs::path d = makeTempDir("platform-web");
+        CHECK_EQ(runMockPlanner({"--task", "calculator-web", "--out", (d / "plan.json").string()}), 0);
+        CHECK_EQ(agent(d, "eval-tests", 1), 0);
+        CHECK_EQ(runHarnessGate({"--workflow-dir", d.string(), "--item", "eval-tests", "--attempt", "1"}), 0);
+        put(d / "items" / "engine" / "attempt-1" / "out" / "src" / "calc.js", "export function calculate(expr) { return 0; }\n");
+        CHECK_EQ(runHarnessGate({"--workflow-dir", d.string(), "--item", "engine", "--attempt", "1"}), 6);
+        const std::string g = slurp(d / "items" / "engine" / "attempt-1" / "gate.txt");
+        CHECK(g.find("INTERFACE MISMATCH") != std::string::npos);
+        CHECK(g.find("evaluate") != std::string::npos);
     }
     return 0;
 }

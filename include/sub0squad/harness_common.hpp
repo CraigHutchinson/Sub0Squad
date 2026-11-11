@@ -36,7 +36,7 @@ struct Cmd { int exitCode = -1; bool timedOut = false; std::string output; };
 [[nodiscard]] Cmd run(const std::vector<std::string>& argv, const std::filesystem::path& cwd, int timeoutSec);
 
 /// A TAP report in brief: counts (-1 tests when none were found) and an excerpt of the first failures with expected and actual values.
-struct Tap { int tests = -1, pass = 0, fail = 0; std::string excerpt; };
+struct Tap { int tests = -1, pass = 0, fail = 0; std::string excerpt; std::string note; /* extra runner output shown when too few tests ran */ };
 [[nodiscard]] Tap parseTap(const std::string& out);
 
 /// Recursive copy that overwrites; a missing source is not an error.
@@ -44,6 +44,21 @@ void copyTree(const std::filesystem::path& from, const std::filesystem::path& to
 /// Ids of every item `id` depends on, directly or not.
 [[nodiscard]] std::set<std::string> closure(const Plan& plan, const std::string& id);
 
+
+/// Whether a gate failure is about the INTERFACE between modules (a name a test or caller needs that the module does not provide) rather than a wrong result:
+/// a missing export, import, member or symbol. Such a failure cannot be fixed by retrying the one file; the contract that should name it is the next scope up.
+[[nodiscard]] bool interfaceGap(const std::string& gateText);
+/// The names the given test files import from the project, one line per test file ("tests/a.test.mjs imports { x, y } from ../src/f.js"), for JavaScript
+/// and Python tests; empty when nothing is recognised. Handed to the developer so the names to provide are exact, not guessed.
+[[nodiscard]] std::string importedNames(const std::filesystem::path& ws, const std::vector<std::string>& testFiles);
+
+/// What a gate hook may need to know about the attempt being judged.
+struct GateContext
+{
+    const WorkItem* item = nullptr;
+    std::filesystem::path dir, attemptDir, out, ws;
+    int attempt = 1;
+};
 
 /// The parts of a gate that differ between toolchains; everything else (allowlist, workspace, judging, publishing) is shared by `runGateFlow`.
 struct GateHooks
@@ -53,6 +68,8 @@ struct GateHooks
     std::string (*precheck)(const std::filesystem::path& out, const std::filesystem::path& ws) = nullptr;
     /// Build what the gate's test files need and run them, filling `tap`; returns a failure text (a build error, a crash) or "". Sets `timedOut`.
     std::string (*buildAndRun)(const std::filesystem::path& ws, const std::vector<std::string>& tests, Tap& tap, bool& timedOut) = nullptr;
+    /// Optional extra judgement of a tester's tests that already fail against the stubs (the test oracle); returns a failure text or "".
+    std::string (*afterTesterJudged)(const GateContext& ctx, const Tap& tap) = nullptr;
 };
 
 /// The common gate: allowlist, workspace (scaffold, dependencies' accepted outputs, the attempt), precheck, build and run, then judge (minimum tests,
