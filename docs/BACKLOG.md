@@ -103,3 +103,7 @@ hand-written Sugiyama pass; how it works with the retained-mode patching in `por
 - Contract amendment proposals from a leaf up to its coordinator (a delegated request), versioned contracts, dependents marked stale and kept as drafts.
 - Leaf drafts as first-class outputs handed to siblings and the integrator; iterative multi-round integration.
 - Capacity reservation for structural jobs (one slot) without starving leaves; re-run the structural step when enough leaf drafts have landed.
+
+## Canvas (owner idea, 2026-11-11)
+
+- A live shared document with section claims, presence, notes and worker-to-worker requests: design in `docs/CANVAS.md`; first slice (claims and presence, read-only) waits for the forked-session work and a real run of the folded views.
