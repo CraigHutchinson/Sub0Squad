@@ -53,8 +53,31 @@ merge time. The human sees the same surface: a live picture of what each worker 
   the tests against the new contract before continuing.
 * **Review**: a cross-module reviewer (docs/BUILDING_BLOCKS.md, "widen before retrying") is a worker with `observe` claims over every section of a level.
 
+## Transactional edits: what they fix now, before any second worker exists (owner question, 2026-11-11)
+
+The real runs show the limits of "the conversation carries the files and the worker rewrites or search-replaces them": stale line numbers, a window that
+overflows when it holds a draft, an edit reply and a view at once, a whole file sent back as one search block, and no way to tell a bad edit from a bad
+approach. A revisioned canvas fixes each of them with one idea: **the document is the state, and an edit is a transaction against a revision.**
+
+| limit seen | canvas answer |
+|---|---|
+| line numbers go stale when several edits apply | a transaction names its base revision; its numbers are rebased through the edits made since, or it is refused with the conflicting edit named (built: `Canvas::apply`) |
+| the window holds files, the previous reply and the gate text together (catalogue row 30) | the conversation stops carrying files: the card, the gate text and a folded view of the current revision are rebuilt each turn; the reply is only a transaction |
+| the model rewrites the file as one big SEARCH block | `replaceSymbol` replaces one function by name (no line arithmetic, the unit a small model writes well); `replaceLines` and `insertAfter` for the rest; a whole-file reply is a deliberate, separate operation |
+| a half-valid edit leaves a broken file | all operations apply or none; a rejected transaction changes nothing and says which operation failed and why |
+| a compile slip costs a whole attempt (a stray `();`, an unterminated string) | **commit gating by the cheap check**: apply the transaction to a scratch copy, run the harness's precheck (a one-second `-fsyntax-only` or byte-compile), and commit only when it passes; the worker gets the error and the located lines back in the same turn, several small verified edits per attempt instead of one large unverified one |
+| an attempt that goes wrong cannot be undone | every revision is kept; `revertTo` restores one as a new revision; the log says who changed which lines |
+| two workers in one file | the same rebase and conflict rule, plus claims on sections (below) |
+
+This is why the canvas is worth building before there is a second worker: **slice 0 is a single-worker canvas per attempt**. It replaces the ad hoc
+`baselineFiles` and `currentFiles` maps, the edit applier and the numbered views with one revisioned store, and it is what the later slices (claims, notes,
+several workers) sit on. The core is built and unit-tested (`src/canvas.cpp`: apply, rebase, conflict, atomicity, symbol replace, revert); it is not wired
+into `llm_agent` yet. Wiring waits for the current fixes (numbered drafts, windowed repair views) to show on a real run whether a whole-file search block is still
+the model's habit, because that decides whether `replaceSymbol` or a transaction-only reply format is the right default.
+
 ## Slices
 
+0. **Single-worker canvas per attempt** (core built): wire `llm_agent` to a `Canvas`; replies are transactions; the harness precheck gates each commit; folded views are rendered from the current revision.
 1. **Claims and presence, read-only for workers**: the daemon derives held sections from a new `claimed` / `released` decision pair; the folded view shows
    `[held: ...]`; the portal shows who is where. No refusal yet. Measures: how often two workers would have touched the same section.
 2. **Notes**: `NOTE` and `ASK` requests, delivered on the next turn; a cap per section.

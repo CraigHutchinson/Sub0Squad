@@ -5,6 +5,7 @@
 #include <sstream>
 #include "sub0squad/harness_web.hpp"
 #include "sub0squad/briefing.hpp"
+#include "sub0squad/canvas.hpp"
 #include "sub0squad/division.hpp"
 #include "sub0squad/edits.hpp"
 #include "sub0squad/outline.hpp"
@@ -499,6 +500,32 @@ int main()
             const std::string py = "import math\n\ndef a(x):\n    y = x\n    return y\n\ndef b():\n    pass\n";
             const auto pr = foldRegions(py, true);
             CHECK(pr.size() == 1 && pr[0].name == "a" && pr[0].first == 3 && pr[0].bodyTo == 5);
+        }
+        {   // The canvas: transactions against a revision, all or nothing, rebased through earlier edits, conflicts named, any revision restorable.
+            Canvas cv;
+            cv.addFile("a.cpp", "l1\nl2\nl3\nl4\nl5\nl6\n");
+            CHECK(cv.revision("a.cpp") == 1);
+            auto ok = cv.apply({"a.cpp", 1, "w1", {{CanvasOp::Kind::replaceLines, 2, 3, "", "X\nY\nZ"}}});    // lines 2-3 become three lines: +1
+            CHECK(ok.ok && ok.revision == 2 && cv.text("a.cpp") == "l1\nX\nY\nZ\nl4\nl5\nl6\n");
+            auto stale = cv.apply({"a.cpp", 1, "w2", {{CanvasOp::Kind::replaceLines, 5, 5, "", "FIVE"}}});    // made against revision 1: line 5 is now line 6
+            CHECK(stale.ok && stale.revision == 3 && cv.text("a.cpp") == "l1\nX\nY\nZ\nl4\nFIVE\nl6\n");
+            auto clash = cv.apply({"a.cpp", 1, "w3", {{CanvasOp::Kind::replaceLines, 3, 3, "", "no"}}});       // line 3 was changed by w1 in revision 2
+            CHECK(!clash.ok && clash.error.find("w1") != std::string::npos && clash.error.find("revision 2") != std::string::npos && clash.revision == 3);
+            auto bad = cv.apply({"a.cpp", 3, "w3", {{CanvasOp::Kind::replaceLines, 1, 1, "", "ONE"}, {CanvasOp::Kind::replaceLines, 99, 99, "", "x"}}});   // the second op is invalid: nothing applies
+            CHECK(!bad.ok && cv.text("a.cpp") == "l1\nX\nY\nZ\nl4\nFIVE\nl6\n" && cv.revision("a.cpp") == 3);
+            auto multi = cv.apply({"a.cpp", 3, "w3", {{CanvasOp::Kind::replaceLines, 1, 1, "", "ONE"}, {CanvasOp::Kind::insertAfter, 7, 0, "", "tail"}}});   // numbering of the base revision
+            CHECK(multi.ok && cv.text("a.cpp") == "ONE\nX\nY\nZ\nl4\nFIVE\nl6\ntail\n");
+            auto overlap = cv.apply({"a.cpp", 4, "w3", {{CanvasOp::Kind::replaceLines, 2, 4, "", "a"}, {CanvasOp::Kind::replaceLines, 4, 5, "", "b"}}});
+            CHECK(!overlap.ok && overlap.error.find("overlap") != std::string::npos);
+            CHECK(cv.textAt("a.cpp", 1) == "l1\nl2\nl3\nl4\nl5\nl6\n");
+            auto rv = cv.revertTo("a.cpp", 1, "owner");
+            CHECK(rv.ok && rv.revision == 5 && cv.text("a.cpp") == cv.textAt("a.cpp", 1));
+            CHECK(!cv.apply({"a.cpp", 4, "w4", {{CanvasOp::Kind::replaceLines, 1, 1, "", "q"}}}).ok);   // a revert touched everything: older edits conflict
+            // Replace a function by name: no line arithmetic.
+            cv.addFile("f.cpp", "int a() { return 1; }\ndouble f(double x)\n{\n  x += 1;\n  x += 2;\n  return x;\n}\nint z;\n");
+            auto sym = cv.apply({"f.cpp", 1, "w5", {{CanvasOp::Kind::replaceSymbol, 0, 0, "f", "double f(double x) { return x; }"}}});
+            CHECK(sym.ok && cv.text("f.cpp") == "int a() { return 1; }\ndouble f(double x) { return x; }\nint z;\n");
+            CHECK(!cv.apply({"f.cpp", 2, "w5", {{CanvasOp::Kind::replaceSymbol, 0, 0, "nope", "x"}}}).ok);
         }
         {   // Line edits: the worker names lines of the numbered draft it was shown; several edits apply together against that numbering.
             std::map<std::string, std::string> f2 = {{"src/a.js", "one\ntwo\nthree\nfour\nfive\n"}};
