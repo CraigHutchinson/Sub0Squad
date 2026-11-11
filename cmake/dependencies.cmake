@@ -40,3 +40,13 @@ CPMAddPackage(NAME simdjson
   GIT_REPOSITORY https://github.com/simdjson/simdjson.git
   GIT_TAG 40a686ab89dc5ee58ec10d0514dd5c99abbc472b
   OPTIONS "SIMDJSON_DEVELOPER_MODE OFF")
+
+# Version.cmake (BareCpper org, same author): git describe -> version fields and a generated header, refreshed every configure. Pinned to the v0.4 tag.
+# Provides version::version and Version.hpp: sub0squad::version::version_sha / version_full (…-dirty when the tree has changes).
+set(VERSION_OUT_DIR "${CMAKE_BINARY_DIR}/generated/sub0squad")
+set(VERSION_FALLBACK "0.0.0")
+set(VERSION_H_FILENAME "Version.hpp")
+set(VERSION_NAMESPACE "sub0squad::version")
+CPMAddPackage(NAME Version.cmake
+  GIT_REPOSITORY https://github.com/BareCpper/Version.cmake.git
+  GIT_TAG c9e67af0aec3588912b760b45dca3ff217a62f59)

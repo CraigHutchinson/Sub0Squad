@@ -8,7 +8,6 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 include(cmake/dependencies.cmake)
-include(cmake/Version.cmake)
 
 find_package(Threads REQUIRED)
 
@@ -62,7 +61,7 @@ target_compile_options(sub0squad_core PRIVATE ${SUB0SQUAD_STRICT})
 target_link_libraries(sub0squad_core PUBLIC Sub0Pipeline::Sub0Pipeline Sub0Pipeline::Priority Sub0Pub::Sub0Pub Threads::Threads PRIVATE simdjson::simdjson)
 
 add_executable(sub0squad src/sub0squad.cpp)
-sub0squad_add_version(sub0squad)
+target_link_libraries(sub0squad PRIVATE version::version)
 target_compile_options(sub0squad PRIVATE ${SUB0SQUAD_STRICT})
 target_link_libraries(sub0squad PRIVATE sub0squad_core simdjson::simdjson)
 
