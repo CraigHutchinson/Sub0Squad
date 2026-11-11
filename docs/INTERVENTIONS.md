@@ -31,6 +31,7 @@ Classes: **H** harness defect · **P** plan/architect defect · **M** model weak
 | 21 | Build directories and daemon homes piling up | Operation | O | Archive and clean | n/a | `archive` command, one live home | manual, in backlog |
 | 22 | `test_e2e` memory-shed check fails intermittently when the host is loaded (live 9B run) and under ASan | Timing-sensitive test (12 s wait, host load) | H | None yet (it passed on rerun) | test fails, then passes on the same binary | tolerant wait scaled by measured load, or a deterministic clock for the shed watcher | **open** |
 | 23 | Harness chosen by comparing `"web-static"` in 8 files | No registry | H | `Harness` registry (`harness.hpp`, `harness_registry.cpp`) | layering/grep | one entry per harness | built; layer check guards it |
+| 24 | TAP excerpt read `FAIL ... \| ok 7 - factorial \| ok 8 ...`: a failing test's error text ran on into following passing tests (first C++ and Python runs) | The reader assumed every runner ends a diagnostic with a line it skips; a new emitter exposed it | H | `parseTap` ends the error block at `ok ...` and `...` lines (in `harness_common`) | excerpt holds lines that are not part of a failure | n/a (fixed in the shared reader) | fixed; covered by `test_platforms` |
 
 ## What the table says
 

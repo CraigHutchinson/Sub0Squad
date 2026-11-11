@@ -1,4 +1,5 @@
 #include "sub0squad/harness_web.hpp"
+#include "sub0squad/harness_common.hpp"
 #include "sub0squad/qa.hpp"
 
 #include "json_util.hpp"
@@ -21,6 +22,7 @@
 namespace sub0squad {
 
 namespace fs = std::filesystem;
+using namespace harnessutil;
 
 namespace {
 
@@ -99,137 +101,6 @@ const char* kCalculatorWeb = R"JSON({
   ]
 }
 )JSON";
-
-// ---- helpers --------------------------------------------------------------------------------------------------------------------
-std::map<std::string, std::vector<std::string>> parseArgs(const std::vector<std::string>& args)
-{
-    std::map<std::string, std::vector<std::string>> m;
-    for (std::size_t i = 0; i + 1 < args.size(); ++i)
-        if (args[i].rfind("--", 0) == 0) { m[args[i].substr(2)].push_back(args[i + 1]); ++i; }
-    return m;
-}
-std::string one(const std::map<std::string, std::vector<std::string>>& m, const std::string& k, const std::string& d = {})
-{
-    auto it = m.find(k);
-    return it == m.end() || it->second.empty() ? d : it->second.back();
-}
-std::string slurp(const fs::path& p) { std::ifstream in(p, std::ios::binary); std::stringstream ss; ss << in.rdbuf(); return ss.str(); }
-bool writeFile(const fs::path& p, const std::string& text)
-{
-    std::error_code ec;
-    fs::create_directories(p.parent_path(), ec);
-    std::ofstream o(p, std::ios::binary | std::ios::trunc);
-    o << text;
-    return static_cast<bool>(o);
-}
-
-struct Cmd { int exitCode = -1; bool timedOut = false; std::string output; };
-
-Cmd run(const std::vector<std::string>& argv, const fs::path& cwd, int timeoutSec)
-{
-    Cmd r;
-    int fds[2];
-    if (::pipe(fds) != 0) return r;
-    const pid_t pid = ::fork();
-    if (pid == 0) {
-        ::dup2(fds[1], 1); ::dup2(fds[1], 2); ::close(fds[0]); ::close(fds[1]);
-        if (::chdir(cwd.c_str()) != 0) _exit(126);
-        std::vector<char*> a;
-        for (const auto& s : argv) a.push_back(const_cast<char*>(s.c_str()));
-        a.push_back(nullptr);
-        ::execvp(a[0], a.data());
-        _exit(127);
-    }
-    ::close(fds[1]);
-    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(timeoutSec);
-    char buf[4096];
-    for (;;) {
-        const auto left = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - std::chrono::steady_clock::now()).count();
-        if (left <= 0) { r.timedOut = true; ::kill(pid, SIGKILL); break; }
-        pollfd p{fds[0], POLLIN, 0};
-        if (::poll(&p, 1, static_cast<int>(left)) <= 0) continue;
-        const ssize_t n = ::read(fds[0], buf, sizeof buf);
-        if (n <= 0) break;
-        r.output.append(buf, static_cast<std::size_t>(n));
-        if (r.output.size() > 512 * 1024) r.output.erase(0, 256 * 1024);
-    }
-    ::close(fds[0]);
-    int st = 0;
-    ::waitpid(pid, &st, 0);
-    r.exitCode = WIFEXITED(st) ? WEXITSTATUS(st) : -1;
-    return r;
-}
-
-struct Tap { int tests = -1, pass = 0, fail = 0; std::string excerpt; };
-
-Tap parseTap(const std::string& out)
-{
-    // Counts come from the summary lines. The excerpt lists LEAF failures (nested subtests too) with their first error lines; a parent whose
-    // only message is "N subtests failed" adds nothing for a model that has to fix the code.
-    Tap t;
-    struct Failure { std::string name, error, expected, actual, where; };
-    std::vector<Failure> failures;
-    std::istringstream in(out);
-    std::string line;
-    bool inError = false;
-    int errLines = 0;
-    auto trimmed = [](const std::string& l) { const auto p = l.find_first_not_of(' '); return p == std::string::npos ? std::string{} : l.substr(p); };
-    while (std::getline(in, line)) {
-        if (line.rfind("# tests ", 0) == 0) { t.tests = std::atoi(line.c_str() + 8); continue; }
-        if (line.rfind("# pass ", 0) == 0) { t.pass = std::atoi(line.c_str() + 7); continue; }
-        if (line.rfind("# fail ", 0) == 0) { t.fail = std::atoi(line.c_str() + 7); continue; }
-        const std::string tl = trimmed(line);
-        if (tl.rfind("not ok ", 0) == 0) { failures.push_back({tl.substr(7), "", "", "", ""}); inError = false; errLines = 0; continue; }
-        if (failures.empty()) continue;
-        // The runner's own observed values: what the test wanted, what the code gave, and the line of the assertion.
-        if (tl.rfind("expected: ", 0) == 0 && failures.back().expected.empty()) failures.back().expected = tl.substr(10, 120);
-        else if (tl.rfind("actual: ", 0) == 0 && failures.back().actual.empty()) failures.back().actual = tl.substr(8, 120);
-        else if (tl.rfind("location: ", 0) == 0 && failures.back().where.empty()) {
-            std::string w = tl.substr(10); w.erase(std::remove(w.begin(), w.end(), '\''), w.end());
-            const auto slash = w.rfind('/'); failures.back().where = slash == std::string::npos ? w : w.substr(slash + 1);
-        }
-        if (tl.rfind("error: ", 0) == 0) {
-            inError = true; errLines = 0;
-            std::string e = tl.substr(7);
-            if (e == "|-" || e == "|") e.clear();
-            failures.back().error = e;
-        } else if (inError && !tl.empty() && errLines < 4 && tl.rfind("code:", 0) != 0 && tl.rfind("name:", 0) != 0 && tl.rfind("stack:", 0) != 0 && tl.rfind("location:", 0) != 0 && tl.rfind("expected:", 0) != 0 && tl.rfind("actual:", 0) != 0 && tl.rfind("operator:", 0) != 0 && tl.rfind("duration_ms", 0) != 0 && tl.rfind("type:", 0) != 0 && tl.rfind("failureType", 0) != 0 && tl.rfind("...", 0) != 0 && tl.rfind("---", 0) != 0) {
-            failures.back().error += (failures.back().error.empty() ? "" : " | ") + tl;
-            ++errLines;
-        } else if (tl.rfind("code:", 0) == 0 || tl.rfind("stack:", 0) == 0 || tl.rfind("name:", 0) == 0) inError = false;
-    }
-    int shown = 0;
-    for (const auto& f : failures) {
-        if (f.error.find("subtest") != std::string::npos && f.error.find("failed") != std::string::npos) continue;  // a parent summary
-        if (shown++ >= 6 || t.excerpt.size() > 1300) break;
-        t.excerpt += "FAIL " + f.name + (f.error.empty() ? "" : ": " + f.error.substr(0, 300)) + "\n";
-        if (!f.expected.empty() || !f.actual.empty())
-            t.excerpt += "  the test expected " + f.expected + " but the code gave " + f.actual + (f.where.empty() ? "" : " (" + f.where + ")") + "\n";
-    }
-    if (t.excerpt.empty() && !failures.empty()) t.excerpt = "FAIL " + failures.front().name + "\n";
-    return t;
-}
-
-void copyTree(const fs::path& from, const fs::path& to)
-{
-    std::error_code ec;
-    if (!fs::exists(from)) return;
-    fs::create_directories(to, ec);
-    fs::copy(from, to, fs::copy_options::recursive | fs::copy_options::overwrite_existing, ec);
-}
-
-std::set<std::string> closure(const Plan& plan, const std::string& id)
-{
-    std::set<std::string> seen;
-    std::vector<std::string> work{id};
-    while (!work.empty()) {
-        const WorkItem* it = plan.find(work.back());
-        work.pop_back();
-        if (!it) continue;
-        for (const auto& d : it->deps) if (seen.insert(d).second) work.push_back(d);
-    }
-    return seen;
-}
 
 }  // namespace
 

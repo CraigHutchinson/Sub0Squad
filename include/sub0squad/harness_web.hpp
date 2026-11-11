@@ -4,14 +4,13 @@
 /// itself so an agent only writes the deliverable files, plus the gate and the integrator for web projects. Also the mock deliverables
 /// (correct and deliberately broken) and the hand-written calculator-web blueprint, which stands in for a frontier architect's plan.
 
+#include "sub0squad/harness_common.hpp"
+
 #include <cstddef>
 #include <string>
 #include <vector>
 
 namespace sub0squad {
-
-/// One file the harness provides itself.
-struct HarnessFile { std::string path; std::string content; };
 
 /// Scaffold and stubs of the web-static harness (package.json, serve.mjs, tests/helpers/dom-stub.mjs, stub src/calc.js, src/ui.js, index.html).
 [[nodiscard]] const std::vector<HarnessFile>& webScaffold();

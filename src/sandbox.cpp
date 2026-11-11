@@ -149,15 +149,15 @@ int runMockPlanner(const std::vector<std::string>& args)
     plan.task = task;
     const std::vector<std::string> allFiles = {"tokenizer.hpp", "test_tokenizer.cpp", "parser.hpp", "test_parser.cpp", "functions.hpp", "test_functions.cpp",
                                                "evaluator.hpp", "test_evaluator.cpp", "cli.hpp", "main.cpp", "test_cli.cpp", "calc_tests.cpp"};
-    if (task == "calculator-web") {
+    if (const Harness* bh = harnessWithBlueprint(task)) {
         // The hand-written blueprint stands in for a frontier architect: validated like any other plan.
-        const std::string text = blueprintJson("calculator-web");
+        const std::string text = bh->blueprint(task);
         auto parsed = Plan::fromJson(text);
         if (!parsed) { std::fprintf(stderr, "mock-planner: blueprint invalid: %s\n", parsed.error().c_str()); return 1; }
         events::metric("plan.items", static_cast<double>(parsed->items.size()));
         if (!writeFileAtomic(out, parsed->toJson())) { std::fprintf(stderr, "mock-planner: cannot write %s\n", out.c_str()); return 1; }
         events::progress(1, 1, "planned");
-        std::printf("planned %zu item(s) for calculator-web from the blueprint\n", parsed->items.size());
+        std::printf("planned %zu item(s) for %s from the blueprint\n", parsed->items.size(), task.c_str());
         return 0;
     }
     if (task == "calculator-basic") {

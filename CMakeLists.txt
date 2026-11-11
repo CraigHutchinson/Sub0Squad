@@ -41,7 +41,13 @@ add_library(sub0squad_core STATIC
   src/triage.cpp
   src/llm_agent.cpp
   src/web_templates.cpp
+  src/harness_common.cpp
   src/harness_web.cpp
+  src/calculator_spec.cpp
+  src/cpp_templates.cpp
+  src/harness_cpp.cpp
+  src/py_templates.cpp
+  src/harness_py.cpp
   src/harness_registry.cpp
   src/engine.cpp
   src/ledger.cpp
@@ -93,6 +99,8 @@ sub0squad_add_test(test_workflow)
 sub0squad_add_test(test_host_guard)
 sub0squad_add_test(test_sandbox)
 set_tests_properties(test_sandbox PROPERTIES TIMEOUT 300)
+sub0squad_add_test(test_platforms)
+set_tests_properties(test_platforms PROPERTIES TIMEOUT 300)
 sub0squad_add_test(test_project)
 set_tests_properties(test_project PROPERTIES TIMEOUT 600)
 sub0squad_add_test(test_e2e)

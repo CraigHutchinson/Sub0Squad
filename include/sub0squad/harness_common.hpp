@@ -1,0 +1,62 @@
+#pragma once
+/// @file harness_common.hpp
+/// What every project harness needs and none should copy: argument parsing, file helpers, running a command with a timeout, reading a TAP report
+/// into counts and a failure excerpt, copying trees and walking a plan's dependency closure.
+
+#include "sub0squad/plan.hpp"
+
+#include <filesystem>
+#include <map>
+#include <set>
+#include <string>
+#include <vector>
+
+namespace sub0squad {
+
+/// One file the harness provides itself.
+struct HarnessFile { std::string path; std::string content; };
+
+}  // namespace sub0squad
+
+namespace sub0squad::harnessutil {
+
+using Args = std::map<std::string, std::vector<std::string>>;
+
+/// `--key value` pairs of a job command line (a key may repeat).
+[[nodiscard]] Args parseArgs(const std::vector<std::string>& args);
+/// The last value of `k`, or `d`.
+[[nodiscard]] std::string one(const Args& m, const std::string& k, const std::string& d = {});
+[[nodiscard]] std::string slurp(const std::filesystem::path& p);
+/// Write `text` to `p`, creating parent directories; false on failure.
+bool writeFile(const std::filesystem::path& p, const std::string& text);
+
+/// Result of running a command: exit code (-1 if it did not exit), whether the timeout killed it, and its merged stdout and stderr (tail-limited).
+struct Cmd { int exitCode = -1; bool timedOut = false; std::string output; };
+/// Run `argv` in `cwd` with a wall-clock timeout.
+[[nodiscard]] Cmd run(const std::vector<std::string>& argv, const std::filesystem::path& cwd, int timeoutSec);
+
+/// A TAP report in brief: counts (-1 tests when none were found) and an excerpt of the first failures with expected and actual values.
+struct Tap { int tests = -1, pass = 0, fail = 0; std::string excerpt; };
+[[nodiscard]] Tap parseTap(const std::string& out);
+
+/// Recursive copy that overwrites; a missing source is not an error.
+void copyTree(const std::filesystem::path& from, const std::filesystem::path& to);
+/// Ids of every item `id` depends on, directly or not.
+[[nodiscard]] std::set<std::string> closure(const Plan& plan, const std::string& id);
+
+
+/// The parts of a gate that differ between toolchains; everything else (allowlist, workspace, judging, publishing) is shared by `runGateFlow`.
+struct GateHooks
+{
+    const std::vector<HarnessFile>& (*scaffold)() = nullptr;
+    /// The cheapest check of the files the attempt wrote (a syntax or compile check that names file and line), run over the workspace; "" when fine.
+    std::string (*precheck)(const std::filesystem::path& out, const std::filesystem::path& ws) = nullptr;
+    /// Build what the gate's test files need and run them, filling `tap`; returns a failure text (a build error, a crash) or "". Sets `timedOut`.
+    std::string (*buildAndRun)(const std::filesystem::path& ws, const std::vector<std::string>& tests, Tap& tap, bool& timedOut) = nullptr;
+};
+
+/// The common gate: allowlist, workspace (scaffold, dependencies' accepted outputs, the attempt), precheck, build and run, then judge (minimum tests,
+/// tests must fail against stubs for testers, near pass exit 3, same-failures exit 5) and publish. `args` are those of the gate command.
+[[nodiscard]] int runGateFlow(const GateHooks& hooks, const std::vector<std::string>& args);
+
+}  // namespace sub0squad::harnessutil

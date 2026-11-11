@@ -10,6 +10,7 @@
 #include "sub0squad/replay.hpp"
 #include "sub0squad/job_store.hpp"
 #include "sub0squad/journal.hpp"
+#include "sub0squad/harness.hpp"
 #include "sub0squad/harness_web.hpp"
 #include "sub0squad/status.hpp"
 #include "sub0squad/triage.hpp"
@@ -738,7 +739,7 @@ int runCli(int argc, char** argv)
         });
     }
     if (cmd == "do") return cmdDo(paths, argc - 2, argv + 2);
-    if (cmd == "blueprint") { if (argc < 3) { std::fputs(kUsage, stderr); return 2; } const std::string b = blueprintJson(argv[2]); if (b.empty()) { std::fprintf(stderr, "no blueprint '%s'\n", argv[2]); return 1; } std::printf("%s", b.c_str()); return 0; }
+    if (cmd == "blueprint") { if (argc < 3) { std::fputs(kUsage, stderr); return 2; } const Harness* bh = harnessWithBlueprint(argv[2]); const std::string b = bh ? bh->blueprint(argv[2]) : std::string{}; if (b.empty()) { std::fprintf(stderr, "no blueprint '%s'\n", argv[2]); return 1; } std::printf("%s", b.c_str()); return 0; }
     if (cmd == "project") return cmdProject(paths, argc - 2, argv + 2);
     if (cmd == "request") return cmdRequest(paths, argc - 2, argv + 2);
     if (cmd == "replay") {  // sub0squad replay WF NODE [--seeds 1,2,3] [--think] [--decompose] [--engine PROFILE] [--max-tokens N] [--repair-turns N]

@@ -11,7 +11,8 @@ previous one cannot.
 | rung | project | harness | size (items) | what it proves that the rung below cannot |
 |---|---|---|---|---|
 | 1 | calculator-web (exists) | `web-static` | 4 to 12 | the V, test-first, ladder, 9B workers, TAP feedback |
-| 2 | calculator-cpp (next) | `cpp-cmake` | 4 to 12 | a second toolchain: compile diagnostics as feedback, CMake, sanitizers, a CLI app, text-screen capture |
+| 2 | calculator-cpp | `cpp-cmake` | 4 to 12 | a second toolchain: compile diagnostics as feedback, CMake, sanitizers, a CLI app, text-screen capture |
+| 2b | calculator-py (third platform) | `py-unittest` | 4 to 12 | that the calculator contract is platform-independent: if a blueprint needs more than a surface, the abstraction is wrong |
 | 3 | spreadsheet (web UI and native core) | both | 20 to 40 | reuse (the calculator engine becomes a part), cross-harness contracts, a dependency graph with cycles, UI capture |
 | 4 | **knowledge store** (native core, web viewer; `docs/KNOWLEDGE_STORE.md`) | both | 50 to 60 | depth: layers with versioned contracts, property and crash tests, model-based oracle, sanitizers; related to, and comparable with, the squad's own register (still a sandbox project, not adopted) |
 | side | CHIP-8 or 6502 emulator | `cpp-cmake` + capture | 15 to 30 | pixel/framebuffer capture as a gate (test ROMs show a known image) |
@@ -83,11 +84,39 @@ Reading the code for `cpp-cmake` found these `web-static` assumptions outside th
 * **Debugger:** `gdb` is installed; the debugger worker designed in `docs/FEEDBACK_LOOPS.md` section 8 attaches to a failing test executable and
   returns the backtrace and values, which is the native analogue of a stack trace from the web runner.
 
-## 6. Order of work
+## 6. The third platform: why Python, and what it proved (2026-11-11)
 
-1. Extract `harness_common` and add `Harness::gateKind` and blueprint (no behaviour change; all tests green).
-2. `cpp-cmake` harness with the reference implementation (also the mock agent's correct file and the test oracle), registered; gate and integrate tested
-   with the real compiler and no model.
-3. Blueprint `calculator-cpp` and triage routing; a mock-agent end-to-end test as for the web calculator.
-4. A real 9B run of rung 2 (after rung 1's run finishes: one CPU-heavy job at a time).
-5. Spreadsheet plan (rung 3) written by the architect step, then built.
+Two platforms can be fitted by accident: a harness that only ever saw JavaScript and C++ would still look general. A third that differs in *kind* tests the
+abstraction. **Python 3 with `unittest`** was chosen because it needs no download (Python 3.14 is installed; pytest, Go and Rust are not, and nothing is
+installed without the owner's permission), is interpreted like the web platform but has a different runner, error format and module system, and has no build
+step and no sanitizers (its counterpart is development mode with warnings as errors). An embedded firmware variant (a HAL, a simulated display whose
+framebuffer is a real image to capture) is the better fourth platform once a real capture path is wanted.
+
+What the third platform forced, each now in the code:
+
+* **One calculator contract.** `calculator_spec` states the expression language, the error behaviour and the app's output once; a platform supplies a
+  `CalculatorSurface` (file names, how the engine is declared, how a test runs the app, style) and gets its plan-2. Both blueprints are generated, and
+  `test_platforms` asserts they have the same items, personas, dependencies and thresholds.
+* **One gate flow.** The allowlist, workspace, judging (minimum tests, tests must fail against stubs, near pass, same failures twice) and publishing are
+  `runGateFlow` in `harness_common`; a platform supplies a scaffold, a precheck (a compile or syntax check that names file and line) and a build-and-run.
+  `cpp-cmake` and `py-unittest` are about 60 lines each for their gates. The web gate still has its own copy (it has the oracle and the node precheck);
+  moving it onto the flow, with the oracle as a hook, is the next step and the existing tests are its safety net.
+* **One report format.** Each platform's test runner prints the same TAP shape (expected, actual, location), so one parser and one failure excerpt serve all.
+* **A parser defect found by a new emitter** (catalogue row 24): the shared TAP reader let a failing test's error text run into the following passing
+  tests' lines, because the web runner always closed a diagnostic with a line the reader happened to skip. Fixed in the reader, not in each runner.
+
+Findings that are not yet fixed: the excerpt cuts expected and actual values at 120 characters, which hides the difference in long strings (the screen
+frame); Python's `assertEqual` on a tuple prints a diff of the whole tuple, so a tester should compare the parts separately; the per-job timeout of 120 s
+for a gate may be short for a cold C++ build on a loaded host.
+
+## 7. Order of work
+
+Done 2026-11-11: `harness_common` and the registry fields; `cpp-cmake` and `py-unittest` harnesses with reference files; triage routing; the shared
+calculator spec; `test_platforms` (real compiler and interpreter, no model).
+
+Next:
+
+1. Move the web gate onto `runGateFlow` (oracle as a hook) and generate `calculator-web` from the same spec.
+2. A real 9B run of rung 2 and 2b (after run `w-000002` finishes: one CPU-heavy job at a time); compare first-pass rates across the three platforms.
+3. The knowledge store (`docs/KNOWLEDGE_STORE.md`) slice 1 plan, written by the architect step, then built.
+4. Pixel capture (framebuffer to an image) when a fourth platform needs it.

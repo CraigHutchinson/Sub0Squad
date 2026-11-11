@@ -3,10 +3,14 @@
 #include <algorithm>
 #include <set>
 
+#include "sub0squad/harness.hpp"
+
 namespace sub0squad {
 
 std::vector<std::string> completeDivision(Plan& fragment, const WorkItem& parent)
 {
+    const Harness* harness = findHarness(fragment.harness);
+    const std::string gateKind = harness ? harness->gateKind : "node-test", testSuffix = harness ? harness->testSuffix : ".test.mjs", style = harness ? harness->deliverableStyle : "plain ES module, no dependencies";
     std::set<std::string> covered;
     for (const auto& f : fragment.items) for (const auto& file : f.files) covered.insert(file);
     std::vector<std::string> added;
@@ -16,7 +20,7 @@ std::vector<std::string> completeDivision(Plan& fragment, const WorkItem& parent
         const std::string stem = file.substr(slash == std::string::npos ? 0 : slash + 1, dot == std::string::npos || dot < slash ? std::string::npos : dot - (slash == std::string::npos ? 0 : slash + 1));
         const WorkItem* tester = nullptr;
         for (const auto& f : fragment.items)
-            if (f.persona == "tester") for (const auto& t : f.files) if (t == "tests/" + stem + ".test.mjs") tester = &f;
+            if (f.persona == "tester") for (const auto& t : f.files) if (t == "tests/" + stem + testSuffix) tester = &f;
         if (!tester) continue;
         WorkItem d;
         d.id = "impl-" + stem;
@@ -28,11 +32,11 @@ std::vector<std::string> completeDivision(Plan& fragment, const WorkItem& parent
         d.deps = {tester->id};
         d.complexity = 2;
         d.card.context = "Part of the division of '" + parent.id + "': it delivers " + file + ". The tests below are its specification.";
-        d.card.contract = "Implement " + file + " so that every test in " + tester->files.front() + " passes: the tests define its exports, signatures and behaviour. Plain ES module, no dependencies.";
-        d.card.acceptance = {"every test in " + tester->files.front() + " passes", "plain ES module, no dependencies"};
+        d.card.contract = "Implement " + file + " so that every test in " + tester->files.front() + " passes: the tests define its exports, signatures and behaviour. " + style + ".";
+        d.card.acceptance = {"every test in " + tester->files.front() + " passes", style};
         d.card.include = {tester->files.front()};
         d.card.notes = {"Output only " + file};
-        d.gate.kind = "node-test";
+        d.gate.kind = gateKind;
         d.gate.tests = {tester->files.front()};
         d.gate.minTests = std::max(3, tester->gate.minTests);
         d.gate.mustFailOnStub = false;
@@ -66,7 +70,7 @@ std::vector<std::string> completeDivision(Plan& fragment, const WorkItem& parent
             t.card.contract = dev.card.contract;
             t.card.acceptance = {"at least 4 focused tests of the contract in " + testFile, "the tests fail against the stub"};
             t.card.notes = {"Output only " + testFile};
-            t.gate.kind = "node-test";
+            t.gate.kind = gateKind;
             t.gate.tests = {testFile};
             t.gate.minTests = 4;
             t.gate.mustFailOnStub = true;

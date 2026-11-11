@@ -23,10 +23,19 @@ struct Harness
     int (*gate)(const std::vector<std::string>& args) = nullptr;       ///< in-process gate (the agent's self-check); same arguments as the gate command
     std::string (*mockFile)(const std::string& path, bool buggy) = nullptr;  ///< mock deliverable (empty if unknown)
     std::string (*mockBugTarget)(const std::string& item) = nullptr;
+    const char* gateKind = "node-test";                      ///< the plan's declarative gate `kind` this harness judges
+    const char* testSuffix = ".test.mjs";                    ///< a test file for `src/x.<ext>` is `tests/x<testSuffix>`
+    const char* deliverableStyle = "plain ES module, no dependencies";  ///< what a developer's card says about the shape of the code
+    std::string (*blueprint)(const std::string& name) = nullptr;       ///< a hand-written plan-2 for a known task (empty if unknown)
+    bool (*claimsTask)(const std::string& lowercaseTask) = nullptr;     ///< whether the task text names this harness's kind of project
 };
 
 /// The harness named `name`, or nullptr (an empty or unknown name; the empty name is the legacy header-only calculator sandbox, which has no entry).
 [[nodiscard]] const Harness* findHarness(std::string_view name);
+/// Whether any registered harness judges gates of this kind.
+[[nodiscard]] bool knownGateKind(std::string_view kind);
+/// The first harness whose blueprint knows `name`, or nullptr.
+[[nodiscard]] const Harness* harnessWithBlueprint(const std::string& name);
 /// Names of all registered harnesses, for error messages and help.
 [[nodiscard]] std::vector<std::string> harnessNames();
 

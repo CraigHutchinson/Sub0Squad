@@ -9,6 +9,8 @@
 #include <Version.hpp>
 #include "sub0squad/client.hpp"
 #include "sub0squad/mock_worker.hpp"
+#include "sub0squad/harness_cpp.hpp"
+#include "sub0squad/harness_py.hpp"
 #include "sub0squad/harness_web.hpp"
 #include "sub0squad/host_guard.hpp"
 #include "sub0squad/sandbox.hpp"
@@ -110,6 +112,10 @@ int main(int argc, char** argv)
         if (std::strcmp(argv[1], "llm-fork") == 0) return sub0squad::runLlmFork(rest);
         if (std::strcmp(argv[1], "harness-gate") == 0) return sub0squad::runHarnessGate(rest);
         if (std::strcmp(argv[1], "harness-integrate") == 0) return sub0squad::runHarnessIntegrate(rest);
+        if (std::strcmp(argv[1], "py-gate") == 0) return sub0squad::runPyGate(rest);
+        if (std::strcmp(argv[1], "py-integrate") == 0) return sub0squad::runPyIntegrate(rest);
+        if (std::strcmp(argv[1], "cpp-gate") == 0) return sub0squad::runCppGate(rest);
+        if (std::strcmp(argv[1], "cpp-integrate") == 0) return sub0squad::runCppIntegrate(rest);
         if (std::strcmp(argv[1], "sandbox-gate") == 0) return sub0squad::runSandboxGate(rest);
         if (std::strcmp(argv[1], "sandbox-integrate") == 0) return sub0squad::runSandboxIntegrate(rest);
     }

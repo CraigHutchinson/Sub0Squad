@@ -175,8 +175,8 @@ std::expected<void, std::string> Plan::validate(int cardBudgetTokens) const
         if (it.persona != "developer" && it.persona != "tester" && it.persona != "integrator") return std::unexpected("item '" + it.id + "': unknown persona '" + it.persona + "'");
         if (it.card.estimatedTokens() > cardBudgetTokens)
             return std::unexpected("item '" + it.id + "': work card is about " + std::to_string(it.card.estimatedTokens()) + " tokens, over the budget of " + std::to_string(cardBudgetTokens));
-        if (!it.gate.kind.empty() && it.gate.kind != "node-test") return std::unexpected("item '" + it.id + "': unknown gate kind '" + it.gate.kind + "'");
-        if (it.gate.kind == "node-test" && it.gate.tests.empty()) return std::unexpected("item '" + it.id + "': a node-test gate needs test files");
+        if (!it.gate.kind.empty() && !knownGateKind(it.gate.kind)) return std::unexpected("item '" + it.id + "': unknown gate kind '" + it.gate.kind + "'");
+        if (!it.gate.kind.empty() && it.gate.tests.empty()) return std::unexpected("item '" + it.id + "': a " + it.gate.kind + " gate needs test files");
         if (!plan.harness.empty() && it.gate.kind.empty()) return std::unexpected("item '" + it.id + "': a harness project needs a gate");
         for (const auto& t : it.gate.tests) if (!validPath(t)) return std::unexpected("item '" + it.id + "': bad gate test path '" + t + "'");
         for (const auto& t : it.card.include) if (!validPath(t)) return std::unexpected("item '" + it.id + "': bad include path '" + t + "'");

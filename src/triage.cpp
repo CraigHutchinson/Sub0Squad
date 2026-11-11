@@ -35,15 +35,21 @@ TriageResult triage(const std::string& original)
     std::string t = original;
     for (auto& c : t) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
     TriageResult r;
-    const bool web = has(t, {"web", "html", "browser", "website", "page", "javascript", "frontend"});
+    const Harness* cpp = findHarness("cpp-cmake");
+    const bool native = cpp && cpp->claimsTask && cpp->claimsTask(t) && !has(t, {"html", "browser", "website", "web page", "javascript", "frontend"});
+    const Harness* py = findHarness("py-unittest");
+    const bool python = py && py->claimsTask && py->claimsTask(t) && !has(t, {"html", "browser", "website", "web page", "javascript", "frontend"});
+    const bool web = !native && !python && has(t, {"web", "html", "browser", "website", "page", "javascript", "frontend"});
     const bool calc = has(t, {"calculator", "calc"});
     const bool scientific = has(t, {"scientific", "trig", "sin", "log"});
-    r.projectType = web ? "web-static" : calc ? "cpp-header" : "unknown";
-    r.reasons.push_back(web ? "mentions a web page or browser: web-static project harness (static server, node test runner, fake DOM)" : calc ? "a calculator with no web wording: header-only C++ sandbox project" : "no known project type in the task text");
+    r.projectType = python ? "py-unittest" : native ? "cpp-cmake" : web ? "web-static" : calc ? "cpp-header" : "unknown";
+    r.reasons.push_back(python ? "mentions Python: py-unittest project harness (standard library, unittest, a TAP runner, a text-frame capture)" : native ? "mentions a native or command-line program: cpp-cmake project harness (CMake, sanitizers, test executables, a text-frame capture)" : web ? "mentions a web page or browser: web-static project harness (static server, node test runner, fake DOM)" : calc ? "a calculator with no web wording: header-only C++ sandbox project" : "no known project type in the task text");
     int c = 1 + static_cast<int>(std::count(t.begin(), t.end(), ' ') / 12);
     for (const char* feature : {"scientific", "matrix", "plot", "graph", "units", "history", "database", "login", "network", "multi", "mobile"}) if (t.find(feature) != std::string::npos) ++c;
     r.complexity = std::min(5, std::max(1, c));
-    if (calc && web) { r.blueprint = "calculator-web"; r.personas = {"tester", "developer"}; r.split = true; }
+    if (calc && python) { r.blueprint = "calculator-py"; r.personas = {"tester", "developer"}; r.split = true; }
+    else if (calc && native) { r.blueprint = "calculator-cpp"; r.personas = {"tester", "developer"}; r.split = true; }
+    else if (calc && web) { r.blueprint = "calculator-web"; r.personas = {"tester", "developer"}; r.split = true; }
     else if (calc && scientific) { r.blueprint = "calculator-scientific"; r.personas = {"developer"}; r.split = true; }
     else if (calc) { r.blueprint = "calculator-basic"; r.personas = {"developer"}; r.split = false; }
     if (!r.blueprint.empty()) {
