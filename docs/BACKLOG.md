@@ -98,3 +98,8 @@ hand-written Sugiyama pass; how it works with the retained-mode patching in `por
 - One build (`out/build/dev`, from main) and one daemon home per live run; no legacy builds or daemons kept.
 - Finished run homes go to `out/archive/<name>.tar.gz` (journals, plans, traces, reports, accepted outputs; workspaces excluded) with a line in `out/archive/MANIFEST.md`.
 - The family's `BareCpper/Version.cmake` (v0.4, via CPM in `cmake/dependencies.cmake`) stamps git describe, sha and dirty flag into every build (`sub0squad --version`, `sub0squad::version::version_full`). No `v*` tag exists in this repo yet, so the version falls back to 0.0.0 plus the commit count; tag a release to get a real one. Each run should write `run-info.json` with that sha (done by hand for run-v5): **todo: the daemon writes it itself at workflow start and the portal shows it**; and an `archive` command that does the tar + manifest.
+
+## Co-evolving structure and leaves (see docs/BUILDING_BLOCKS.md)
+- Contract amendment proposals from a leaf up to its coordinator (a delegated request), versioned contracts, dependents marked stale and kept as drafts.
+- Leaf drafts as first-class outputs handed to siblings and the integrator; iterative multi-round integration.
+- Capacity reservation for structural jobs (one slot) without starving leaves; re-run the structural step when enough leaf drafts have landed.

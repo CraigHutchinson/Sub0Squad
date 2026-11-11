@@ -45,11 +45,29 @@ Delegation, parallelism and the V model are not features to be added at the end;
 | **V model** | Top-down: requirements → architecture → parts, each level with its own test written first; bottom-up: parts integrate under the tests of the level above, failures sent down to the part | 5 division, 6 graph, 2 check | Every divided item has a coordinator whose integration test passes over the merged parts; a failure at integration names the part; no part graded by the parent's whole test | coordinator, per-round integration gate and `sendDown` built and run (run 1 divided `ui-js` and `ui-page` that way); the engine division has not yet completed on the 9B; requirements level is not modelled |
 
 **What this changes in the order of work:** step 3 (the division validator) enforces the V (a tester for every developer part, the parent's tests stay with the coordinator) and
-delegation (a self-sufficient card per part); step 4 adds a measure of parallel yield (slot-time busy, critical path actual vs planned); step 5 gives structural jobs priority
-so parallel leaf work cannot starve the divisions the V depends on.
+delegation (a self-sufficient card per part); step 4 adds a measure of parallel yield (slot-time busy, critical path actual vs planned); step 5 makes sure scheduling never starves either side (see below: not a strict structural-first rule).
 
 ## Architecture direction this points to
 - **Validate before spend:** plans, divisions, replies and cards are checked mechanically before a model or a long job is used on them.
 - **Failures are classified data**, not text: signature → class → mend, with the ledger feeding the briefing and the portal.
 - **Blocks are separately runnable** (replay already does this for one node; the same for parse, check, division, workflow rules), so any layer can be tested without the ones above.
 - **Integration runs prove integration only:** a full run is the last test, not the first.
+
+## Structure and leaves co-evolve (owner, 2026-11-11)
+
+Structural-first priority is too simple. Structure is a **hypothesis the leaves test**: a division's interfaces are provisional until the parts that implement them have been
+drafted, and a leaf's partial output is a legitimate contribution (a draft, a skeleton, a stub that is later filled), not a failure to be thrown away. So:
+
+- **Leaves may be drafts.** A partial or provisional leaf output is kept, versioned as a draft, and handed on (to the integrator, to a sibling that depends on its shape);
+  integration is itself iterative, over several rounds, not a single merge at the end.
+- **Findings travel both ways.** *Down* (built: `sendDown`): an integration failure or a changed contract goes to the part it implicates. *Up* (**not built**): a leaf that finds
+  its interface unworkable, or a sibling's shape that does not fit, raises a **contract amendment proposal** to its coordinator (a delegated request, answered by the coordinator
+  or its architect, not the owner); the coordinator revises the contract, versions it, and sends the change down to every part it touches. Today the only upward path is failure
+  escalation up the ladder, which re-divides the whole item rather than amending one interface.
+- **Contracts are versioned.** Each part records which contract version it built against; an amendment marks dependents stale (their work is kept as a draft, then iterated),
+  rather than discarded.
+- **Scheduling therefore balances, it does not rank.** A division that is waiting should not be starved by leaf work (run 1: the engine division sat queued behind page work and
+  was cancelled), but equally a division that has not yet seen its leaves' drafts should not be frozen in detail too early. Rule of thumb to test: reserve capacity for structural
+  and integration jobs (one slot), let leaves use the rest, and re-run the structural step when enough leaf drafts have landed to inform it.
+- **Bar:** the share of contract amendments that originate from a leaf (up-transfer is used), the rework avoided per amendment (parts kept as drafts versus restarted), and rounds
+  to integrate. Until the up-transfer exists, all three are zero by construction.

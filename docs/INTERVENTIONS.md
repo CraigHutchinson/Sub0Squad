@@ -26,7 +26,7 @@ Classes: **H** harness defect · **P** plan/architect defect · **M** model weak
 | 16 | I stopped the daemon/portal with an owner request open | Operation | O | Apology, notice, rule | n/a | daemon-down notice in Inbox; never stop with open requests | rule + notice built |
 | 17 | `pkill -f` matched my own shell, twice | Operation | O | Anchored `pgrep` | n/a | n/a | rule |
 | 18 | Four slots on one machine exhausted RAM and killed the session | Host | I | Shed jobs below a memory floor, OOM priority | available memory | shed; requeue | shed built; **requeue not built** |
-| 19 | Division hung waiting for an engine that was cancelled | Scheduling | H | None yet | job waiting for the engine for minutes | prioritise structural jobs (divisions) over leaf attempts on the engine | **open** |
+| 19 | Division hung waiting for an engine that was cancelled | Scheduling | H | None yet | job waiting for the engine for minutes | reserve capacity for structural/integration jobs; NOT strict priority: structure and leaf drafts co-evolve (BUILDING_BLOCKS.md) | **open** |
 | 20 | Run launched on a stale daemon binary | Operation | O | Restart on new build | daemon sha ≠ binary sha | `run-info.json` and a version check at submit | version stamping built; check **not built** |
 | 21 | Build directories and daemon homes piling up | Operation | O | Archive and clean | n/a | `archive` command, one live home | manual, in backlog |
 
