@@ -1,7 +1,7 @@
 #include "sub0squad/triage.hpp"
 
 #include "json_util.hpp"
-#include "sub0squad/harness_web.hpp"
+#include "sub0squad/harness.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -67,7 +67,7 @@ std::string needsPlanPacket(const std::string& taskText, const TriageResult& t, 
     s += "Answer with ONE file in `plan-2` JSON and supply it with `sub0squad project plan " + workflowId + " --file plan.json`.\n\n";
     s += "## Task\n\n" + taskText + "\n\n## Triage\n\n```json\n" + t.toJson() + "\n```\n\n";
     s += "## What the squad can do\n\n- Personas: `tester` (writes only under tests/), `developer` (writes implementation files, never tests).\n";
-    s += "- Project harness `web-static` (the only one today): " + webHarnessBrief() + "\n";
+    s += "- Project harness `web-static` (the only one today): " + (findHarness("web-static") && findHarness("web-static")->brief ? findHarness("web-static")->brief() : std::string{}) + "\n";
     s += "- Gates are declarative: `{ \"kind\": \"node-test\", \"tests\": [...], \"minTests\": N, \"mustFailOnStub\": bool }`. A plan never contains commands.\n";
     s += "- Workers are SMALL local models: keep every item tiny (one to three files), test-first (a tester item with no dependencies, then the developer item that depends on it and `include`s the test file).\n\n";
     s += "## plan-2 syntax\n\n```json\n{ \"schema\": \"plan-2\", \"task\": \"...\", \"harness\": \"web-static\", \"project\": \"name\", \"reasons\": [\"why this split\"],\n";

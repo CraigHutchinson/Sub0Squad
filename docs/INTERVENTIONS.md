@@ -29,6 +29,8 @@ Classes: **H** harness defect · **P** plan/architect defect · **M** model weak
 | 19 | Division hung waiting for an engine that was cancelled | Scheduling | H | None yet | job waiting for the engine for minutes | reserve capacity for structural/integration jobs; NOT strict priority: structure and leaf drafts co-evolve (BUILDING_BLOCKS.md) | **open** |
 | 20 | Run launched on a stale daemon binary | Operation | O | Restart on new build | daemon sha ≠ binary sha | `run-info.json` and a version check at submit | version stamping built; check **not built** |
 | 21 | Build directories and daemon homes piling up | Operation | O | Archive and clean | n/a | `archive` command, one live home | manual, in backlog |
+| 22 | `test_e2e` memory-shed check fails intermittently when the host is loaded (live 9B run) and under ASan | Timing-sensitive test (12 s wait, host load) | H | None yet (it passed on rerun) | test fails, then passes on the same binary | tolerant wait scaled by measured load, or a deterministic clock for the shed watcher | **open** |
+| 23 | Harness chosen by comparing `"web-static"` in 8 files | No registry | H | `Harness` registry (`harness.hpp`, `harness_registry.cpp`) | layering/grep | one entry per harness | built; layer check guards it |
 
 ## What the table says
 

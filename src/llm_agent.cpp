@@ -1,7 +1,7 @@
 #include "sub0squad/edits.hpp"
 #include "sub0squad/engine.hpp"
 #include "sub0squad/event_channel.hpp"
-#include "sub0squad/harness_web.hpp"
+#include "sub0squad/harness.hpp"
 #include "sub0squad/plan.hpp"
 #include "sub0squad/policy.hpp"
 #include "sub0squad/trace.hpp"
@@ -20,6 +20,11 @@
 #include <thread>
 
 namespace sub0squad {
+
+namespace {
+/// The fixed-system-block description of a project harness (empty when the plan has none).
+std::string harnessBrief(const std::string& name) { const Harness* h = findHarness(name); return h && h->brief ? h->brief() : std::string{}; }
+}  // namespace
 
 namespace fs = std::filesystem;
 
@@ -209,7 +214,7 @@ int runLlmFork(const std::vector<std::string>& args)
     if (!plan || !plan->find(itemId)) { std::fprintf(stderr, "llm-fork: cannot load the plan or item\n"); return 1; }
     WorkItem item = *plan->find(itemId);
     (void)readCardOverride(dir / "items" / itemId / "card-override.json", item.card);
-    const std::string system = systemBlock(item.persona, plan->harness == "web-static" ? webHarnessBrief() : std::string{});
+    const std::string system = systemBlock(item.persona, harnessBrief(plan->harness));
     long testCount = 0;
     const std::string card = buildCard(dir, *plan, item, itemId, "baseline", testCount);
     const fs::path attemptDir = dir / "items" / itemId / ("attempt-" + std::to_string(attempt)), out = attemptDir / "out";
@@ -273,7 +278,8 @@ int runLlmFork(const std::vector<std::string>& args)
         fs::remove_all(out, ec);
         fs::create_directories(out, ec);
         for (const auto& [path, text] : files) (void)writeFile(out / path, text);
-        const int rc = plan->harness == "web-static" ? runHarnessGate({"--workflow-dir", dir.string(), "--item", itemId, "--attempt", std::to_string(attempt), "--no-publish", "1"}) : 1;
+        const Harness* hs = findHarness(plan->harness);
+        const int rc = hs && hs->gate ? hs->gate({"--workflow-dir", dir.string(), "--item", itemId, "--attempt", std::to_string(attempt), "--no-publish", "1"}) : 1;
         gateText = slurp(attemptDir / "gate.txt");
         return rc == 0;
     };
@@ -366,7 +372,7 @@ int runLlmAgent(const std::vector<std::string>& args)
     if (!item) { std::fprintf(stderr, "llm-agent: no item '%s'\n", itemId.c_str()); return 1; }
 
     // ---- the prompt: a fixed system block, the work card, included files from accepted dependencies, and the previous failure only ----
-    const std::string system = systemBlock(item->persona, plan->harness == "web-static" ? webHarnessBrief() : std::string{});
+    const std::string system = systemBlock(item->persona, harnessBrief(plan->harness));
     long testCount = 0;
     std::ostringstream card;
     card << buildCard(dir, *plan, *item, itemId, treatment, testCount);
@@ -606,8 +612,9 @@ int runLlmAgent(const std::vector<std::string>& args)
         for (const auto& [path, text] : parsed.files) if (!writeFile(out / path, text)) { std::fprintf(stderr, "llm-agent: cannot write %s\n", path.c_str()); return 1; }
         haveFiles = true;
         currentFiles = parsed.files;
-        if (plan->harness != "web-static") break;
-        const int rc = runHarnessGate({"--workflow-dir", dir.string(), "--item", itemId, "--attempt", std::to_string(attempt), "--no-publish", "1"});
+        const Harness* hs = findHarness(plan->harness);
+        if (!hs || !hs->gate) break;
+        const int rc = hs->gate({"--workflow-dir", dir.string(), "--item", itemId, "--attempt", std::to_string(attempt), "--no-publish", "1"});
         lastGate = slurp(attemptDir / "gate.txt");
         traceVerdict(tracePath, turn, rc == 0 ? "self-check passed: the item's tests pass" : lastGate);
         events::note(rc == 0 ? "self-check passed" : "self-check failed");
@@ -624,7 +631,7 @@ int runLlmAgent(const std::vector<std::string>& args)
     events::metric("agent.stagnated", stagnated ? 1.0 : 0.0);
     if (decodeTps > 0) events::metric("engine.decode_tps", decodeTps);
     if (prefillTps > 0) events::metric("engine.prefill_tps", prefillTps);
-    if (plan->harness == "web-static") events::metric("harness.bytes", static_cast<double>(webScaffoldBytes()));
+    if (const Harness* hs = findHarness(plan->harness); hs && hs->scaffoldBytes) events::metric("harness.bytes", static_cast<double>(hs->scaffoldBytes()));
     std::printf("done after %d turn(s): %sself-check %s, finish=%s, %zu file(s), %zu rejected chars\n", turns, stagnated ? "stagnated, " : "", verified ? "passed" : "not passed", lastFinish.c_str(), lastFiles, lastRejected);
     if (!haveFiles) { std::fprintf(stderr, "llm-agent: no turn produced the requested files\n"); return 3; }
     events::progress(turnLimit + 1, turnLimit + 1, "written");

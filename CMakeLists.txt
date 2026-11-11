@@ -36,6 +36,7 @@ add_library(sub0squad_core STATIC
   src/llm_agent.cpp
   src/web_templates.cpp
   src/harness_web.cpp
+  src/harness_registry.cpp
   src/engine.cpp
   src/ledger.cpp
   src/workflow_status.cpp
@@ -67,6 +68,7 @@ target_link_libraries(sub0squad PRIVATE sub0squad_core simdjson::simdjson)
 
 enable_testing()
 add_test(NAME dependency_selftest COMMAND sub0squad --selftest)
+add_test(NAME layering COMMAND ${CMAKE_COMMAND} -DSRC_DIR=${CMAKE_SOURCE_DIR} -P ${CMAKE_SOURCE_DIR}/cmake/CheckLayers.cmake)
 
 function(sub0squad_add_test name)
   # tests that exercise the multi-call binary receive its path as argv[1]

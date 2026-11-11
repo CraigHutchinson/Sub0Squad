@@ -2,7 +2,7 @@
 
 #include "json_util.hpp"
 
-#include "sub0squad/harness_web.hpp"
+#include "sub0squad/harness.hpp"
 #include <algorithm>
 #include <set>
 #include <cstdio>
@@ -337,11 +337,12 @@ JobSpec agentJob(const WorkflowRecord& wf, const WorkflowSettings& st, const Wor
 
 JobSpec gateJob(const WorkflowRecord& wf, const WorkflowSettings& st, const WorkItem& it, int attempt, const std::string& tier)
 {
-    const bool web = wf.plan && wf.plan->harness == "web-static";
-    JobSpec s = baseJob(wf, st, "gate", web ? "harness-gate" : "sandbox-gate", tier.c_str(), 120);
+    const Harness* harness = wf.plan ? findHarness(wf.plan->harness) : nullptr;
+    const char* gateCommand = harness ? harness->gateCommand : "sandbox-gate";
+    JobSpec s = baseJob(wf, st, "gate", gateCommand, tier.c_str(), 120);
     s.item = it.id;
     s.attempt = attempt;
-    s.argv = {st.exe, web ? "harness-gate" : "sandbox-gate", "--workflow-dir", wf.spec.sandboxDir, "--item", it.id, "--attempt", std::to_string(attempt)};
+    s.argv = {st.exe, gateCommand, "--workflow-dir", wf.spec.sandboxDir, "--item", it.id, "--attempt", std::to_string(attempt)};
     return s;
 }
 
@@ -487,7 +488,7 @@ std::vector<WorkflowAction> advance(const WorkflowRecord& wf, const JobStore& st
             for (const JobRecord* g : v.gates) if (g->spec.attempt == n && g->exitJson.find("\"code\":3") != std::string::npos) ctx.nearPass = true;
             for (const JobRecord* g : v.gates) if (g->spec.attempt == n && g->exitJson.find("\"code\":5") != std::string::npos) ctx.repeatedFailure = true;
             if (role == "agent" && latest->exitJson.find("\"code\":4") != std::string::npos) ctx.oversize = true;
-            if (wf.plan && wf.plan->harness == "web-static") { ctx.frontierHasReference = !v.item->files.empty(); for (const auto& f : v.item->files) if (webMockFile(f, false).empty()) ctx.frontierHasReference = false; }
+            if (const Harness* hs = wf.plan ? findHarness(wf.plan->harness) : nullptr; hs && hs->mockFile) { ctx.frontierHasReference = !v.item->files.empty(); for (const auto& f : v.item->files) if (hs->mockFile(f, false).empty()) ctx.frontierHasReference = false; }
             ctx.decomposeTried = v.decomposeTried;
             ctx.rearchitectTried = v.rearchitectTried;
             for (const auto& dd : wf.decisions) if (dd.item == v.item->id && dd.action == "reviseTests") ctx.reviseTried = true;
@@ -570,9 +571,10 @@ std::vector<WorkflowAction> advance(const WorkflowRecord& wf, const JobStore& st
         const JobRecord* integ = nullptr;
         for (const JobRecord* j : mine.all) if (j->spec.role == "integrator") integ = j;
         if (!integ) {
-            const bool web = plan.harness == "web-static";
-            JobSpec s = baseJob(wf, st, "integrator", web ? "harness-integrate" : "sandbox-integrate", "stub", 300);
-            s.argv = {st.exe, web ? "harness-integrate" : "sandbox-integrate", "--workflow-dir", wf.spec.sandboxDir};
+            const Harness* harness = findHarness(plan.harness);
+            const char* integrateCommand = harness ? harness->integrateCommand : "sandbox-integrate";
+            JobSpec s = baseJob(wf, st, "integrator", integrateCommand, "stub", 300);
+            s.argv = {st.exe, integrateCommand, "--workflow-dir", wf.spec.sandboxDir};
             out.push_back(start(std::move(s)));
         } else if (terminalJob(integ)) {
             out.push_back(integ->state == JobState::succeeded ? finish(WorkflowState::succeeded, "all items accepted; integration passed")

@@ -2,6 +2,7 @@
 
 #include "json_util.hpp"
 #include "sub0squad/event_channel.hpp"
+#include "sub0squad/harness.hpp"
 #include "sub0squad/harness_web.hpp"
 #include "sub0squad/plan.hpp"
 
@@ -209,8 +210,8 @@ int runMockAgent(const std::vector<std::string>& args)
                 const int limit = colon == std::string::npos ? 1 << 30 : std::atoi(spec.c_str() + colon + 1);
                 if (name == itemId && attempt <= limit) buggy = true;
             }
-    const bool web = plan->harness == "web-static";
-    const std::string bugFile = web ? webMockBugTarget(itemId) : calculatorBugTarget(itemId);
+    const Harness* harness = findHarness(plan->harness);
+    const std::string bugFile = harness && harness->mockBugTarget ? harness->mockBugTarget(itemId) : calculatorBugTarget(itemId);
     const fs::path out = dir / "items" / itemId / ("attempt-" + std::to_string(attempt)) / "out";
     std::error_code ec;
     fs::remove_all(out, ec);
@@ -224,7 +225,7 @@ int runMockAgent(const std::vector<std::string>& args)
     for (const auto& f : item->files) {
         std::this_thread::sleep_for(std::chrono::milliseconds(delayMs));
         const bool useBug = buggy && f == bugFile;
-        std::string text = web ? webMockFile(f, useBug) : calculatorFile(f, useBug);
+        std::string text = harness && harness->mockFile ? harness->mockFile(f, useBug) : calculatorFile(f, useBug);
         if (text.empty()) { std::fprintf(stderr, "mock-agent: no template for '%s' (or its defect no longer matches)\n", f.c_str()); return 1; }
         if (!writeFileAtomic(out / f, text)) { std::fprintf(stderr, "mock-agent: cannot write %s\n", f.c_str()); return 1; }
         tokensOut += static_cast<double>(text.size()) / 4.0;
@@ -243,7 +244,7 @@ int runMockAgent(const std::vector<std::string>& args)
         events::metric("tokens.feedback", 0);
         events::metric("tokens.work", tokensOut);
         events::metric("tokens.waste", 0);
-        if (web) events::metric("harness.bytes", static_cast<double>(webScaffoldBytes()));
+        if (harness && harness->scaffoldBytes) events::metric("harness.bytes", static_cast<double>(harness->scaffoldBytes()));
     }
     return 0;
 }
