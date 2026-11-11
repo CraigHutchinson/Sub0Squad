@@ -84,3 +84,13 @@ import, and the policy takes the next rung up at once (the card is rewritten to 
 To build, following the same rule: a cross-module review step that runs when a level's parts are first all drafted (before integration), comparing every name
 a test or caller uses with every name a module declares, and amending the contract through the V (`docs/PROCESS_DESIGN.md`, contract amendment up-transfer);
 and QA findings (duplicated helpers, a name defined twice) read at the same level, not only in the final report.
+
+## Work package names say role and area (owner direction, 2026-11-11)
+
+An id is `<role>-<area>`: `test-NAME` for a tester, `dev-NAME` for a developer, `int-NAME` for an integrator, NAME being the area (`engine`, `lexer`, `app`). A divided
+item's parts are namespaced under it with a dot (`dev-engine.dev-lexer`, `dev-engine.test-lexer`), and the parent keeps its id as the coordinator. The id alone then
+tells a reader, the portal and the journal what a node is for, and which tester grades which developer (`test-lexer` / `dev-lexer`).
+
+Applied: the calculator blueprints for all three platforms (`test-engine`, `dev-engine`, `test-app`, `dev-app`; web `test-ui`, `dev-ui`), the ids the division
+validator adds (`dev-STEM`, `test-AREA`), the architect and plan-request prompts, and a plan-lint warning for an id that does not match its persona. Plans written
+before this (the three `docs/calculator-web-*.plan.json` files and run `w-000001` of `run-v6`) keep their old ids; the lint warns on them and nothing rejects them.

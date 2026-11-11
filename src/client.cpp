@@ -71,7 +71,7 @@ constexpr const char* kUsage =
     "  logs ID [--stderr] [--follow] [--run N]\n"
     "  cancel ID | resume ID | wait ID [--timeout SEC] | ping | stop\n"
     "  do \"<task in words>\" [project options]   triage first, then run: a known blueprint starts at once, otherwise a needs-plan.md handoff is written\n"
-    "  project submit --task calculator-basic|calculator-scientific|calculator-web [--sandbox DIR] [--inject ITEM[:N]]... [--max-local N]\n"
+    "  project submit --task calculator-basic|calculator-scientific|calculator-web|calculator-cpp|calculator-py [--sandbox DIR] [--inject ITEM[:N]]... [--max-local N]\n"
     "         [--agent mock|llm] [--engine NAME=http://127.0.0.1:PORT/v1[,model=..][,ctx=N][,slots=N]]... [--engine-for PERSONA=NAME]... [--max-tokens N] [--treatment baseline|index|planfirst] [--repair-turns N] [--size-budget TOKENS] [--fallback-engine NAME] [--ask]\n"
     "  project plan ID --file plan.json     supply the plan a workflow is awaiting (the deferred architect's answer)\n"
     "  request list [WF] | raise WF --kind K [--scope a,b] [--blocking] [--title T] [--detail D] [--option O]... | answer WF RID [--resolution retry|stop] [--answer TEXT]\n"
@@ -83,7 +83,7 @@ constexpr const char* kUsage =
     "  portal [--port N] [--engine-url URL]  read-only status portal on 127.0.0.1 (default 8780): the work graph, tokens per node, daemon jobs\n"
     "  guard [--memory-mib N] [--reserve-mib R] [--disk-path P --disk-mib N]   explicit host guards (exit 1 when refused)\n"
     "  fetch-model --url https://huggingface.co/... --out FILE [--sha256 H]   guarded, resumable, verified download (run it as a job)\n"
-    "  blueprint NAME                       print a built-in plan-2 (calculator-web)\n"
+    "  blueprint NAME                       print a built-in plan-2 (calculator-web, calculator-cpp, calculator-py)\n"
     "  project status [ID] [--json] | project cancel ID | project wait ID [--timeout SEC]\n"
     "  serve also takes --frontier off|stub (default stub: the escalation path runs, nothing is sent)\n"
     "  --selftest | --version\n";

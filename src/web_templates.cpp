@@ -415,7 +415,7 @@ std::string webMockFile(const std::string& path, bool buggy)
 
 std::string webMockBugTarget(const std::string& item)
 {
-    static const std::map<std::string, std::string> m = {{"eval-tests", "tests/eval.test.mjs"}, {"engine", "src/calc.js"}, {"ui-tests", "tests/ui.test.mjs"}, {"ui", "src/ui.js"}};
+    static const std::map<std::string, std::string> m = {{"test-engine", "tests/eval.test.mjs"}, {"dev-engine", "src/calc.js"}, {"test-ui", "tests/ui.test.mjs"}, {"dev-ui", "src/ui.js"}};
     auto it = m.find(item);
     return it == m.end() ? std::string{} : it->second;
 }

@@ -66,7 +66,7 @@ int main()
         CHECK_EQ(runMockPlanner({"--task", p.task, "--out", (d / "plan.json").string()}), 0);
 
         // Every defect still matches its template.
-        for (const char* item : {"engine", "app"}) {
+        for (const char* item : {"dev-engine", "dev-app"}) {
             const Harness* h = findHarness(p.harness);
             const std::string target = h->mockBugTarget(item);
             CHECK(!h->mockFile(target, true).empty());
@@ -74,49 +74,49 @@ int main()
         }
 
         // Testers pass against the stubs-fail rule; the engine with the defect fails its gate and the feedback names the test and the values.
-        CHECK_EQ(agent(d, "eval-tests", 1), 0);
-        CHECK_EQ(gate(p, d, "eval-tests", 1), 0);
-        CHECK_EQ(agent(d, "cli-tests", 1), 0);
-        CHECK_EQ(gate(p, d, "cli-tests", 1), 0);
-        CHECK_EQ(agent(d, "engine", 1, {"engine:1"}), 0);
-        CHECK(gate(p, d, "engine", 1) != 0);
-        const std::string g1 = slurp(d / "items" / "engine" / "attempt-1" / "gate.txt");
+        CHECK_EQ(agent(d, "test-engine", 1), 0);
+        CHECK_EQ(gate(p, d, "test-engine", 1), 0);
+        CHECK_EQ(agent(d, "test-app", 1), 0);
+        CHECK_EQ(gate(p, d, "test-app", 1), 0);
+        CHECK_EQ(agent(d, "dev-engine", 1, {"dev-engine:1"}), 0);
+        CHECK(gate(p, d, "dev-engine", 1) != 0);
+        const std::string g1 = slurp(d / "items" / "dev-engine" / "attempt-1" / "gate.txt");
         CHECK(g1.find("GATE FAIL") != std::string::npos);
         CHECK(g1.find("modulo") != std::string::npos);
         CHECK(g1.find("expected") != std::string::npos);
         // The same item passes on the next attempt (the correct file).
-        CHECK_EQ(agent(d, "engine", 2), 0);
-        CHECK_EQ(gate(p, d, "engine", 2), 0);
-        CHECK(fs::exists(d / "items" / "engine" / "accepted"));
+        CHECK_EQ(agent(d, "dev-engine", 2), 0);
+        CHECK_EQ(gate(p, d, "dev-engine", 2), 0);
+        CHECK(fs::exists(d / "items" / "dev-engine" / "accepted"));
 
         // The app with the defect fails; a file that does not compile or parse is named with its location.
-        CHECK_EQ(agent(d, "app", 1, {"app:1"}), 0);
-        CHECK(gate(p, d, "app", 1) != 0);
+        CHECK_EQ(agent(d, "dev-app", 1, {"dev-app:1"}), 0);
+        CHECK(gate(p, d, "dev-app", 1) != 0);
         const Harness* h = findHarness(p.harness);
-        const std::string appFile = h->mockBugTarget("app");
-        put(d / "items" / "app" / "attempt-2" / "out" / appFile, std::string(p.harness) == "cpp-cmake" ? "int main() { return ; }\n" : "def broken(:\n");
-        CHECK(gate(p, d, "app", 2) != 0);
-        const std::string g2 = slurp(d / "items" / "app" / "attempt-2" / "gate.txt");
+        const std::string appFile = h->mockBugTarget("dev-app");
+        put(d / "items" / "dev-app" / "attempt-2" / "out" / appFile, std::string(p.harness) == "cpp-cmake" ? "int main() { return ; }\n" : "def broken(:\n");
+        CHECK(gate(p, d, "dev-app", 2) != 0);
+        const std::string g2 = slurp(d / "items" / "dev-app" / "attempt-2" / "gate.txt");
         CHECK(g2.find(appFile) != std::string::npos);
         CHECK(g2.find(std::string(p.harness) == "cpp-cmake" ? "does not compile" : "syntax error") != std::string::npos);
         // An interface mismatch (the engine does not provide the name the tests import) exits 6 and lists the names the tests need.
         {
-            const std::string engineFile = h->mockBugTarget("engine");
-            put(d / "items" / "engine" / "attempt-5" / "out" / engineFile, std::string(p.harness) == "cpp-cmake" ? "int unrelated() { return 1; }\n" : "def other(expr, degrees=False):\n    return 0\n");
-            CHECK_EQ(gate(p, d, "engine", 5), 6);
-            const std::string g5 = slurp(d / "items" / "engine" / "attempt-5" / "gate.txt");
+            const std::string engineFile = h->mockBugTarget("dev-engine");
+            put(d / "items" / "dev-engine" / "attempt-5" / "out" / engineFile, std::string(p.harness) == "cpp-cmake" ? "int unrelated() { return 1; }\n" : "def other(expr, degrees=False):\n    return 0\n");
+            CHECK_EQ(gate(p, d, "dev-engine", 5), 6);
+            const std::string g5 = slurp(d / "items" / "dev-engine" / "attempt-5" / "gate.txt");
             CHECK(g5.find("INTERFACE MISMATCH") != std::string::npos);
             if (std::string(p.harness) == "py-unittest") CHECK(g5.find("evaluate") != std::string::npos);
         }
         // An edit outside the allowlist is refused.
-        put(d / "items" / "app" / "attempt-3" / "out" / appFile, h->mockFile(appFile, false));
-        put(d / "items" / "app" / "attempt-3" / "out" / "stray.txt", "x");
-        CHECK(gate(p, d, "app", 3) != 0);
-        CHECK(slurp(d / "items" / "app" / "attempt-3" / "gate.txt").find("outside the item's editable files") != std::string::npos);
+        put(d / "items" / "dev-app" / "attempt-3" / "out" / appFile, h->mockFile(appFile, false));
+        put(d / "items" / "dev-app" / "attempt-3" / "out" / "stray.txt", "x");
+        CHECK(gate(p, d, "dev-app", 3) != 0);
+        CHECK(slurp(d / "items" / "dev-app" / "attempt-3" / "gate.txt").find("outside the item's editable files") != std::string::npos);
 
         // The correct app passes, and the accepted items integrate into a working program with a capture.
-        CHECK_EQ(agent(d, "app", 4), 0);
-        CHECK_EQ(gate(p, d, "app", 4), 0);
+        CHECK_EQ(agent(d, "dev-app", 4), 0);
+        CHECK_EQ(gate(p, d, "dev-app", 4), 0);
         const int integ = std::string(p.harness) == "cpp-cmake" ? runCppIntegrate({"--workflow-dir", d.string()}) : runPyIntegrate({"--workflow-dir", d.string()});
         CHECK_EQ(integ, 0);
         CHECK(slurp(d / "capture.txt").find("= 512") != std::string::npos);
@@ -128,11 +128,11 @@ int main()
     {
         const fs::path d = makeTempDir("platform-web");
         CHECK_EQ(runMockPlanner({"--task", "calculator-web", "--out", (d / "plan.json").string()}), 0);
-        CHECK_EQ(agent(d, "eval-tests", 1), 0);
-        CHECK_EQ(runHarnessGate({"--workflow-dir", d.string(), "--item", "eval-tests", "--attempt", "1"}), 0);
-        put(d / "items" / "engine" / "attempt-1" / "out" / "src" / "calc.js", "export function calculate(expr) { return 0; }\n");
-        CHECK_EQ(runHarnessGate({"--workflow-dir", d.string(), "--item", "engine", "--attempt", "1"}), 6);
-        const std::string g = slurp(d / "items" / "engine" / "attempt-1" / "gate.txt");
+        CHECK_EQ(agent(d, "test-engine", 1), 0);
+        CHECK_EQ(runHarnessGate({"--workflow-dir", d.string(), "--item", "test-engine", "--attempt", "1"}), 0);
+        put(d / "items" / "dev-engine" / "attempt-1" / "out" / "src" / "calc.js", "export function calculate(expr) { return 0; }\n");
+        CHECK_EQ(runHarnessGate({"--workflow-dir", d.string(), "--item", "dev-engine", "--attempt", "1"}), 6);
+        const std::string g = slurp(d / "items" / "dev-engine" / "attempt-1" / "gate.txt");
         CHECK(g.find("INTERFACE MISMATCH") != std::string::npos);
         CHECK(g.find("evaluate") != std::string::npos);
     }

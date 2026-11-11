@@ -30,7 +30,7 @@ Plan calculatorPlan(const CalculatorSurface& s)
                  "decision: split into 4 items (2 testers, 2 developers)"};
 
     WorkItem et;
-    et.id = "eval-tests"; et.title = "Engine tests"; et.persona = "tester"; et.complexity = 2;
+    et.id = "test-engine"; et.title = "Engine tests"; et.persona = "tester"; et.complexity = 2;
     et.goal = "Write tests for the calculator engine before it exists";
     et.files = {s.engineTests};
     et.card.context = "A developer will implement the engine against your tests, so they must be correct and specific.";
@@ -42,9 +42,9 @@ Plan calculatorPlan(const CalculatorSurface& s)
     et.gate = {s.gateKind, {s.engineTests}, 8, true};
 
     WorkItem en;
-    en.id = "engine"; en.title = "Expression engine"; en.persona = "developer"; en.complexity = 3;
+    en.id = "dev-engine"; en.title = "Expression engine"; en.persona = "developer"; en.complexity = 3;
     en.goal = "Implement the engine so the provided tests pass";
-    en.files = {s.engine}; en.deps = {"eval-tests"};
+    en.files = {s.engine}; en.deps = {"test-engine"};
     en.card.context = "Replace the stub " + s.engine + " with a real implementation; the tests below are the specification.";
     en.card.contract = "Implement " + s.engineApi + ". " + kLanguage + "Raise " + s.errorKind + " with a clear message on any invalid input (" + kErrors + ")";
     en.card.acceptance = {"every test in " + s.engineTests + " passes", s.style};
@@ -53,7 +53,7 @@ Plan calculatorPlan(const CalculatorSurface& s)
     en.gate = {s.gateKind, {s.engineTests}, 8, false};
 
     WorkItem ct;
-    ct.id = "cli-tests"; ct.title = "App tests"; ct.persona = "tester"; ct.complexity = 2;
+    ct.id = "test-app"; ct.title = "App tests"; ct.persona = "tester"; ct.complexity = 2;
     ct.goal = "Write tests for the calculator command-line app by running it";
     ct.files = {s.cliTests};
     ct.card.context = "A developer will build the app against your tests. The tests run the real program.";
@@ -64,9 +64,9 @@ Plan calculatorPlan(const CalculatorSurface& s)
     ct.gate = {s.gateKind, {s.cliTests}, 5, true};
 
     WorkItem ap;
-    ap.id = "app"; ap.title = "Command-line app"; ap.persona = "developer"; ap.complexity = 2;
+    ap.id = "dev-app"; ap.title = "Command-line app"; ap.persona = "developer"; ap.complexity = 2;
     ap.goal = "Write the command-line app so the provided tests pass";
-    ap.files = {s.app}; ap.deps = {"cli-tests", "engine"};
+    ap.files = {s.app}; ap.deps = {"test-app", "dev-engine"};
     ap.card.context = "Replace the stub " + s.app + "; the tests below are the specification.";
     ap.card.contract = s.appEntry + ". " + kApp + "Evaluate with the engine (" + s.engineApi + ").";
     ap.card.acceptance = {"every test in " + s.cliTests + " passes", s.style};

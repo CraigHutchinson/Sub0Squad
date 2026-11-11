@@ -40,7 +40,7 @@ const char* kCalculatorWeb = R"JSON({
   ],
   "items": [
     {
-      "id": "eval-tests", "title": "Engine tests", "persona": "tester", "complexity": 2,
+      "id": "test-engine", "title": "Engine tests", "persona": "tester", "complexity": 2,
       "goal": "Write tests for the calculator expression engine before it exists",
       "files": ["tests/eval.test.mjs"], "deps": [],
       "card": {
@@ -57,9 +57,9 @@ const char* kCalculatorWeb = R"JSON({
       "gate": { "kind": "node-test", "tests": ["tests/eval.test.mjs"], "minTests": 8, "mustFailOnStub": true }
     },
     {
-      "id": "engine", "title": "Expression engine", "persona": "developer", "complexity": 3,
+      "id": "dev-engine", "title": "Expression engine", "persona": "developer", "complexity": 3,
       "goal": "Implement the expression engine so the provided tests pass",
-      "files": ["src/calc.js"], "deps": ["eval-tests"],
+      "files": ["src/calc.js"], "deps": ["test-engine"],
       "card": {
         "context": "Replace the stub src/calc.js with a real implementation; the tests below are the specification.",
         "contract": "export function evaluate(expr, options = {}) returning a number; options.degrees switches trig functions to degrees. Support + - * / % ^ (right associative, tighter than unary minus), postfix !, parentheses, constants pi e tau, functions sin cos tan asin acos atan sinh cosh tanh ln log log2 sqrt cbrt abs exp floor ceil round fact, and pow min max. Throw an Error with a clear message on any invalid input.",
@@ -70,7 +70,7 @@ const char* kCalculatorWeb = R"JSON({
       "gate": { "kind": "node-test", "tests": ["tests/eval.test.mjs"], "minTests": 8, "mustFailOnStub": false }
     },
     {
-      "id": "ui-tests", "title": "Page tests", "persona": "tester", "complexity": 2,
+      "id": "test-ui", "title": "Page tests", "persona": "tester", "complexity": 2,
       "goal": "Write tests for the calculator page's behaviour using the harness fake DOM",
       "files": ["tests/ui.test.mjs"], "deps": [],
       "card": {
@@ -86,9 +86,9 @@ const char* kCalculatorWeb = R"JSON({
       "gate": { "kind": "node-test", "tests": ["tests/ui.test.mjs"], "minTests": 6, "mustFailOnStub": true }
     },
     {
-      "id": "ui", "title": "Calculator page", "persona": "developer", "complexity": 2,
+      "id": "dev-ui", "title": "Calculator page", "persona": "developer", "complexity": 2,
       "goal": "Build the page, its script and its style so the provided tests pass and it works in a browser",
-      "files": ["index.html", "src/ui.js", "style.css"], "deps": ["ui-tests", "engine"],
+      "files": ["index.html", "src/ui.js", "style.css"], "deps": ["test-ui", "dev-engine"],
       "card": {
         "context": "Replace the stubs index.html and src/ui.js; add style.css. The tests below are the specification.",
         "contract": "src/ui.js: export function mount(document) as described in the tests; import { evaluate } from './calc.js'; at the end call mount(document) when typeof document !== 'undefined'. index.html: a page with <input id=\"expr\">, <output id=\"result\">, <input type=\"checkbox\" id=\"degrees\"> with a label, and a button for each key as <button data-key=\"KEY\">KEY</button>, then <script type=\"module\" src=\"src/ui.js\"></script>, and <link rel=\"stylesheet\" href=\"style.css\">. Keys: 0-9 . + - * / % ^ ( ) ! pi e sin( cos( tan( asin( acos( atan( ln( log( sqrt( C DEL =",

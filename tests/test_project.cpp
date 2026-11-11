@@ -127,7 +127,7 @@ int main(int, char** argv)
     { // The web project with personas, test-first handoff, retry, escalation, and the work-versus-harness metrics.
         Squad sq(exe, "projweb");
         sq.startDaemon(4);
-        const Result d = sq.cli({"do", "write a scientific calculator as a web page", "--inject", "eval-tests:1", "--inject", "engine"});
+        const Result d = sq.cli({"do", "write a scientific calculator as a web page", "--inject", "test-engine:1", "--inject", "dev-engine"});
         CHECK(d.exitCode == 0 && d.out.find("architect: not needed") != std::string::npos);
         const std::string wf = "w-000001";
         CHECK(waitWorkflow(sq, wf, "succeeded", 90000));
@@ -145,16 +145,16 @@ int main(int, char** argv)
       // the producer), a rearchitect job rewrites the card, then one escalation to the stub tier. Every rung counts as an attempt.
         Squad sq(exe, "projladder");
         sq.startDaemon(4);
-        sq.cli({"do", "write a scientific calculator as a web page", "--inject", "engine"});
+        sq.cli({"do", "write a scientific calculator as a web page", "--inject", "dev-engine"});
         const std::string wf = "w-000001";
         CHECK(waitWorkflow(sq, wf, "succeeded", 120000));
         const std::string s = wfStatus(sq, wf);
         for (const char* action : {"retry", "decompose", "reviseTests", "rearchitect", "escalate"})
             CHECK(s.find(std::string{"\"action\":\""} + action + "\"") != std::string::npos);
         CHECK(s.find("\"action\":\"disputed\"") != std::string::npos);   // the producer's earlier acceptance was voided
-        const auto engine = sq.home() / "state" / "workflows" / wf / "items" / "engine";
+        const auto engine = sq.home() / "state" / "workflows" / wf / "items" / "dev-engine";
         CHECK(std::filesystem::exists(engine / "card-override.json"));       // the dedicated job rewrote the card
-        const auto tests = sq.home() / "state" / "workflows" / wf / "items" / "eval-tests";
+        const auto tests = sq.home() / "state" / "workflows" / wf / "items" / "test-engine";
         CHECK(std::filesystem::exists(tests / "attempt-2"));                  // the tester item was re-run after the dispute
         CHECK(std::filesystem::exists(tests / "dispute.txt"));               // what the producer was told (the mock agent does not consume it)
         CHECK(field(wfStatus(sq, wf), "state") == "succeeded");

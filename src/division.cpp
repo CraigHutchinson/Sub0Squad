@@ -23,7 +23,7 @@ std::vector<std::string> completeDivision(Plan& fragment, const WorkItem& parent
             if (f.persona == "tester") for (const auto& t : f.files) if (t == "tests/" + stem + testSuffix) tester = &f;
         if (!tester) continue;
         WorkItem d;
-        d.id = "impl-" + stem;
+        d.id = "dev-" + stem;
         while (std::any_of(fragment.items.begin(), fragment.items.end(), [&](const WorkItem& x) { return x.id == d.id; })) d.id += "x";
         d.title = "Implement " + file;
         d.persona = "developer";
@@ -58,7 +58,7 @@ std::vector<std::string> completeDivision(Plan& fragment, const WorkItem& parent
             if (written.count(testFile) || inherited.count(testFile)) continue;
             const WorkItem dev = fragment.items[i];   // copy: pushing below may move the vector's storage
             WorkItem t;
-            t.id = dev.id + "-tests";
+            t.id = "test-" + (dev.id.rfind("dev-", 0) == 0 ? dev.id.substr(4) : dev.id);
             while (std::any_of(fragment.items.begin(), fragment.items.end(), [&](const WorkItem& x) { return x.id == t.id; })) t.id += "x";
             t.title = "Tests for " + dev.title;
             t.persona = "tester";

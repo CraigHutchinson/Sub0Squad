@@ -61,6 +61,13 @@ PlanLint lintPlan(const Plan& plan, double tps)
                              std::to_string(1.0 / r.serialFraction).substr(0, 4) + "x");
     for (const auto& it : plan.items)
         if (it.persona == "developer" && it.files.size() > 2) r.warnings.push_back("'" + it.id + "' writes " + std::to_string(it.files.size()) + " files: a smaller package per file runs in parallel and fits one attempt");
+    for (const auto& it : plan.items) {   // the naming convention: role and area, so a node is recognisable by its id (the part after the last '.' for a divided item)
+        const std::string leaf = it.id.substr(it.id.rfind('.') == std::string::npos ? 0 : it.id.rfind('.') + 1);
+        const char* want = it.persona == "tester" ? "test-" : it.persona == "developer" ? "dev-" : "int-";
+        const bool dividedDeveloper = it.persona == "integrator" && leaf.rfind("dev-", 0) == 0;   // a divided developer item keeps its id as the coordinator
+        if (leaf.rfind(want, 0) != 0 && !dividedDeveloper)
+            r.warnings.push_back("item id '" + it.id + "' does not start with '" + want + "' (ids say role and area: test-, dev-, int-)");
+    }
     return r;
 }
 

@@ -482,7 +482,7 @@ std::string pyMockFile(const std::string& path, bool buggy)
 
 std::string pyMockBugTarget(const std::string& item)
 {
-    static const std::map<std::string, std::string> m = {{"engine", "calc/engine.py"}, {"app", "calc/__main__.py"}};
+    static const std::map<std::string, std::string> m = {{"dev-engine", "calc/engine.py"}, {"dev-app", "calc/__main__.py"}};
     auto it = m.find(item);
     return it == m.end() ? std::string{} : it->second;
 }

@@ -117,7 +117,7 @@ int main()
         CHECK(!Plan::fromJson(swap("\"kind\": \"node-test\"", "\"kind\": \"shell\"")).has_value());                           // a plan cannot carry commands
         CHECK(!Plan::fromJson(swap("\"harness\": \"web-static\"", "\"harness\": \"mystery\"")).has_value());
         auto plan = Plan::fromJson(bp);
-        CHECK(plan && plan->items.size() == 4 && plan->find("engine")->card.include.size() == 1);
+        CHECK(plan && plan->items.size() == 4 && plan->find("dev-engine")->card.include.size() == 1);
         // Triage: the first call.
         const TriageResult web = triage("write a scientific calculator as a web page");
         CHECK(web.blueprint == "calculator-web" && web.architect == "not needed" && web.split && web.projectType == "web-static");
@@ -496,9 +496,9 @@ int main()
         CHECK(!Plan::amended(base, "engine", frag).has_value());                       // as written: src/lexer.js is delivered by no part
         const auto added = completeDivision(frag, *base.find("engine"));
         CHECK(added.size() == 1 && added[0].find("src/lexer.js") != std::string::npos);
-        const WorkItem* impl = frag.find("impl-lexer");
+        const WorkItem* impl = frag.find("dev-lexer");
         CHECK(impl && impl->persona == "developer" && impl->files == std::vector<std::string>{"src/lexer.js"} && impl->deps == std::vector<std::string>{"lexer"} && impl->gate.tests == std::vector<std::string>{"tests/lexer.test.mjs"});
-        CHECK(std::find(frag.find("parser")->deps.begin(), frag.find("parser")->deps.end(), "impl-lexer") != frag.find("parser")->deps.end());   // the parser waits for the lexer's implementation
+        CHECK(std::find(frag.find("parser")->deps.begin(), frag.find("parser")->deps.end(), "dev-lexer") != frag.find("parser")->deps.end());   // the parser waits for the lexer's implementation
         CHECK(Plan::fromJson(frag.toJson()).has_value());
         CHECK(completeDivision(frag, *base.find("engine")).empty());                  // nothing left to add
     }
@@ -514,9 +514,9 @@ int main()
         frag.items = {ev, dom};
         const auto added = completeDivision(frag, *base.find("ui-js"));
         CHECK(added.size() == 1 && added[0].find("tests/ui-dom.test.mjs") != std::string::npos);
-        const WorkItem* t = frag.find("ui-dom-tests");
+        const WorkItem* t = frag.find("test-ui-dom");
         CHECK(t && t->persona == "tester" && t->files == std::vector<std::string>{"tests/ui-dom.test.mjs"} && t->gate.mustFailOnStub);
-        CHECK(std::find(frag.find("ui-dom")->deps.begin(), frag.find("ui-dom")->deps.end(), "ui-dom-tests") != frag.find("ui-dom")->deps.end());
+        CHECK(std::find(frag.find("ui-dom")->deps.begin(), frag.find("ui-dom")->deps.end(), "test-ui-dom") != frag.find("ui-dom")->deps.end());
         CHECK(completeDivision(frag, *base.find("ui-js")).empty());
     }
     { // QA: two modules that each wrote the same helper and the same block; a long function; tests and node_modules are left alone.

@@ -6,6 +6,7 @@
 #include "sub0squad/division.hpp"
 #include "sub0squad/event_channel.hpp"
 #include "sub0squad/trace.hpp"
+#include "sub0squad/harness.hpp"
 #include "sub0squad/harness_web.hpp"
 #include "sub0squad/plan.hpp"
 #include "sub0squad/sandbox.hpp"
@@ -147,14 +148,17 @@ int runLlmArchitect(const std::vector<std::string>& args)
     if (!plan || !plan->find(itemId)) { std::fprintf(stderr, "llm-architect: cannot load the plan or item\n"); return 1; }
     const WorkItem& it = *plan->find(itemId);
     const std::string failure = latestFailure(dir, itemId, attempt);
+    const Harness* hh = findHarness(plan->harness);
+    const std::string hname = plan->harness, gkind = hh ? hh->gateKind : "node-test", tsuffix = hh ? hh->testSuffix : ".test.mjs";
     std::string system, user;
     if (mode == "decompose") {
         system = "You are the architect of a small software squad. Workers are small models: a work item that fails repeatedly is too big. "
                  "Your job is the separation: clean boundaries, exact interfaces and how the parts interact (the whole is checked afterwards by the original tests). "
                  "Divide the failing item into 2 to 4 smaller work packages, test-first, and reply with ONE JSON object and nothing else.\n"
-                 "Syntax: {\"schema\":\"plan-2\",\"task\":\"x\",\"harness\":\"web-static\",\"project\":\"x\",\"reasons\":[\"why this division\"],\"items\":[{\"id\":\"short\",\"title\":\"..\",\"persona\":\"tester|developer\",\"goal\":\"one sentence\","
+                 "Syntax: {\"schema\":\"plan-2\",\"task\":\"x\",\"harness\":\"" + hname + "\",\"project\":\"x\",\"reasons\":[\"why this division\"],\"items\":[{\"id\":\"dev-name\",\"title\":\"..\",\"persona\":\"tester|developer\",\"goal\":\"one sentence\","
                  "\"files\":[\"paths\"],\"deps\":[\"ids of items in THIS reply only\"],\"complexity\":1,\"card\":{\"context\":\"1-2 sentences\",\"contract\":\"exact interface\",\"acceptance\":[\"checks\"],\"include\":[],\"notes\":[]},"
-                 "\"gate\":{\"kind\":\"node-test\",\"tests\":[\"tests/x.test.mjs\"],\"minTests\":3,\"mustFailOnStub\":false}}]}\n"
+                 "\"gate\":{\"kind\":\"" + gkind + "\",\"tests\":[\"tests/x" + tsuffix + "\"],\"minTests\":3,\"mustFailOnStub\":false}}]}\n"
+                 "Ids say role and area: test-NAME for a tester, dev-NAME for a developer, int-NAME for an integrator (NAME is the area, such as lexer or parser), so a node is recognisable by its id. "
                  "Rules: testers write only under tests/ (their gate has mustFailOnStub true); developers never write tests; every file the original item delivered must be delivered by some new item; "
                  "items must not share files; a developer item depends on the tester item whose test file it includes (list it in card.include); keep each card under 300 words. "
                  "Every developer part gets its OWN tester item with a NEW test file (never the original item's test file, which needs all the parts together: it is run on the whole afterwards). "

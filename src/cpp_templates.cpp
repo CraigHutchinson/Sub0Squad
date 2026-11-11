@@ -104,6 +104,33 @@ template <class T> std::string show(const T& v) { std::ostringstream o; o << v; 
 #define CHECK_THROWS(expr) do { bool threw_ = false; try { (void)(expr); } catch (const std::exception&) { threw_ = true; } if (!threw_) throw check::Failure{"CHECK_THROWS failed: " #expr " did not throw", "an exception", "no exception", __FILE__, __LINE__}; } while (0)
 )CPP";
 
+const char* kAppHelper = R"CPP(#pragma once
+// Runs the app (calc_cli) and returns what it printed. `args` is the command line after the program name, written as in a shell
+// (quote an argument that has spaces). The program's path is supplied by the build; do not use CALC_CLI_PATH yourself.
+#include <cstdio>
+#include <string>
+#include <utility>
+
+namespace app {
+
+struct Result { std::string output; int code; };  // stdout and stderr together; the exit code (0 = success)
+
+inline Result run(const std::string& args)
+{
+    const std::string cmd = std::string(CALC_CLI_PATH) + " " + args + " 2>&1";
+    Result r{"", -1};
+    if (FILE* p = popen(cmd.c_str(), "r")) {
+        char buf[256];
+        while (std::fgets(buf, sizeof buf, p)) r.output += buf;
+        const int st = pclose(p);
+        r.code = st == -1 ? -1 : (st >> 8) & 0xff;
+    }
+    return r;
+}
+
+}  // namespace app
+)CPP";
+
 const char* kRunner = R"CPP(#include "helpers/check.hpp"
 
 #include <cstdio>
@@ -381,33 +408,17 @@ int main(int argc, char** argv)
 }
 )CPP";
 
-const char* kCliTests = R"CPP(#include "helpers/check.hpp"
+const char* kCliTests = R"CPP(#include "helpers/app.hpp"
+#include "helpers/check.hpp"
 
-#include <cstdio>
-#include <string>
-
-// Runs the app and returns what it printed (stdout and stderr) and its exit code.
-static std::string run(const std::string& args, int* code = nullptr)
-{
-    const std::string cmd = std::string(CALC_CLI_PATH) + " " + args + " 2>&1";
-    std::string out;
-    if (FILE* p = popen(cmd.c_str(), "r")) {
-        char buf[256];
-        while (std::fgets(buf, sizeof buf, p)) out += buf;
-        const int st = pclose(p);
-        if (code) *code = st;
-    }
-    return out;
-}
-
-TEST(prints_the_result) { CHECK_EQ(run("2^3^2"), std::string("512\n")); }
-TEST(joins_arguments) { CHECK_EQ(run("1 + 2"), std::string("3\n")); }
-TEST(rounds_floating_noise) { CHECK_EQ(run("0.1+0.2"), std::string("0.3\n")); }
-TEST(degrees_flag) { CHECK_EQ(run("--degrees \"sin(90)\""), std::string("1\n")); }
-TEST(error_message_and_status) { int code = 0; const std::string out = run("1/0", &code); CHECK(out.find("Error:") == 0); CHECK(code != 0); }
+TEST(prints_the_result) { const auto r = app::run("2^3^2"); CHECK_EQ(r.output, std::string("512\n")); CHECK_EQ(r.code, 0); }
+TEST(joins_arguments) { CHECK_EQ(app::run("1 + 2").output, std::string("3\n")); }
+TEST(rounds_floating_noise) { CHECK_EQ(app::run("0.1+0.2").output, std::string("0.3\n")); }
+TEST(degrees_flag) { CHECK_EQ(app::run("--degrees \"sin(90)\"").output, std::string("1\n")); }
+TEST(error_message_and_status) { const auto r = app::run("1/0"); CHECK(r.output.find("Error:") == 0); CHECK(r.code != 0); }
 TEST(screen_frame) {
     const std::string expected = "+--------------------------------------+\n| 2+2                                  |\n| = 4                                  |\n+--------------------------------------+\n";
-    CHECK_EQ(run("--screen 2+2"), expected);
+    CHECK_EQ(app::run("--screen 2+2").output, expected);
 }
 )CPP";
 
@@ -428,7 +439,7 @@ const std::vector<HarnessFile>& cppScaffold()
 {
     static const std::vector<HarnessFile> files = {
         {"CMakeLists.txt", kCMake}, {"include/calc/calc.hpp", kHeader}, {"src/calc.cpp", kStubCalc}, {"src/main.cpp", kStubMain},
-        {"tests/helpers/check.hpp", kCheck}, {"tests/helpers/main.cpp", kRunner},
+        {"tests/helpers/check.hpp", kCheck}, {"tests/helpers/app.hpp", kAppHelper}, {"tests/helpers/main.cpp", kRunner},
     };
     return files;
 }
@@ -443,8 +454,8 @@ std::size_t cppScaffoldBytes()
 std::string cppHarnessFacts()
 {
     return "- Project type `cpp-cmake`: C++20, standard library only, built with CMake and Ninja under -Wall -Wextra -Werror (a warning is a failure), tests are one executable per tests/NAME.test.cpp.\n"
-           "- The scaffold every item's workspace starts from: CMakeLists.txt, include/calc/calc.hpp (the contract: calc::evaluate), tests/helpers/check.hpp (TEST, CHECK, CHECK_EQ, CHECK_NEAR, CHECK_THROWS) and its runner, and STUB src/calc.cpp (throws 'not implemented') and src/main.cpp.\n"
-           "- The library is every src/*.cpp except main.cpp; the app calc_cli is main.cpp; a test file may run the app through CALC_CLI_PATH.\n"
+           "- The scaffold every item's workspace starts from: CMakeLists.txt, include/calc/calc.hpp (the contract: calc::evaluate), tests/helpers/check.hpp (TEST, CHECK, CHECK_EQ, CHECK_NEAR, CHECK_THROWS) and its runner, tests/helpers/app.hpp (app::run), and STUB src/calc.cpp (throws 'not implemented') and src/main.cpp.\n"
+           "- The library is every src/*.cpp except main.cpp; the app calc_cli is main.cpp; a test file runs the app with `#include \"helpers/app.hpp\"` and app::run(\"ARGS\") (returns .output and .code).\n"
            "- A worker replies with whole files as `=== FILE: path === ... === END FILE ===`; anything outside the item's allowed files is rejected.\n"
            "- Cheapest checks first: the allowlist, then `-fsyntax-only` of each written file (file, line, message), then a build of only the gate's targets, then the tests (TAP with expected and actual).\n"
            "- Tester gate: the tests must build against the stubs, number at least the item's minimum, and at least 70 % must FAIL against the stubs. Developer gate: every test passes.\n"
@@ -479,7 +490,7 @@ std::string cppMockFile(const std::string& path, bool buggy)
 
 std::string cppMockBugTarget(const std::string& item)
 {
-    static const std::map<std::string, std::string> m = {{"engine", "src/calc.cpp"}, {"app", "src/main.cpp"}};
+    static const std::map<std::string, std::string> m = {{"dev-engine", "src/calc.cpp"}, {"dev-app", "src/main.cpp"}};
     auto it = m.find(item);
     return it == m.end() ? std::string{} : it->second;
 }
@@ -498,7 +509,7 @@ const CalculatorSurface& cppSurface()
         "double calc::evaluate(const std::string& expr, bool degrees = false), declared in include/calc/calc.hpp and defined in src/calc.cpp",
         "std::runtime_error",
         "includes \"calc/calc.hpp\" (engine tests) and \"helpers/check.hpp\" and defines only TEST cases (CHECK_NEAR, CHECK_EQ, CHECK_THROWS), no main",
-        "In a test, std::string(CALC_CLI_PATH) is the path of the program; run it with popen and read its output.",
+        "In a test, #include \"helpers/app.hpp\" and call app::run(\"ARGS\"), which returns a struct with .output (stdout and stderr together) and .code (the exit code); do not use popen or CALC_CLI_PATH yourself.",
         "int main(int argc, char** argv)",
         "C++20, standard library only, no warnings",
         "A small recursive descent parser works well: expression -> term -> unary -> postfix -> primary"};

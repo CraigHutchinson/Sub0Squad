@@ -80,7 +80,7 @@ std::string needsPlanPacket(const std::string& taskText, const TriageResult& t, 
     s += "  \"items\": [ { \"id\": \"short-id\", \"title\": \"...\", \"persona\": \"tester|developer\", \"goal\": \"one sentence\", \"files\": [\"relative/paths\"], \"deps\": [\"ids\"], \"complexity\": 1,\n";
     s += "    \"card\": { \"context\": \"1-2 sentences\", \"contract\": \"the interface, exact\", \"acceptance\": [\"observable checks\"], \"include\": [\"files from dependencies to inline\"], \"notes\": [] },\n";
     s += "    \"gate\": { \"kind\": \"node-test\", \"tests\": [\"tests/x.test.mjs\"], \"minTests\": 6, \"mustFailOnStub\": true } } ] }\n```\n\n";
-    s += "## Rules the daemon enforces\n\n- Item ids are `[a-z0-9_-]`; dependencies exist and are acyclic; editable files are disjoint, relative, no `..`.\n";
+    s += "## Rules the daemon enforces\n\n- Item ids are `[a-z0-9_-]` and say role and area: `test-NAME` (tester), `dev-NAME` (developer), `int-NAME` (integrator); dependencies exist and are acyclic; editable files are disjoint, relative, no `..`.\n";
     s += "- Each work card must be at most about " + std::to_string(t.cardBudgetTokens) + " tokens (length/4): that is the context a small model receives. Be exact and brief.\n";
     s += "- At most 32 items. The tester gate requires most tests to FAIL against the harness stubs, so tests must really exercise the contract.\n";
     return s;
