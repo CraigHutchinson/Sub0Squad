@@ -496,6 +496,23 @@ int main()
         CHECK(Plan::fromJson(frag.toJson()).has_value());
         CHECK(completeDivision(frag, *base.find("engine")).empty());                  // nothing left to add
     }
+    { // The 'ui-js' division of the first real 9B run: a developer part graded by tests/ui-dom.test.mjs, which no item writes. It gets a tester.
+        Plan base; base.task = "x"; base.harness = "web-static";
+        auto gate = [](const char* t, bool stub) { GateSpec g; g.kind = "node-test"; g.tests = {t}; g.minTests = 3; g.mustFailOnStub = stub; return g; };
+        WorkItem ut; ut.id = "ui-tests"; ut.persona = "tester"; ut.files = {"tests/ui.test.mjs"}; ut.gate = gate("tests/ui.test.mjs", true);
+        WorkItem js; js.id = "ui-js"; js.persona = "developer"; js.files = {"src/ui.js"}; js.deps = {"ui-tests"}; js.gate = gate("tests/ui.test.mjs", false);
+        base.items = {ut, js};
+        Plan frag; frag.task = "x"; frag.harness = "web-static";
+        WorkItem ev; ev.id = "ui-eval"; ev.persona = "tester"; ev.files = {"tests/ui-eval.test.mjs"}; ev.gate = gate("tests/ui-eval.test.mjs", true);
+        WorkItem dom; dom.id = "ui-dom"; dom.persona = "developer"; dom.files = {"src/ui.js"}; dom.deps = {"ui-eval"}; dom.gate = gate("tests/ui-dom.test.mjs", false);
+        frag.items = {ev, dom};
+        const auto added = completeDivision(frag, *base.find("ui-js"));
+        CHECK(added.size() == 1 && added[0].find("tests/ui-dom.test.mjs") != std::string::npos);
+        const WorkItem* t = frag.find("ui-dom-tests");
+        CHECK(t && t->persona == "tester" && t->files == std::vector<std::string>{"tests/ui-dom.test.mjs"} && t->gate.mustFailOnStub);
+        CHECK(std::find(frag.find("ui-dom")->deps.begin(), frag.find("ui-dom")->deps.end(), "ui-dom-tests") != frag.find("ui-dom")->deps.end());
+        CHECK(completeDivision(frag, *base.find("ui-js")).empty());
+    }
     { // QA: two modules that each wrote the same helper and the same block; a long function; tests and node_modules are left alone.
         const auto root = std::filesystem::current_path() / "qa-test";
         std::filesystem::remove_all(root);

@@ -558,7 +558,9 @@ std::vector<WorkflowAction> advance(const WorkflowRecord& wf, const JobStore& st
         else out.push_back(start(agentJob(wf, st, *v.item, n + 1, d->tier.empty() ? "local" : d->tier)));  // retry, escalate, reviseTests, disputed
     }
     if (!failedItem.empty()) {
-        cancelActive();
+        // Never discard progress (owner rule): an item that ran out of options stops its own branch, not the others. Jobs in flight and work this pass
+        // started carry on; the workflow fails once nothing else can move (everything that depended on the failed item stays pending).
+        if (anyActive || !out.empty()) return out;
         if (!anyActive) out.push_back(finish(WorkflowState::failed, "item '" + failedItem + "' failed after the policy ran out of options"));
         return out;
     }

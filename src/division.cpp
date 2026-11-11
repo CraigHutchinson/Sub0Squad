@@ -42,6 +42,41 @@ std::vector<std::string> completeDivision(Plan& fragment, const WorkItem& parent
         fragment.items.push_back(std::move(d));
         added.push_back(file + " (part '" + newId + "', graded by " + testFile + ")");
     }
+    // The opposite gap (the first real 9B run, 'ui-js.ui-dom'): a developer part graded by a test file that no item writes, so its gate can never run.
+    // Give it a tester of its own, built from the part's own card; the part then waits for it.
+    std::set<std::string> written, inherited(parent.gate.tests.begin(), parent.gate.tests.end());
+    for (const auto& f : fragment.items) for (const auto& file : f.files) written.insert(file);
+    const std::size_t count = fragment.items.size();
+    for (std::size_t i = 0; i < count; ++i) {
+        if (fragment.items[i].persona != "developer") continue;
+        const std::vector<std::string> wanted = fragment.items[i].gate.tests;   // a copy: the vector below grows
+        for (const std::string& testFile : wanted) {
+            if (written.count(testFile) || inherited.count(testFile)) continue;
+            const WorkItem dev = fragment.items[i];   // copy: pushing below may move the vector's storage
+            WorkItem t;
+            t.id = dev.id + "-tests";
+            while (std::any_of(fragment.items.begin(), fragment.items.end(), [&](const WorkItem& x) { return x.id == t.id; })) t.id += "x";
+            t.title = "Tests for " + dev.title;
+            t.persona = "tester";
+            t.goal = "Write the tests in " + testFile + " that specify: " + dev.goal;
+            t.files = {testFile};
+            t.deps = dev.deps;
+            t.complexity = 2;
+            t.card.context = "Tests for the part '" + dev.id + "' of the division of '" + parent.id + "'. Write only " + testFile + ".";
+            t.card.contract = dev.card.contract;
+            t.card.acceptance = {"at least 4 focused tests of the contract in " + testFile, "the tests fail against the stub"};
+            t.card.notes = {"Output only " + testFile};
+            t.gate.kind = "node-test";
+            t.gate.tests = {testFile};
+            t.gate.minTests = 4;
+            t.gate.mustFailOnStub = true;
+            const std::string newId = t.id;
+            fragment.items[i].deps.push_back(newId);
+            fragment.items.push_back(std::move(t));
+            written.insert(testFile);
+            added.push_back("tester '" + newId + "' for " + testFile + " (graded part '" + dev.id + "')");
+        }
+    }
     return added;
 }
 
