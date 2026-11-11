@@ -6,7 +6,7 @@ set(LAYER1 shim supervisor status mock_worker)
 set(LAYER2 engine plan division policy plan_lint ledger workflow workflow_status overseer briefing recall trace triage edits qa)
 set(LAYER3 harness_registry harness_web web_templates calculator_templates sandbox)
 set(LAYER4 llm_agent architect optimizer replay)
-set(LAYER5 daemon)
+set(LAYER5 daemon daemon_impl daemon_jobs daemon_workflow daemon_governance)
 set(LAYER6 portal portal_page client sub0squad)
 # "file->included-header" pairs that go upward today; each is a refactor target.
 set(KNOWN_VIOLATIONS

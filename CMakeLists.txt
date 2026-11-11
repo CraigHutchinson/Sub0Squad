@@ -28,6 +28,12 @@ add_library(sub0squad_core STATIC
   src/progress.cpp
   src/status.cpp
   src/daemon.cpp
+  src/daemon_jobs.cpp
+  src/daemon_workflow.cpp
+  src/daemon_governance.cpp
+  src/daemon_jobs.cpp
+  src/daemon_workflow.cpp
+  src/daemon_governance.cpp
   src/plan.cpp
   src/host_guard.cpp
   src/architect.cpp

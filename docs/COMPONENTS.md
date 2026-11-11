@@ -32,7 +32,7 @@ is a layer of units that is built, tested and changed together; a layer may depe
 
 ## Cleanup order (each step keeps the whole suite green; a failing step is reverted, not patched forward)
 1. Harness registry and the layer check (done in this pass).
-2. Split `daemon.cpp` into its four units behind a private header.
+2. Split `daemon.cpp` into its four units behind a private header. **Done 2026-11-11:** `daemon_impl.hpp` (the struct and declarations), `daemon.cpp` (reactor, IPC, create/run, 263 lines), `daemon_jobs.cpp` (278), `daemon_workflow.cpp` (216), `daemon_governance.cpp` (175); mechanical move of 37 methods, behaviour unchanged, 14/14 tests.
 3. Split `test_workflow.cpp` by unit (plan, policy, workflow, division, edits, qa, overseer/briefing/recall).
 4. Split `llm_agent.cpp` (card, attempt loop, fork) and `client.cpp` (command groups); `portal.cpp` (sampler, server, api).
 5. One CMake library per layer, with the layering test retained.
