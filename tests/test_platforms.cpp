@@ -108,6 +108,11 @@ int main()
             CHECK(g5.find("INTERFACE MISMATCH") != std::string::npos);
             if (std::string(p.harness) == "py-unittest") CHECK(g5.find("evaluate") != std::string::npos);
         }
+        // A syntax error followed by undeclared-name noise is NOT an interface gap (the first error decides): an ordinary failure, exit 1.
+        if (std::string(p.harness) == "cpp-cmake") {
+            put(d / "items" / "dev-engine" / "attempt-6" / "out" / h->mockBugTarget("dev-engine"), "double broken() { throw std::runtime_error(\"unterminated); }\nint x = nothing_declared;\n");
+            CHECK_EQ(gate(p, d, "dev-engine", 6), 1);
+        }
         // An edit outside the allowlist is refused.
         put(d / "items" / "dev-app" / "attempt-3" / "out" / appFile, h->mockFile(appFile, false));
         put(d / "items" / "dev-app" / "attempt-3" / "out" / "stray.txt", "x");

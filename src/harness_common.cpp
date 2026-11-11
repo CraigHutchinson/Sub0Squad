@@ -7,6 +7,7 @@
 #include <sys/wait.h>
 #include <unistd.h>
 #include <algorithm>
+#include <cctype>
 #include <chrono>
 #include <cstdlib>
 #include <fstream>
@@ -150,9 +151,18 @@ std::set<std::string> closure(const Plan& plan, const std::string& id)
 
 bool interfaceGap(const std::string& t)
 {
-    for (const char* sig : {"does not provide an export named", "cannot import name", "undefined reference to", "is not a member of", "no member named", "was not declared in this scope",
-                            "has no attribute", "is not a function", "is not exported", "No module named"})
-        if (t.find(sig) != std::string::npos) return true;
+    // Judge by the FIRST error only: after a syntax error the compiler reports undeclared names and missing members that are its own confusion, not a gap
+    // between modules (seen on the first 35B run: an unterminated string literal followed by "was not declared in this scope").
+    std::istringstream in(t);
+    for (std::string line; std::getline(in, line);) {
+        std::string low = line;
+        std::transform(low.begin(), low.end(), low.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        if (low.find("error") == std::string::npos && low.find("undefined reference") == std::string::npos) continue;
+        for (const char* sig : {"does not provide an export named", "cannot import name", "undefined reference to", "is not a member of", "no member named", "was not declared in this scope",
+                                "has no attribute", "is not a function", "is not exported", "no module named"})
+            if (low.find(sig) != std::string::npos) return true;
+        return false;
+    }
     return false;
 }
 

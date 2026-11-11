@@ -476,6 +476,25 @@ int main()
         CHECK(ok && ok->at("src/a.js") == "function add(a, b) {\n  return a + b;\n}\nexport { add };\n" && ok->at("src/b.js") == "export const x = 1;\n");
         auto two = applyEdits("=== EDIT: src/a.js ===\n<<<<<<< SEARCH\nfunction add(a, b)\n=======\nfunction add(a, b = 0)\n>>>>>>> REPLACE\n<<<<<<< SEARCH\n  return a - b;\n=======\n  return a + b;\n>>>>>>> REPLACE\n=== END EDIT ===\n=== EDIT: src/b.js ===\n<<<<<<< SEARCH\nconst x = 1;\n=======\nconst x = 2;\n>>>>>>> REPLACE\n=== END EDIT ===", files, allowed, err);
         CHECK(two && two->at("src/a.js").find("b = 0") != std::string::npos && two->at("src/a.js").find("a + b") != std::string::npos && two->at("src/b.js") == "export const x = 2;\n");
+        {   // Line edits: the worker names lines of the numbered draft it was shown; several edits apply together against that numbering.
+            std::map<std::string, std::string> f2 = {{"src/a.js", "one\ntwo\nthree\nfour\nfive\n"}};
+            std::set<std::string> al = {"src/a.js"};
+            auto one = applyEdits("=== EDIT: src/a.js LINES 2 ===\nTWO\n=== END EDIT ===", f2, al, err);
+            CHECK(one && one->at("src/a.js") == "one\nTWO\nthree\nfour\nfive\n");
+            auto range = applyEdits("=== EDIT: src/a.js LINES 2-3 ===\nX\nY\nZ\n=== END EDIT ===", f2, al, err);
+            CHECK(range && range->at("src/a.js") == "one\nX\nY\nZ\nfour\nfive\n");
+            auto del = applyEdits("=== EDIT: src/a.js LINES 4-5 ===\n=== END EDIT ===", f2, al, err);
+            CHECK(del && del->at("src/a.js") == "one\ntwo\nthree\n");
+            auto ins = applyEdits("=== EDIT: src/a.js AFTER 1 ===\nnew\n=== END EDIT ===", f2, al, err);
+            CHECK(ins && ins->at("src/a.js") == "one\nnew\ntwo\nthree\nfour\nfive\n");
+            auto both = applyEdits("=== EDIT: src/a.js LINES 1 ===\nONE\n=== END EDIT ===\n=== EDIT: src/a.js LINES 5 ===\nFIVE\n=== END EDIT ===", f2, al, err);   // numbering of the draft, not of the result
+            CHECK(both && both->at("src/a.js") == "ONE\ntwo\nthree\nfour\nFIVE\n");
+            CHECK(!applyEdits("=== EDIT: src/a.js LINES 9 ===\nx\n=== END EDIT ===", f2, al, err) && err.find("5 lines") != std::string::npos);
+            CHECK(!applyEdits("=== EDIT: src/a.js LINES 2 ===\nx\n=== END EDIT ===\n=== EDIT: src/a.js ===\n<<<<<<< SEARCH\none\n=======\n1\n>>>>>>> REPLACE\n=== END EDIT ===", f2, al, err) && err.find("one kind per file") != std::string::npos);
+            // A SEARCH copied with the numbered view's "N| " column still matches.
+            auto numbered = applyEdits("=== EDIT: src/a.js ===\n<<<<<<< SEARCH\n   2| two\n=======\n2\n>>>>>>> REPLACE\n=== END EDIT ===", f2, al, err);
+            CHECK(numbered && numbered->at("src/a.js") == "one\n2\nthree\nfour\nfive\n");
+        }
         CHECK(!applyEdits("=== EDIT: src/a.js ===\n<<<<<<< SEARCH\n  return a * b;\n=======\n  return 0;\n>>>>>>> REPLACE\n=== END EDIT ===", files, allowed, err) && err.find("does not appear") != std::string::npos);
         CHECK(!applyEdits("=== EDIT: src/a.js ===\n<<<<<<< SEARCH\n  \n=======\n  x\n>>>>>>> REPLACE\n=== END EDIT ===", {{"src/a.js", "  a\n  b\n"}}, allowed, err) && err.find("more than once") != std::string::npos);
         CHECK(!applyEdits("=== EDIT: ../evil.js ===\n<<<<<<< SEARCH\nx\n=======\ny\n>>>>>>> REPLACE\n=== END EDIT ===", files, allowed, err) && err.find("not one of the files") != std::string::npos);

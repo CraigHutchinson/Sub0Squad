@@ -8,6 +8,7 @@
 #include "sub0squad/sandbox.hpp"
 
 #include <algorithm>
+#include <regex>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -45,6 +46,39 @@ std::string arg(const std::vector<std::string>& a, const std::string& key, const
     return d;
 }
 std::string clip(const std::string& s, std::size_t n) { return s.size() <= n ? s : s.substr(0, n) + "\n... (truncated)"; }
+
+// An earlier draft as the worker sees it: every line numbered (so an edit can name lines), whole when it fits, else the windows around the lines the gate named
+// plus the top of the file. Never cut off in the middle of a line of code: a worker cannot edit what it cannot see (the 35B said so, and rewrote 340 lines).
+std::string draftView(const std::string& text, const std::string& gate, std::size_t budget)
+{
+    std::vector<std::string> lines;
+    {
+        std::istringstream in(text);
+        for (std::string l; std::getline(in, l);) lines.push_back(l);
+    }
+    const auto row = [&](std::size_t i) { char n[16]; std::snprintf(n, sizeof n, "%4zu| ", i + 1); return std::string(n) + lines[i] + "\n"; };
+    std::string full;
+    for (std::size_t i = 0; i < lines.size(); ++i) full += row(i);
+    if (full.size() <= budget) return full;
+    std::vector<bool> show(lines.size(), false);
+    for (std::size_t i = 0; i < std::min<std::size_t>(lines.size(), 12); ++i) show[i] = true;   // includes and declarations
+    static const std::regex ref(R"([\w./+-]+\.[a-z]+:(\d+))");
+    for (std::sregex_iterator it(gate.begin(), gate.end(), ref), end; it != end; ++it) {
+        const long at = std::atol((*it)[1].str().c_str()) - 1;
+        for (long k = std::max(0L, at - 12); k <= std::min<long>(static_cast<long>(lines.size()) - 1, at + 12); ++k) show[static_cast<std::size_t>(k)] = true;
+    }
+    std::string out;
+    bool gap = false;
+    for (std::size_t i = 0; i < lines.size(); ++i) {
+        if (!show[i]) { gap = true; continue; }
+        if (gap) { out += "      ... (lines not shown)\n"; gap = false; }
+        if (out.size() + lines[i].size() + 8 > budget) { out += "      ... (rest not shown)\n"; return out; }
+        out += row(i);
+    }
+    if (gap) out += "      ... (lines not shown)\n";
+    return out;
+}
+
 
 std::string systemBlock(const std::string& persona, const std::string& harnessBrief)
 {
@@ -131,9 +165,11 @@ std::set<std::string> closure(const Plan& plan, const std::string& id)
 }
 
 const char* kEditSyntax =
-    "Reply with EDITS, not the whole files, in this form (one block per change; SEARCH must match the current text exactly and occur once):\n"
+    "Reply with EDITS, not the whole files. The earlier draft is shown with line numbers (`N| text`; the numbers are not part of the file). Prefer LINES edits, which name the lines to replace:\n"
+    "=== EDIT: <path> LINES 345-347 ===\n<the new text for those lines; empty to delete them>\n=== END EDIT ===\n"
+    "(LINES 345 is one line; AFTER 120 inserts after line 120. Numbers are those of the draft shown, and several edits may be given: they are applied together.) Or a search block, which must match the current text exactly once:\n"
     "=== EDIT: <path> ===\n<<<<<<< SEARCH\n<exact lines to replace>\n=======\n<new lines>\n>>>>>>> REPLACE\n=== END EDIT ===\n"
-    "If most of a file changes, reply with the complete file in the usual === FILE: <path> === form instead.";
+    "Rewrite the whole file (in the usual === FILE: <path> === form) only when most of it changes.";
 
 // The work card as the worker reads it: the task, the files, the context, the contract, the acceptance list, the provided tests of accepted dependencies
 // (whole, or by name with the `index` treatment) and the notes. Counts the tests it showed.
@@ -415,7 +451,7 @@ int runLlmAgent(const std::vector<std::string>& args)
                 }
             }
             if (text.empty()) continue;
-            drafts += "=== FILE: " + f + " ===\n" + clip(text, 7000) + "\n=== END FILE ===\n";
+            drafts += "=== DRAFT: " + f + " (" + std::to_string(std::count(text.begin(), text.end(), '\n') + 1) + " lines) ===\n" + draftView(text, g, 9000) + "=== END DRAFT ===\n";
             baselineFiles[f] = text;
             if (draftGate.empty()) draftGate = g;
         }
@@ -620,7 +656,9 @@ int runLlmAgent(const std::vector<std::string>& args)
         events::note(rc == 0 ? "self-check passed" : "self-check failed");
         if (rc == 0) { verified = true; break; }
         if (turn == turnLimit) break;
-        continueWith(reply->content, reply->finishReason == "length", std::string{reply->finishReason == "length" ? "Your reply was cut off at the token limit, so the file is incomplete. " : ""} + "Your files were checked by running the tests and failed:\n" + clip(lastGate, 1500) + "\nFix exactly these failures. " + std::string{kEditSyntax});
+        std::string numbered;   // the files as they now stand, with line numbers, so the fix can name lines
+        for (const auto& [path, text] : currentFiles) numbered += "=== DRAFT: " + path + " ===\n" + draftView(text, lastGate, 9000) + "=== END DRAFT ===\n";
+        continueWith(reply->content, reply->finishReason == "length", std::string{reply->finishReason == "length" ? "Your reply was cut off at the token limit, so the file is incomplete. " : ""} + "Your files were checked by running the tests and failed:\n" + clip(lastGate, 1500) + "\n" + numbered + "Fix exactly these failures. " + std::string{kEditSyntax});
     }
     events::metric("tokens.in", totIn);
     events::metric("tokens.out", totOut);
