@@ -13,7 +13,7 @@ previous one cannot.
 | 1 | calculator-web (exists) | `web-static` | 4 to 12 | the V, test-first, ladder, 9B workers, TAP feedback |
 | 2 | calculator-cpp (next) | `cpp-cmake` | 4 to 12 | a second toolchain: compile diagnostics as feedback, CMake, sanitizers, a CLI app, text-screen capture |
 | 3 | spreadsheet (web UI and native core) | both | 20 to 40 | reuse (the calculator engine becomes a part), cross-harness contracts, a dependency graph with cycles, UI capture |
-| 4 | mini SQL database (native) | `cpp-cmake` | 40 to 80 | depth: five layers with versioned contracts, an external oracle (SQLite), fuzzing, WAL and crash recovery |
+| 4 | **knowledge store** (native core, web viewer; `docs/KNOWLEDGE_STORE.md`) | both | 50 to 60 | depth: layers with versioned contracts, property and crash tests, model-based oracle, sanitizers; a component the squad then adopts |
 | side | CHIP-8 or 6502 emulator | `cpp-cmake` + capture | 15 to 30 | pixel/framebuffer capture as a gate (test ROMs show a known image) |
 
 Each rung reuses the one below, so a regression in a lower rung is visible in every higher one.
@@ -33,7 +33,13 @@ tested on rework, not just a first build).
 | **Markdown notes** (parser, index, full-text search, backlinks, CLI and web viewer) | CommonMark spec examples (a published test suite) | parser, index, search, render, UI | spec examples are a free oracle; very useful | little depth below the parser |
 | **Emulator** (CHIP-8, then 6502) | published test ROMs with known final screens | CPU, memory, display, input, UI | exact spec; the framebuffer is a natural screen-capture gate | narrow; little reuse |
 
-### Recommendation
+### Decision (owner, 2026-11-11)
+
+The larger project is the **knowledge store** (section 19 of `docs/WORK_GRAPH.md`, designed in `docs/KNOWLEDGE_STORE.md`): useful, relevant to Sub0Squad itself, and it
+has the depth of the database idea with a model-based oracle in place of SQLite. The spreadsheet and SQL database stay as later rungs. The earlier
+recommendation is kept below for the record.
+
+### Earlier recommendation
 
 1. **Spreadsheet is the flagship** (rung 3): it grows out of the calculator, so the proving ground compounds instead of branching; it needs both
    harnesses (native core, web grid); and it has real structure for the V (a dependency graph whose design depends on how the evaluator is drafted).
