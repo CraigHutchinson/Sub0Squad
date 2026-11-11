@@ -653,9 +653,16 @@ int runLlmAgent(const std::vector<std::string>& args)
         events::note(rc == 0 ? "self-check passed" : "self-check failed");
         if (rc == 0) { verified = true; break; }
         if (turn == turnLimit) break;
-        std::string numbered;   // the files as they now stand, with line numbers, so the fix can name lines
-        for (const auto& [path, text] : currentFiles) numbered += "=== DRAFT: " + path + " ===\n" + draftView(path, text, lastGate, 9000) + "=== END DRAFT ===\n";
-        continueWith(reply->content, reply->finishReason == "length", std::string{reply->finishReason == "length" ? "Your reply was cut off at the token limit, so the file is incomplete. " : ""} + "Your files were checked by running the tests and failed:\n" + clip(lastGate, 1500) + "\n" + numbered + "Fix exactly these failures. " + std::string{kEditSyntax});
+        // The files as they now stand, numbered so the fix can name lines. The slot is small (the first real use overflowed it: 7,913 prompt tokens of 8,192 left
+        // 279 for the reply), so the view gets only what the window still has after the system block, the card with its draft, the gate text and the reply room.
+        const std::size_t fixedChars = convo[0].content.size() + convo[1].content.size();
+        const long availTokens = static_cast<long>(engine->contextTokens) - maxTokens - 300;
+        const long availChars = static_cast<long>(static_cast<double>(availTokens) * 3.2) - static_cast<long>(fixedChars) - 1500 - 1200;
+        const std::size_t perFile = static_cast<std::size_t>(std::clamp(availChars / std::max<long>(1, static_cast<long>(currentFiles.size())), 800L, 9000L));
+        std::string numbered;
+        for (const auto& [path, text] : currentFiles) numbered += "=== DRAFT: " + path + " ===\n" + draftView(path, text, lastGate, perFile) + "=== END DRAFT ===\n";
+        // The earlier reply is not repeated: the numbered files are the current state, and a long edit reply would only crowd the window.
+        continueWith("[your previous reply is not repeated: the files as they now stand are shown below]", false, std::string{reply->finishReason == "length" ? "Your reply was cut off at the token limit, so the file is incomplete. " : ""} + "Your files were checked by running the tests and failed:\n" + clip(lastGate, 1500) + "\n" + numbered + "Fix exactly these failures. " + std::string{kEditSyntax});
     }
     events::metric("tokens.in", totIn);
     events::metric("tokens.out", totOut);
