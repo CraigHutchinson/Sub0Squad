@@ -1,0 +1,207 @@
+#include "sub0squad/outline.hpp"
+
+#include <algorithm>
+#include <cctype>
+#include <cstdio>
+#include <cstdlib>
+#include <sstream>
+
+namespace sub0squad {
+
+namespace {
+
+std::vector<std::string> splitLines(const std::string& text)
+{
+    std::vector<std::string> lines;
+    std::istringstream in(text);
+    for (std::string l; std::getline(in, l);) lines.push_back(l);
+    return lines;
+}
+
+std::string nameBefore(const std::string& line)
+{
+    const auto paren = line.find('(');
+    if (paren == std::string::npos) return {};
+    std::size_t e = paren;
+    while (e > 0 && std::isspace(static_cast<unsigned char>(line[e - 1]))) --e;
+    std::size_t b = e;
+    while (b > 0 && (std::isalnum(static_cast<unsigned char>(line[b - 1])) || line[b - 1] == '_' || line[b - 1] == ':' || line[b - 1] == '~' || line[b - 1] == '$')) --b;
+    return line.substr(b, e - b);
+}
+
+/// Net brace change of a line, ignoring string and character literals and // comments (block comments are rare in generated code and not tracked).
+int braceDelta(const std::string& line, bool& opensHere)
+{
+    int d = 0;
+    char quote = 0;
+    opensHere = false;
+    for (std::size_t i = 0; i < line.size(); ++i) {
+        const char c = line[i];
+        if (quote) { if (c == '\\') ++i; else if (c == quote) quote = 0; continue; }
+        if (c == '"' || c == '\'' || c == '`') { quote = c; continue; }
+        if (c == '/' && i + 1 < line.size() && line[i + 1] == '/') break;
+        if (c == '#' && i == line.find_first_not_of(" \t")) break;   // a preprocessor line
+        if (c == '{') { ++d; opensHere = true; }
+        else if (c == '}') --d;
+    }
+    return d;
+}
+
+bool functionLike(const std::string& line)
+{
+    // A signature: has '(' before its '{', and is not a control statement (those live inside a function body that is folded as a whole).
+    const auto brace = line.find('{');
+    const auto paren = line.find('(');
+    if (paren == std::string::npos || (brace != std::string::npos && brace < paren)) return false;
+    const std::string t = line.substr(line.find_first_not_of(" \t") == std::string::npos ? 0 : line.find_first_not_of(" \t"));
+    for (const char* kw : {"if", "for", "while", "switch", "catch", "else", "return"})
+        if (t.rfind(kw, 0) == 0 && (t.size() == std::string(kw).size() || !(std::isalnum(static_cast<unsigned char>(t[std::string(kw).size()])) || t[std::string(kw).size()] == '_'))) return false;
+    return true;
+}
+
+}  // namespace
+
+bool isPythonPath(const std::string& path) { return path.size() > 3 && path.compare(path.size() - 3, 3, ".py") == 0; }
+
+std::vector<FoldRegion> foldRegions(const std::string& text, bool python)
+{
+    const auto lines = splitLines(text);
+    std::vector<FoldRegion> out;
+    if (python) {
+        const auto indentOf = [](const std::string& l) { return l.find_first_not_of(" \t"); };
+        for (std::size_t i = 0; i < lines.size(); ++i) {
+            const auto ind = indentOf(lines[i]);
+            if (ind == std::string::npos) continue;
+            const std::string t = lines[i].substr(ind);
+            if (t.rfind("def ", 0) != 0 && t.rfind("async def ", 0) != 0) continue;
+            std::size_t j = i + 1, lastBody = i;
+            for (; j < lines.size(); ++j) {
+                const auto in2 = indentOf(lines[j]);
+                if (in2 == std::string::npos) continue;   // blank line
+                if (in2 <= ind) break;
+                lastBody = j;
+            }
+            if (lastBody > i + 1) {
+                // a multi-line signature: the body starts after the line that ends the signature
+                out.push_back({static_cast<int>(i) + 1, static_cast<int>(i) + 2, static_cast<int>(lastBody) + 1, nameBefore(lines[i])});
+                i = lastBody;
+            }
+        }
+        return out;
+    }
+    int depth = 0;
+    for (std::size_t i = 0; i < lines.size(); ++i) {
+        bool opens = false;
+        const int d = braceDelta(lines[i], opens);
+        // Allman style: the signature is on the line before a lone '{'.
+        const auto firstNonBlank = lines[i].find_first_not_of(" \t");
+        const bool loneBrace = firstNonBlank != std::string::npos && lines[i][firstNonBlank] == '{' && lines[i].find_first_not_of(" \t", firstNonBlank + 1) == std::string::npos;
+        const bool allman = loneBrace && i > 0 && lines[i - 1].find('(') != std::string::npos && lines[i - 1].find('{') == std::string::npos && lines[i - 1].find(';') == std::string::npos && functionLike(lines[i - 1] + " {");
+        if (opens && d > 0 && (allman || functionLike(lines[i]))) {
+            const int start = depth;
+            const std::size_t sig = allman ? i - 1 : i;
+            int dd = depth + d;
+            std::size_t j = i;
+            while (dd > start && j + 1 < lines.size()) { ++j; bool o2 = false; dd += braceDelta(lines[j], o2); }
+            if (dd <= start && j > i + 1) out.push_back({static_cast<int>(sig) + 1, static_cast<int>(i) + 2, static_cast<int>(j) + 1, nameBefore(lines[sig])});   // the closing line stays visible
+            depth = dd;
+            i = j;
+            continue;
+        }
+        depth += d;
+    }
+    return out;
+}
+
+std::string foldedView(const std::string& text, bool python, const std::vector<int>& focus, std::size_t budget)
+{
+    const auto lines = splitLines(text);
+    const auto row = [&](std::size_t i) { char n[16]; std::snprintf(n, sizeof n, "%4zu| ", i + 1); return std::string(n) + lines[i] + "\n"; };
+    std::string full;
+    for (std::size_t i = 0; i < lines.size(); ++i) full += row(i);
+    if (full.size() <= budget) return full;
+    auto regions = foldRegions(text, python);
+    // Regions holding a focus line stay open (nearest to the failure first) while the budget allows.
+    std::vector<bool> open(regions.size(), false);
+    std::size_t used = 0;
+    {   // the size of the view with everything folded
+        std::vector<bool> folded(lines.size(), false);
+        for (const auto& r : regions) for (int k = r.bodyFrom; k <= r.bodyTo - (python ? 0 : 1); ++k) folded[static_cast<std::size_t>(k) - 1] = true;
+        for (std::size_t i = 0; i < lines.size(); ++i) used += folded[i] ? 0 : row(i).size();
+        used += regions.size() * 60;
+    }
+    for (std::size_t r = 0; r < regions.size(); ++r) {
+        bool has = false;
+        for (int f : focus) if (f >= regions[r].first && f <= regions[r].bodyTo + 1) has = true;
+        if (!has) continue;
+        std::size_t cost = 0;
+        for (int k = regions[r].bodyFrom; k <= regions[r].bodyTo; ++k) cost += row(static_cast<std::size_t>(k) - 1).size();
+        if (used + cost <= budget) { open[r] = true; used += cost; }
+    }
+    std::string out;
+    std::size_t r = 0;
+    for (std::size_t i = 0; i < lines.size(); ++i) {
+        const int ln = static_cast<int>(i) + 1;
+        while (r < regions.size() && regions[r].bodyTo < ln) ++r;
+        if (r < regions.size() && !open[r] && ln >= regions[r].bodyFrom && ln <= regions[r].bodyTo - (python ? 0 : 1)) {
+            if (ln == regions[r].bodyFrom) {
+                const int hidden = regions[r].bodyTo - regions[r].bodyFrom + (python ? 1 : 0);
+                out += "      ... (" + std::to_string(hidden) + " lines folded: " + std::to_string(regions[r].bodyFrom) + "-" + std::to_string(regions[r].bodyTo - (python ? 0 : 1)) + (regions[r].name.empty() ? "" : "; " + regions[r].name) + ")\n";
+            }
+            continue;
+        }
+        out += row(i);
+    }
+    out += "(folded regions hide their lines: ask for them with  === READ: <path> LINES a-b ===  or  === READ: <path> SYMBOL name ===  )\n";
+    return out;
+}
+
+std::vector<ReadRequest> parseReadRequests(const std::string& reply)
+{
+    std::vector<ReadRequest> out;
+    std::size_t pos = 0;
+    while ((pos = reply.find("=== READ:", pos)) != std::string::npos) {
+        const auto eol = reply.find('\n', pos);
+        const std::string head = reply.substr(pos + 9, (eol == std::string::npos ? reply.size() : eol) - pos - 9);
+        pos += 9;
+        std::string h = head;
+        const auto close = h.rfind("===");
+        if (close != std::string::npos) h.erase(close);
+        std::istringstream in(h);
+        ReadRequest r;
+        std::string kind;
+        in >> r.path >> kind;
+        if (r.path.empty()) continue;
+        if (kind == "LINES" || kind == "LINE") {
+            std::string spec;
+            in >> spec;
+            r.from = std::atoi(spec.c_str());
+            const auto dash = spec.find('-');
+            r.to = dash == std::string::npos ? r.from : std::atoi(spec.c_str() + dash + 1);
+        } else if (kind == "SYMBOL") in >> r.symbol;
+        else continue;
+        out.push_back(r);
+    }
+    return out;
+}
+
+std::string answerRead(const ReadRequest& r, const std::string& text, bool python, int maxLines)
+{
+    const auto lines = splitLines(text);
+    int from = r.from, to = r.to;
+    if (!r.symbol.empty()) {
+        bool found = false;
+        for (const auto& f : foldRegions(text, python)) {
+            const std::string n = f.name.substr(f.name.rfind(':') == std::string::npos ? 0 : f.name.rfind(':') + 1);
+            if (f.name == r.symbol || n == r.symbol) { from = f.first; to = f.bodyTo + (python ? 0 : 1); found = true; break; }
+        }
+        if (!found) return "=== " + r.path + ": no function named '" + r.symbol + "' (use LINES a-b) ===\n";
+    }
+    if (from < 1 || to < from || from > static_cast<int>(lines.size())) return "=== " + r.path + ": lines " + std::to_string(r.from) + "-" + std::to_string(r.to) + " do not exist (the file has " + std::to_string(lines.size()) + " lines) ===\n";
+    to = std::min({to, static_cast<int>(lines.size()), from + maxLines - 1});
+    std::string out = "=== " + r.path + " lines " + std::to_string(from) + "-" + std::to_string(to) + " ===\n";
+    for (int k = from; k <= to; ++k) { char n[16]; std::snprintf(n, sizeof n, "%4d| ", k); out += std::string(n) + lines[static_cast<std::size_t>(k) - 1] + "\n"; }
+    return out;
+}
+
+}  // namespace sub0squad

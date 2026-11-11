@@ -7,6 +7,7 @@
 #include "sub0squad/briefing.hpp"
 #include "sub0squad/division.hpp"
 #include "sub0squad/edits.hpp"
+#include "sub0squad/outline.hpp"
 #include "sub0squad/overseer.hpp"
 #include "sub0squad/qa.hpp"
 #include "sub0squad/recall.hpp"
@@ -476,6 +477,29 @@ int main()
         CHECK(ok && ok->at("src/a.js") == "function add(a, b) {\n  return a + b;\n}\nexport { add };\n" && ok->at("src/b.js") == "export const x = 1;\n");
         auto two = applyEdits("=== EDIT: src/a.js ===\n<<<<<<< SEARCH\nfunction add(a, b)\n=======\nfunction add(a, b = 0)\n>>>>>>> REPLACE\n<<<<<<< SEARCH\n  return a - b;\n=======\n  return a + b;\n>>>>>>> REPLACE\n=== END EDIT ===\n=== EDIT: src/b.js ===\n<<<<<<< SEARCH\nconst x = 1;\n=======\nconst x = 2;\n>>>>>>> REPLACE\n=== END EDIT ===", files, allowed, err);
         CHECK(two && two->at("src/a.js").find("b = 0") != std::string::npos && two->at("src/a.js").find("a + b") != std::string::npos && two->at("src/b.js") == "export const x = 2;\n");
+        {   // Folded views: structure stays, function bodies fold, focus regions open, READ requests are answered.
+            std::string cpp = "#include <string>\nnamespace n {\nclass A {\npublic:\n  int get() const { return v; }\n  int v = 0;\n};\ndouble f(double x)\n{\n  double y = x;\n  if (y > 1) {\n    y = 2;\n  }\n  y += 1;\n  return y;\n}\nint g(int a) { return a; }\n}\n";
+            const auto regions = foldRegions(cpp, false);
+            CHECK(regions.size() == 1 && regions[0].name == "f" && regions[0].first == 8 && regions[0].bodyFrom == 10 && regions[0].bodyTo == 16);   // g and get are one line: nothing to fold; namespace and class stay open
+            const std::string small = foldedView(cpp, false, {}, 100000);
+            CHECK(small.find("folded") == std::string::npos);                                  // fits: shown whole
+            std::string big = "namespace n {\nclass A {\n  int v = 0;\n};\n";   // two functions of 40 body lines each, so a budget can force folding
+            for (const char* fn : {"first", "second"}) { big += std::string("double ") + fn + "(double x)\n{\n"; for (int k = 0; k < 40; ++k) big += "  x += " + std::to_string(k) + ";\n"; big += "  return x;\n}\n"; }
+            big += "}\n";
+            const std::string tight = foldedView(big, false, {}, 700);
+            CHECK(tight.find("lines folded: 7-47") != std::string::npos && tight.find("double first(double x)") != std::string::npos && tight.find("class A {") != std::string::npos && tight.find("x += 20;") == std::string::npos);
+            const std::string open = foldedView(big, false, {70}, 1300);   // a failure at line 70 (inside `second`) keeps that function open, `first` stays folded
+            CHECK(open.find("lines folded: 7-47") != std::string::npos && open.find("lines folded: 51-") == std::string::npos && open.find("x += 20;") != std::string::npos);
+            const auto reqs = parseReadRequests("Let me look.\n=== READ: src/a.cpp LINES 9-12 ===\n=== READ: src/a.cpp SYMBOL f ===\n");
+            CHECK(reqs.size() == 2 && reqs[0].from == 9 && reqs[0].to == 12 && reqs[1].symbol == "f");
+            const std::string ans = answerRead(reqs[0], cpp, false);
+            CHECK(ans.find("   9| {") != std::string::npos && ans.find("  12| ") != std::string::npos && ans.find("  13| ") == std::string::npos);
+            CHECK(answerRead(reqs[1], cpp, false).find("double f(double x)") != std::string::npos);
+            CHECK(answerRead({"x.cpp", 99, 100, ""}, cpp, false).find("do not exist") != std::string::npos);
+            const std::string py = "import math\n\ndef a(x):\n    y = x\n    return y\n\ndef b():\n    pass\n";
+            const auto pr = foldRegions(py, true);
+            CHECK(pr.size() == 1 && pr[0].name == "a" && pr[0].first == 3 && pr[0].bodyTo == 5);
+        }
         {   // Line edits: the worker names lines of the numbered draft it was shown; several edits apply together against that numbering.
             std::map<std::string, std::string> f2 = {{"src/a.js", "one\ntwo\nthree\nfour\nfive\n"}};
             std::set<std::string> al = {"src/a.js"};

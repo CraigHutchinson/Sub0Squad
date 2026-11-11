@@ -2,6 +2,7 @@
 #include "sub0squad/engine.hpp"
 #include "sub0squad/event_channel.hpp"
 #include "sub0squad/harness.hpp"
+#include "sub0squad/outline.hpp"
 #include "sub0squad/plan.hpp"
 #include "sub0squad/policy.hpp"
 #include "sub0squad/trace.hpp"
@@ -47,36 +48,15 @@ std::string arg(const std::vector<std::string>& a, const std::string& key, const
 }
 std::string clip(const std::string& s, std::size_t n) { return s.size() <= n ? s : s.substr(0, n) + "\n... (truncated)"; }
 
-// An earlier draft as the worker sees it: every line numbered (so an edit can name lines), whole when it fits, else the windows around the lines the gate named
-// plus the top of the file. Never cut off in the middle of a line of code: a worker cannot edit what it cannot see (the 35B said so, and rewrote 340 lines).
-std::string draftView(const std::string& text, const std::string& gate, std::size_t budget)
+// An earlier draft as the worker sees it: every line numbered (so an edit can name lines), whole when it fits, else FOLDED: signatures and structure visible,
+// long function bodies collapsed to one line that names the folded range, the regions around the lines the gate named left open (src/outline.cpp). The worker
+// asks for folded lines with a READ request. Never cut off in the middle of code: a worker cannot edit what it cannot see.
+std::string draftView(const std::string& path, const std::string& text, const std::string& gate, std::size_t budget)
 {
-    std::vector<std::string> lines;
-    {
-        std::istringstream in(text);
-        for (std::string l; std::getline(in, l);) lines.push_back(l);
-    }
-    const auto row = [&](std::size_t i) { char n[16]; std::snprintf(n, sizeof n, "%4zu| ", i + 1); return std::string(n) + lines[i] + "\n"; };
-    std::string full;
-    for (std::size_t i = 0; i < lines.size(); ++i) full += row(i);
-    if (full.size() <= budget) return full;
-    std::vector<bool> show(lines.size(), false);
-    for (std::size_t i = 0; i < std::min<std::size_t>(lines.size(), 12); ++i) show[i] = true;   // includes and declarations
+    std::vector<int> focus;
     static const std::regex ref(R"([\w./+-]+\.[a-z]+:(\d+))");
-    for (std::sregex_iterator it(gate.begin(), gate.end(), ref), end; it != end; ++it) {
-        const long at = std::atol((*it)[1].str().c_str()) - 1;
-        for (long k = std::max(0L, at - 12); k <= std::min<long>(static_cast<long>(lines.size()) - 1, at + 12); ++k) show[static_cast<std::size_t>(k)] = true;
-    }
-    std::string out;
-    bool gap = false;
-    for (std::size_t i = 0; i < lines.size(); ++i) {
-        if (!show[i]) { gap = true; continue; }
-        if (gap) { out += "      ... (lines not shown)\n"; gap = false; }
-        if (out.size() + lines[i].size() + 8 > budget) { out += "      ... (rest not shown)\n"; return out; }
-        out += row(i);
-    }
-    if (gap) out += "      ... (lines not shown)\n";
-    return out;
+    for (std::sregex_iterator it(gate.begin(), gate.end(), ref), end; it != end; ++it) focus.push_back(std::atoi((*it)[1].str().c_str()));
+    return foldedView(text, isPythonPath(path), focus, budget);
 }
 
 
@@ -165,7 +145,7 @@ std::set<std::string> closure(const Plan& plan, const std::string& id)
 }
 
 const char* kEditSyntax =
-    "Reply with EDITS, not the whole files. The earlier draft is shown with line numbers (`N| text`; the numbers are not part of the file). Prefer LINES edits, which name the lines to replace:\n"
+    "Reply with EDITS, not the whole files. The earlier draft is shown with line numbers (`N| text`; the numbers are not part of the file); a long draft is FOLDED: function bodies collapse to `... (N lines folded: a-b)`. To see folded lines, reply with ONLY read requests (no edits yet): `=== READ: <path> LINES a-b ===` or `=== READ: <path> SYMBOL name ===`, one per line; you are shown the lines and then reply with your edits. Prefer LINES edits, which name the lines to replace:\n"
     "=== EDIT: <path> LINES 345-347 ===\n<the new text for those lines; empty to delete them>\n=== END EDIT ===\n"
     "(LINES 345 is one line; AFTER 120 inserts after line 120. Numbers are those of the draft shown, and several edits may be given: they are applied together.) Or a search block, which must match the current text exactly once:\n"
     "=== EDIT: <path> ===\n<<<<<<< SEARCH\n<exact lines to replace>\n=======\n<new lines>\n>>>>>>> REPLACE\n=== END EDIT ===\n"
@@ -451,7 +431,7 @@ int runLlmAgent(const std::vector<std::string>& args)
                 }
             }
             if (text.empty()) continue;
-            drafts += "=== DRAFT: " + f + " (" + std::to_string(std::count(text.begin(), text.end(), '\n') + 1) + " lines) ===\n" + draftView(text, g, 9000) + "=== END DRAFT ===\n";
+            drafts += "=== DRAFT: " + f + " (" + std::to_string(std::count(text.begin(), text.end(), '\n') + 1) + " lines) ===\n" + draftView(f, text, g, 9000) + "=== END DRAFT ===\n";
             baselineFiles[f] = text;
             if (draftGate.empty()) draftGate = g;
         }
@@ -526,7 +506,7 @@ int runLlmAgent(const std::vector<std::string>& args)
     std::size_t lastFiles = 0, lastRejected = 0;
     std::string partialPath, partialText;               // a file cut off at the token limit, and what was written of it: the next turn continues it instead of starting over
     std::map<std::string, std::string> carryFiles;      // the files that were complete before the cut
-    int continuations = 0;
+    int continuations = 0, reads = 0;
     std::map<std::string, std::string> currentFiles = baselineFiles;  // the files of the latest turn (or the best earlier attempt): what an edit applies to
     int turnLimit = repairTurns;   // continuing a cut-off file does not use up a repair turn
     for (int turn = 0; turn <= turnLimit; ++turn) {
@@ -551,6 +531,23 @@ int runLlmAgent(const std::vector<std::string>& args)
         traceReply(tracePath, turn, *reply);
         writeFile(attemptDir / ("reply-" + std::to_string(turn) + ".txt"), reply->content);
         writeFile(attemptDir / "reply.txt", reply->content);
+        if (!currentFiles.empty() && reads < 6 && reply->content.find("=== EDIT:") == std::string::npos && reply->content.find("=== FILE:") == std::string::npos) {
+            // A read request (docs/FOLDED_VIEWS.md): the worker asks for folded lines before editing. Answered in the same conversation; it costs no repair turn.
+            const auto requests = parseReadRequests(reply->content);
+            if (!requests.empty()) {
+                std::string answer;
+                for (const auto& rq : requests) {
+                    const auto f = currentFiles.find(rq.path);
+                    answer += f == currentFiles.end() ? "=== " + rq.path + ": not one of the files of this item ===\n" : answerRead(rq, f->second, isPythonPath(rq.path));
+                }
+                ++reads;
+                ++turnLimit;
+                traceVerdict(tracePath, turn, "read request: " + std::to_string(requests.size()) + " region(s) shown, no repair turn used");
+                std::printf("turn %d: read request answered (%zu region(s))\n", turn, requests.size());
+                continueWith(reply->content, false, answer + "Now reply with your edits (or complete files).");
+                continue;
+            }
+        }
         Parsed parsed;
         std::string cutPath = partialPath;
         if (!partialPath.empty()) {   // this reply continues the file that was cut off: append it, never rewrite what was written
@@ -657,7 +654,7 @@ int runLlmAgent(const std::vector<std::string>& args)
         if (rc == 0) { verified = true; break; }
         if (turn == turnLimit) break;
         std::string numbered;   // the files as they now stand, with line numbers, so the fix can name lines
-        for (const auto& [path, text] : currentFiles) numbered += "=== DRAFT: " + path + " ===\n" + draftView(text, lastGate, 9000) + "=== END DRAFT ===\n";
+        for (const auto& [path, text] : currentFiles) numbered += "=== DRAFT: " + path + " ===\n" + draftView(path, text, lastGate, 9000) + "=== END DRAFT ===\n";
         continueWith(reply->content, reply->finishReason == "length", std::string{reply->finishReason == "length" ? "Your reply was cut off at the token limit, so the file is incomplete. " : ""} + "Your files were checked by running the tests and failed:\n" + clip(lastGate, 1500) + "\n" + numbered + "Fix exactly these failures. " + std::string{kEditSyntax});
     }
     events::metric("tokens.in", totIn);

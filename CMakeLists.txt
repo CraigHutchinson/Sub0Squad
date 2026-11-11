@@ -57,6 +57,7 @@ add_library(sub0squad_core STATIC
   src/division.cpp
   src/replay.cpp
   src/edits.cpp
+  src/outline.cpp
   src/recall.cpp
   src/trace.cpp
   src/overseer.cpp
