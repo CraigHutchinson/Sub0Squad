@@ -1,0 +1,41 @@
+# Building blocks: validating the means of working from the ground up
+
+Status: proposal, 2026-11-11. Owner direction: step back, treat the way the squad works as a stack of building blocks, **validate each from the bottom**, converge
+and integrate into an improved architecture. The first real 9B run showed why: failures arrived from every layer at once (a plan defect, a workflow rule, a
+scheduling stall), so nobody could say which layer was sound.
+
+## The method
+
+For each block, bottom to top: state its **contract** (inputs, outputs, what it promises), its **invariants** (checkable without a model), its **characterisation**
+(measured behaviour with the real 9B on recorded cases), and its **bar** (the number that says "sound enough to build on"). A block is not used by the one above until it
+meets its bar. Failures found above are pushed down to the block that should have prevented them and become fixtures there (INTERVENTIONS.md).
+
+| Block | Contract | Invariants (no model needed) | Characterisation (real 9B, recorded) | Bar | Today |
+|---|---|---|---|---|---|
+| **0 Engine** | prompt → completion, per-slot cache, seed | health; slot count; throughput per slot; same seed, same short reply | decode tok/s vs slots, prefill, cache hit | stable throughput; no OOM at the planned slot count | measured; seeded determinism holds for short replies only |
+| **1 Call** | system + card → parsed reply (files / edits / plan) | the parser accepts every recorded reply form; rejects with a located reason | share of 9B replies parsed first time, by format | ≥95 % of recorded replies parse or are repaired mechanically | tolerant parsers built; no corpus measurement |
+| **2 Check** | files → pass/fail + located diagnostic | syntax, allowlist, counts, stubs, oracle: each gives the same verdict twice, and names file/line/values | does the diagnostic let a developer fix it? (replay with the diagnostic) | every failure class has a diagnostic naming where | syntax + expected/actual built; oracle opt-in |
+| **3 Attempt** | card → accepted files or a located failure, bounded tokens | repair never loses a better earlier draft; terminates | pass rate per attempt for a leaf item, by size | ≥70 % of leaf items (≤1k tokens) pass within the repair turns | drafts carried, continuation built; rate unmeasured |
+| **4 Node ladder** | attempts → accepted, or a classified failure | the decision table is total and pure (unit-tested) | how often each rung fires and succeeds | no rung loops; spent ladder → a named cause | tested; strategies built |
+| **5 Division** | item → validated parts (a plan fragment) | **validator**: every file delivered; every developer part has a tester writing its gate file; no part graded by the parent's whole test; ids unique; acyclic | architect output valid first time? after completion? | ≥90 % valid after the validator's completions | completion for two defects; no full validator |
+| **6 Workflow graph** | plan → run to done/failed | a failed branch never cancels another; failure names the first cause; every item reaches a terminal state | wall time vs serial; idle slots | no cancelled-victim failures; idle slots used | rule 13 built; attribution open |
+| **7 Management** | stuck item/run → a strategy | overseer/briefing deterministic on fixed inputs | which strategy rescues which signature | rescues ≥ half of ladder-spent items | built; unmeasured |
+| **8 Governance** | decisions needing the owner | blocking requests hold scope; never lose a request | n/a | owner asked only about intent/permissions | built |
+
+## Order of work (each step ends with a number, not a feeling)
+
+1. **Build the corpus.** Turn run-v5 `w-000001` and the archived runs into fixtures: for each recorded call (prompt, reply, gate output) a case, keyed by block. No new
+   model calls. This is the validation substrate for blocks 1–5 and is cheap.
+2. **Block 1 and 2 from the corpus:** parse every recorded reply, run every recorded file set through the checks; list what fails to parse and which diagnostics are unlocated.
+   Bar: the numbers in the table. Fix at this level only.
+3. **Block 5 validator** (rows 10 and 12 unified), run over every recorded division, accept or reject before any job starts; replay the architect only on rejects.
+4. **Block 3 on leaf items with the 9B**, isolated (`replay`), several seeds: the real pass rate per item size. This is the one measurement everything above depends on; if
+   leaf items do not reach the bar, the division granularity (block 5) must change, not the ladder.
+5. **Blocks 6, 4**: failure attribution, structural-job priority, then a whole run; the run is now a *test of the integration*, not the first test of anything.
+6. **Mending ledger** (`mends.json`) wired into the gate/escalation path from step 2 onwards, so each block's failures are classified as they appear.
+
+## Architecture direction this points to
+- **Validate before spend:** plans, divisions, replies and cards are checked mechanically before a model or a long job is used on them.
+- **Failures are classified data**, not text: signature → class → mend, with the ledger feeding the briefing and the portal.
+- **Blocks are separately runnable** (replay already does this for one node; the same for parse, check, division, workflow rules), so any layer can be tested without the ones above.
+- **Integration runs prove integration only:** a full run is the last test, not the first.
