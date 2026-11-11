@@ -34,6 +34,20 @@ meets its bar. Failures found above are pushed down to the block that should hav
 5. **Blocks 6, 4**: failure attribution, structural-job priority, then a whole run; the run is now a *test of the integration*, not the first test of anything.
 6. **Mending ledger** (`mends.json`) wired into the gate/escalation path from step 2 onwards, so each block's failures are classified as they appear.
 
+## The three critical ideals, and how each is held to a bar (owner, 2026-11-11)
+
+Delegation, parallelism and the V model are not features to be added at the end; every block above is judged by whether it serves them.
+
+| Ideal | Meaning here | Blocks that carry it | Bar (measured, not asserted) | Today, honestly |
+|---|---|---|---|---|
+| **Delegation** | Work goes to the smallest competent worker with a complete card; managers divide, workers do; a request for help (debugger, tester, architect, QA) is answered by another worker, not by the owner | 3 attempt, 5 division, 7 management, 8 governance | Every item's card is sufficient on its own (a worker never needs the parent's conversation); a delegated request is answered by a worker; owner asked only about intent and permissions | cards, strategies, overseer and requests built; forked sessions (`llm-fork`) built but unvalidated; the debugger worker is only designed |
+| **Parallelism** | Independent work runs side by side on idle slots; division is chosen for parallelism as well as size; idle capacity runs QA and dreamer work | 0 engine, 5 division, 6 graph | Share of slot-time busy during a run; critical path vs serial time (plan-lint reports it); no cancelled-victim waits | slots and affinity built; plan-lint reports width; divisions are driven by size, not yet by free slots; structural jobs can stall behind leaf work (catalogue row 19) |
+| **V model** | Top-down: requirements → architecture → parts, each level with its own test written first; bottom-up: parts integrate under the tests of the level above, failures sent down to the part | 5 division, 6 graph, 2 check | Every divided item has a coordinator whose integration test passes over the merged parts; a failure at integration names the part; no part graded by the parent's whole test | coordinator, per-round integration gate and `sendDown` built and run (run 1 divided `ui-js` and `ui-page` that way); the engine division has not yet completed on the 9B; requirements level is not modelled |
+
+**What this changes in the order of work:** step 3 (the division validator) enforces the V (a tester for every developer part, the parent's tests stay with the coordinator) and
+delegation (a self-sufficient card per part); step 4 adds a measure of parallel yield (slot-time busy, critical path actual vs planned); step 5 gives structural jobs priority
+so parallel leaf work cannot starve the divisions the V depends on.
+
 ## Architecture direction this points to
 - **Validate before spend:** plans, divisions, replies and cards are checked mechanically before a model or a long job is used on them.
 - **Failures are classified data**, not text: signature → class → mend, with the ledger feeding the briefing and the portal.
