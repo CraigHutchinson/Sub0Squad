@@ -1,6 +1,6 @@
 # Major iteration: the engineering backlog, tasked to a Fable agent
 
-Status: brief written 2026-11-12, to be launched when the 35B proving run (`w-000002`) reaches a final state. Owner direction: "task a Fable agent to tackle the entirety of the
+Status: brief written 2026-11-12; launched 2026-11-12 on the owner's instruction, on a branch from the parked version (tag `parked-v1`), while the 35B proving run (`w-000002`) continues untouched. Owner direction: "task a Fable agent to tackle the entirety of the
 software engineering backlog for this project; we want a major iteration."
 
 ## Goal
@@ -13,10 +13,11 @@ are needed, and leave the code modular, tested and documented, with every behavi
 
 `docs/INTERVENTIONS.md` (33 catalogued step-ins; the open rows are the work), `docs/BUILDING_BLOCKS.md` (ideals, naming, widen-before-retry), `docs/PROCESS_DESIGN.md` (revision 2, the
 process-as-data design and its first slice), `docs/COMPONENTS.md` (layers and cleanup order), `docs/DESIGN_AUDIT.md`, `docs/FOLDED_VIEWS.md`, `docs/CANVAS.md`, `docs/SCENARIOS.md`,
-`docs/PROVING_GROUND.md`, `docs/KNOWLEDGE_STORE.md` and `docs/KNOWLEDGE_STORE_SCOPE.md`, `docs/BACKLOG.md`, `docs/FEEDBACK_LOOPS.md`, `docs/WORK_GRAPH.md`.
+`docs/PROVING_GROUND.md`, `docs/KNOWLEDGE_STORE.md` and `docs/KNOWLEDGE_STORE_SCOPE.md`, `docs/BACKLOG.md`, `docs/ITERATION_BRIEF.md` (this file), `docs/FEEDBACK_LOOPS.md`, `docs/WORK_GRAPH.md`.
 
 ## Work, in priority order (each is a deliverable with its own tests and commit)
 
+0. **Turn control** (catalogue rows 34 to 36, found on the first 35B runs; these cost the most real time). Streaming now exists (`chatCompleteMessages` with a `DeltaSink`, `httpStream`, `live.txt`): use it. (a) **Early abort**: watch the stream and cancel the request when a reply is going wrong in a known way (a SEARCH block over about 40 lines; a repeated line; a reply that restates the whole draft), then re-prompt with the specific instruction. (b) **Continue a cut-off EDIT reply** by append, as a cut-off file is continued; (c) **trim the overlap** between a partial text and its continuation (longest suffix equal to a prefix, at least 8 characters); (d) **bound reads**: after the second read-only reply the next must be an edit or a file; a READ without lines returns the outline; (e) a worked LINES example in the edit prompt. Test (a) to (e) with the fake streaming server pattern of `tests/test_stream.cpp` (add recorded-reply fixtures); no model needed.
 1. **Process-as-data first slice** (`PROCESS_DESIGN.md` section 9). FIRST record golden action logs from the legacy `advance()` engine (extend the test `Sim` with a trace and exit
    JSON; new scenarios), THEN `process.hpp/.cpp` (`LeafParams`, `AscentParams`, `Stage`, `Process`, `standardProcess()`), `registry/processes/standard@1.json`, the `advance()` wrapper,
    `WorkflowAction::toJson()`, and `test_process` proving equivalence with the goldens. No behaviour change; all existing tests stay green.
