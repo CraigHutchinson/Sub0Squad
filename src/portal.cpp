@@ -648,6 +648,11 @@ int servePortal(int port, const std::function<std::string()>& state, const std::
                     }
                     const bool cut = body.size() > 400000;
                     if (cut) body.resize(400000);
+                    // A transcript shows the turn that is being generated too: the agent streams it into live.txt beside the file and removes it when the turn ends.
+                    if (full.filename() == "conversation.md") {
+                        const std::string live = slurp(full.parent_path() / "live.txt");
+                        if (!live.empty()) body += "\n### In flight (streaming now, not yet part of the conversation)\n\n" + live;
+                    }
                     respond(c, 200, "text/plain; charset=utf-8", body + (cut ? "\n[... cut at 400 KB]\n" : ""));
                 }
             }

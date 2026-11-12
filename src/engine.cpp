@@ -142,6 +142,113 @@ std::expected<HttpResponse, std::string> httpRequest(const std::string& method, 
     return out;
 }
 
+
+namespace {
+
+/// Decodes `Transfer-Encoding: chunked` incrementally: feed bytes as they arrive, take the decoded bytes out.
+struct ChunkDecoder
+{
+    std::string buf;
+    std::size_t remaining = 0;
+    bool crlfPending = false, done = false;
+    void feed(const char* p, std::size_t n, std::string& out)
+    {
+        buf.append(p, n);
+        for (;;) {
+            if (done) return;
+            if (crlfPending) {
+                if (buf.size() < 2) return;
+                buf.erase(0, 2);
+                crlfPending = false;
+            }
+            if (remaining == 0) {
+                const auto eol = buf.find("\r\n");
+                if (eol == std::string::npos) return;
+                const std::size_t size = static_cast<std::size_t>(std::strtoul(buf.substr(0, eol).c_str(), nullptr, 16));
+                buf.erase(0, eol + 2);
+                if (size == 0) { done = true; return; }
+                remaining = size;
+            }
+            const std::size_t take = std::min(remaining, buf.size());
+            if (take == 0) return;
+            out.append(buf, 0, take);
+            buf.erase(0, take);
+            remaining -= take;
+            if (remaining == 0) crlfPending = true;
+        }
+    }
+};
+
+}  // namespace
+
+std::expected<int, std::string> httpStream(const std::string& method, const std::string& url, const std::string& body, int timeoutSec, const std::function<void(std::string_view)>& onBody)
+{
+    auto u = parseUrl(url);
+    if (!u) return std::unexpected(u.error());
+    addrinfo hints{}, *res = nullptr;
+    hints.ai_socktype = SOCK_STREAM;
+    if (::getaddrinfo(u->host.c_str(), std::to_string(u->port).c_str(), &hints, &res) != 0 || !res) return std::unexpected("cannot resolve " + u->host);
+    const int fd = ::socket(res->ai_family, res->ai_socktype, 0);
+    if (fd < 0 || ::connect(fd, res->ai_addr, res->ai_addrlen) != 0) {
+        const std::string err = std::strerror(errno);
+        if (fd >= 0) ::close(fd);
+        ::freeaddrinfo(res);
+        return std::unexpected("cannot connect to " + u->host + ":" + std::to_string(u->port) + ": " + err);
+    }
+    ::freeaddrinfo(res);
+    std::string req = method + " " + u->path + " HTTP/1.1\r\nHost: " + u->host + "\r\nConnection: close\r\nAccept: text/event-stream, application/json\r\n";
+    if (!body.empty() || method == "POST") req += "Content-Type: application/json\r\nContent-Length: " + std::to_string(body.size()) + "\r\n";
+    req += "\r\n" + body;
+    const char* p = req.data();
+    std::size_t left = req.size();
+    while (left > 0) {
+        const ssize_t n = ::send(fd, p, left, MSG_NOSIGNAL);
+        if (n <= 0) { ::close(fd); return std::unexpected("send failed"); }
+        p += n; left -= static_cast<std::size_t>(n);
+    }
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(timeoutSec);
+    std::string head;
+    bool inBody = false, chunked = false;
+    int status = 0;
+    ChunkDecoder dec;
+    char buf[8192];
+    for (;;) {
+        const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - std::chrono::steady_clock::now()).count();
+        if (ms <= 0) { ::close(fd); return std::unexpected("timed out after " + std::to_string(timeoutSec) + " s"); }
+        pollfd pf{fd, POLLIN, 0};
+        const int r = ::poll(&pf, 1, static_cast<int>(ms));
+        if (r <= 0) continue;
+        const ssize_t n = ::recv(fd, buf, sizeof buf, 0);
+        if (n <= 0) break;
+        std::size_t off = 0;
+        if (!inBody) {
+            head.append(buf, static_cast<std::size_t>(n));
+            const auto hdrEnd = head.find("\r\n\r\n");
+            if (hdrEnd == std::string::npos) continue;
+            if (head.rfind("HTTP/1.", 0) != 0) { ::close(fd); return std::unexpected("malformed HTTP response"); }
+            status = std::atoi(head.c_str() + 9);
+            std::string headers = head.substr(0, hdrEnd);
+            for (auto& c : headers) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+            chunked = headers.find("transfer-encoding: chunked") != std::string::npos;
+            inBody = true;
+            const std::string rest = head.substr(hdrEnd + 4);
+            head.clear();
+            if (rest.empty()) continue;
+            std::string out;
+            if (chunked) dec.feed(rest.data(), rest.size(), out); else out = rest;
+            if (!out.empty()) onBody(out);
+            continue;
+        }
+        std::string out;
+        if (chunked) dec.feed(buf + off, static_cast<std::size_t>(n) - off, out); else out.assign(buf + off, static_cast<std::size_t>(n) - off);
+        if (!out.empty()) onBody(out);
+        if (chunked && dec.done) break;
+    }
+    ::close(fd);
+    if (!inBody) return std::unexpected("malformed HTTP response");
+    return status;
+}
+
 std::expected<ChatResult, std::string> chatComplete(const EngineProfile& e, const std::string& system, const std::string& user, int maxTokens, double temperature, int timeoutSec)
 {
     EngineProfile p = e;
@@ -170,18 +277,108 @@ std::optional<SlotCounts> engineSlots(const EngineProfile& e)
     return c.total > 0 ? std::optional<SlotCounts>{c} : std::nullopt;
 }
 
-std::expected<ChatResult, std::string> chatCompleteMessages(const EngineProfile& e, const std::vector<ChatMessage>& messages, int maxTokens, int timeoutSec)
+
+namespace {
+
+/// One server-sent event of a streaming completion (the JSON after `data: `), folded into `r`; the new answer and reasoning text goes to `sink`.
+void applyStreamEvent(const std::string& json, ChatResult& r, const DeltaSink& sink)
+{
+    std::string contentDelta, reasoningDelta;
+    try {
+        json::withObject(json, [&](simdjson::ondemand::object& obj) {
+            for (auto f : obj) {
+                const std::string_view k = f.unescaped_key();
+                auto v = f.value();
+                if (k == "choices") {
+                    for (auto ch : v.get_array()) {
+                        for (auto cf : ch.get_object()) {
+                            const std::string_view ck = cf.unescaped_key();
+                            auto cv = cf.value();
+                            if (ck == "finish_reason") { if (cv.type().value() == simdjson::ondemand::json_type::string) r.finishReason = json::toString(cv); }
+                            else if (ck == "delta") {
+                                for (auto df : cv.get_object()) {
+                                    const std::string_view dk = df.unescaped_key();
+                                    auto dv = df.value();
+                                    if (dv.type().value() != simdjson::ondemand::json_type::string) continue;
+                                    if (dk == "content") contentDelta = json::toString(dv);
+                                    else if (dk == "reasoning_content") reasoningDelta = json::toString(dv);
+                                }
+                            }
+                        }
+                        break;
+                    }
+                } else if (k == "usage" && v.type().value() == simdjson::ondemand::json_type::object) {
+                    for (auto uf : v.get_object()) {
+                        const std::string_view uk = uf.unescaped_key();
+                        if (uk == "prompt_tokens") r.promptTokens = uf.value().get_int64();
+                        else if (uk == "completion_tokens") r.completionTokens = uf.value().get_int64();
+                    }
+                } else if (k == "timings" && v.type().value() == simdjson::ondemand::json_type::object) {
+                    for (auto tf : v.get_object()) {
+                        const std::string_view tk = tf.unescaped_key();
+                        if (tk == "prompt_ms") r.promptMs = tf.value().get_double();
+                        else if (tk == "predicted_ms") r.predictedMs = tf.value().get_double();
+                        else if (tk == "cache_n") r.cachedTokens = static_cast<long>(tf.value().get_int64());
+                    }
+                }
+            }
+        });
+    } catch (const simdjson::simdjson_error&) { return; }   // a malformed event is skipped; the stream goes on
+    r.content += contentDelta;
+    r.reasoning += reasoningDelta;
+    r.reasoningChars += reasoningDelta.size();
+    if (!contentDelta.empty() || !reasoningDelta.empty()) sink(contentDelta, reasoningDelta);
+}
+
+std::expected<ChatResult, std::string> streamChat(const EngineProfile& e, const std::string& body, int timeoutSec, const DeltaSink& sink)
+{
+    ChatResult r;
+    std::string pending, errorBody;
+    const auto began = std::chrono::steady_clock::now();
+    double firstTokenMs = -1;
+    const auto status = httpStream("POST", e.endpoint + "/chat/completions", body, timeoutSec, [&](std::string_view piece) {
+        pending.append(piece);
+        for (;;) {
+            const auto end = pending.find("\n\n");
+            if (end == std::string::npos) break;
+            const std::string event = pending.substr(0, end);
+            pending.erase(0, end + 2);
+            std::istringstream lines(event);
+            for (std::string line; std::getline(lines, line);) {
+                if (line.rfind("data:", 0) != 0) continue;
+                std::string data = line.substr(5);
+                if (!data.empty() && data.front() == ' ') data.erase(0, 1);
+                if (data == "[DONE]") continue;
+                const bool had = !r.content.empty() || !r.reasoning.empty();
+                applyStreamEvent(data, r, sink);
+                if (!had && (!r.content.empty() || !r.reasoning.empty()) && firstTokenMs < 0)
+                    firstTokenMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - began).count();
+            }
+        }
+        if (errorBody.size() < 2000 && pending.rfind("data:", 0) != 0 && pending.rfind(":", 0) != 0) errorBody.append(piece.substr(0, 2000));
+    });
+    if (!status) return std::unexpected(status.error());
+    if (*status != 200) return std::unexpected("engine returned HTTP " + std::to_string(*status) + ": " + errorBody.substr(0, 300));
+    if (r.promptMs == 0 && firstTokenMs >= 0) r.promptMs = firstTokenMs;   // the server's own timings win; else time to the first token stands in
+    if (r.predictedMs == 0 && firstTokenMs >= 0) r.predictedMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - began).count() - firstTokenMs;
+    return r;
+}
+
+}  // namespace
+
+std::expected<ChatResult, std::string> chatCompleteMessages(const EngineProfile& e, const std::vector<ChatMessage>& messages, int maxTokens, int timeoutSec, const DeltaSink& sink)
 {
     json::Writer w;
     w.beginObject().kv("model", e.model).key("messages").beginArray();
     for (const auto& m : messages) w.beginObject().kv("role", m.role).kv("content", m.content).endObject();
-    w.endArray().kv("max_tokens", maxTokens).kv("temperature", e.effectiveTemperature()).kv("top_p", e.effectiveTopP()).kv("top_k", e.effectiveTopK()).kv("min_p", e.minP).kv("presence_penalty", e.presencePenalty).kvBool("stream", false).kvBool("cache_prompt", e.cachePrompt)
+    w.endArray().kv("max_tokens", maxTokens).kv("temperature", e.effectiveTemperature()).kv("top_p", e.effectiveTopP()).kv("top_k", e.effectiveTopK()).kv("min_p", e.minP).kv("presence_penalty", e.presencePenalty).kvBool("stream", sink ? true : false).kvBool("cache_prompt", e.cachePrompt)
         .key("chat_template_kwargs").beginObject().kvBool("enable_thinking", e.thinking);
     if (!e.reasoningEffort.empty()) w.kv("reasoning_effort", e.reasoningEffort);
     w.endObject();
     if (e.seed >= 0) w.kv("seed", static_cast<std::int64_t>(e.seed));
     if (const char* slot = std::getenv("SUB0SQUAD_LEASE_INDEX"); slot && *slot && std::atoi(slot) < e.maxConcurrent) w.kv("id_slot", std::atoi(slot));  // pin the request to the lease's slot so the portal can attribute live slot activity to this job
     w.endObject();
+    if (sink) return streamChat(e, w.take(), timeoutSec, sink);
     auto resp = httpRequest("POST", e.endpoint + "/chat/completions", w.take(), timeoutSec);
     if (!resp) return std::unexpected(resp.error());
     if (resp->status != 200) return std::unexpected("engine returned HTTP " + std::to_string(resp->status) + ": " + resp->body.substr(0, 300));

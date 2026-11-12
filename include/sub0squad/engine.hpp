@@ -10,7 +10,9 @@
 #include <cstddef>
 #include <expected>
 #include <optional>
+#include <functional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace sub0squad {
@@ -54,14 +56,23 @@ struct ChatResult
 };
 
 struct ChatMessage { std::string role, content; };
+/// Receives the text of a streaming completion as it is generated: the answer's new characters and the reasoning's new characters (either may be empty).
+using DeltaSink = std::function<void(std::string_view content, std::string_view reasoning)>;
 /// One non-streaming chat completion over a whole conversation (the agent's verify-and-repair loop continues the same conversation, so the
 /// server can reuse its cache of the shared prefix). Sampling comes from the profile. `timeoutSec` bounds the whole call.
-[[nodiscard]] std::expected<ChatResult, std::string> chatCompleteMessages(const EngineProfile& engine, const std::vector<ChatMessage>& messages, int maxTokens, int timeoutSec);
+/// With a `sink` the request streams (server-sent events) and the sink sees every piece as it arrives, so a watcher can read the text while it is being
+/// generated; the returned ChatResult is the same as without streaming (full text, finish reason, token counts, timings).
+[[nodiscard]] std::expected<ChatResult, std::string> chatCompleteMessages(const EngineProfile& engine, const std::vector<ChatMessage>& messages, int maxTokens, int timeoutSec,
+                                                                          const DeltaSink& sink = {});
 /// Single system+user turn. A negative `temperature` means "use the profile's".
 [[nodiscard]] std::expected<ChatResult, std::string> chatComplete(const EngineProfile& engine, const std::string& system, const std::string& user,
                                                                   int maxTokens, double temperature, int timeoutSec);
 /// Token count of `text` using the engine's own tokenizer (`<server root>/tokenize`); falls back to length/3.5 and says so via `estimated`.
 [[nodiscard]] long countTokens(const EngineProfile& engine, const std::string& text, bool& estimated);
+
+/// A request whose response body is handed to `onBody` in pieces as it arrives (chunked transfer decoded). Returns the HTTP status; a non-200 body goes to `onBody` too.
+[[nodiscard]] std::expected<int, std::string> httpStream(const std::string& method, const std::string& url, const std::string& body, int timeoutSec,
+                                                         const std::function<void(std::string_view)>& onBody);
 
 /// Plain HTTP helpers (also used by the web harness smoke check).
 /// How many request slots a llama.cpp server has and how many are idle right now (from its `/slots`); nullopt when it cannot be read.

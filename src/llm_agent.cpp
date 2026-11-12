@@ -520,7 +520,18 @@ int runLlmAgent(const std::vector<std::string>& args)
         }
         traceSent(tracePath, turn, convo, tracedUpTo, turnEngine.seed);
         tracedUpTo = convo.size();
-        auto reply = chatCompleteMessages(turnEngine, convo, maxTokens, timeoutSec);
+        // The turn streams: what the model has written so far is in live.txt (the portal appends it to the transcript) until the turn ends.
+        const fs::path livePath = attemptDir / "live.txt";
+        writeFile(livePath, "(turn " + std::to_string(turn) + " sent; waiting for the first token)\n");
+        bool liveStarted = false, inReasoning = false;
+        const DeltaSink liveSink = [&](std::string_view content, std::string_view reasoning) {
+            std::ofstream o(livePath, std::ios::app);
+            if (!liveStarted) { o.close(); writeFile(livePath, ""); o.open(livePath, std::ios::app); liveStarted = true; }
+            if (!reasoning.empty()) { if (!inReasoning) { o << "[thinking]\n"; inReasoning = true; } o << reasoning; }
+            if (!content.empty()) { if (inReasoning) { o << "\n[answer]\n"; inReasoning = false; } o << content; }
+        };
+        auto reply = chatCompleteMessages(turnEngine, convo, maxTokens, timeoutSec, liveSink);
+        { std::error_code lec; fs::remove(livePath, lec); }
         if (!reply) {
             traceVerdict(tracePath, turn, "the engine call failed: " + reply.error());
             std::fprintf(stderr, "llm-agent: engine call failed: %s\n", reply.error().c_str());
