@@ -107,3 +107,9 @@ hand-written Sugiyama pass; how it works with the retained-mode patching in `por
 ## Canvas (owner idea, 2026-11-11)
 
 - A live shared document with section claims, presence, notes and worker-to-worker requests: design in `docs/CANVAS.md`; first slice (claims and presence, read-only) waits for the forked-session work and a real run of the folded views.
+
+## Getting started (owner request, 2026-11-12)
+
+- **An end-to-end first-use sample on the root README with minimal setup.** Today the README has Build and Licence but no first use, and the commands live scattered across `docs/RUNNING_PROJECTS.md`, `docs/HANDOFF.md` and the CLI help; the owner could not find how to start a job by hand. Wanted: one short path from a clean checkout to a finished project, copy-pasteable, each step verified by CI or a test so it cannot rot: (1) build; (2) one command that starts everything needed (daemon, portal, and an engine: either the mock agent or a local model, with the memory guard); (3) `sub0squad do "write a calculator in C++"` (triage picks the blueprint, the plan loads itself, no `project plan` step); (4) open the portal and watch a node's transcript live; (5) where the finished project and the report are; (6) how to stop. Plus a mock-agent variant that runs in a minute with no model at all, and a second sample that adds a new workflow (a registered process) to show the toolbox. Acceptance: a test runs the mock sample from a temporary checkout; the README commands are the commands the test runs.
+- **Blueprint tasks should start without a hand-supplied plan.** `project submit --task calculator-cpp` ends at `needs a plan` because only triage on task text loads a known blueprint; submit should consult the harness registry (`harnessWithBlueprint`) so any registered blueprint starts at once.
+- **A `doctor` command** that checks the first-use prerequisites (binary version, engine reachable, memory guard, ports, cgroup limits) and says what to fix.
