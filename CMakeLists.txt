@@ -38,6 +38,7 @@ add_library(sub0squad_core STATIC
   src/host_guard.cpp
   src/architect.cpp
   src/optimizer.cpp
+  src/scenario.cpp
   src/triage.cpp
   src/llm_agent.cpp
   src/web_templates.cpp
@@ -103,6 +104,8 @@ sub0squad_add_test(test_sandbox)
 set_tests_properties(test_sandbox PROPERTIES TIMEOUT 300)
 sub0squad_add_test(test_platforms)
 set_tests_properties(test_platforms PROPERTIES TIMEOUT 300)
+sub0squad_add_test(test_scenarios)
+set_tests_properties(test_scenarios PROPERTIES TIMEOUT 600)
 sub0squad_add_test(test_project)
 set_tests_properties(test_project PROPERTIES TIMEOUT 600)
 sub0squad_add_test(test_e2e)
