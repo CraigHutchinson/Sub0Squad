@@ -41,6 +41,8 @@ add_library(sub0squad_core STATIC
   src/scenario.cpp
   src/triage.cpp
   src/llm_agent.cpp
+  src/agent_card.cpp
+  src/fork_agent.cpp
   src/web_templates.cpp
   src/harness_common.cpp
   src/harness_web.cpp
@@ -84,6 +86,7 @@ target_link_libraries(sub0squad PRIVATE sub0squad_core simdjson::simdjson)
 enable_testing()
 add_test(NAME dependency_selftest COMMAND sub0squad --selftest)
 add_test(NAME layering COMMAND ${CMAKE_COMMAND} -DSRC_DIR=${CMAKE_SOURCE_DIR} -P ${CMAKE_SOURCE_DIR}/cmake/CheckLayers.cmake)
+add_test(NAME test_reporting COMMAND ${CMAKE_COMMAND} -DSRC_DIR=${CMAKE_SOURCE_DIR} -P ${CMAKE_SOURCE_DIR}/cmake/CheckTests.cmake)
 
 function(sub0squad_add_test name)
   # tests that exercise the multi-call binary receive its path as argv[1]
@@ -106,6 +109,8 @@ sub0squad_add_test(test_platforms)
 set_tests_properties(test_platforms PROPERTIES TIMEOUT 300)
 sub0squad_add_test(test_stream)
 set_tests_properties(test_stream PROPERTIES TIMEOUT 60)
+sub0squad_add_test(test_agent)
+set_tests_properties(test_agent PROPERTIES TIMEOUT 300)
 sub0squad_add_test(test_scenarios)
 set_tests_properties(test_scenarios PROPERTIES TIMEOUT 600)
 sub0squad_add_test(test_project)
