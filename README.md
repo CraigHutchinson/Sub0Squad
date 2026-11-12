@@ -35,7 +35,7 @@ See [docs/DEV_SETUP.md](docs/DEV_SETUP.md) for the local-source override (`CPM_<
 ## First use
 
 <!-- first-use:begin -->
-From a clean checkout to a finished project in a few minutes, with **no model**: the mock agent writes the reference deliverables, and everything else is
+From a clean checkout to a finished project, with **no model**: the mock agent writes the reference deliverables, and everything else is
 real (the plan, the scheduler, the gates that compile and test each item, the integration build). The commands below are run, exactly as written, by the
 test `test_readme`, so they cannot rot.
 
@@ -46,7 +46,7 @@ export SUB0SQUAD_HOME=$PWD/out/home           # where this instance keeps its st
 sub0squad doctor                              # checks memory, tools, ports; says what to fix
 sub0squad up                                  # starts the daemon and the portal in the background
 sub0squad do "write a calculator in C++"      # triage picks the blueprint, the plan loads itself, the work starts
-sub0squad project wait w-000001 --timeout 900 # blocks until the project ends (about a minute here)
+sub0squad project wait w-000001 --timeout 900 # blocks until the project ends (seconds with the mock agent)
 sub0squad project status                      # the workflow and each item
 sub0squad down                                # stops the daemon and the portal
 ```

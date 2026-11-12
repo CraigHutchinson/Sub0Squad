@@ -1,6 +1,6 @@
 # Running sandbox projects, and adding another
 
-Status: 2026-11-09, Linux. Background: [SANDBOX.md](SANDBOX.md) (the delegation loop), [SQUAD_UX_AND_HARNESS.md](SQUAD_UX_AND_HARNESS.md)
+Status: 2026-11-09, Linux. Background: the README's "First use" section (the shortest path), [SQUAD_UX_AND_HARNESS.md](SQUAD_UX_AND_HARNESS.md)
 (triage, personas, work cards, harness, metrics).
 
 ## 1. Build and start

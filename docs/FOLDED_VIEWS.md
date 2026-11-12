@@ -1,6 +1,6 @@
 # Folded views and read requests: focused tasks, context on demand
 
-Status: first slice built 2026-11-11 (`src/outline.cpp`, wired into `llm_agent`), unit-tested; not yet seen on a real run.
+Status: built and unit-tested (`src/outline.cpp`); used by all three executors (`docs/CANVAS.md`, "As built"). First real use (35B, `dev-engine`) showed reads looping (catalogue row 36); reads are now bounded. Not yet proven on a real run.
 
 ## The problem
 
@@ -27,8 +27,10 @@ needs, like an editor that collapses braced regions and expands them on demand.
   `... (41 lines folded: 7-47; name)`, with the closing line and everything outside functions kept. Regions that contain a line the gate named (compiler
   or test location) stay open, nearest first, while the budget allows.
 * READ requests: a worker replies `=== READ: path LINES a-b ===` or `=== READ: path SYMBOL name ===` (one or several) and is shown those lines (at most
-  160 per request, 6 requests per attempt). A read answers inside the same conversation and **costs no repair turn** (the same mechanism as continuing a
-  reply that was cut off).
+  160 per request). **Reads are bounded** (2026-11-12, after row 36): the first two read-only replies of an attempt cost no repair turn; from the third each
+  one is a spent turn, and the answer to the second says the next reply must be an edit. A read that names only the path returns the **outline** (every
+  body folded), never the whole file. A function of any length can be read by name (`foldRegions(..., all)`).
+* `sectionView(text, python, openSymbols)`: every body folded except the named functions: the view of a section's owner in a fork's integration round.
 * Edits name lines (`LINES a-b`, `AFTER n`, applied together against the numbering shown) or use search blocks; a worker that has read what it needs can
   patch a 340-line file with a few lines of reply.
 

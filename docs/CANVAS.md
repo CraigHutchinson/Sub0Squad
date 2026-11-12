@@ -1,6 +1,6 @@
 # The canvas: a live shared document the squad edits section by section
 
-Status: design only, 2026-11-11 (owner idea; sequenced after the 35B baseline and the forked-session work). Nothing here is built.
+Status: slice 0 (a single-worker canvas per attempt) and forked sections are BUILT and tested without a model (2026-11-12, `src/canvas.cpp`, `src/canvas_agent.cpp`, `src/fork.cpp`; `test_canvas_agent`, `test_fork`, `test_blocks`); neither has run on a real model yet. Claims, notes and presence (slices 1 to 4) are design only. Section "As built" below records what was decided while building and why.
 
 ## The idea
 
@@ -71,18 +71,97 @@ approach. A revisioned canvas fixes each of them with one idea: **the document i
 
 This is why the canvas is worth building before there is a second worker: **slice 0 is a single-worker canvas per attempt**. It replaces the ad hoc
 `baselineFiles` and `currentFiles` maps, the edit applier and the numbered views with one revisioned store, and it is what the later slices (claims, notes,
-several workers) sit on. The core is built and unit-tested (`src/canvas.cpp`: apply, rebase, conflict, atomicity, symbol replace, revert); it is not wired
-into `llm_agent` yet. Wiring waits for the current fixes (numbered drafts, windowed repair views) to show on a real run whether a whole-file search block is still
-the model's habit, because that decides whether `replaceSymbol` or a transaction-only reply format is the right default.
+several workers) sit on. It is built: see "As built" below.
 
 ## Slices
 
-0. **Single-worker canvas per attempt** (core built): wire `llm_agent` to a `Canvas`; replies are transactions; the harness precheck gates each commit; folded views are rendered from the current revision.
+0. **Single-worker canvas per attempt** (BUILT, `--executor canvas`): replies are transactions; the harness precheck gates each commit; folded views are rendered from the current revision.
+0b. **Forked sections** (BUILT, `--executor fork` / `llm-fork`): a skeleton is revision 1; each stubbed function is a section owned by one session; the coordinator commits each section's transaction; ownership is enforced (the first, hard-wired form of a claim).
 1. **Claims and presence, read-only for workers**: the daemon derives held sections from a new `claimed` / `released` decision pair; the folded view shows
    `[held: ...]`; the portal shows who is where. No refusal yet. Measures: how often two workers would have touched the same section.
 2. **Notes**: `NOTE` and `ASK` requests, delivered on the next turn; a cap per section.
 3. **Enforcement**: edits to a held section are refused with the holder named; stale edits are rebased by section revision.
 4. **Live human view**: the portal's work graph gets a canvas pane (sections as cells, colour by holder, last note), with the owner able to leave a note a worker will read.
+
+## As built (2026-11-12): one design for the canvas, folded views and forked sections
+
+The three documents (this one, `FOLDED_VIEWS.md`, `WORK_GRAPH.md` section 23) describe one mechanism, and it is built as one: **a file is a revisioned document of
+sections; a view is a rendering of a revision; a reply is a transaction on it; a fork is several workers each owning one section of the same document.**
+Three **executors** run an item (`WorkflowSpec.executor`, `--executor session|canvas|fork`; a workflow option and a scenario option; `replay --fork` runs the fork executor on one node):
+
+| executor | what the worker sees | what it replies | who checks, when |
+|---|---|---|---|
+| `session` (the baseline) | one conversation: the card, the numbered draft, then the latest reply and its failure | whole files or edits | the gate after each reply |
+| `canvas` | every turn rebuilt: the card, the verdict of the last turn, the folded view of the CURRENT revision | one transaction (`SYMBOL`, `LINES`, `AFTER`; a whole `FILE` only for a new file) | the harness precheck before the commit, the gate after it |
+| `fork` | the shared prefix (card and the numbered skeleton) plus "you own `f`" | one transaction: its own function | the precheck before each section's commit, the gate over the merged file |
+
+### What a canvas attempt does (`src/canvas_agent.cpp`)
+
+1. The best earlier draft becomes revision 1 (a first attempt has no document: the files are written whole and become revision 1).
+2. Each turn the message is built from scratch: card, guidance, the verdict of the last turn (the gate failure, or why a transaction was refused, or the lines a
+   read asked for), and the folded view of the current revision sized to what the window has left. **The conversation never carries a file or an earlier reply**,
+   so the window cannot fill with stale copies (catalogue rows 6 and 30).
+3. The reply is parsed as a transaction set (`parseCanvasReply`) and applied to a **scratch copy**. Anything wrong (a line out of range, two edits that
+   overlap, an unknown function, a file the item does not own, a block that names no form) refuses the WHOLE reply with the reason; the document is untouched.
+4. **Commit gate:** the harness precheck (`Harness::precheck`: `-fsyntax-only` for C++, `ast.parse` for Python, `node --check` for JavaScript) runs over the
+   scratch copy. A failure refuses the transaction and returns the located error in the same turn. The first three refusals of an attempt cost no repair turn.
+5. A commit is a new revision (kept on disk: `attempt-N/canvas/<file>.rK`, log in `canvas.json` with who changed which lines), then the item's tests run.
+6. **A commit that makes more tests fail than the best revision is reverted** (as a new revision by `harness`) and the worker is told what its change broke.
+   "Never discard progress" (`WORK_GRAPH.md` section 22) is now a property of the document, not of the prompt.
+7. **Reads are bounded:** two read-only replies are answered free; from the third each costs a turn; the answer to the second says the next reply must be an
+   edit. A read that names only a path returns the outline (every body folded), never the file.
+8. **Turn control** (rows 34 to 36): the reply is judged while it streams (`detectRunaway`: a SEARCH block over 40 lines, the same line 10 times or a short
+   block over and over, a whole-file block that reproduces the draft, the numbered view echoed back) and cancelled by closing the connection, then re-prompted
+   with the specific instruction (twice at most per attempt). A reply cut off at the token limit is continued by appending, with the repeated start trimmed
+   (`trimOverlap`: the longest suffix that is a prefix, at least 8 characters, never indentation alone).
+
+### What a forked attempt does (`src/fork.cpp`)
+
+1. **Primer:** one session writes the skeleton: every function declared, each body one statement that raises `not implemented: <name>`. It must pass the
+   precheck (one retry with the error) and then becomes revision 1. A skeleton that does not parse delegates nothing (exit 2).
+2. **Sections:** every stub inside a named function is a section. Each session gets the same prefix (system block, card, the numbered skeleton), so a server
+   that keeps a prompt cache prefills it once, and is told which function it owns.
+3. **Width (throughput by default, `planParallel`):** as many sections at once as there are idle slots. One at a time needs a stated reason
+   (`--sequential-reason`), which is recorded. Below a memory floor forks are shed first (`--mem-floor-mib`), also recorded. A run is never wider than the engine.
+4. **Commit:** each section's reply must be ONE `replaceSymbol` on its own function. The coordinator applies it against revision 1; the canvas rebases it
+   through the other sections' commits (line numbers shift; a real overlap is a conflict and is counted). An edit to another section is refused with the holder
+   named. The precheck gates each commit, so a section that does not compile never reaches the merged file; the section gets the error back (two retries).
+5. **Merge and integration:** the item's gate judges the merged file. A failure goes back first to the sections it names (whole-word match) and to any that
+   never committed, then to all; each in a fresh small session that shows the current revision with its own function open and the others folded.
+6. `fork.json` records the width and its reason, conflicts, lost edits (must be 0: every committed function is in the merged text), refusals, tokens per phase
+   (skeleton, sections, integration) and the idle-slot share.
+
+### Decisions taken while building, and why
+
+* **Reply forms were kept, not replaced.** The canvas reads the forms workers already use (`=== EDIT: path LINES a-b ===`, `AFTER n`, SEARCH blocks, `=== FILE ===`) and
+  adds one (`=== EDIT: path SYMBOL name ===`). A transaction-only syntax would have been a second language for a small model to learn; the recorded-reply cases
+  (`tests/data/replies/`) show every form maps onto a transaction. The session executor now applies edits through the same applier.
+* **A transaction's base revision is the revision shown, set by the harness, not written by the model.** A worker cannot be trusted to copy a number; the harness knows
+  which revision it rendered.
+* **Addressing a function by name needs every function, not only the foldable ones.** `foldRegions(..., all = true)` returns one-line and two-line functions too;
+  without it a stub (one line of body) could not be replaced by name. Folding still uses the default (bodies worth hiding).
+* **The number column is stripped only when every line of a block has it.** The older rule stripped it line by line, which would corrupt code that legitimately
+  starts with `1| x`.
+* **Two insertions after the same line keep the order they were given in.** The model-based test found the applier's sort was unstable for that case; it is stable now.
+* **A fork's ownership check is the first claim.** Slice 1's `claimed` / `released` decisions are not built; within one fork attempt the coordinator holds the map
+  section to owner, which is enough to refuse an edit outside a section and name the holder. Journaled claims are needed only when sections outlive an attempt.
+* **Fork sessions are fresh, small conversations, including the integration round.** `WORK_GRAPH.md` 23 continued each fork's own conversation on failure; that
+  grows a context per round and shows a stale skeleton. A round now shows the current revision with the owner's function open: the same view rule as the canvas.
+* **Challenged and changed: "wire the canvas, keep the session loop as legacy".** Both are executors of one registry of three; the session loop is the baseline that
+  block 3 and block 5 are compared against with the same seeds, not a deprecated path. It becomes removable when the canvas reaches the block 3 bar on a real model.
+* **Not decided here (owner):** which executor is the default. It is `session` until a real-model comparison exists.
+
+### What is not built or not proven
+
+* Nothing here has run on a real model. The commands are in `docs/BLOCK_PROVING_GROUNDS.md` ("Real-model measurements").
+* The C++ skeleton prompt asks for unnamed unused parameters so the stubs compile under `-Werror`; whether a 35B does that reliably is unknown. If it does not,
+  the precheck's first retry tells it the exact warning.
+* A fork needs functions. A file that is mostly data or one large function gets no parallelism from it (the canvas executor still applies).
+* Testers' items do not fork (a test file's sections are test cases, and the tester gate judges the file as a whole); in a workflow with `--executor fork`
+  testers run on the canvas.
+* The fork executor inside a workflow (`llm-fork --agent-exit 1` as the agent job) is NOT tested: `llm-fork` itself is (`test_fork`), a
+  workflow that uses it through the daemon is not.
+* Claims across attempts, notes, presence, the portal pane (slices 1 to 4).
 
 ## Open questions
 
