@@ -87,5 +87,5 @@ int main()
         auto r = chatCompleteMessages(*e, {{"user", "hi"}}, 100, 30, [](std::string_view, std::string_view) {});
         CHECK(!r.has_value() && r.error().find("HTTP 500") != std::string::npos);
     }
-    return 0;
+    return finish();
 }

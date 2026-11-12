@@ -147,5 +147,5 @@ int main()
         CHECK(g.find("INTERFACE MISMATCH") != std::string::npos);
         CHECK(g.find("evaluate") != std::string::npos);
     }
-    return 0;
+    return finish();
 }
