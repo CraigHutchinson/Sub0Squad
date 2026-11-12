@@ -18,7 +18,7 @@ const char* toString(WorkflowState s)
 std::string WorkflowSpec::toJson() const
 {
     json::Writer w;
-    w.beginObject().kv("task", task).kv("taskText", taskText).kv("triage", triage).kv("sandbox", sandboxDir).kv("maxLocalAttempts", maxLocalAttempts).kv("agent", agent).kv("treatment", treatment).kv("repairTurns", repairTurns).kv("sizeBudget", sizeBudget).kv("maxTokens", maxTokens).kvBool("ask", ask).kv("fallbackEngine", fallbackEngine).key("inject").beginArray();
+    w.beginObject().kv("task", task).kv("taskText", taskText).kv("triage", triage).kv("sandbox", sandboxDir).kv("maxLocalAttempts", maxLocalAttempts).kv("agent", agent).kv("treatment", treatment).kv("executor", executor).kv("repairTurns", repairTurns).kv("sizeBudget", sizeBudget).kv("maxTokens", maxTokens).kvBool("ask", ask).kv("fallbackEngine", fallbackEngine).key("inject").beginArray();
     for (const auto& i : inject) w.str(i);
     w.endArray().key("engines").beginArray();
     for (const auto& e : engines) w.str(e);
@@ -44,6 +44,7 @@ std::expected<WorkflowSpec, std::string> WorkflowSpec::fromJson(std::string_view
                 else if (k == "inject") { for (auto x : v.get_array()) s.inject.push_back(json::toString(x.value())); }
                 else if (k == "agent") s.agent = json::toString(v);
                 else if (k == "treatment") s.treatment = json::toString(v);
+                else if (k == "executor") s.executor = json::toString(v);
                 else if (k == "repairTurns") s.repairTurns = static_cast<int>(v.get_int64());
                 else if (k == "sizeBudget") s.sizeBudget = static_cast<int>(v.get_int64());
                 else if (k == "maxTokens") s.maxTokens = static_cast<int>(v.get_int64());
@@ -65,6 +66,7 @@ std::expected<WorkflowSpec, std::string> WorkflowSpec::fromJson(std::string_view
     if (!s.fallbackEngine.empty() && !names.count(s.fallbackEngine)) return std::unexpected("fallback engine '" + s.fallbackEngine + "' names an unknown engine");
     for (const auto& [persona, name] : s.route) if (!names.count(name)) return std::unexpected("route " + persona + "=" + name + " names an unknown engine");
     if (s.treatment != "baseline" && s.treatment != "index" && s.treatment != "planfirst") return std::unexpected("treatment must be baseline, index or planfirst");
+    if (s.executor != "session" && s.executor != "canvas" && s.executor != "fork") return std::unexpected("executor must be session, canvas or fork");
     if (s.maxTokens < 256 || s.maxTokens > 32768) return std::unexpected("maxTokens must be 256..32768");
     return s;
 }
@@ -328,6 +330,10 @@ JobSpec agentJob(const WorkflowRecord& wf, const WorkflowSettings& st, const Wor
     if (llm) {
         s.argv = {st.exe, "llm-agent", "--workflow-dir", wf.spec.sandboxDir, "--item", it.id, "--tier", tier, "--attempt", std::to_string(attempt), "--engine", engine->toArg(),
                   "--max-tokens", std::to_string(wf.spec.maxTokens), "--timeout", "1700", "--treatment", wf.spec.treatment, "--repair-turns", std::to_string(wf.spec.repairTurns), "--size-budget", std::to_string(wf.spec.sizeBudget)};
+        if (wf.spec.executor == "fork" && tier == "local" && it.persona != "tester")   // a developer's item as forked sections; the gate job judges the merged files
+            s.argv = {st.exe, "llm-fork", "--workflow-dir", wf.spec.sandboxDir, "--item", it.id, "--attempt", std::to_string(attempt), "--engine", engine->toArg(),
+                      "--max-tokens", std::to_string(wf.spec.maxTokens), "--timeout", "1700", "--repair-turns", std::to_string(wf.spec.repairTurns), "--agent-exit", "1"};
+        else if (wf.spec.executor != "session") s.argv.insert(s.argv.end(), {"--executor", "canvas"});
     } else {
         s.argv = {st.exe, "mock-agent", "--workflow-dir", wf.spec.sandboxDir, "--item", it.id, "--tier", tier, "--attempt", std::to_string(attempt)};
         for (const auto& i : wf.spec.inject) { s.argv.push_back("--inject"); s.argv.push_back(i); }
@@ -338,7 +344,7 @@ JobSpec agentJob(const WorkflowRecord& wf, const WorkflowSettings& st, const Wor
 JobSpec gateJob(const WorkflowRecord& wf, const WorkflowSettings& st, const WorkItem& it, int attempt, const std::string& tier)
 {
     const Harness* harness = wf.plan ? findHarness(wf.plan->harness) : nullptr;
-    const char* gateCommand = harness ? harness->gateCommand : "sandbox-gate";
+    const char* gateCommand = harness ? harness->gateCommand : "";   // a plan always names a registered harness (Plan::fromJson refuses one that does not)
     JobSpec s = baseJob(wf, st, "gate", gateCommand, tier.c_str(), 120);
     s.item = it.id;
     s.attempt = attempt;
@@ -573,7 +579,7 @@ std::vector<WorkflowAction> advance(const WorkflowRecord& wf, const JobStore& st
         for (const JobRecord* j : mine.all) if (j->spec.role == "integrator") integ = j;
         if (!integ) {
             const Harness* harness = findHarness(plan.harness);
-            const char* integrateCommand = harness ? harness->integrateCommand : "sandbox-integrate";
+            const char* integrateCommand = harness ? harness->integrateCommand : "";
             JobSpec s = baseJob(wf, st, "integrator", integrateCommand, "stub", 300);
             s.argv = {st.exe, integrateCommand, "--workflow-dir", wf.spec.sandboxDir};
             out.push_back(start(std::move(s)));

@@ -58,12 +58,16 @@ struct ChatResult
 struct ChatMessage { std::string role, content; };
 /// Receives the text of a streaming completion as it is generated: the answer's new characters and the reasoning's new characters (either may be empty).
 using DeltaSink = std::function<void(std::string_view content, std::string_view reasoning)>;
+/// Asked after every piece of a streaming completion whether to CANCEL the request (docs/INTERVENTIONS.md row 34, early abort): it sees the answer so
+/// far and returns true to close the connection, which stops the server generating. The result then has `finishReason` "aborted" and the text so far.
+using StreamGuard = std::function<bool(const std::string& contentSoFar)>;
 /// One non-streaming chat completion over a whole conversation (the agent's verify-and-repair loop continues the same conversation, so the
 /// server can reuse its cache of the shared prefix). Sampling comes from the profile. `timeoutSec` bounds the whole call.
 /// With a `sink` the request streams (server-sent events) and the sink sees every piece as it arrives, so a watcher can read the text while it is being
-/// generated; the returned ChatResult is the same as without streaming (full text, finish reason, token counts, timings).
+/// generated; the returned ChatResult is the same as without streaming (full text, finish reason, token counts, timings). With a `guard` the request
+/// also streams, and is cancelled as soon as the guard says so.
 [[nodiscard]] std::expected<ChatResult, std::string> chatCompleteMessages(const EngineProfile& engine, const std::vector<ChatMessage>& messages, int maxTokens, int timeoutSec,
-                                                                          const DeltaSink& sink = {});
+                                                                          const DeltaSink& sink = {}, const StreamGuard& guard = {});
 /// Single system+user turn. A negative `temperature` means "use the profile's".
 [[nodiscard]] std::expected<ChatResult, std::string> chatComplete(const EngineProfile& engine, const std::string& system, const std::string& user,
                                                                   int maxTokens, double temperature, int timeoutSec);
@@ -71,8 +75,9 @@ using DeltaSink = std::function<void(std::string_view content, std::string_view 
 [[nodiscard]] long countTokens(const EngineProfile& engine, const std::string& text, bool& estimated);
 
 /// A request whose response body is handed to `onBody` in pieces as it arrives (chunked transfer decoded). Returns the HTTP status; a non-200 body goes to `onBody` too.
+/// `stop` (optional) is asked after each piece: true closes the connection at once and the call returns the status as if the body had ended.
 [[nodiscard]] std::expected<int, std::string> httpStream(const std::string& method, const std::string& url, const std::string& body, int timeoutSec,
-                                                         const std::function<void(std::string_view)>& onBody);
+                                                         const std::function<void(std::string_view)>& onBody, const std::function<bool()>& stop = {});
 
 /// Plain HTTP helpers (also used by the web harness smoke check).
 /// How many request slots a llama.cpp server has and how many are idle right now (from its `/slots`); nullopt when it cannot be read.

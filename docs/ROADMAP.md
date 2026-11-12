@@ -10,7 +10,7 @@ Milestones from [DESIGN.md](DESIGN.md) section 10. Tickets for them live in Sub0
 | M2 | arbiter on mock resources, ledger | not started |
 | M3 | metric registry, tool manifests, SSE, portal v0 (read-only) | not started |
 | M3b | tiers, quotas, share cap, permission gate, decision policy + replay, stub frontier, MCP, portal Usage/Settings/Audit | not started |
-| M4 | planner, staged fan-out, integrator (mock first, then the quant-format splitter) | **mock version done 2026-11-09** as the sandbox harness ([SANDBOX.md](SANDBOX.md)): planner, fan-out, gates, policy, escalation to the stub tier, integrator, ledger; real splitters and model planners remain |
+| M4 | planner, staged fan-out, integrator (mock first, then the quant-format splitter) | **mock version done 2026-11-09** as the sandbox harness (the sandbox harness (removed 2026-11-12 in favour of the registry harnesses)): planner, fan-out, gates, policy, escalation to the stub tier, integrator, ledger; real splitters and model planners remain |
 | M5 | `IEngine`, `EngineCaps`, routing: mock engine, llama.cpp, Sub0Llm, Strata | not started |
 | M6 | consumed by Sub0Llm as a dependency | not started |
 | M7 | live Claude/Codex, enabled only by the owner in the portal | not started |

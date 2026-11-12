@@ -247,6 +247,7 @@ int runScenarioCommand(const std::vector<std::string>& args)
     const int trials = std::max(1, std::atoi(one(a, "trials", "10").c_str()));
     const int parallel = std::max(1, std::atoi(one(a, "parallel", "2").c_str()));
     const double minLower = std::atof(one(a, "min-lower", "0.6").c_str());
+    const std::string executor = one(a, "executor", "session");
     const std::string treatment = one(a, "treatment", "baseline"), repairTurns = one(a, "repair-turns", "2"), maxTokens = one(a, "max-tokens", "3500");
     const fs::path outDir = one(a, "out", "out/scenarios");
     const long baseSeed = std::atol(one(a, "seed", "1000").c_str());
@@ -257,7 +258,7 @@ int runScenarioCommand(const std::vector<std::string>& args)
     while (!build.empty() && (build.back() == '\n' || build.back() == ' ')) build.pop_back();
 
     json::Writer w;
-    w.beginObject().kv("schema", "scenario-results-1").kv("build", build).kv("engine", engine).kv("treatment", treatment).kv("trials", trials).kv("minLower", minLower).key("results").beginArray();
+    w.beginObject().kv("schema", "scenario-results-1").kv("build", build).kv("engine", engine).kv("treatment", treatment).kv("executor", executor).kv("trials", trials).kv("minLower", minLower).key("results").beginArray();
     std::printf("%-12s %-27s %8s %7s %7s %8s %9s %8s  %s\n", "platform", "element", "passed", "rate", "lower95", "seconds", "tokens", "changed", "verdict");
     int unreliable = 0;
     for (const auto& pd : platforms()) {
@@ -288,7 +289,7 @@ int runScenarioCommand(const std::vector<std::string>& args)
                     }
                     const auto began = std::chrono::steady_clock::now();
                     const Cmd c = run({exe, "llm-agent", "--workflow-dir", dir.string(), "--item", item, "--tier", "local", "--attempt", std::to_string(attempt), "--engine", engine + ",seed=" + std::to_string(baseSeed + i),
-                                       "--max-tokens", maxTokens, "--treatment", treatment, "--repair-turns", repairTurns, "--timeout", "1700"}, dir, 2400);
+                                       "--max-tokens", maxTokens, "--treatment", treatment, "--repair-turns", repairTurns, "--timeout", "1700", "--executor", executor}, dir, 2400);
                     t.generated = c.exitCode == 0;
                     if (t.generated) t.passed = judge(fx, d, item, attempt);
                     t.seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - began).count();

@@ -1,0 +1,19 @@
+# name: error-unknown-symbol
+# expect-error: no function named 'cube'
+--- base src/calc.cpp
+#include <stdexcept>
+
+double divide(double a, double d)
+{
+    if (d == 0) return 0;
+    return a / d;
+}
+
+double square(double x)
+{
+    return x * x;
+}
+--- reply
+=== EDIT: src/calc.cpp SYMBOL cube ===
+double cube(double x) { return x * x * x; }
+=== END EDIT ===

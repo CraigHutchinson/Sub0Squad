@@ -53,11 +53,12 @@ std::string buildAndRun(const fs::path& ws, const std::vector<std::string>& test
 
 }  // namespace
 
-int runPyGate(const std::vector<std::string>& args)
-{
-    static const GateHooks hooks = {&pyScaffold, &precheck, &buildAndRun};
-    return runGateFlow(hooks, args);
-}
+namespace {
+const GateHooks& pyHooks() { static const GateHooks hooks = {&pyScaffold, &precheck, &buildAndRun}; return hooks; }
+}  // namespace
+
+int runPyGate(const std::vector<std::string>& args) { return runGateFlow(pyHooks(), args); }
+std::string runPyPrecheck(const std::vector<std::string>& args) { return runPrecheckFlow(pyHooks(), args); }
 
 int runPyIntegrate(const std::vector<std::string>& args)
 {

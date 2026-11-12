@@ -47,6 +47,14 @@ set(VERSION_OUT_DIR "${CMAKE_BINARY_DIR}/generated/sub0squad")
 set(VERSION_FALLBACK "0.0.0")
 set(VERSION_H_FILENAME "Version.hpp")
 set(VERSION_NAMESPACE "sub0squad::version")
+# Version.cmake reads `describe --tags` and writes an empty header when the nearest tag is not a semantic version (the milestone tag `parked-v1`
+# broke every build: docs/INTERVENTIONS.md row 37). It is given a wrapper that describes only v<major>.<minor> tags, at configure time and in its
+# build-time regeneration; with no such tag it falls back to 0.0.0-<commit count>-g<hash>.
+set(GIT_EXECUTABLE "${CMAKE_CURRENT_LIST_DIR}/git-semver.sh")
 CPMAddPackage(NAME Version.cmake
   GIT_REPOSITORY https://github.com/BareCpper/Version.cmake.git
   GIT_TAG c9e67af0aec3588912b760b45dca3ff217a62f59)
+unset(GIT_EXECUTABLE)
+if(NOT VERSION_SET)
+  message(FATAL_ERROR "Version.cmake could not derive a version (see the 'Git Describe' lines above): the generated Version.hpp would not compile")
+endif()

@@ -1,3 +1,5 @@
+#include "agent_impl.hpp"
+
 #include "sub0squad/edits.hpp"
 #include "sub0squad/engine.hpp"
 #include "sub0squad/event_channel.hpp"
@@ -6,6 +8,7 @@
 #include "sub0squad/plan.hpp"
 #include "sub0squad/policy.hpp"
 #include "sub0squad/trace.hpp"
+#include "sub0squad/turn_control.hpp"
 #include "sub0squad/sandbox.hpp"
 
 #include <algorithm>
@@ -23,334 +26,8 @@
 
 namespace sub0squad {
 
-namespace {
-/// The fixed-system-block description of a project harness (empty when the plan has none).
-std::string harnessBrief(const std::string& name) { const Harness* h = findHarness(name); return h && h->brief ? h->brief() : std::string{}; }
-}  // namespace
-
 namespace fs = std::filesystem;
-
-namespace {
-
-std::string slurp(const fs::path& p) { std::ifstream in(p, std::ios::binary); std::stringstream ss; ss << in.rdbuf(); return ss.str(); }
-bool writeFile(const fs::path& p, const std::string& text)
-{
-    std::error_code ec;
-    fs::create_directories(p.parent_path(), ec);
-    std::ofstream o(p, std::ios::binary | std::ios::trunc);
-    o << text;
-    return static_cast<bool>(o);
-}
-std::string arg(const std::vector<std::string>& a, const std::string& key, const std::string& d = {})
-{
-    for (std::size_t i = 0; i + 1 < a.size(); ++i) if (a[i] == "--" + key) return a[i + 1];
-    return d;
-}
-std::string clip(const std::string& s, std::size_t n) { return s.size() <= n ? s : s.substr(0, n) + "\n... (truncated)"; }
-
-// An earlier draft as the worker sees it: every line numbered (so an edit can name lines), whole when it fits, else FOLDED: signatures and structure visible,
-// long function bodies collapsed to one line that names the folded range, the regions around the lines the gate named left open (src/outline.cpp). The worker
-// asks for folded lines with a READ request. Never cut off in the middle of code: a worker cannot edit what it cannot see.
-std::string draftView(const std::string& path, const std::string& text, const std::string& gate, std::size_t budget)
-{
-    std::vector<int> focus;
-    static const std::regex ref(R"([\w./+-]+\.[a-z]+:(\d+))");
-    for (std::sregex_iterator it(gate.begin(), gate.end(), ref), end; it != end; ++it) focus.push_back(std::atoi((*it)[1].str().c_str()));
-    return foldedView(text, isPythonPath(path), focus, budget);
-}
-
-
-std::string systemBlock(const std::string& persona, const std::string& harnessBrief)
-{
-    // Persona-neutral text first (the same for every item, so the server's prompt cache shares it), the persona sentence last.
-    std::string s = "Reply with the complete content of every file you are asked for, in exactly this format and nothing else (no explanations, no markdown fences):\n"
-                    "=== FILE: <path> ===\n<file content>\n=== END FILE ===\n";
-    if (!harnessBrief.empty()) s += harnessBrief + "\n";
-    s += "You are the " + persona + " on a small software squad: you own one small, focused piece of a whole solution. Be the expert and do it as well as it can be done, "
-         "keep to your contract and the exact interfaces you are given so the other pieces fit, and write only the files you are asked to write. ";
-    s += persona == "tester" ? "Write tests for the contract; do not write the implementation.\n" : "Implement the contract so that the provided tests pass.\n";
-    return s;
-}
-
-// Names of the tests a test file defines: test('name' ... / it("name" ...
-std::string testNames(const std::string& source)
-{
-    std::string out;
-    int n = 0;
-    for (std::size_t pos = 0; pos < source.size();) {
-        std::size_t hit = std::string::npos;
-        for (const char* key : {"test(", "it("}) { const auto h = source.find(key, pos); if (h != std::string::npos && h < hit) hit = h; }
-        if (hit == std::string::npos) break;
-        std::size_t q = source.find_first_of("'\"`", hit);
-        if (q == std::string::npos || q - hit > 12) { pos = hit + 3; continue; }
-        const auto e = source.find(source[q], q + 1);
-        if (e == std::string::npos) break;
-        out += "- " + source.substr(q + 1, e - q - 1) + "\n";
-        ++n;
-        pos = e + 1;
-    }
-    return n ? out : std::string{};
-}
-
-struct Parsed { std::map<std::string, std::string> files; std::size_t rejectedChars = 0, proseChars = 0, fileChars = 0; };
-
-// Parse "=== FILE: path ===" blocks; tolerate a missing END and markdown fences around the content.
-Parsed parseReply(const std::string& reply, const std::set<std::string>& allowed)
-{
-    Parsed p;
-    std::size_t pos = 0;
-    std::size_t consumed = 0;
-    for (;;) {
-        const auto start = reply.find("=== FILE:", pos);
-        if (start == std::string::npos) break;
-        const auto nameEnd = reply.find("===", start + 9);
-        if (nameEnd == std::string::npos) break;
-        std::string path = reply.substr(start + 9, nameEnd - start - 9);
-        path.erase(0, path.find_first_not_of(" \t"));
-        path.erase(path.find_last_not_of(" \t\r\n") + 1);
-        std::size_t bodyStart = reply.find('\n', nameEnd);
-        if (bodyStart == std::string::npos) break;
-        ++bodyStart;
-        std::size_t end = reply.find("=== END FILE ===", bodyStart);
-        const std::size_t nextFile = reply.find("=== FILE:", bodyStart);
-        std::size_t after;
-        if (end == std::string::npos || (nextFile != std::string::npos && nextFile < end)) { end = nextFile == std::string::npos ? reply.size() : nextFile; after = end; }
-        else after = end + std::string{"=== END FILE ==="}.size();
-        std::string body = reply.substr(bodyStart, end - bodyStart);
-        if (body.rfind("```", 0) == 0) { const auto nl = body.find('\n'); body = nl == std::string::npos ? "" : body.substr(nl + 1); }  // opening fence
-        for (const std::string tail : {"\n```\n", "\n```", "```\n", "```"}) {
-            if (body.size() >= tail.size() && body.compare(body.size() - tail.size(), tail.size(), tail) == 0) { body.erase(body.size() - tail.size()); body.push_back('\n'); break; }
-        }
-        if (!body.empty() && body.back() != '\n') body.push_back('\n');
-        consumed += after - start;
-        if (allowed.count(path) && !body.empty()) { p.files[path] = body; p.fileChars += body.size(); }
-        else p.rejectedChars += body.size();
-        pos = after;
-    }
-    p.proseChars = reply.size() > consumed ? reply.size() - consumed : 0;
-    return p;
-}
-
-std::set<std::string> closure(const Plan& plan, const std::string& id)
-{
-    std::set<std::string> seen;
-    std::vector<std::string> work{id};
-    while (!work.empty()) {
-        const WorkItem* it = plan.find(work.back());
-        work.pop_back();
-        if (!it) continue;
-        for (const auto& d : it->deps) if (seen.insert(d).second) work.push_back(d);
-    }
-    return seen;
-}
-
-const char* kEditSyntax =
-    "Reply with EDITS, not the whole files. The earlier draft is shown with line numbers (`N| text`; the numbers are not part of the file); a long draft is FOLDED: function bodies collapse to `... (N lines folded: a-b)`. To see folded lines, reply with ONLY read requests (no edits yet): `=== READ: <path> LINES a-b ===` or `=== READ: <path> SYMBOL name ===`, one per line; you are shown the lines and then reply with your edits. Prefer LINES edits, which name the lines to replace:\n"
-    "=== EDIT: <path> LINES 345-347 ===\n<the new text for those lines; empty to delete them>\n=== END EDIT ===\n"
-    "(LINES 345 is one line; AFTER 120 inserts after line 120. Numbers are those of the draft shown, and several edits may be given: they are applied together.) Or a search block, which must match the current text exactly once:\n"
-    "=== EDIT: <path> ===\n<<<<<<< SEARCH\n<exact lines to replace>\n=======\n<new lines>\n>>>>>>> REPLACE\n=== END EDIT ===\n"
-    "Rewrite the whole file (in the usual === FILE: <path> === form) only when most of it changes.";
-
-// The work card as the worker reads it: the task, the files, the context, the contract, the acceptance list, the provided tests of accepted dependencies
-// (whole, or by name with the `index` treatment) and the notes. Counts the tests it showed.
-std::string buildCard(const fs::path& dir, const Plan& plan, const WorkItem& itemRef, const std::string& itemId, const std::string& treatment, long& testCount)
-{
-    const WorkItem* item = &itemRef;
-    std::ostringstream card;
-    card << "Task: " << item->goal << "\nFiles to write: ";
-    for (std::size_t i = 0; i < item->files.size(); ++i) card << (i ? ", " : "") << item->files[i];
-    card << "\n\nContext: " << item->card.context << "\n\nContract:\n" << item->card.contract << "\n";
-    if (!item->card.acceptance.empty()) { card << "\nAcceptance:\n"; for (const auto& x : item->card.acceptance) card << "- " << x << "\n"; }
-    for (const auto& inc : item->card.include) {
-        std::string content;
-        for (const auto& dep : closure(plan, itemId)) { const fs::path f = dir / "items" / dep / "accepted" / inc; if (fs::exists(f)) { content = slurp(f); break; } }
-        if (content.empty()) continue;
-        const std::string allNames = testNames(content);
-        testCount += std::count(allNames.begin(), allNames.end(), '\n');
-        const std::string names = treatment == "index" ? allNames : std::string{};
-        if (!names.empty()) card << "\nThe provided tests in " << inc << " are named as follows (the file itself is not shown; implement the contract so tests with these names pass):\n" << names;
-        else card << "\nProvided file " << inc << ":\n=== FILE: " << inc << " ===\n" << clip(content, 7000) << "\n=== END FILE ===\n";
-    }
-    if (!item->card.notes.empty()) { card << "\nNotes:\n"; for (const auto& x : item->card.notes) card << "- " << x << "\n"; }
-    return card.str();
-}
-
-// ---- forked sessions: write the skeleton first, then delegate each function to a session of its own --------------------------------------------------------
-// One primer session writes every file as a skeleton (imports, constants, every function declared with its exact signature, each body only
-// `throw new Error('not implemented: <name>');`). The harness finds the stubs; each becomes a fork: the same primed conversation (system block, card, the skeleton as the
-// assistant's own reply) plus "you are working on <name>, the others are written separately". A fork answers with the body only, which the harness puts in place of the stub.
-// Instead of one ever-growing context there are small sessions that share the primed prefix; a failure goes back to the sessions it points at, each continuing its own.
-struct ForkUnit
-{
-    std::string name, file, stubLine;
-    std::string body;
-    std::vector<ChatMessage> convo;
-    std::string reply, finish, error;
-    long promptTokens = 0, completionTokens = 0, cachedTokens = 0;
-};
-
-std::string tidyBody(std::string t, const std::string& name)
-{
-    std::string out;
-    std::istringstream in(t);
-    for (std::string line; std::getline(in, line);) {
-        if (line.rfind("=== FILE:", 0) == 0 || line.rfind("=== END FILE", 0) == 0 || line.rfind("=== EDIT:", 0) == 0 || line.rfind("=== END EDIT", 0) == 0) continue;
-        out += line + "\n";
-    }
-    if (out.rfind("```", 0) == 0) { const auto nl = out.find('\n'); out = nl == std::string::npos ? "" : out.substr(nl + 1); }
-    for (const std::string tail : {"\n```\n", "```\n"}) if (out.size() >= tail.size() && out.compare(out.size() - tail.size(), tail.size(), tail) == 0) { out.erase(out.size() - tail.size()); out.push_back('\n'); break; }
-    // a model that returns the whole function: keep what is inside its braces
-    const std::string last = name.substr(name.rfind('.') == std::string::npos ? 0 : name.rfind('.') + 1);
-    const auto firstNl = out.find_first_not_of(" \t\n");
-    if (firstNl != std::string::npos) {
-        const std::string head = out.substr(firstNl, 160);
-        if ((head.rfind("function " + last, 0) == 0 || head.rfind("export function " + last, 0) == 0 || head.rfind("async function " + last, 0) == 0) && out.find('{') != std::string::npos && out.rfind('}') != std::string::npos && out.rfind('}') > out.find('{')) {
-            out = out.substr(out.find('{') + 1, out.rfind('}') - out.find('{') - 1);
-            while (!out.empty() && (out.front() == '\n' || out.front() == '\r')) out.erase(out.begin());
-            if (out.empty() || out.back() != '\n') out.push_back('\n');
-        }
-    }
-    return out;
-}
-
-}  // namespace
-
-int runLlmFork(const std::vector<std::string>& args)
-{
-    std::setvbuf(stdout, nullptr, _IOLBF, 0);
-    const fs::path dir = arg(args, "workflow-dir");
-    const std::string itemId = arg(args, "item");
-    const int attempt = std::atoi(arg(args, "attempt", "1").c_str());
-    const int maxTokens = std::atoi(arg(args, "max-tokens", "3500").c_str());
-    const int timeoutSec = std::atoi(arg(args, "timeout", "3600").c_str());
-    const int rounds = std::max(0, std::atoi(arg(args, "repair-turns", "2").c_str()));
-    auto engine = EngineProfile::parse(arg(args, "engine"));
-    if (!engine) { std::fprintf(stderr, "llm-fork: %s\n", engine.error().c_str()); return 64; }
-    auto plan = Plan::fromJson(slurp(dir / "plan.json"));
-    if (!plan || !plan->find(itemId)) { std::fprintf(stderr, "llm-fork: cannot load the plan or item\n"); return 1; }
-    WorkItem item = *plan->find(itemId);
-    (void)readCardOverride(dir / "items" / itemId / "card-override.json", item.card);
-    const std::string system = systemBlock(item.persona, harnessBrief(plan->harness));
-    long testCount = 0;
-    const std::string card = buildCard(dir, *plan, item, itemId, "baseline", testCount);
-    const fs::path attemptDir = dir / "items" / itemId / ("attempt-" + std::to_string(attempt)), out = attemptDir / "out";
-    std::error_code ec;
-    fs::remove_all(out, ec);
-    fs::create_directories(out, ec);
-    const std::set<std::string> allowed(item.files.begin(), item.files.end());
-    const auto seedFor = [&](const std::string& label) { EngineProfile e = *engine; if (engine->seed >= 0) { std::uint64_t h = 1469598103934665603ull ^ static_cast<std::uint64_t>(engine->seed); for (const char c : label) { h ^= static_cast<unsigned char>(c); h *= 1099511628211ull; } e.seed = static_cast<long long>(h & 0x7fffffffull); } return e; };
-
-    // 1. the primer session: the skeleton
-    const std::string primer = card + "\nWrite the skeleton first, with no implementation yet. For every file to write give the complete file: its imports, its constants, and every function or class declared with its exact signature and a one-line comment saying what it does. "
-                               "Each function body is only `throw new Error('not implemented: <name>');` where <name> is the function's name (Class.method for a method). Reply in the file format.";
-    std::vector<ChatMessage> primerConvo = {{"system", system}, {"user", primer}};
-    traceBegin(attemptDir / "conversation-skeleton.md", "Skeleton session of " + itemId, *engine, maxTokens);
-    traceSent(attemptDir / "conversation-skeleton.md", 0, primerConvo, 0, -1);
-    auto skel = chatCompleteMessages(seedFor("skeleton"), primerConvo, maxTokens, timeoutSec);
-    if (!skel) { std::fprintf(stderr, "llm-fork: the skeleton call failed: %s\n", skel.error().c_str()); return 2; }
-    traceReply(attemptDir / "conversation-skeleton.md", 0, *skel);
-    std::printf("fork skeleton: %ld prompt tokens (%ld cached), %ld completion tokens, finish=%s\n", skel->promptTokens, skel->cachedTokens, skel->completionTokens, skel->finishReason.c_str());
-    Parsed parsed = parseReply(skel->content, allowed);
-    if (parsed.files.empty()) { std::printf("the skeleton reply held none of the files\n"); return 2; }
-    std::map<std::string, std::string> skeleton = parsed.files;
-    for (const auto& f : item.files) if (!skeleton.count(f)) std::printf("note: the skeleton has no %s\n", f.c_str());
-
-    // 2. find the stubs: each becomes a fork
-    std::vector<ForkUnit> units;
-    for (const auto& [file, text] : skeleton) {
-        std::istringstream in(text);
-        for (std::string line; std::getline(in, line);) {
-            const auto m = line.find("not implemented:");
-            if (m == std::string::npos) continue;
-            std::string name = line.substr(m + 16);
-            name.erase(0, name.find_first_not_of(" \t"));
-            name = name.substr(0, name.find_first_of("'\"` )"));
-            if (name.empty() || std::any_of(units.begin(), units.end(), [&](const ForkUnit& u) { return u.name == name && u.file == file; })) continue;
-            ForkUnit u; u.name = name; u.file = file; u.stubLine = line;
-            units.push_back(std::move(u));
-        }
-    }
-    std::printf("skeleton: %zu file(s), %zu function(s) to delegate\n", skeleton.size(), units.size());
-    std::string list;
-    for (const auto& u : units) list += "- " + u.name + " (" + u.file + ")\n";
-    const auto render = [&] {
-        std::map<std::string, std::string> files = skeleton;
-        for (auto& [file, text] : files) {
-            std::istringstream in(text);
-            std::string rebuilt;
-            for (std::string line; std::getline(in, line);) {
-                const ForkUnit* hit = nullptr;
-                for (const auto& u : units) if (u.file == file && u.stubLine == line && !u.body.empty()) hit = &u;
-                if (!hit) { rebuilt += line + "\n"; continue; }
-                const std::string indent = line.substr(0, line.find_first_not_of(" \t"));
-                std::istringstream body(hit->body);
-                for (std::string b; std::getline(body, b);) rebuilt += (b.empty() ? std::string{} : indent + b) + "\n";
-            }
-            text = rebuilt;
-        }
-        return files;
-    };
-    const auto runGate = [&](const std::map<std::string, std::string>& files, std::string& gateText) {
-        fs::remove_all(out, ec);
-        fs::create_directories(out, ec);
-        for (const auto& [path, text] : files) (void)writeFile(out / path, text);
-        const Harness* hs = findHarness(plan->harness);
-        const int rc = hs && hs->gate ? hs->gate({"--workflow-dir", dir.string(), "--item", itemId, "--attempt", std::to_string(attempt), "--no-publish", "1"}) : 1;
-        gateText = slurp(attemptDir / "gate.txt");
-        return rc == 0;
-    };
-    std::string gate;
-    if (units.empty()) { std::printf("no stubs in the skeleton: nothing to delegate\n"); std::printf("RESULT: %s\n", runGate(skeleton, gate) ? "PASS" : "FAIL"); return 1; }
-
-    // 3. one fork per function, side by side: the primed conversation plus "you are working on X, the others are written separately"
-    const auto askFork = [&](ForkUnit& u, const std::string& tag) {
-        const auto trace = attemptDir / ("conversation-" + [&] { std::string n = u.name; for (char& c : n) if (c == '.' || c == '/') c = '_'; return n; }() + ".md");
-        traceSent(trace, tag == "fork" ? 0 : 1, u.convo, tag == "fork" ? 0 : u.convo.size() - 2, -1);
-        auto r = chatCompleteMessages(seedFor(u.name + tag), u.convo, maxTokens, timeoutSec);
-        if (!r) { u.error = r.error(); traceVerdict(trace, 0, "the engine call failed: " + r.error()); return; }
-        traceReply(trace, 0, *r);
-        u.reply = r->content; u.finish = r->finishReason;
-        u.promptTokens += r->promptTokens; u.completionTokens += r->completionTokens; u.cachedTokens += r->cachedTokens;
-        u.body = tidyBody(r->content, u.name);
-    };
-    {
-        std::vector<std::thread> pool;
-        for (auto& u : units) {
-            u.convo = {{"system", system}, {"user", primer}, {"assistant", skel->content},
-                       {"user", "You are working on `" + u.name + "` in " + u.file + ". The other functions are written separately by others, at the same time; use them only through the signatures in the skeleton above. "
-                                "Reply with only the body of `" + u.name + "`: the lines that replace its `throw new Error('not implemented: " + u.name + "');` line, nothing else (no signature, no braces around it, no explanation). Functions in this item:\n" + list}};
-            pool.emplace_back([&askFork, &u] { askFork(u, "fork"); });
-        }
-        for (auto& t : pool) t.join();
-    }
-    for (const auto& u : units) std::printf("fork %s: %ld prompt tokens (%ld cached), %ld completion tokens, finish=%s%s\n", u.name.c_str(), u.promptTokens, u.cachedTokens, u.completionTokens, u.finish.c_str(), u.error.empty() ? "" : (" ERROR " + u.error).c_str());
-
-    // 4. put the bodies in, run the item's tests; a failure goes back to the sessions it points at, each continuing its own
-    bool ok = runGate(render(), gate);
-    int round = 0;
-    while (!ok && round < rounds) {
-        ++round;
-        std::vector<ForkUnit*> implicated;
-        for (auto& u : units) { const std::string last = u.name.substr(u.name.rfind('.') == std::string::npos ? 0 : u.name.rfind('.') + 1); if (gate.find(last) != std::string::npos) implicated.push_back(&u); }
-        if (implicated.empty()) for (auto& u : units) implicated.push_back(&u);
-        std::printf("round %d: the tests failed; %zu function(s) go back to their sessions\n", round, implicated.size());
-        std::vector<std::thread> pool;
-        for (ForkUnit* u : implicated) {
-            u->convo.push_back({"assistant", u->reply});
-            u->convo.push_back({"user", "The combined result was checked by running the tests and failed:\n" + clip(gate, 1500) + "\nThe body you wrote for `" + u->name + "` may be at fault. Reply with the corrected body of `" + u->name + "` only (the complete body, same form as before)."});
-            pool.emplace_back([&askFork, u] { askFork(*u, "round"); });
-        }
-        for (auto& t : pool) t.join();
-        for (const ForkUnit* u : implicated) std::printf("fork %s (round %d): %ld completion tokens so far, finish=%s\n", u->name.c_str(), round, u->completionTokens, u->finish.c_str());
-        ok = runGate(render(), gate);
-    }
-    std::printf("RESULT: %s after %d round(s)\n", ok ? "PASS" : "FAIL", round);
-    return ok ? 0 : 1;
-}
-
-namespace {
-
-}  // namespace
+using namespace agent;
 
 int runLlmAgent(const std::vector<std::string>& args)
 {
@@ -419,8 +96,9 @@ int runLlmAgent(const std::vector<std::string>& args)
         }
         return bestText;
     };
+    std::string draftGate, origin;
     {
-        std::string drafts, draftGate, origin;
+        std::string drafts;
         for (const auto& f : item->files) {
             std::string g, text = bestDraft(itemId, f, g);
             if (text.empty()) {   // a part's first attempt: the drafts of the item it was divided from, and of that item's parents
@@ -459,6 +137,18 @@ int runLlmAgent(const std::vector<std::string>& args)
         events::note("plan phase: estimated " + std::to_string(estimate) + " tokens against a budget of " + std::to_string(budget) + (capacity.empty() ? std::string{} : " (" + capacity + ")") + ": split before implementing");
         std::printf("size verdict: split (estimate %ld tokens for %ld tests, budget %ld; %s)\n", estimate, testCount, budget, capacity.empty() ? "capacity unknown" : capacity.c_str());
         return 4;
+    }
+    const std::string executor = arg(args, "executor", "session");
+    if (executor != "session" && executor != "canvas") { std::fprintf(stderr, "llm-agent: --executor must be session or canvas (forked sections are the llm-fork command)\n"); return 64; }
+    if (executor == "canvas") {   // docs/CANVAS.md slice 0: the attempt runs on a revisioned canvas
+        AttemptContext ctx;
+        ctx.dir = dir; ctx.itemId = itemId; ctx.tier = tier; ctx.treatment = treatment;
+        ctx.attempt = attempt; ctx.maxTokens = maxTokens; ctx.timeoutSec = timeoutSec; ctx.repairTurns = repairTurns;
+        ctx.engine = *engine; ctx.plan = &*plan; ctx.item = item;
+        ctx.card = card.str(); ctx.guidance = disputeText;
+        ctx.baselineFiles = baselineFiles; ctx.draftGate = draftGate; ctx.draftOrigin = origin;
+        ctx.began = began;
+        return runCanvasAttempt(ctx);
     }
     const std::string user = card.str() + (feedback.empty() ? "" : "\n" + feedback);
 
@@ -506,7 +196,8 @@ int runLlmAgent(const std::vector<std::string>& args)
     std::size_t lastFiles = 0, lastRejected = 0;
     std::string partialPath, partialText;               // a file cut off at the token limit, and what was written of it: the next turn continues it instead of starting over
     std::map<std::string, std::string> carryFiles;      // the files that were complete before the cut
-    int continuations = 0, reads = 0;
+    int continuations = 0, reads = 0, aborts = 0;
+    std::string partialEdit;                            // an EDIT reply cut off at the token limit, so far: the next reply is appended to it
     std::map<std::string, std::string> currentFiles = baselineFiles;  // the files of the latest turn (or the best earlier attempt): what an edit applies to
     int turnLimit = repairTurns;   // continuing a cut-off file does not use up a repair turn
     for (int turn = 0; turn <= turnLimit; ++turn) {
@@ -530,7 +221,10 @@ int runLlmAgent(const std::vector<std::string>& args)
             if (!reasoning.empty()) { if (!inReasoning) { o << "[thinking]\n"; inReasoning = true; } o << reasoning; }
             if (!content.empty()) { if (inReasoning) { o << "\n[answer]\n"; inReasoning = false; } o << content; }
         };
-        auto reply = chatCompleteMessages(turnEngine, convo, maxTokens, timeoutSec, liveSink);
+        // Early abort (row 34): the reply is judged while it streams and cancelled when it is going wrong in a known way (twice at most per attempt).
+        Runaway runaway;
+        const StreamGuard guard = [&](const std::string& soFar) { runaway = detectRunaway(partialEdit + soFar, currentFiles); return static_cast<bool>(runaway); };
+        auto reply = chatCompleteMessages(turnEngine, convo, maxTokens, timeoutSec, liveSink, aborts < 2 ? guard : StreamGuard{});
         { std::error_code lec; fs::remove(livePath, lec); }
         if (!reply) {
             traceVerdict(tracePath, turn, "the engine call failed: " + reply.error());
@@ -542,7 +236,28 @@ int runLlmAgent(const std::vector<std::string>& args)
         traceReply(tracePath, turn, *reply);
         writeFile(attemptDir / ("reply-" + std::to_string(turn) + ".txt"), reply->content);
         writeFile(attemptDir / "reply.txt", reply->content);
-        if (!currentFiles.empty() && reads < 6 && reply->content.find("=== EDIT:") == std::string::npos && reply->content.find("=== FILE:") == std::string::npos) {
+        if (reply->finishReason == "aborted") {
+            ++aborts;
+            ++turnLimit;   // nothing was applied: the re-prompt is not a repair turn
+            partialEdit.clear();
+            traceVerdict(tracePath, turn, "cancelled while streaming (" + runaway.kind + ") after " + std::to_string(reply->content.size()) + " characters");
+            std::printf("turn %d: cancelled early (%s)\n", turn, runaway.kind.c_str());
+            events::note("reply cancelled early: " + runaway.kind);
+            continueWith("[your previous reply was stopped and is not repeated here]", false, runaway.instruction);
+            continue;
+        }
+        // A cut-off EDIT reply is continued by appending, like a cut-off file (row 34); the overlap a continuation repeats is trimmed (row 35).
+        if (!partialEdit.empty()) { reply->content = partialEdit + continuationText(partialEdit, reply->content); partialEdit.clear(); }
+        if (reply->finishReason == "length" && partialPath.empty() && continuations < 3 && cutOffInsideEdit(reply->content)) {
+            ++continuations;
+            ++turnLimit;
+            partialEdit = reply->content;
+            traceVerdict(tracePath, turn, "cut off at the token limit inside an edit after " + std::to_string(partialEdit.size()) + " characters: asked to continue it (continuation " + std::to_string(continuations) + ")");
+            std::printf("turn %d: edit cut off, continuing (%d)\n", turn, continuations);
+            continueWith(reply->content, true, "Your reply was cut off at the token limit in the middle of an edit. It ended with:\n```\n" + (partialEdit.size() > 700 ? partialEdit.substr(partialEdit.size() - 700) : partialEdit) + "\n```\nContinue from exactly that point: reply with only the rest (no header, no repetition, no explanation) and finish it.");
+            continue;
+        }
+        if (!currentFiles.empty() && reply->content.find("=== EDIT:") == std::string::npos && reply->content.find("=== FILE:") == std::string::npos) {
             // A read request (docs/FOLDED_VIEWS.md): the worker asks for folded lines before editing. Answered in the same conversation; it costs no repair turn.
             const auto requests = parseReadRequests(reply->content);
             if (!requests.empty()) {
@@ -551,27 +266,24 @@ int runLlmAgent(const std::vector<std::string>& args)
                     const auto f = currentFiles.find(rq.path);
                     answer += f == currentFiles.end() ? "=== " + rq.path + ": not one of the files of this item ===\n" : answerRead(rq, f->second, isPythonPath(rq.path));
                 }
+                // Reads are bounded (row 36): two read-only replies are answered without using a turn; from the third each one is a spent turn.
                 ++reads;
-                ++turnLimit;
-                traceVerdict(tracePath, turn, "read request: " + std::to_string(requests.size()) + " region(s) shown, no repair turn used");
-                std::printf("turn %d: read request answered (%zu region(s))\n", turn, requests.size());
-                continueWith(reply->content, false, answer + "Now reply with your edits (or complete files).");
+                const bool freeRead = reads <= 2;
+                if (freeRead) ++turnLimit;
+                traceVerdict(tracePath, turn, "read request: " + std::to_string(requests.size()) + " region(s) shown" + (freeRead ? ", no repair turn used" : ", counted as a turn (reads are used up)"));
+                std::printf("turn %d: read request answered (%zu region(s))%s\n", turn, requests.size(), freeRead ? "" : ", turn spent");
+                if (turn == turnLimit) break;
+                continueWith(reply->content, false, answer + (reads >= 2 ? "You have used your reads: your next reply MUST be an edit (=== EDIT: ... ===) or a complete file, not another read." : "Now reply with your edits (or complete files)."));
                 continue;
             }
         }
         Parsed parsed;
         std::string cutPath = partialPath;
         if (!partialPath.empty()) {   // this reply continues the file that was cut off: append it, never rewrite what was written
-            std::string body;
-            std::istringstream in(reply->content);
-            for (std::string line; std::getline(in, line);) {
-                if (line.rfind("=== FILE:", 0) == 0 || line.rfind("=== END FILE", 0) == 0) continue;
-                body += line + "\n";
-            }
-            if (body.rfind("```", 0) == 0) { const auto nl = body.find('\n'); body = nl == std::string::npos ? "" : body.substr(nl + 1); }
-            for (const std::string tail : {"\n```\n", "```\n"}) if (body.size() >= tail.size() && body.compare(body.size() - tail.size(), tail.size(), tail) == 0) { body.erase(body.size() - tail.size()); body.push_back('\n'); break; }
+            const std::string body = continuationText(partialText, reply->content);
             parsed.files = carryFiles;
             parsed.files[partialPath] = partialText + body;
+            if (parsed.files[partialPath].empty() || parsed.files[partialPath].back() != '\n') parsed.files[partialPath].push_back('\n');
             parsed.fileChars = body.size();
             std::printf("turn %d: continued %s (%zu more characters)\n", turn, partialPath.c_str(), body.size());
             partialPath.clear();
@@ -597,7 +309,7 @@ int runLlmAgent(const std::vector<std::string>& args)
         }
         if (parsed.files.empty() && !currentFiles.empty() && reply->content.find("=== EDIT:") != std::string::npos) {
             std::string editError;
-            if (auto merged = applyEdits(reply->content, currentFiles, allowed, editError)) {
+            if (auto merged = applyAsTransactions(reply->content, currentFiles, allowed, itemId, editError)) {   // one applier for every edit form (LINES, AFTER, SYMBOL, SEARCH)
                 parsed.files = *merged;
                 parsed.fileChars = reply->content.size();
                 std::printf("turn %d: edits applied to %zu file(s)\n", turn, parsed.files.size());
@@ -627,6 +339,8 @@ int runLlmAgent(const std::vector<std::string>& args)
             ++continuations;
             partialPath = cutPath;
             partialText = parsed.files[cutPath];
+            // The text exactly as it was cut: the parser ends every file with a newline, but a reply cut in the middle of a line must be continued on that line.
+            if (!reply->content.empty() && reply->content.back() != '\n' && !partialText.empty() && partialText.back() == '\n') partialText.pop_back();
             carryFiles = parsed.files;
             carryFiles.erase(cutPath);
             const std::string tail = partialText.size() > 700 ? partialText.substr(partialText.size() - 700) : partialText;

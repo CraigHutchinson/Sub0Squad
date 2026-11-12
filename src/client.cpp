@@ -62,6 +62,10 @@ namespace {
 
 constexpr const char* kUsage =
     "usage: sub0squad <command> [options]\n"
+    "  FIRST USE:  doctor  |  up  |  do \"write a calculator in C++\"  |  project wait w-000001  |  down      (README.md, \"First use\")\n"
+    "  doctor [--engine NAME=URL]           check what a first run needs (memory, tools, ports, the engine) and say what to fix\n"
+    "  up [--max-jobs N] [--frontier off|stub] [--portal-port N] [--no-portal]   start the daemon and the portal in the background; `down` stops them\n"
+    "  block list | run [--block N]         which building blocks are proven on this build (docs/BLOCK_PROVING_GROUNDS.md)\n"
     "  serve [--max-jobs N] [--mem-shed-mib N]   run the daemon (foreground); sheds jobs below N MiB available memory (default 1536, 0 = off)\n"
     "  submit [opts] -- <cmd> [args...]     submit a process job; prints its id\n"
     "         --cwd DIR  --wall SEC  --memory-mib N (refused at submit if the host lacks it)  --grace SEC  --tool NAME  --tier stub|local  --env K=V  --lease RESOURCE=CAP (at most CAP running jobs hold RESOURCE)  --service (a server: not counted against --max-jobs)\n"
@@ -71,8 +75,8 @@ constexpr const char* kUsage =
     "  logs ID [--stderr] [--follow] [--run N]\n"
     "  cancel ID | resume ID | wait ID [--timeout SEC] | ping | stop\n"
     "  do \"<task in words>\" [project options]   triage first, then run: a known blueprint starts at once, otherwise a needs-plan.md handoff is written\n"
-    "  project submit --task calculator-basic|calculator-scientific|calculator-web|calculator-cpp|calculator-py [--sandbox DIR] [--inject ITEM[:N]]... [--max-local N]\n"
-    "         [--agent mock|llm] [--engine NAME=http://127.0.0.1:PORT/v1[,model=..][,ctx=N][,slots=N]]... [--engine-for PERSONA=NAME]... [--max-tokens N] [--treatment baseline|index|planfirst] [--repair-turns N] [--size-budget TOKENS] [--fallback-engine NAME] [--ask]\n"
+    "  project submit --task calculator-web|calculator-cpp|calculator-py (any blueprint of a registered harness starts at once) [--sandbox DIR] [--inject ITEM[:N]]... [--max-local N]\n"
+    "         [--agent mock|llm] [--engine NAME=http://127.0.0.1:PORT/v1[,model=..][,ctx=N][,slots=N]]... [--engine-for PERSONA=NAME]... [--max-tokens N] [--treatment baseline|index|planfirst] [--executor session|canvas|fork] [--repair-turns N] [--size-budget TOKENS] [--fallback-engine NAME] [--ask]\n"
     "  project plan ID --file plan.json     supply the plan a workflow is awaiting (the deferred architect's answer)\n"
     "  request list [WF] | raise WF --kind K [--scope a,b] [--blocking] [--title T] [--detail D] [--option O]... | answer WF RID [--resolution retry|stop] [--answer TEXT]\n"
     "                                       the inbox: questions, clarifications, requirements, blockers, proposals, escalations\n"
@@ -497,6 +501,7 @@ int parseWorkflowFlags(int argc, char** argv, int from, WorkflowSpec& spec)
         else if (a == "--fallback-engine") spec.fallbackEngine = val();
         else if (a == "--max-tokens") spec.maxTokens = std::atoi(val().c_str());
         else if (a == "--treatment") spec.treatment = val();
+        else if (a == "--executor") spec.executor = val();
         else if (a == "--repair-turns") spec.repairTurns = std::atoi(val().c_str());
         else { std::fprintf(stderr, "unknown option %s\n", a.c_str()); return 2; }
     }

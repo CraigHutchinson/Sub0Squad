@@ -15,5 +15,5 @@ int main(int argc, char** argv)
     CHECK(wilsonLowerBound(5, 10) < 0.25);
     CHECK(wilsonLowerBound(30, 30) > wilsonLowerBound(10, 10));                  // more trials, tighter bound
     for (const auto& p : scenarioSelfTest({}, argv[1])) { std::fprintf(stderr, "%s\n", p.c_str()); CHECK(false); }
-    return 0;
+    return finish();
 }

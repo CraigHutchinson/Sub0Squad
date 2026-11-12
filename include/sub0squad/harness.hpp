@@ -28,6 +28,9 @@ struct Harness
     const char* deliverableStyle = "plain ES module, no dependencies";  ///< what a developer's card says about the shape of the code
     std::string (*blueprint)(const std::string& name) = nullptr;       ///< a hand-written plan-2 for a known task (empty if unknown)
     bool (*claimsTask)(const std::string& lowercaseTask) = nullptr;     ///< whether the task text names this harness's kind of project
+    /// The cheapest check alone (a syntax or compile check that names file and line), over candidate files that are NOT yet the attempt's output: the commit
+    /// gate of a canvas transaction (docs/CANVAS.md). Arguments: `--workflow-dir D --item I --attempt N --files-dir DIR`. Returns "" when the files pass.
+    std::string (*precheck)(const std::vector<std::string>& args) = nullptr;
 };
 
 /// The harness named `name`, or nullptr (an empty or unknown name; the empty name is the legacy header-only calculator sandbox, which has no entry).

@@ -142,10 +142,20 @@ int main(int, char** argv)
             ids.push_back(sq.submitWorker("lz" + std::to_string(i), {"--steps", "8", "--step-ms", "100"}, {"--lease", "engine-a=2"}));
         const std::string free = sq.submitWorker("lzfree", {"--steps", "2", "--step-ms", "50"});
         CHECK(sq.waitState(free, "succeeded"));  // finished while the leased jobs still queue or run
+        // Count from ONE snapshot of all jobs per tick. Asking for each job in turn is not a snapshot: a holder can finish and the next start between two
+        // questions, so three looked "running" at once (or, on a loaded host, the two were never seen together): docs/INTERVENTIONS.md row 22.
         int peak = 0;
         for (int tick = 0; tick < 400; ++tick) {
+            const std::string snap = sq.cli({"status", "--json"}).out;
             int running = 0, done = 0;
-            for (const auto& id : ids) { const std::string st = sq.statusField(id, "state"); if (st == "running") ++running; if (st == "succeeded") ++done; }
+            for (const auto& id : ids) {
+                const auto at = snap.find("\"id\":\"" + id + "\",\"state\":\"");
+                if (at == std::string::npos) continue;
+                const auto from = at + id.size() + 17;
+                const std::string st = snap.substr(from, snap.find('"', from) - from);
+                if (st == "running") ++running;
+                if (st == "succeeded") ++done;
+            }
             peak = std::max(peak, running);
             if (done == 5) break;
             sleepMs(50);

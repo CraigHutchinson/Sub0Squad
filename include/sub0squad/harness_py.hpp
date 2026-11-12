@@ -24,6 +24,8 @@ namespace sub0squad {
 
 /// `py-gate --workflow-dir D --item I --attempt N [--no-publish 1]`
 [[nodiscard]] int runPyGate(const std::vector<std::string>& args);
+/// The precheck alone over candidate files (`--files-dir DIR`): "" when they pass, else the located diagnostic (the commit gate of a canvas transaction).
+[[nodiscard]] std::string runPyPrecheck(const std::vector<std::string>& args);
 /// `py-integrate --workflow-dir D`
 [[nodiscard]] int runPyIntegrate(const std::vector<std::string>& args);
 

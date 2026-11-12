@@ -34,6 +34,8 @@ namespace sub0squad {
 
 /// `harness-gate --workflow-dir D --item I --attempt N`
 [[nodiscard]] int runHarnessGate(const std::vector<std::string>& args);
+/// The precheck alone over candidate files (`--files-dir DIR`): "" when they pass, else the located diagnostic (the commit gate of a canvas transaction).
+[[nodiscard]] std::string runWebPrecheck(const std::vector<std::string>& args);
 /// `harness-integrate --workflow-dir D`
 [[nodiscard]] int runHarnessIntegrate(const std::vector<std::string>& args);
 

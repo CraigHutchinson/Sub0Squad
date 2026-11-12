@@ -30,6 +30,19 @@ is a layer of units that is built, tested and changed together; a layer may depe
 5. **One library, one executable:** everything is `sub0squad_core`. Splitting into one static library per layer makes the link direction a build fact and lets each layer's tests link only what they need;
    done after the daemon split, because the layer check already guards the include direction in the meantime.
 
+## State after the Fable iteration (2026-11-12)
+
+* **Units added.** Layer 2 (domain, pure): `turn_control` (runaway detection, overlap trimming), `throughput` (the width rule, the slot model, the block 6 metrics);
+  `canvas` gained the reply parser. Layer 4 (agents): `agent_card` (system block, card, draft view, whole-file parser), `canvas_agent` (the canvas turn loop and the
+  shared applier), `fork` (forked sections), `blocks` (the model-free proving grounds and the `block` command); `llm_agent` is now only the session loop.
+  Layer 6: `first_use` (doctor, up, down), compiled into the executable only. `src/agent_impl.hpp` is the agents layer's private header.
+* **Units removed:** `calculator_templates`, the sandbox gate and integrator in `sandbox` (which now holds only the mock planner and mock agent), the JavaScript-only
+  forked sessions (`fork_agent`).
+* **Cleanup order, honestly:** step 4 is done for `llm_agent` only (`client.cpp` and `portal.cpp` are not split); step 6 (the fixture harness for agents) is done
+  (`tests/fake_engine.hpp`, `tests/agent_bench.hpp`: `test_agent`, `test_canvas_agent`, `test_fork`); steps 3 (split `test_workflow.cpp`) and 5 (a library per layer)
+  are not done. The layer check passes with no tolerated violations.
+* **Test homes:** agents now have direct tests; `test_blocks` covers the pure units of layer 2 added here; `test_readme` runs the README.
+
 ## Cleanup order (each step keeps the whole suite green; a failing step is reverted, not patched forward)
 1. Harness registry and the layer check (done in this pass).
 2. Split `daemon.cpp` into its four units behind a private header. **Done 2026-11-11:** `daemon_impl.hpp` (the struct and declarations), `daemon.cpp` (reactor, IPC, create/run, 263 lines), `daemon_jobs.cpp` (278), `daemon_workflow.cpp` (216), `daemon_governance.cpp` (175); mechanical move of 37 methods, behaviour unchanged, 14/14 tests.

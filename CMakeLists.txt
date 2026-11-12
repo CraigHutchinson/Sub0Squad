@@ -41,6 +41,12 @@ add_library(sub0squad_core STATIC
   src/scenario.cpp
   src/triage.cpp
   src/llm_agent.cpp
+  src/agent_card.cpp
+  src/canvas_agent.cpp
+  src/fork.cpp
+  src/blocks.cpp
+  src/throughput.cpp
+  src/turn_control.cpp
   src/web_templates.cpp
   src/harness_common.cpp
   src/harness_web.cpp
@@ -67,7 +73,6 @@ add_library(sub0squad_core STATIC
   src/portal.cpp
   src/portal_page.cpp
   src/event_channel.cpp
-  src/calculator_templates.cpp
   src/sandbox.cpp
   src/workflow.cpp
   src/policy.cpp
@@ -76,7 +81,8 @@ target_include_directories(sub0squad_core PUBLIC include PRIVATE src)
 target_compile_options(sub0squad_core PRIVATE ${SUB0SQUAD_STRICT})
 target_link_libraries(sub0squad_core PUBLIC Sub0Pipeline::Sub0Pipeline Sub0Pipeline::Priority Sub0Pub::Sub0Pub Threads::Threads PRIVATE simdjson::simdjson)
 
-add_executable(sub0squad src/sub0squad.cpp)
+add_executable(sub0squad src/sub0squad.cpp src/first_use.cpp)
+target_include_directories(sub0squad PRIVATE src)
 target_link_libraries(sub0squad PRIVATE version::version)
 target_compile_options(sub0squad PRIVATE ${SUB0SQUAD_STRICT})
 target_link_libraries(sub0squad PRIVATE sub0squad_core simdjson::simdjson)
@@ -84,6 +90,7 @@ target_link_libraries(sub0squad PRIVATE sub0squad_core simdjson::simdjson)
 enable_testing()
 add_test(NAME dependency_selftest COMMAND sub0squad --selftest)
 add_test(NAME layering COMMAND ${CMAKE_COMMAND} -DSRC_DIR=${CMAKE_SOURCE_DIR} -P ${CMAKE_SOURCE_DIR}/cmake/CheckLayers.cmake)
+add_test(NAME test_reporting COMMAND ${CMAKE_COMMAND} -DSRC_DIR=${CMAKE_SOURCE_DIR} -P ${CMAKE_SOURCE_DIR}/cmake/CheckTests.cmake)
 
 function(sub0squad_add_test name)
   # tests that exercise the multi-call binary receive its path as argv[1]
@@ -100,15 +107,32 @@ sub0squad_add_test(test_journal)
 sub0squad_add_test(test_job_store)
 sub0squad_add_test(test_workflow)
 sub0squad_add_test(test_host_guard)
-sub0squad_add_test(test_sandbox)
-set_tests_properties(test_sandbox PROPERTIES TIMEOUT 300)
 sub0squad_add_test(test_platforms)
 set_tests_properties(test_platforms PROPERTIES TIMEOUT 300)
 sub0squad_add_test(test_stream)
 set_tests_properties(test_stream PROPERTIES TIMEOUT 60)
+sub0squad_add_test(test_agent)
+sub0squad_add_test(test_canvas_agent)
+set_tests_properties(test_canvas_agent PROPERTIES TIMEOUT 300)
+sub0squad_add_test(test_fork)
+set_tests_properties(test_fork PROPERTIES TIMEOUT 300)
+add_executable(test_blocks tests/test_blocks.cpp)
+target_compile_options(test_blocks PRIVATE ${SUB0SQUAD_STRICT})
+target_include_directories(test_blocks PRIVATE tests)
+target_link_libraries(test_blocks PRIVATE sub0squad_core simdjson::simdjson)
+add_test(NAME test_blocks COMMAND test_blocks $<TARGET_FILE:sub0squad> ${CMAKE_CURRENT_SOURCE_DIR}/tests/data/replies)
+add_dependencies(test_blocks sub0squad)
+set_tests_properties(test_blocks PROPERTIES TIMEOUT 300)
+set_tests_properties(test_agent PROPERTIES TIMEOUT 300)
 sub0squad_add_test(test_scenarios)
 set_tests_properties(test_scenarios PROPERTIES TIMEOUT 600)
 sub0squad_add_test(test_project)
+add_executable(test_readme tests/test_readme.cpp)
+target_compile_options(test_readme PRIVATE ${SUB0SQUAD_STRICT})
+target_include_directories(test_readme PRIVATE tests)
+add_test(NAME test_readme COMMAND test_readme $<TARGET_FILE:sub0squad> ${CMAKE_CURRENT_SOURCE_DIR}/README.md)
+add_dependencies(test_readme sub0squad)
+set_tests_properties(test_readme PROPERTIES TIMEOUT 900)
 set_tests_properties(test_project PROPERTIES TIMEOUT 600)
 sub0squad_add_test(test_e2e)
 set_tests_properties(test_e2e PROPERTIES TIMEOUT 300)

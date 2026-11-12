@@ -1,6 +1,6 @@
 # Squad UX, personas, work cards and the project harness
 
-Status: DESIGN + implementation in progress, 2026-11-09. Builds on SANDBOX.md. Goals (owner direction): verify the loop with a local
+Status: DESIGN + implementation in progress, 2026-11-09. Builds on the first sandbox harness (removed 2026-11-12; the loop now runs only on the registry harnesses). Goals (owner direction): verify the loop with a local
 llama.cpp Qwen model; make the sample project a **web** project that is easy to test and exercise; add **worker personas** so testing is
 designed in; give small work items an **efficient harness** so an agent spends tokens on the actual work; **measure actual work versus
 harness/boilerplate**; make the per-project harness an early, cheap need; keep the UX simple with **triage as the first call** and

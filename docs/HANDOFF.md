@@ -1,5 +1,9 @@
 # Handoff: state, findings and plan (saved 2026-11-09)
 
+> **Read `docs/ITERATION_PROGRESS.md` first** (2026-11-12): it is the running log of the Fable iteration (what is built, what is proven without a model, what remains,
+> the commands for the real-model measurements). The text below predates it and is kept for the history of the runs.
+
+
 Repository: https://github.com/CraigHutchinson/Sub0Squad (public, MIT, `main`). Linux only; Windows is deferred by decision. Read
 [DESIGN.md](DESIGN.md) (source of truth), [DECISIONS.md](DECISIONS.md), [ROADMAP.md](ROADMAP.md) first; this file is the current picture.
 
@@ -22,7 +26,7 @@ harness with the mock agents (seconds, deterministic) and use real models only t
 - **M1 (Linux):** daemon (epoll reactor, one Sub0Pipeline graph per job), CLI, journal (torn-tail safe), per-run shim (own session, child subreaper, verified process-tree teardown),
   `lost` detection, adoption after a daemon crash, event-channel progress, state-file adapter (`optimization-run-1`), offline `status`, idle at 0 CPU ticks (`test_idle`).
   Gates met: cancel leaves no child, dead supervisor is `lost`, status without logs, idle. Partly met: resume on the real harness (see section 5).
-- **Sandbox harness (docs/SANDBOX.md):** `project submit` / `do "<task>"`: planner, level-triggered workflow engine (restart safe), per-item gates, integrator, ledger, stub frontier tier.
+- **Project workflows** (the header-only sandbox harness and its tasks were removed 2026-11-12; see the README "First use"): `project submit` / `do "<task>"`: planner, level-triggered workflow engine (restart safe), per-item gates, integrator, ledger, stub frontier tier.
 - **Web project (docs/SQUAD_UX_AND_HARNESS.md, RUNNING_PROJECTS.md):** triage-first `do`, plan-2 (personas tester/developer, work cards with a token budget, declarative gates), the `web-static` harness
   (scaffold, fake DOM, node test runner), test-first handoff, `awaiting-plan` + `project plan` (the deferred architect is a file handoff, nothing is sent), the `calculator-web` blueprint.
 - **Escalation ladder (docs/OPTIMIZATION.md):** retry, **decompose** (model decides the division, plan amended with dependency rewiring, depth 2), **send back to the producer** (tester disputed and re-run),

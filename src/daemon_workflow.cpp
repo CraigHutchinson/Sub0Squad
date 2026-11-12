@@ -26,6 +26,7 @@ void Daemon::Impl::executeWorkflowAction(const std::string& wfId, const Workflow
             std::stringstream ss;
             ss << in.rdbuf();
             auto plan = Plan::fromJson(ss.str());
+            if (plan && !plan->notRunnable().empty()) plan = std::unexpected(plan->notRunnable());
             if (plan) {
                 record("workflowPlanned", wfbody::planned(wfId, *plan));
                 logf("workflow %s: plan accepted, %zu item(s)", wfId.c_str(), plan->items.size());
@@ -186,6 +187,7 @@ std::string Daemon::Impl::doWorkflowPlan(const std::string& id, const std::strin
     if (wf->state != WorkflowState::awaitingPlan) return errorReply("workflow " + id + " is " + toString(wf->state) + ", not awaiting a plan");
     auto plan = Plan::fromJson(planJson);
     if (!plan) return errorReply("plan rejected: " + plan.error());
+    if (const std::string why = plan->notRunnable(); !why.empty()) return errorReply("plan rejected: " + why);
     { std::ofstream o(std::filesystem::path{wf->spec.sandboxDir} / "plan.json", std::ios::trunc); o << plan->toJson(); }
     record("workflowPlanned", wfbody::planned(id, *plan));
     logf("workflow %s: plan supplied, %zu item(s)", id.c_str(), plan->items.size());

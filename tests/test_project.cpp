@@ -37,32 +37,32 @@ int main(int, char** argv)
 {
     const std::string exe = argv[1];
 
-    { // The headline scenario: split, parallel fan-out, a retry that succeeds, an escalation, integration, a working calculator.
+    { // The headline scenario, started by TASK NAME with no plan supplied: a blueprint of a registered harness loads itself. Parallel fan-out, a retry
+      // that succeeds, an escalation, integration, a working calculator.
         Squad sq(exe, "proj");
         sq.startDaemon(4);
-        const std::string id = sq.cli({"project", "submit", "--task", "calculator-scientific", "--inject", "parser", "--inject", "tokenizer:1"}).out;
+        const std::string id = sq.cli({"project", "submit", "--task", "calculator-py", "--inject", "dev-engine", "--inject", "test-engine:1"}).out;
         const std::string wf = id.substr(0, id.find('\n'));
         CHECK(wf == "w-000001");
         int maxRunning = 0;
-        CHECK(waitWorkflow(sq, wf, "succeeded", 90000, &maxRunning));
+        CHECK(waitWorkflow(sq, wf, "succeeded", 120000, &maxRunning));
         CHECK(maxRunning >= 2);  // independent items really ran in parallel
         const std::string s = wfStatus(sq, wf);
-        CHECK(s.find("decision: split into 6 items") != std::string::npos);
-        for (const char* item : {"tokenizer", "parser", "functions", "evaluator", "cli", "tests"}) {
+        for (const char* item : {"test-engine", "dev-engine", "test-app", "dev-app"}) {
             const std::string pat = std::string{"\"id\":\""} + item + "\",\"title\"";
             CHECK(s.find(pat) != std::string::npos);
         }
         CHECK(s.find("\"status\":\"failed\"") == std::string::npos && s.find("\"status\":\"pending\"") == std::string::npos);
-        CHECK(s.find("\"action\":\"retry\"") != std::string::npos);      // tokenizer: failed once, retried locally, passed
-        CHECK(s.find("\"action\":\"escalate\"") != std::string::npos);   // parser: local never passes, escalated once
+        CHECK(s.find("\"action\":\"retry\"") != std::string::npos);      // test-engine: failed once, retried locally, passed
+        CHECK(s.find("\"action\":\"escalate\"") != std::string::npos);   // dev-engine: local never passes, escalated once
         CHECK(s.find("\"frontier-stub\":{\"attempts\":2") != std::string::npos);  // one agent and one gate on the stub tier
         const double share = std::atof(field(s, "frontierTokenShare").c_str());
         CHECK(share > 0.0 && share < 0.5);                                // escalation is the exception, not the rule
         CHECK(s.find("\"stub\":true") != std::string::npos);
         // The calculator the squad built works.
-        const auto calc = sq.home() / "state" / "workflows" / wf / "project" / "calc";
-        CHECK(std::filesystem::exists(calc));
-        const Result r = sq.cli({"submit", "--wall", "20", "--", calc.string(), "2^3^2"});
+        const auto project = sq.home() / "state" / "workflows" / wf / "project";
+        CHECK(std::filesystem::exists(project / "calc" / "engine.py") && std::filesystem::exists(sq.home() / "state" / "workflows" / wf / "report.md"));
+        const Result r = sq.cli({"submit", "--cwd", project.string(), "--wall", "20", "--", "python3", "-m", "calc", "2^3^2"});
         CHECK(r.exitCode == 0);
         // Stopping the daemon leaves the workflow readable offline.
         sq.stopDaemon();
@@ -70,25 +70,15 @@ int main(int, char** argv)
         CHECK(field(off, "state") == "succeeded" && off.find("\"source\":\"journal\"") != std::string::npos);
     }
 
-    { // Frontier off: the policy must fail the item after its local attempts; no frontier job is ever created.
+    { // Frontier off: the policy must fail the item after the ladder; no frontier job is ever created.
         Squad sq(exe, "projoff");
         sq.startDaemon(4, {"--frontier", "off"});
-        const std::string wf = sq.cli({"project", "submit", "--task", "calculator-scientific", "--inject", "functions"}).out.substr(0, 8);
-        CHECK(waitWorkflow(sq, wf, "failed"));
+        const std::string wf = sq.cli({"project", "submit", "--task", "calculator-py", "--inject", "dev-engine"}).out.substr(0, 8);
+        CHECK(waitWorkflow(sq, wf, "failed", 120000));
         const std::string s = wfStatus(sq, wf);
         CHECK(s.find("frontier mode is off") != std::string::npos);
         CHECK(s.find("frontier-stub") == std::string::npos);
-        CHECK(s.find("\"id\":\"functions\",\"title\":\"Function library\",\"status\":\"failed\"") != std::string::npos);
-    }
-
-    { // Small task: the planner decides not to split.
-        Squad sq(exe, "projbasic");
-        sq.startDaemon(2);
-        const std::string wf = sq.cli({"project", "submit", "--task", "calculator-basic"}).out.substr(0, 8);
-        CHECK(waitWorkflow(sq, wf, "succeeded"));
-        const std::string s = wfStatus(sq, wf);
-        CHECK(s.find("decision: single item") != std::string::npos);
-        CHECK(s.find("\"id\":\"calculator\"") != std::string::npos && s.find("\"id\":\"tokenizer\"") == std::string::npos);
+        CHECK(s.find("\"id\":\"dev-engine\"") != std::string::npos && s.find("\"status\":\"failed\"") != std::string::npos);
     }
 
     { // An unknown task name: no blueprint, so the workflow awaits a plan (the deferred architect) and can be cancelled while waiting.
@@ -103,7 +93,7 @@ int main(int, char** argv)
     { // Cancel mid-flight: every job is cancelled, the workflow is cancelled, nothing is left running.
         Squad sq(exe, "projcancel");
         sq.startDaemon(4);
-        const std::string wf = sq.cli({"project", "submit", "--task", "calculator-scientific"}).out.substr(0, 8);
+        const std::string wf = sq.cli({"project", "submit", "--task", "calculator-py"}).out.substr(0, 8);
         for (int i = 0; i < 100 && wfStatus(sq, wf).find("\"jobsActive\":0") != std::string::npos; ++i) sleepMs(50);
         sleepMs(700);
         CHECK(sq.cli({"project", "cancel", wf}).exitCode == 0);
@@ -115,7 +105,7 @@ int main(int, char** argv)
     { // A daemon crash mid-workflow: jobs keep running, the next daemon adopts them and the level-triggered engine finishes the project.
         Squad sq(exe, "projcrash");
         sq.startDaemon(4);
-        const std::string wf = sq.cli({"project", "submit", "--task", "calculator-scientific", "--inject", "parser:1"}).out.substr(0, 8);
+        const std::string wf = sq.cli({"project", "submit", "--task", "calculator-py", "--inject", "test-engine:1"}).out.substr(0, 8);
         sleepMs(1500);
         sq.killDaemon();
         sleepMs(400);

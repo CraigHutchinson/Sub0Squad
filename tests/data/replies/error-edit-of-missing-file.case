@@ -1,0 +1,20 @@
+# name: error-edit-of-missing-file
+# expect-error: write it whole
+# allowed: src/calc.cpp src/new.cpp
+--- base src/calc.cpp
+#include <stdexcept>
+
+double divide(double a, double d)
+{
+    if (d == 0) return 0;
+    return a / d;
+}
+
+double square(double x)
+{
+    return x * x;
+}
+--- reply
+=== EDIT: src/new.cpp LINES 1 ===
+int x;
+=== END EDIT ===

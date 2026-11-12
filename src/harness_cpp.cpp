@@ -112,11 +112,12 @@ std::string cppBuildAndRun(const fs::path& ws, const std::vector<std::string>& t
 
 }  // namespace
 
-int runCppGate(const std::vector<std::string>& args)
-{
-    static const GateHooks hooks = {&cppScaffold, &cppPrecheck, &cppBuildAndRun};
-    return runGateFlow(hooks, args);
-}
+namespace {
+const GateHooks& cppHooks() { static const GateHooks hooks = {&cppScaffold, &cppPrecheck, &cppBuildAndRun}; return hooks; }
+}  // namespace
+
+int runCppGate(const std::vector<std::string>& args) { return runGateFlow(cppHooks(), args); }
+std::string runCppPrecheck(const std::vector<std::string>& args) { return runPrecheckFlow(cppHooks(), args); }
 
 // ---- integrator -------------------------------------------------------------------------------------------------------------------
 int runCppIntegrate(const std::vector<std::string>& args)

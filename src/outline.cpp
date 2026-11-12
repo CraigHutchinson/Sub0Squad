@@ -59,11 +59,35 @@ bool functionLike(const std::string& line)
     return true;
 }
 
+/// The last component of a qualified name (`Parser::term` -> `term`).
+std::string leafName(const std::string& name) { const auto c = name.rfind(':'); return c == std::string::npos ? name : name.substr(c + 1); }
+
+/// The numbered view with every region folded to one line except those marked open.
+std::string renderFolded(const std::vector<std::string>& lines, const std::vector<FoldRegion>& regions, const std::vector<bool>& open, bool python)
+{
+    const auto row = [&](std::size_t i) { char n[16]; std::snprintf(n, sizeof n, "%4zu| ", i + 1); return std::string(n) + lines[i] + "\n"; };
+    std::string out;
+    std::size_t r = 0;
+    for (std::size_t i = 0; i < lines.size(); ++i) {
+        const int ln = static_cast<int>(i) + 1;
+        while (r < regions.size() && regions[r].bodyTo < ln) ++r;
+        if (r < regions.size() && !open[r] && ln >= regions[r].bodyFrom && ln <= regions[r].bodyTo - (python ? 0 : 1)) {
+            if (ln == regions[r].bodyFrom) {
+                const int hidden = regions[r].bodyTo - regions[r].bodyFrom + (python ? 1 : 0);
+                out += "      ... (" + std::to_string(hidden) + " lines folded: " + std::to_string(regions[r].bodyFrom) + "-" + std::to_string(regions[r].bodyTo - (python ? 0 : 1)) + (regions[r].name.empty() ? "" : "; " + regions[r].name) + ")\n";
+            }
+            continue;
+        }
+        out += row(i);
+    }
+    return out;
+}
+
 }  // namespace
 
 bool isPythonPath(const std::string& path) { return path.size() > 3 && path.compare(path.size() - 3, 3, ".py") == 0; }
 
-std::vector<FoldRegion> foldRegions(const std::string& text, bool python)
+std::vector<FoldRegion> foldRegions(const std::string& text, bool python, bool all)
 {
     const auto lines = splitLines(text);
     std::vector<FoldRegion> out;
@@ -81,9 +105,9 @@ std::vector<FoldRegion> foldRegions(const std::string& text, bool python)
                 if (in2 <= ind) break;
                 lastBody = j;
             }
-            if (lastBody > i + 1) {
+            if (lastBody > i + 1 || all) {
                 // a multi-line signature: the body starts after the line that ends the signature
-                out.push_back({static_cast<int>(i) + 1, static_cast<int>(i) + 2, static_cast<int>(lastBody) + 1, nameBefore(lines[i])});
+                out.push_back({static_cast<int>(i) + 1, static_cast<int>(std::min(i + 1, lastBody)) + 1, static_cast<int>(lastBody) + 1, nameBefore(lines[i])});
                 i = lastBody;
             }
         }
@@ -103,11 +127,13 @@ std::vector<FoldRegion> foldRegions(const std::string& text, bool python)
             int dd = depth + d;
             std::size_t j = i;
             while (dd > start && j + 1 < lines.size()) { ++j; bool o2 = false; dd += braceDelta(lines[j], o2); }
-            if (dd <= start && j > i + 1) out.push_back({static_cast<int>(sig) + 1, static_cast<int>(i) + 2, static_cast<int>(j) + 1, nameBefore(lines[sig])});   // the closing line stays visible
+            if (dd <= start && (j > i + 1 || all)) out.push_back({static_cast<int>(sig) + 1, static_cast<int>(i) + 2, static_cast<int>(j) + 1, nameBefore(lines[sig])});   // the closing line stays visible
             depth = dd;
             i = j;
             continue;
         }
+        if (all && opens && d == 0 && functionLike(lines[i]) && lines[i].find('}') != std::string::npos && lines[i].find(';') != std::string::npos && lines[i].find('{') < lines[i].rfind('}'))
+            out.push_back({static_cast<int>(i) + 1, static_cast<int>(i) + 1, static_cast<int>(i) + 1, nameBefore(lines[i])});   // a function written on one line
         depth += d;
     }
     return out;
@@ -138,22 +164,17 @@ std::string foldedView(const std::string& text, bool python, const std::vector<i
         for (int k = regions[r].bodyFrom; k <= regions[r].bodyTo; ++k) cost += row(static_cast<std::size_t>(k) - 1).size();
         if (used + cost <= budget) { open[r] = true; used += cost; }
     }
-    std::string out;
-    std::size_t r = 0;
-    for (std::size_t i = 0; i < lines.size(); ++i) {
-        const int ln = static_cast<int>(i) + 1;
-        while (r < regions.size() && regions[r].bodyTo < ln) ++r;
-        if (r < regions.size() && !open[r] && ln >= regions[r].bodyFrom && ln <= regions[r].bodyTo - (python ? 0 : 1)) {
-            if (ln == regions[r].bodyFrom) {
-                const int hidden = regions[r].bodyTo - regions[r].bodyFrom + (python ? 1 : 0);
-                out += "      ... (" + std::to_string(hidden) + " lines folded: " + std::to_string(regions[r].bodyFrom) + "-" + std::to_string(regions[r].bodyTo - (python ? 0 : 1)) + (regions[r].name.empty() ? "" : "; " + regions[r].name) + ")\n";
-            }
-            continue;
-        }
-        out += row(i);
-    }
-    out += "(folded regions hide their lines: ask for them with  === READ: <path> LINES a-b ===  or  === READ: <path> SYMBOL name ===  )\n";
-    return out;
+    return renderFolded(lines, regions, open, python) + "(folded regions hide their lines: ask for them with  === READ: <path> LINES a-b ===  or  === READ: <path> SYMBOL name ===  )\n";
+}
+
+std::string sectionView(const std::string& text, bool python, const std::vector<std::string>& openSymbols)
+{
+    const auto lines = splitLines(text);
+    const auto regions = foldRegions(text, python);
+    std::vector<bool> open(regions.size(), false);
+    for (std::size_t r = 0; r < regions.size(); ++r)
+        for (const auto& s : openSymbols) if (regions[r].name == s || leafName(regions[r].name) == s) open[r] = true;
+    return renderFolded(lines, regions, open, python);
 }
 
 std::vector<ReadRequest> parseReadRequests(const std::string& reply)
@@ -179,8 +200,8 @@ std::vector<ReadRequest> parseReadRequests(const std::string& reply)
             const auto dash = spec.find('-');
             r.to = dash == std::string::npos ? r.from : std::atoi(spec.c_str() + dash + 1);
         } else if (kind == "SYMBOL") in >> r.symbol;
-        else continue;
-        out.push_back(r);
+        else if (!kind.empty()) continue;
+        out.push_back(r);   // a path alone (no LINES, no SYMBOL) asks for the outline, never the whole file (catalogue row 36)
     }
     return out;
 }
@@ -189,9 +210,11 @@ std::string answerRead(const ReadRequest& r, const std::string& text, bool pytho
 {
     const auto lines = splitLines(text);
     int from = r.from, to = r.to;
+    if (r.symbol.empty() && from == 0 && to == 0)
+        return "=== " + r.path + " outline (" + std::to_string(lines.size()) + " lines; bodies are folded: name LINES a-b or SYMBOL name to read one) ===\n" + sectionView(text, python, {});
     if (!r.symbol.empty()) {
         bool found = false;
-        for (const auto& f : foldRegions(text, python)) {
+        for (const auto& f : foldRegions(text, python, true)) {
             const std::string n = f.name.substr(f.name.rfind(':') == std::string::npos ? 0 : f.name.rfind(':') + 1);
             if (f.name == r.symbol || n == r.symbol) { from = f.first; to = f.bodyTo + (python ? 0 : 1); found = true; break; }
         }

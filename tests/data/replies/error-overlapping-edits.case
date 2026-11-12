@@ -1,0 +1,22 @@
+# name: error-overlapping-edits
+# expect-error: overlap
+--- base src/calc.cpp
+#include <stdexcept>
+
+double divide(double a, double d)
+{
+    if (d == 0) return 0;
+    return a / d;
+}
+
+double square(double x)
+{
+    return x * x;
+}
+--- reply
+=== EDIT: src/calc.cpp LINES 4-6 ===
+a
+=== END EDIT ===
+=== EDIT: src/calc.cpp LINES 6-7 ===
+b
+=== END EDIT ===

@@ -1,0 +1,14 @@
+# name: lines-delete
+--- base calc/geo.py
+def area(w, h):
+    return w + h
+
+
+def perimeter(w, h):
+    return 2 * (w + h)
+--- reply
+=== EDIT: calc/geo.py LINES 3-6 ===
+=== END EDIT ===
+--- want calc/geo.py
+def area(w, h):
+    return w + h
