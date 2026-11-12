@@ -637,7 +637,19 @@ int servePortal(int port, const std::function<std::string()>& state, const std::
                 const std::string root = sandboxOf(live, queryParam(target, "wf"));
                 fs::path full;
                 if (root.empty() || !(jobFilePath(root, queryParam(target, "p"), full) || insideSandbox(root, queryParam(target, "p"), full)) || !fs::is_regular_file(full)) respond(c, 404, "text/plain", "not found\n");
-                else { std::string body = slurp(full); const bool cut = body.size() > 400000; if (cut) body.resize(400000); respond(c, 200, "text/plain; charset=utf-8", body + (cut ? "\n[... cut at 400 KB]\n" : "")); }
+                else {
+                    std::string body = slurp(full);
+                    const long tailBytes = std::atol(queryParam(target, "tail").c_str());   // a live transcript wants the END of a long file, not its first 400 KB
+                    if (tailBytes > 0 && body.size() > static_cast<std::size_t>(tailBytes)) {
+                        std::size_t from = body.size() - static_cast<std::size_t>(tailBytes);
+                        const auto nl = body.find('\n', from);
+                        if (nl != std::string::npos) from = nl + 1;
+                        body = "[... earlier text omitted: showing the last " + std::to_string(body.size() - from) + " bytes]\n" + body.substr(from);
+                    }
+                    const bool cut = body.size() > 400000;
+                    if (cut) body.resize(400000);
+                    respond(c, 200, "text/plain; charset=utf-8", body + (cut ? "\n[... cut at 400 KB]\n" : ""));
+                }
             }
             else if (onSite && path.rfind("/site/", 0) != 0) respond(c, 404, "text/plain", "this port serves /site/<workflow>/ only\n");
             else if (onSite) {  // the integrated project served as a site, in an opaque sandboxed origin with no network

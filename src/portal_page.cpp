@@ -308,8 +308,15 @@ async function runSearch(){
   try{const j=await (await fetch('/api/search?wf='+encodeURIComponent(wf.id)+'&q='+encodeURIComponent(text),{cache:'no-store'})).json();
     setText($('q-note'),j.hits.length+' line'+(j.hits.length==1?'':'s')+(j.hits.length>=40?' (best 40)':''));
     setInner($('q-out'),j.hits.map(h=>`<div class="reqline"><span class="pill">${esc(h.kind)}</span> ${fl(h.p,h.p.replace(/^items\//,''))}<span class="mute">:${h.line}</span> <span class="mute">${esc(h.text)}</span></div>`).join('')||'<span class="mute">nothing matched</span>')}catch(e){setText($('q-note'),'search failed: '+e)}}
-async function openFile(p){const wf=currentWf();if(!wf)return;sel={type:'file',key:p};fileView={p,text:'loading…',wf:wf.id};openDrawerShell();drawDrawer();
-  try{const r=await fetch('/api/file?wf='+encodeURIComponent(wf.id)+'&p='+encodeURIComponent(p),{cache:'no-store'});fileView.text=r.ok?await r.text():'(not available: '+r.status+')'}catch(e){fileView.text='(error: '+e+')'}drawDrawer()}
+// A transcript (conversation.md) or a gate output is followed live: re-read every 1.5 s, the end of a long file, the view kept at the bottom while it grows.
+const followable=p=>/(^|\/)(conversation(-skeleton)?\.md|gate\.txt|stdout\.log|stderr\.log)$/.test(p);
+function fileUrl(fv){return '/api/file?wf='+encodeURIComponent(fv.wf)+'&p='+encodeURIComponent(fv.p)+(fv.follow?'&tail=200000':'')}
+async function loadFile(){const fv=fileView;if(!fv)return;try{const r=await fetch(fileUrl(fv),{cache:'no-store'});const t=r.ok?await r.text():'(not available: '+r.status+')';if(fileView===fv&&t!==fv.text){fv.text=t;drawDrawer()}}catch(e){if(fileView===fv&&fv.text=='loading…'){fv.text='(error: '+e+')';drawDrawer()}}}
+async function openFile(p){const wf=currentWf();if(!wf)return;sel={type:'file',key:p};fileView={p,text:'loading…',wf:wf.id,follow:/conversation(-skeleton)?\.md$/.test(p)};openDrawerShell();drawDrawer();await loadFile()}
+function setFollow(on){if(fileView){fileView.follow=!!on;loadFile()}}
+async function tickFile(){if(document.hidden||busy.file||!fileView||!fileView.follow||!sel||sel.type!='file')return;busy.file=true;try{await loadFile()}finally{busy.file=false}}
+// the link that opens the latest transcript of a node, followed live
+function watchLink(i,run){const att=run&&run.role=='agent'?run.attempt:Math.max(1,i.attempts||1);return `<div style="margin:6px 0">${fl('items/'+i.id+'/attempt-'+att+'/conversation.md','▶ watch transcript (attempt '+att+')')}${run?' <span class="mute">live</span>':''}</div>`}
 // ================= intent: the request, requirements, the inbox and the decisions =================
 const kindLabel={question:'question',clarification:'clarification',requirement:'requirement',blocker:'blocker',proposal:'proposal',escalation:'escalation'};
 function renderIntent(){
@@ -390,7 +397,7 @@ function drawDrawer(){
   if(sel.type=='file'){
     if(!fileView){return}
     const wf=fileView.wf,raw='/api/file?wf='+encodeURIComponent(wf)+'&p='+encodeURIComponent(fileView.p),isSite=fileView.p.startsWith('project/')&&/\.html?$/.test(fileView.p);
-    a=`<h2 style="word-break:break-all">${esc(fileView.p)}</h2><div class="mute"><a href="${raw}" target="_blank" rel="noopener">raw</a>${isSite?` · <a href="${siteBase()}/site/${encodeURIComponent(wf)}/${esc(fileView.p.replace(/^project\//,''))}" target="_blank" rel="noopener">open as a page ↗</a>`:''}</div><pre class="viewer">${esc(fileView.text)}</pre>`;}
+    a=`<h2 style="word-break:break-all">${esc(fileView.p)}</h2><div class="mute"><a href="${raw}" target="_blank" rel="noopener">raw</a>${isSite?` · <a href="${siteBase()}/site/${encodeURIComponent(wf)}/${esc(fileView.p.replace(/^project\//,''))}" target="_blank" rel="noopener">open as a page ↗</a>`:''}${followable(fileView.p)?` · <label><input type="checkbox" ${fileView.follow?'checked':''} onchange="setFollow(this.checked)"> follow live</label>`:''}</div><pre class="viewer">${esc(fileView.text)}</pre>`;}
   else if(sel.type=='tile'){const s=L.system||{};const t=sysTiles().find(x=>x.k==sel.key);const m={cpu:['CPU busy','%'],mem:['Memory used','%'],swapMiB:['Swap used','MiB'],load:['Load average',''],gpu:['GPU busy','%'],vramMiB:['GPU VRAM','MiB'],gttMiB:['GPU GTT','MiB']}[sel.key]||[sel.key,''];
     a=`<h2>${m[0]}</h2><div class="mute">now ${t?t.v:''}</div>`;b=chart(s[sel.key],m[1],'',null);}
   else if(sel.type=='engine'){const e=((L.engines)||[]).find(x=>x.base===sel.key);const m=e&&e.model||{};const pr=Object.values(profiles()).filter(x=>x.base===sel.key);const bd=badgeOf(m.file||m.alias?m:null,null);
@@ -400,7 +407,7 @@ function drawDrawer(){
     if(!e)a='<p class="mute">engine not sampled</p>';
     else if(sel.type=='engtile'){a=`<h2>${esc(base)}</h2>`;b=chart(e[{decode:'decodeTps',prefill:'prefillTps',active:'active'}[k]],k=='active'?'slots':'tok/s',k=='prefill'?'b':'',null);}
     else{const s=e.slots.find(x=>x.id==+k)||{};const o=slotOwners()[base+'#'+k];
-      a=`<h2>${esc(base)} · slot ${k}</h2><div class="kv"><span>node</span><span>${o?esc(o.item)+' attempt '+o.attempt+' ('+esc(o.job)+')':'—'}</span><span>state</span><span>${esc(slotText(s))}</span><span>prompt</span><span>${fmt(s.promptProcessed)} of ${fmt(s.promptTokens)} tokens processed</span><span>decoded</span><span>${fmt(s.decoded)} tokens</span></div>`;
+      a=`<h2>${esc(base)} · slot ${k}</h2><div class="kv"><span>node</span><span>${o?esc(o.item)+' attempt '+o.attempt+' ('+esc(o.job)+')':'—'}</span><span>state</span><span>${esc(slotText(s))}</span><span>prompt</span><span>${fmt(s.promptProcessed)} of ${fmt(s.promptTokens)} tokens processed</span><span>decoded</span><span>${fmt(s.decoded)} tokens</span></div>${o?`<div style="margin:6px 0">${fl('items/'+o.item+'/attempt-'+o.attempt+'/conversation.md','▶ watch transcript')} <span class="mute">live</span></div>`:''}`;
       b=`<b>Decode</b>${chart(s.decodeSeries,'tok/s','',null)}<b>Prefill</b>${chart(s.prefillSeries,'tok/s','b',null)}`;}}
   else if(sel.type=='node'){const wf=currentWf();const i=wf&&wf.items.find(x=>x.id==sel.key);
     if(!i)a='<p class="mute">node not found</p>';else{
@@ -409,12 +416,15 @@ function drawDrawer(){
       const decs=(wf.decisions||[]).filter(x=>x.inputs&&x.inputs.item==i.id).slice(-5).reverse();
       // region A: what changes when the node finishes an attempt; B: what is live; C: lists that change when files, jobs or decisions do
       a=`<h2>${esc(i.id)} <span class="pill">${esc(i.status)}</span></h2><div class="mute">${esc(i.title||'')}</div><div class="kv"><span>persona</span><span>${esc(i.persona||'')}</span><span>attempts</span><span>${i.attempts}</span><span>tier / engine</span><span>${esc(i.tier||'–')} / ${esc(i.engine||'–')}</span><span>model</span><span>${(()=>{const nm=nodeModel(i,run);return nm?`${badgeHtml(nm.b,'')}<br><span class="mute" style="white-space:pre-line">${esc(nm.title)}</span>`:'–'})()}</span><span>tokens</span><span>in ${fmt(i.tokensIn||0)} · out ${fmt(i.tokensOut||0)}</span><span>time (finished)</span><span>${Math.round(i.durationSec||0)} s</span><span>depends on</span><span>${esc((i.deps||[]).join(', ')||'—')}</span><span>parent</span><span>${esc(i.parent||'—')}</span><span>files</span><span><code>${esc(wf.sandbox)}/items/${esc(i.id)}/attempt-${i.attempts}/</code></span>${i.attempts>1||i.status==='failed'?`<span>iterate</span><span>in isolation, minutes instead of the whole run: <code>sub0squad replay ${esc(wf.id)} ${esc(i.id)} --seeds 1,2,3</code></span>`:''}</div>`;
+      a+=watchLink(i,run);
       if(run)b=`<b>Running now</b><div class="kv"><span>job</span><span>${esc(run.id)} (${esc(run.role)}, attempt ${run.attempt})</span><span>elapsed</span><span>${Math.round(run.elapsedSec||0)} s</span><span>progress</span><span>${run.progress?esc(run.progress.done+'/'+run.progress.total+' '+(run.progress.phase||'')):'–'}</span>${s?`<span>engine slot</span><span>${sl} · ${esc(slotText(s))}</span>`:''}</div>${s?'<b>Decode t/s</b>'+chart(s.decodeSeries,'tok/s','',null)+'<b>Prefill t/s</b>'+chart(s.prefillSeries,'tok/s','b',null):'<p class="mute">No live slot figures for this job (the daemon predates slot pinning, or the engine is not a llama-server).</p>'}`;
       const mine=((pkg&&pkg.files)||[]).filter(f=>f.p.startsWith('items/'+i.id+'/')).sort((x,y)=>x.p<y.p?-1:1);
       c=`<b>Artifacts</b> <span class="mute">${mine.length} files</span><div class="fl" style="padding-left:0">${mine.map(f=>`<div>${fl(f.p,f.p.replace('items/'+i.id+'/',''))} <span class="mute">${fmt(f.s)} B</span></div>`).join('')||'<span class="mute">none yet</span>'}</div>`
         +`<b>Jobs</b><table><tbody>${j.map(x=>`<tr><td>${esc(x.id)}<br><span class="mute">${fl('@jobs/'+x.id+'/run-'+(x.run||1)+'/stdout.log','out')} ${fl('@jobs/'+x.id+'/run-'+(x.run||1)+'/stderr.log','err')} ${fl('@jobs/'+x.id+'/run-'+(x.run||1)+'/exit.json','exit')}</span></td><td>${esc(x.role)} #${x.attempt}</td><td>${esc(x.state)}${x.note&&!['succeeded','running'].includes(x.state)?`<br><span class="mute">${esc(x.note)}</span>`:''}</td><td>${Math.round(x.elapsedSec||0)} s</td></tr>`).join('')||'<tr><td class="mute">none</td></tr>'}</tbody></table>`
         +`<b>Decisions</b><table><tbody>${decs.map(x=>`<tr><td><b>${esc(x.action)}</b> #${esc(x.inputs.attempt)}<br><span class="mute">${esc((x.reasons||[]).slice(-1)[0]||'')}</span></td></tr>`).join('')||'<tr><td class="mute">none</td></tr>'}</tbody></table>`;}}
+  const vw0=document.querySelector('pre.viewer'),atEnd=!vw0||vw0.scrollHeight-vw0.scrollTop-vw0.clientHeight<40;
   setInner($('dA'),a);setInner($('dB'),b);setInner($('dC'),c);
+  const vw=document.querySelector('pre.viewer');if(vw&&sel&&sel.type=='file'&&fileView&&fileView.follow&&atEnd)vw.scrollTop=vw.scrollHeight;
 }
 // ================= polling: one request in flight per endpoint, a 5 s timeout, nothing while the tab is hidden =================
 const busy={};
@@ -438,7 +448,7 @@ $('nodes').addEventListener('click',ev=>{const r=ev.target.closest('tr');if(r)op
 document.addEventListener('click',ev=>{const a=ev.target.closest('.flink');if(a){ev.preventDefault();openFile(a.dataset.p)}});
 document.addEventListener('selectionchange',()=>{if(!frozen()){renderLive();render()}});
 document.addEventListener('visibilitychange',()=>{if(!document.hidden){tickState();tickLive()}});
-tickState();tickLive();setInterval(tickState,2000);setInterval(tickLive,1000);
+tickState();tickLive();setInterval(tickState,2000);setInterval(tickLive,1000);setInterval(tickFile,1500);
 </script></body></html>)HTML";
 }
 
