@@ -55,13 +55,14 @@ double evaluate(const std::string& expr, bool degrees = false);
 
 const char* kStubCalc = R"CPP(#include "calc/calc.hpp"
 
-#include <stdexcept>
+#include <limits>
 
 namespace calc {
 
+// A stub must not throw: a test that expects an exception would pass against it for free (the tester gate needs most tests to FAIL on the stub).
 double evaluate(const std::string&, bool)
 {
-    throw std::runtime_error("not implemented");
+    return std::numeric_limits<double>::quiet_NaN();
 }
 
 }  // namespace calc
@@ -454,7 +455,7 @@ std::size_t cppScaffoldBytes()
 std::string cppHarnessFacts()
 {
     return "- Project type `cpp-cmake`: C++20, standard library only, built with CMake and Ninja under -Wall -Wextra -Werror (a warning is a failure), tests are one executable per tests/NAME.test.cpp.\n"
-           "- The scaffold every item's workspace starts from: CMakeLists.txt, include/calc/calc.hpp (the contract: calc::evaluate), tests/helpers/check.hpp (TEST, CHECK, CHECK_EQ, CHECK_NEAR, CHECK_THROWS) and its runner, tests/helpers/app.hpp (app::run), and STUB src/calc.cpp (throws 'not implemented') and src/main.cpp.\n"
+           "- The scaffold every item's workspace starts from: CMakeLists.txt, include/calc/calc.hpp (the contract: calc::evaluate), tests/helpers/check.hpp (TEST, CHECK, CHECK_EQ, CHECK_NEAR, CHECK_THROWS) and its runner, tests/helpers/app.hpp (app::run), and STUB src/calc.cpp (returns NaN and never throws) and src/main.cpp.\n"
            "- The library is every src/*.cpp except main.cpp; the app calc_cli is main.cpp; a test file runs the app with `#include \"helpers/app.hpp\"` and app::run(\"ARGS\") (returns .output and .code).\n"
            "- A worker replies with whole files as `=== FILE: path === ... === END FILE ===`; anything outside the item's allowed files is rejected.\n"
            "- Cheapest checks first: the allowlist, then `-fsyntax-only` of each written file (file, line, message), then a build of only the gate's targets, then the tests (TAP with expected and actual).\n"

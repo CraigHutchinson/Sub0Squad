@@ -274,9 +274,11 @@ int runGateFlow(const GateHooks& hooks, const std::vector<std::string>& args)
         if (coordinator) fs::create_directories(dir / "items" / itemId / "accepted", ec); else copyTree(out, dir / "items" / itemId / "accepted");
         writeFile(dir / "items" / itemId / "accepted.json", "{\"item\":\"" + itemId + "\",\"attempt\":" + std::to_string(attempt) + "}");
     }
-    writeFile(attemptDir / "gate.txt", "GATE PASS\n");
+    char passLine[200];
+    std::snprintf(passLine, sizeof passLine, "GATE PASS: %s attempt %d (%d tests, %d failing against stubs where expected)\n", itemId.c_str(), attempt, tap.tests, tap.fail);
+    writeFile(attemptDir / "gate.txt", passLine);
     events::progress(4, 4, "accepted");
-    std::printf("GATE PASS: %s attempt %d (%d tests, %d failing against stubs where expected)\n", itemId.c_str(), attempt, tap.tests, tap.fail);
+    std::fputs(passLine, stdout);
     return 0;
 }
 

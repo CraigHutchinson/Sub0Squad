@@ -76,6 +76,12 @@ int main()
         // Testers pass against the stubs-fail rule; the engine with the defect fails its gate and the feedback names the test and the values.
         CHECK_EQ(agent(d, "test-engine", 1), 0);
         CHECK_EQ(gate(p, d, "test-engine", 1), 0);
+        {   // The stub must not help a test pass: the reference tests all FAIL against it (a throwing stub let every "must throw" test pass for free: catalogue rows 2 and 33).
+            const std::string g = slurp(d / "items" / "test-engine" / "attempt-1" / "gate.txt");
+            int tests = -1, failing = -2;
+            CHECK(std::sscanf(g.c_str(), "GATE PASS: test-engine attempt 1 (%d tests, %d failing", &tests, &failing) == 2);
+            CHECK(tests >= 10 && failing == tests);
+        }
         CHECK_EQ(agent(d, "test-app", 1), 0);
         CHECK_EQ(gate(p, d, "test-app", 1), 0);
         CHECK_EQ(agent(d, "dev-engine", 1, {"dev-engine:1"}), 0);

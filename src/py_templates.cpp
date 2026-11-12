@@ -14,7 +14,8 @@ const char* kStubEngine = R"PY("""Contract: evaluate(expr, degrees=False) -> flo
 
 
 def evaluate(expr, degrees=False):
-    raise ValueError("not implemented")
+    # A stub must not raise: a test that expects an exception would pass against it for free (the tester gate needs most tests to FAIL on the stub).
+    return None
 )PY";
 
 const char* kStubMain = R"PY(import sys
@@ -447,7 +448,7 @@ std::size_t pyScaffoldBytes()
 std::string pyHarnessFacts()
 {
     return "- Project type `py-unittest`: Python 3, standard library only, tests are unittest.TestCase classes in tests/NAME_test.py, run one file at a time by tests/helpers/tap.py (prints TAP with expected and actual).\n"
-           "- The scaffold every item's workspace starts from: the package calc/ (__init__.py), tests/helpers/tap.py and tests/helpers/cli.py (run(*args) runs `python -m calc`), and STUBS of calc/engine.py (raises ValueError 'not implemented') and calc/__main__.py.\n"
+           "- The scaffold every item's workspace starts from: the package calc/ (__init__.py), tests/helpers/tap.py and tests/helpers/cli.py (run(*args) runs `python -m calc`), and STUBS of calc/engine.py (returns None and never raises) and calc/__main__.py.\n"
            "- A worker replies with whole files as `=== FILE: path === ... === END FILE ===`; anything outside the item's allowed files is rejected.\n"
            "- Cheapest checks first: the allowlist, then byte-compiling each written file (file, line, message), then the tests.\n"
            "- Tester gate: the tests must load, number at least the item's minimum, and at least 70 % must FAIL against the stubs. Developer gate: every test passes.\n"
@@ -456,7 +457,7 @@ std::string pyHarnessFacts()
 
 std::string pyHarnessBrief()
 {
-    return "Already in the workspace (do not recreate): the package calc/ with stubs of calc/engine.py (evaluate(expr, degrees=False) raises ValueError 'not implemented') and calc/__main__.py, "
+    return "Already in the workspace (do not recreate): the package calc/ with stubs of calc/engine.py (evaluate(expr, degrees=False) returns None and never raises) and calc/__main__.py, "
            "tests/helpers/tap.py (the runner) and tests/helpers/cli.py (run(*args, stdin=None) -> (output, exit code) runs `python -m calc`). Python 3, standard library only. "
            "A test file imports `from calc.engine import evaluate` and defines unittest.TestCase classes (no unittest.main()).";
 }
