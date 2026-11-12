@@ -1,0 +1,40 @@
+# name: lines-several-together
+# classic: yes
+--- base src/calc.cpp
+#include <stdexcept>
+
+double divide(double a, double d)
+{
+    if (d == 0) return 0;
+    return a / d;
+}
+
+double square(double x)
+{
+    return x * x;
+}
+--- reply
+=== EDIT: src/calc.cpp AFTER 1 ===
+#include <cmath>
+=== END EDIT ===
+=== EDIT: src/calc.cpp LINES 5-6 ===
+    if (d == 0) throw std::domain_error("division by zero");
+    return a / d;  // checked
+=== END EDIT ===
+=== EDIT: src/calc.cpp LINES 11 ===
+    return std::pow(x, 2);
+=== END EDIT ===
+--- want src/calc.cpp
+#include <stdexcept>
+#include <cmath>
+
+double divide(double a, double d)
+{
+    if (d == 0) throw std::domain_error("division by zero");
+    return a / d;  // checked
+}
+
+double square(double x)
+{
+    return std::pow(x, 2);
+}

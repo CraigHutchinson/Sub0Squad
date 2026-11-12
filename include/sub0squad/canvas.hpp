@@ -4,6 +4,8 @@
 /// holds line operations; it applies entirely or not at all. A stale one is rebased through the edits made since (line numbers shift) or rejected with the
 /// conflicting edit named. Every accepted transaction is logged, so any revision can be restored and "who changed what" is answerable. Pure data, no I/O.
 
+#include "sub0squad/outline.hpp"
+
 #include <map>
 #include <string>
 #include <vector>
@@ -57,9 +59,17 @@ public:
     [[nodiscard]] std::string textAt(const std::string& path, int revision) const;
     /// Apply a transaction: all operations or none. An edit made against an older revision is rebased when it does not overlap what changed since.
     [[nodiscard]] TxResult apply(const Transaction& tx);
+    /// Replace the whole text as a new revision: the deliberate whole-file operation (a file not yet on the canvas is added at revision 1).
+    [[nodiscard]] TxResult replaceText(const std::string& path, const std::string& text, const std::string& by);
     /// Restore an earlier revision as a new revision (history is never rewritten).
     [[nodiscard]] TxResult revertTo(const std::string& path, int revision, const std::string& by);
     [[nodiscard]] const std::vector<CanvasLogEntry>& log() const { return log_; }
+    /// The paths on the canvas, sorted.
+    [[nodiscard]] std::vector<std::string> paths() const;
+    /// The current text of every file.
+    [[nodiscard]] std::map<std::string, std::string> files() const;
+    /// The log as JSON (`{"files":{path:revision},"log":[{path,by,revision,base,from,to,delta}]}`): what the portal and a later reader need to say who changed what.
+    [[nodiscard]] std::string logJson() const;
 
 private:
     struct File { std::vector<std::string> revisions; };   // revisions[i] is the text at revision i + 1
@@ -67,5 +77,23 @@ private:
     std::vector<CanvasLogEntry> log_;
     static const std::string empty_;
 };
+
+/// What a worker's reply asks of the canvas (docs/CANVAS.md, slice 0). The reply forms are those workers already use, read as transactions:
+///   `=== EDIT: path LINES a-b ===` / `LINE a`   -> replaceLines        `=== EDIT: path AFTER n ===` -> insertAfter
+///   `=== EDIT: path SYMBOL name ===`            -> replaceSymbol (the whole function, signature to closing line)
+///   `=== EDIT: path ===` with SEARCH/REPLACE    -> kept verbatim in `searchEdits` (the older form; the caller applies it with `applyEdits`)
+///   `=== FILE: path ===`                        -> `wholeFiles` (a deliberate whole-file replacement)
+///   `=== READ: path ... ===`                    -> `reads`
+/// Operations on one path form one transaction (all or nothing). A number column copied from the view (`  12| code`) and a markdown fence are removed.
+struct CanvasReply
+{
+    std::vector<Transaction> transactions;             ///< one per path, in order of first mention; `baseRevision` and `by` are for the caller to fill
+    std::map<std::string, std::string> wholeFiles;
+    std::string searchEdits;
+    std::vector<ReadRequest> reads;
+    std::string error;                                 ///< a block that could not be read, named; the reply is then not applied at all
+    [[nodiscard]] bool hasEdits() const { return !transactions.empty() || !wholeFiles.empty() || !searchEdits.empty(); }
+};
+[[nodiscard]] CanvasReply parseCanvasReply(const std::string& reply);
 
 }  // namespace sub0squad

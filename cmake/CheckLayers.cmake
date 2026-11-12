@@ -3,9 +3,9 @@
 # (a listed violation that no longer exists is an error, so fixed ones are removed and cannot come back).
 set(LAYER0 paths frame unix_socket journal job_spec job_store process_tree progress event_channel host_guard harness)
 set(LAYER1 shim supervisor status mock_worker)
-set(LAYER2 engine plan division policy plan_lint ledger workflow workflow_status overseer briefing recall trace triage edits outline canvas qa)
+set(LAYER2 engine plan division policy plan_lint ledger workflow workflow_status overseer briefing recall trace triage edits outline canvas turn_control throughput qa)
 set(LAYER3 harness_registry harness_common harness_web harness_cpp cpp_templates harness_py py_templates calculator_spec web_templates calculator_templates sandbox)
-set(LAYER4 llm_agent agent_card fork_agent architect optimizer replay scenario)
+set(LAYER4 llm_agent agent_card canvas_agent fork architect optimizer replay scenario blocks)
 set(LAYER5 daemon daemon_impl daemon_jobs daemon_workflow daemon_governance)
 set(LAYER6 portal portal_page client sub0squad)
 # "file->included-header" pairs that go upward today; each is a refactor target.

@@ -95,8 +95,9 @@ int runLlmAgent(const std::vector<std::string>& args)
         }
         return bestText;
     };
+    std::string draftGate, origin;
     {
-        std::string drafts, draftGate, origin;
+        std::string drafts;
         for (const auto& f : item->files) {
             std::string g, text = bestDraft(itemId, f, g);
             if (text.empty()) {   // a part's first attempt: the drafts of the item it was divided from, and of that item's parents
@@ -135,6 +136,18 @@ int runLlmAgent(const std::vector<std::string>& args)
         events::note("plan phase: estimated " + std::to_string(estimate) + " tokens against a budget of " + std::to_string(budget) + (capacity.empty() ? std::string{} : " (" + capacity + ")") + ": split before implementing");
         std::printf("size verdict: split (estimate %ld tokens for %ld tests, budget %ld; %s)\n", estimate, testCount, budget, capacity.empty() ? "capacity unknown" : capacity.c_str());
         return 4;
+    }
+    const std::string executor = arg(args, "executor", "session");
+    if (executor != "session" && executor != "canvas") { std::fprintf(stderr, "llm-agent: --executor must be session or canvas (forked sections are the llm-fork command)\n"); return 64; }
+    if (executor == "canvas") {   // docs/CANVAS.md slice 0: the attempt runs on a revisioned canvas
+        AttemptContext ctx;
+        ctx.dir = dir; ctx.itemId = itemId; ctx.tier = tier; ctx.treatment = treatment;
+        ctx.attempt = attempt; ctx.maxTokens = maxTokens; ctx.timeoutSec = timeoutSec; ctx.repairTurns = repairTurns;
+        ctx.engine = *engine; ctx.plan = &*plan; ctx.item = item;
+        ctx.card = card.str(); ctx.guidance = disputeText;
+        ctx.baselineFiles = baselineFiles; ctx.draftGate = draftGate; ctx.draftOrigin = origin;
+        ctx.began = began;
+        return runCanvasAttempt(ctx);
     }
     const std::string user = card.str() + (feedback.empty() ? "" : "\n" + feedback);
 

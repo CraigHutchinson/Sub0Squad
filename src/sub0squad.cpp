@@ -10,6 +10,7 @@
 #include "sub0squad/client.hpp"
 #include "sub0squad/mock_worker.hpp"
 #include "sub0squad/harness_cpp.hpp"
+#include "sub0squad/blocks.hpp"
 #include "sub0squad/scenario.hpp"
 #include "sub0squad/harness_py.hpp"
 #include "sub0squad/harness_web.hpp"
@@ -109,6 +110,7 @@ int main(int argc, char** argv)
         if (std::strcmp(argv[1], "mock-architect") == 0) return sub0squad::runMockArchitect(rest);
         if (std::strcmp(argv[1], "llm-architect") == 0) return sub0squad::runLlmArchitect(rest);
         if (std::strcmp(argv[1], "scenario") == 0) return sub0squad::runScenarioCommand(rest);
+        if (std::strcmp(argv[1], "block") == 0) return sub0squad::runBlockCommand(rest, std::string(sub0squad::version::version_full));
         if (std::strcmp(argv[1], "optimize-job") == 0) return sub0squad::runOptimizeJob(rest);
         if (std::strcmp(argv[1], "llm-agent") == 0) return sub0squad::runLlmAgent(rest);
         if (std::strcmp(argv[1], "llm-fork") == 0) return sub0squad::runLlmFork(rest);

@@ -195,6 +195,30 @@ std::set<std::string> failLines(const std::string& gateText)
 }
 }  // namespace
 
+std::string runPrecheckFlow(const GateHooks& hooks, const std::vector<std::string>& args)
+{
+    const auto a = parseArgs(args);
+    const fs::path dir = one(a, "workflow-dir", "");
+    const std::string itemId = one(a, "item", "");
+    const int attempt = std::atoi(one(a, "attempt", "1").c_str());
+    auto plan = Plan::fromJson(slurp(dir / "plan.json"));
+    if (!plan) return "cannot load plan: " + plan.error();
+    if (!plan->find(itemId)) return "no item '" + itemId + "'";
+    if (!hooks.precheck) return {};
+    const fs::path attemptDir = dir / "items" / itemId / ("attempt-" + std::to_string(attempt));
+    const fs::path files = one(a, "files-dir", (attemptDir / "out").string());
+    if (!fs::exists(files)) return "there are no files to check";
+    const fs::path ws = attemptDir / "ws-pre";
+    std::error_code ec;
+    fs::remove_all(ws, ec);
+    for (const auto& f : hooks.scaffold()) writeFile(ws / f.path, f.content);
+    for (const auto& dep : closure(*plan, itemId)) copyTree(dir / "items" / dep / "accepted", ws);
+    copyTree(files, ws);
+    std::string bad = hooks.precheck(files, ws);
+    fs::remove_all(ws, ec);
+    return bad;
+}
+
 int runGateFlow(const GateHooks& hooks, const std::vector<std::string>& args)
 {
     const auto a = parseArgs(args);

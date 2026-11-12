@@ -27,6 +27,8 @@ namespace sub0squad {
 
 /// `cpp-gate --workflow-dir D --item I --attempt N [--no-publish 1]`
 [[nodiscard]] int runCppGate(const std::vector<std::string>& args);
+/// The precheck alone over candidate files (`--files-dir DIR`): "" when they pass, else the located diagnostic (the commit gate of a canvas transaction).
+[[nodiscard]] std::string runCppPrecheck(const std::vector<std::string>& args);
 /// `cpp-integrate --workflow-dir D`
 [[nodiscard]] int runCppIntegrate(const std::vector<std::string>& args);
 

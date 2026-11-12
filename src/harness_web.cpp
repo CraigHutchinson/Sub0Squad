@@ -188,11 +188,12 @@ std::string webOracle(const GateContext& c, const Tap& tap)
 
 }  // namespace
 
-int runHarnessGate(const std::vector<std::string>& args)
-{
-    static const GateHooks hooks = {&webScaffold, &webPrecheck, &webBuildAndRun, &webOracle};
-    return runGateFlow(hooks, args);
-}
+namespace {
+const GateHooks& webHooks() { static const GateHooks hooks = {&webScaffold, &webPrecheck, &webBuildAndRun, &webOracle}; return hooks; }
+}  // namespace
+
+int runHarnessGate(const std::vector<std::string>& args) { return runGateFlow(webHooks(), args); }
+std::string runWebPrecheck(const std::vector<std::string>& args) { return runPrecheckFlow(webHooks(), args); }
 
 // ---- integrator -----------------------------------------------------------------------------------------------------------------
 int runHarnessIntegrate(const std::vector<std::string>& args)

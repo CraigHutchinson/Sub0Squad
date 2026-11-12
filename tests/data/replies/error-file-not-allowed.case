@@ -1,0 +1,23 @@
+# name: error-file-not-allowed
+# expect-error: is not one of the files you may write
+# allowed: src/calc.cpp
+--- base src/calc.cpp
+#include <stdexcept>
+
+double divide(double a, double d)
+{
+    if (d == 0) return 0;
+    return a / d;
+}
+
+double square(double x)
+{
+    return x * x;
+}
+--- reply
+=== EDIT: src/calc.cpp LINES 5 ===
+    return 1;
+=== END EDIT ===
+=== FILE: src/other.cpp ===
+int x;
+=== END FILE ===

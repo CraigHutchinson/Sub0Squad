@@ -1,0 +1,20 @@
+# name: symbol-edit
+--- base calc/geo.py
+def area(w, h):
+    return w + h
+
+
+def perimeter(w, h):
+    return 2 * (w + h)
+--- reply
+=== EDIT: calc/geo.py SYMBOL area ===
+def area(w, h):
+    return w * h
+=== END EDIT ===
+--- want calc/geo.py
+def area(w, h):
+    return w * h
+
+
+def perimeter(w, h):
+    return 2 * (w + h)

@@ -181,7 +181,7 @@ struct ChunkDecoder
 
 }  // namespace
 
-std::expected<int, std::string> httpStream(const std::string& method, const std::string& url, const std::string& body, int timeoutSec, const std::function<void(std::string_view)>& onBody)
+std::expected<int, std::string> httpStream(const std::string& method, const std::string& url, const std::string& body, int timeoutSec, const std::function<void(std::string_view)>& onBody, const std::function<bool()>& stop)
 {
     auto u = parseUrl(url);
     if (!u) return std::unexpected(u.error());
@@ -237,11 +237,13 @@ std::expected<int, std::string> httpStream(const std::string& method, const std:
             std::string out;
             if (chunked) dec.feed(rest.data(), rest.size(), out); else out = rest;
             if (!out.empty()) onBody(out);
+            if (stop && stop()) break;
             continue;
         }
         std::string out;
         if (chunked) dec.feed(buf + off, static_cast<std::size_t>(n) - off, out); else out.assign(buf + off, static_cast<std::size_t>(n) - off);
         if (!out.empty()) onBody(out);
+        if (stop && stop()) break;   // the caller cancels: closing the connection stops the server generating
         if (chunked && dec.done) break;
     }
     ::close(fd);
@@ -327,15 +329,17 @@ void applyStreamEvent(const std::string& json, ChatResult& r, const DeltaSink& s
     r.content += contentDelta;
     r.reasoning += reasoningDelta;
     r.reasoningChars += reasoningDelta.size();
-    if (!contentDelta.empty() || !reasoningDelta.empty()) sink(contentDelta, reasoningDelta);
+    if (sink && (!contentDelta.empty() || !reasoningDelta.empty())) sink(contentDelta, reasoningDelta);
 }
 
-std::expected<ChatResult, std::string> streamChat(const EngineProfile& e, const std::string& body, int timeoutSec, const DeltaSink& sink)
+std::expected<ChatResult, std::string> streamChat(const EngineProfile& e, const std::string& body, int timeoutSec, const DeltaSink& sink, const StreamGuard& guard)
 {
     ChatResult r;
     std::string pending, errorBody;
     const auto began = std::chrono::steady_clock::now();
     double firstTokenMs = -1;
+    bool aborted = false;
+    std::size_t judged = 0;
     const auto status = httpStream("POST", e.endpoint + "/chat/completions", body, timeoutSec, [&](std::string_view piece) {
         pending.append(piece);
         for (;;) {
@@ -356,9 +360,15 @@ std::expected<ChatResult, std::string> streamChat(const EngineProfile& e, const 
             }
         }
         if (errorBody.size() < 2000 && pending.rfind("data:", 0) != 0 && pending.rfind(":", 0) != 0) errorBody.append(piece.substr(0, 2000));
+    }, [&] {
+        if (!guard || r.content.size() == judged) return false;
+        judged = r.content.size();
+        aborted = guard(r.content);
+        return aborted;
     });
     if (!status) return std::unexpected(status.error());
     if (*status != 200) return std::unexpected("engine returned HTTP " + std::to_string(*status) + ": " + errorBody.substr(0, 300));
+    if (aborted) r.finishReason = "aborted";
     if (r.promptMs == 0 && firstTokenMs >= 0) r.promptMs = firstTokenMs;   // the server's own timings win; else time to the first token stands in
     if (r.predictedMs == 0 && firstTokenMs >= 0) r.predictedMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - began).count() - firstTokenMs;
     return r;
@@ -366,19 +376,19 @@ std::expected<ChatResult, std::string> streamChat(const EngineProfile& e, const 
 
 }  // namespace
 
-std::expected<ChatResult, std::string> chatCompleteMessages(const EngineProfile& e, const std::vector<ChatMessage>& messages, int maxTokens, int timeoutSec, const DeltaSink& sink)
+std::expected<ChatResult, std::string> chatCompleteMessages(const EngineProfile& e, const std::vector<ChatMessage>& messages, int maxTokens, int timeoutSec, const DeltaSink& sink, const StreamGuard& guard)
 {
     json::Writer w;
     w.beginObject().kv("model", e.model).key("messages").beginArray();
     for (const auto& m : messages) w.beginObject().kv("role", m.role).kv("content", m.content).endObject();
-    w.endArray().kv("max_tokens", maxTokens).kv("temperature", e.effectiveTemperature()).kv("top_p", e.effectiveTopP()).kv("top_k", e.effectiveTopK()).kv("min_p", e.minP).kv("presence_penalty", e.presencePenalty).kvBool("stream", sink ? true : false).kvBool("cache_prompt", e.cachePrompt)
+    w.endArray().kv("max_tokens", maxTokens).kv("temperature", e.effectiveTemperature()).kv("top_p", e.effectiveTopP()).kv("top_k", e.effectiveTopK()).kv("min_p", e.minP).kv("presence_penalty", e.presencePenalty).kvBool("stream", sink || guard).kvBool("cache_prompt", e.cachePrompt)
         .key("chat_template_kwargs").beginObject().kvBool("enable_thinking", e.thinking);
     if (!e.reasoningEffort.empty()) w.kv("reasoning_effort", e.reasoningEffort);
     w.endObject();
     if (e.seed >= 0) w.kv("seed", static_cast<std::int64_t>(e.seed));
     if (const char* slot = std::getenv("SUB0SQUAD_LEASE_INDEX"); slot && *slot && std::atoi(slot) < e.maxConcurrent) w.kv("id_slot", std::atoi(slot));  // pin the request to the lease's slot so the portal can attribute live slot activity to this job
     w.endObject();
-    if (sink) return streamChat(e, w.take(), timeoutSec, sink);
+    if (sink || guard) return streamChat(e, w.take(), timeoutSec, sink, guard);
     auto resp = httpRequest("POST", e.endpoint + "/chat/completions", w.take(), timeoutSec);
     if (!resp) return std::unexpected(resp.error());
     if (resp->status != 200) return std::unexpected("engine returned HTTP " + std::to_string(resp->status) + ": " + resp->body.substr(0, 300));

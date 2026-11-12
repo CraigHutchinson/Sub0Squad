@@ -28,6 +28,9 @@ struct WorkflowSpec
     std::string agent = "mock";                   ///< "mock" (templates) or "llm" (a real engine on the local tier)
     std::vector<std::string> engines;             ///< engine profiles in command-line form (EngineProfile::toArg); the first is the default
     std::map<std::string, std::string> route;     ///< persona -> engine name, e.g. tester=qwen3-6 (extensibility: engines are per persona)
+    /// How an llm item is executed (docs/CANVAS.md): "session" one conversation that carries the files (the baseline); "canvas" replies are transactions on a
+    /// revisioned document gated by the precheck; "fork" developers' items are written as forked sections on the canvas, side by side (testers use the canvas).
+    std::string executor = "session";
     std::string treatment = "baseline";           ///< prompt treatment of llm agents: baseline | index | planfirst (see docs/OPTIMIZATION.md)
     int repairTurns = 2;                          ///< extra turns an llm agent takes to run the tests and fix failures before it says done
     int sizeBudget = 1800;                        ///< estimated completion tokens above which an item that has tests is divided BEFORE the first attempt (0 = never)

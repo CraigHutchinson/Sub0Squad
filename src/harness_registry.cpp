@@ -11,19 +11,19 @@ namespace {
 const Harness kWebStatic = {
     "web-static", "harness-gate", "harness-integrate", true,
     &webHarnessBrief, &webHarnessFacts, &webScaffoldBytes, &runHarnessGate, &webMockFile, &webMockBugTarget,
-    "node-test", ".test.mjs", "plain ES module, no dependencies", &blueprintJson, nullptr,
+    "node-test", ".test.mjs", "plain ES module, no dependencies", &blueprintJson, nullptr, &runWebPrecheck,
 };
 
 const Harness kCppCmake = {
     "cpp-cmake", "cpp-gate", "cpp-integrate", true,
     &cppHarnessBrief, &cppHarnessFacts, &cppScaffoldBytes, &runCppGate, &cppMockFile, &cppMockBugTarget,
-    "ctest", ".test.cpp", "C++20, standard library only, no warnings", &cppBlueprintJson, &cppClaimsTask,
+    "ctest", ".test.cpp", "C++20, standard library only, no warnings", &cppBlueprintJson, &cppClaimsTask, &runCppPrecheck,
 };
 
 const Harness kPyUnittest = {
     "py-unittest", "py-gate", "py-integrate", true,
     &pyHarnessBrief, &pyHarnessFacts, &pyScaffoldBytes, &runPyGate, &pyMockFile, &pyMockBugTarget,
-    "unittest", "_test.py", "Python 3, standard library only", &pyBlueprintJson, &pyClaimsTask,
+    "unittest", "_test.py", "Python 3, standard library only", &pyBlueprintJson, &pyClaimsTask, &runPyPrecheck,
 };
 
 const Harness* const kAll[] = {&kWebStatic, &kCppCmake, &kPyUnittest};

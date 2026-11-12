@@ -1,0 +1,39 @@
+# name: cutoff-continuation-restarts-block
+--- base src/calc.cpp
+#include <stdexcept>
+
+double divide(double a, double d)
+{
+    if (d == 0) return 0;
+    return a / d;
+}
+
+double square(double x)
+{
+    return x * x;
+}
+--- reply cut
+=== EDIT: src/calc.cpp SYMBOL divide ===
+double divide(double a, double d)
+{
+    if (d == 0) throw std::domain_error("division
+--- reply
+```
+ by zero");
+    return a / d;
+}
+=== END EDIT ===
+```
+--- want src/calc.cpp
+#include <stdexcept>
+
+double divide(double a, double d)
+{
+    if (d == 0) throw std::domain_error("division by zero");
+    return a / d;
+}
+
+double square(double x)
+{
+    return x * x;
+}

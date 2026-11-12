@@ -3,6 +3,8 @@
 /// Private to the agents layer (llm_agent, canvas_agent, fork_agent, agent_card): what every model-driven worker shares. Not a public header.
 
 #include "sub0squad/engine.hpp"
+#include "sub0squad/canvas.hpp"
+#include "sub0squad/harness.hpp"
 #include "sub0squad/plan.hpp"
 
 #include <chrono>
@@ -39,5 +41,36 @@ struct Parsed { std::map<std::string, std::string> files; std::size_t rejectedCh
 extern const char* const kEditSyntax;
 /// The work card as the worker reads it. Counts the tests it showed.
 [[nodiscard]] std::string buildCard(const std::filesystem::path& dir, const Plan& plan, const WorkItem& item, const std::string& itemId, const std::string& treatment, long& testCount);
+
+/// Everything an attempt's turn loop needs, prepared once by `runLlmAgent` (the card, the best earlier draft and its failure, the guidance).
+struct AttemptContext
+{
+    std::filesystem::path dir;
+    std::string itemId, tier, treatment;
+    int attempt = 1, maxTokens = 3000, timeoutSec = 1700, repairTurns = 0;
+    EngineProfile engine;
+    const Plan* plan = nullptr;
+    const WorkItem* item = nullptr;
+    std::string card;                                  ///< the work card text
+    std::string guidance;                              ///< a dispute, a send-down or the manager's note for this attempt ("" when none)
+    std::map<std::string, std::string> baselineFiles;  ///< the best earlier draft of each file (empty on a first attempt)
+    std::string draftGate, draftOrigin;                ///< that draft's failure text, and the ancestor it came from when it predates a division
+    std::chrono::steady_clock::time_point began;
+};
+
+/// The canvas turn loop (docs/CANVAS.md slice 0; canvas_agent.cpp): replies are transactions against a revisioned document, the harness precheck gates
+/// each commit, the conversation is rebuilt each turn from the card and a folded view of the current revision. Same exit codes as the classic loop.
+[[nodiscard]] int runCanvasAttempt(const AttemptContext& a);
+/// Apply a parsed reply to `canvas` (whole files, transactions against the current revisions, the older search edits): "" when everything applied, else why
+/// not. The caller passes a scratch copy, so a refusal leaves the real canvas untouched (all or nothing across the whole reply).
+[[nodiscard]] std::string applyCanvasReply(Canvas& canvas, const CanvasReply& reply, const std::set<std::string>& allowed, const std::string& by);
+/// The harness's cheapest check over the canvas's current files: "" when they pass (or the harness has no precheck).
+[[nodiscard]] std::string precheckCanvas(const Canvas& canvas, const Harness* harness, const std::filesystem::path& dir, const std::string& itemId, int attempt, const std::filesystem::path& attemptDir);
+/// Write `canvas.json` (the log) and every file's current revision under `canvas/` in the attempt directory.
+void persistCanvas(const Canvas& canvas, const std::filesystem::path& attemptDir);
+/// The fixed system block of a canvas worker (transaction forms, a worked LINES example, the read rule), persona last.
+[[nodiscard]] std::string canvasSystemBlock(const std::string& persona, const std::string& brief);
+/// A seed derived from the run's base seed and a label (item, attempt, turn), so retries differ and a rerun replays; -1 stays -1.
+[[nodiscard]] long long turnSeed(long long base, const std::string& label);
 
 }  // namespace sub0squad::agent

@@ -72,6 +72,11 @@ struct GateHooks
     std::string (*afterTesterJudged)(const GateContext& ctx, const Tap& tap) = nullptr;
 };
 
+/// The precheck alone, over candidate files in `--files-dir` (default: the attempt's `out`): a scratch workspace (`attempt-N/ws-pre`: scaffold, the accepted
+/// outputs of the item's dependencies, the candidate files) is built and `hooks.precheck` run over it. Returns "" when the files pass, else the located
+/// diagnostic. Nothing is judged, published or written to `gate.txt`: it is the commit gate of a canvas transaction, cheap enough to run on every edit.
+[[nodiscard]] std::string runPrecheckFlow(const GateHooks& hooks, const std::vector<std::string>& args);
+
 /// The common gate: allowlist, workspace (scaffold, dependencies' accepted outputs, the attempt), precheck, build and run, then judge (minimum tests,
 /// tests must fail against stubs for testers, near pass exit 3, same-failures exit 5) and publish. `args` are those of the gate command.
 [[nodiscard]] int runGateFlow(const GateHooks& hooks, const std::vector<std::string>& args);

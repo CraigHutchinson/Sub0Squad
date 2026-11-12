@@ -42,7 +42,11 @@ add_library(sub0squad_core STATIC
   src/triage.cpp
   src/llm_agent.cpp
   src/agent_card.cpp
-  src/fork_agent.cpp
+  src/canvas_agent.cpp
+  src/fork.cpp
+  src/blocks.cpp
+  src/throughput.cpp
+  src/turn_control.cpp
   src/web_templates.cpp
   src/harness_common.cpp
   src/harness_web.cpp
@@ -110,6 +114,17 @@ set_tests_properties(test_platforms PROPERTIES TIMEOUT 300)
 sub0squad_add_test(test_stream)
 set_tests_properties(test_stream PROPERTIES TIMEOUT 60)
 sub0squad_add_test(test_agent)
+sub0squad_add_test(test_canvas_agent)
+set_tests_properties(test_canvas_agent PROPERTIES TIMEOUT 300)
+sub0squad_add_test(test_fork)
+set_tests_properties(test_fork PROPERTIES TIMEOUT 300)
+add_executable(test_blocks tests/test_blocks.cpp)
+target_compile_options(test_blocks PRIVATE ${SUB0SQUAD_STRICT})
+target_include_directories(test_blocks PRIVATE tests)
+target_link_libraries(test_blocks PRIVATE sub0squad_core simdjson::simdjson)
+add_test(NAME test_blocks COMMAND test_blocks $<TARGET_FILE:sub0squad> ${CMAKE_CURRENT_SOURCE_DIR}/tests/data/replies)
+add_dependencies(test_blocks sub0squad)
+set_tests_properties(test_blocks PROPERTIES TIMEOUT 300)
 set_tests_properties(test_agent PROPERTIES TIMEOUT 300)
 sub0squad_add_test(test_scenarios)
 set_tests_properties(test_scenarios PROPERTIES TIMEOUT 600)

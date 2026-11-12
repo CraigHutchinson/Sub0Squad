@@ -1,0 +1,22 @@
+# name: error-lines-out-of-range
+# expect-error: the file has 12 lines
+--- base src/calc.cpp
+#include <stdexcept>
+
+double divide(double a, double d)
+{
+    if (d == 0) return 0;
+    return a / d;
+}
+
+double square(double x)
+{
+    return x * x;
+}
+--- reply
+=== EDIT: src/calc.cpp LINES 5 ===
+    return 1;
+=== END EDIT ===
+=== EDIT: src/calc.cpp LINES 40-41 ===
+x
+=== END EDIT ===

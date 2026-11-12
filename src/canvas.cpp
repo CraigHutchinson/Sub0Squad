@@ -1,8 +1,11 @@
 #include "sub0squad/canvas.hpp"
 
+#include "json_util.hpp"
 #include "sub0squad/outline.hpp"
 
 #include <algorithm>
+#include <cctype>
+#include <cstdlib>
 #include <sstream>
 
 namespace sub0squad {
@@ -65,7 +68,7 @@ TxResult Canvas::apply(const Transaction& tx)
         Span s;
         if (op.kind == CanvasOp::Kind::replaceSymbol) {
             bool found = false;
-            for (const auto& reg : foldRegions(baseText, isPythonPath(tx.path))) {
+            for (const auto& reg : foldRegions(baseText, isPythonPath(tx.path), true)) {
                 const std::string leaf = reg.name.substr(reg.name.rfind(':') == std::string::npos ? 0 : reg.name.rfind(':') + 1);
                 if (reg.name == op.symbol || leaf == op.symbol) { s.from = reg.first; s.to = reg.bodyTo; found = true; break; }
             }
@@ -80,7 +83,7 @@ TxResult Canvas::apply(const Transaction& tx)
         s.repl = split(op.text);
         spans.push_back(std::move(s));
     }
-    std::sort(spans.begin(), spans.end(), [](const Span& a, const Span& b) { return a.from < b.from || (a.from == b.from && a.to < b.to); });
+    std::stable_sort(spans.begin(), spans.end(), [](const Span& a, const Span& b) { return a.from < b.from || (a.from == b.from && a.to < b.to); });   // stable: two insertions after the same line keep the order they were given in
     for (std::size_t i = 1; i < spans.size(); ++i)
         if (spans[i].from <= spans[i - 1].to) { r.error = "two operations overlap at line " + std::to_string(spans[i].from); return r; }
 
@@ -117,6 +120,46 @@ TxResult Canvas::apply(const Transaction& tx)
     return r;
 }
 
+TxResult Canvas::replaceText(const std::string& path, const std::string& text, const std::string& by)
+{
+    TxResult r;
+    auto it = files_.find(path);
+    if (it == files_.end()) { addFile(path, text); r.ok = true; r.revision = 1; return r; }
+    const int current = static_cast<int>(it->second.revisions.size());
+    const int oldCount = static_cast<int>(split(it->second.revisions.back()).size()), newCount = static_cast<int>(split(text).size());
+    it->second.revisions.push_back(join(split(text)));
+    log_.push_back({path, by, current + 1, current, 1, std::max(1, oldCount), newCount - oldCount});
+    r.ok = true;
+    r.revision = current + 1;
+    return r;
+}
+
+std::vector<std::string> Canvas::paths() const
+{
+    std::vector<std::string> v;
+    for (const auto& [path, file] : files_) v.push_back(path);
+    return v;
+}
+
+std::map<std::string, std::string> Canvas::files() const
+{
+    std::map<std::string, std::string> m;
+    for (const auto& [path, file] : files_) m[path] = file.revisions.back();
+    return m;
+}
+
+std::string Canvas::logJson() const
+{
+    json::Writer w;
+    w.beginObject().key("files").beginObject();
+    for (const auto& [path, file] : files_) w.kv(path, static_cast<int>(file.revisions.size()));
+    w.endObject().key("log").beginArray();
+    for (const auto& e : log_)
+        w.beginObject().kv("path", e.path).kv("by", e.by).kv("revision", e.revision).kv("base", e.baseRevision).kv("from", e.from).kv("to", e.to).kv("delta", e.delta).endObject();
+    w.endArray().endObject();
+    return w.take();
+}
+
 TxResult Canvas::revertTo(const std::string& path, int revision, const std::string& by)
 {
     TxResult r;
@@ -130,6 +173,107 @@ TxResult Canvas::revertTo(const std::string& path, int revision, const std::stri
     r.ok = true;
     r.revision = current + 1;
     return r;
+}
+
+// ---- replies as transactions -----------------------------------------------------------------------------------------------------------------------
+namespace {
+
+bool startsWith(const std::string& s, const char* p) { return s.rfind(p, 0) == 0; }
+
+/// `  12| code` -> `code` when EVERY non-blank line carries the number column of the view (a worker copied it); otherwise the text unchanged.
+std::string stripNumberColumn(const std::vector<std::string>& body)
+{
+    const auto column = [](const std::string& line) -> std::size_t {   // the offset after "N| " or npos
+        std::size_t i = 0;
+        while (i < line.size() && line[i] == ' ') ++i;
+        std::size_t d = i;
+        while (d < line.size() && std::isdigit(static_cast<unsigned char>(line[d]))) ++d;
+        if (d == i || d >= line.size() || line[d] != '|') return std::string::npos;
+        return d + (d + 1 < line.size() && line[d + 1] == ' ' ? 2 : 1);
+    };
+    bool all = false;
+    for (const auto& l : body) {
+        if (l.find_first_not_of(" \t\r") == std::string::npos) continue;
+        if (column(l) == std::string::npos) return join(body);
+        all = true;
+    }
+    if (!all) return join(body);
+    std::string out;
+    for (const auto& l : body) { const auto c = column(l); out += (c == std::string::npos ? l : l.substr(c)) + "\n"; }
+    return out;
+}
+
+/// The body of a block: a wrapping markdown fence and trailing blank lines removed, the number column stripped.
+std::string blockText(std::vector<std::string> body)
+{
+    for (auto& l : body) if (!l.empty() && l.back() == '\r') l.pop_back();
+    if (!body.empty() && startsWith(body.front(), "```")) body.erase(body.begin());
+    while (!body.empty() && body.back().find_first_not_of(" \t") == std::string::npos) body.pop_back();
+    if (!body.empty() && startsWith(body.back(), "```")) body.pop_back();
+    while (!body.empty() && body.back().find_first_not_of(" \t") == std::string::npos) body.pop_back();
+    return stripNumberColumn(body);
+}
+
+}  // namespace
+
+CanvasReply parseCanvasReply(const std::string& reply)
+{
+    CanvasReply out;
+    out.reads = parseReadRequests(reply);
+    const auto lines = split(reply);
+    const auto isHeader = [](const std::string& l) { return startsWith(l, "=== EDIT:") || startsWith(l, "=== FILE:") || startsWith(l, "=== READ:") || startsWith(l, "=== END "); };
+    const auto txFor = [&](const std::string& path) -> Transaction& {
+        for (auto& t : out.transactions) if (t.path == path) return t;
+        out.transactions.push_back({path, 0, {}, {}});
+        return out.transactions.back();
+    };
+    for (std::size_t i = 0; i < lines.size(); ++i) {
+        const bool edit = startsWith(lines[i], "=== EDIT:"), file = startsWith(lines[i], "=== FILE:");
+        if (!edit && !file) continue;
+        std::string head = lines[i].substr(9);
+        if (const auto close = head.rfind("==="); close != std::string::npos) head.erase(close);
+        head.erase(0, head.find_first_not_of(" \t"));
+        head.erase(head.find_last_not_of(" \t\r") + 1);
+        std::vector<std::string> body;
+        std::size_t j = i + 1;
+        for (; j < lines.size() && !isHeader(lines[j]); ++j) body.push_back(lines[j]);
+        i = j - 1;
+        std::string raw;
+        for (const auto& l : body) raw += l + "\n";
+        const bool search = raw.find("<<<<<<< SEARCH") != std::string::npos;
+        if (file) {
+            if (head.empty()) { out.error = "a FILE block names no path"; return out; }
+            if (search) { out.searchEdits += "=== EDIT: " + head + " ===\n" + raw + "=== END EDIT ===\n"; continue; }   // edit markers inside a file block: read as edits
+            const std::string text = blockText(body);
+            if (!text.empty()) out.wholeFiles[head] = text;
+            continue;
+        }
+        std::istringstream in(head);
+        std::string path, kind, spec;
+        in >> path >> kind >> spec;
+        if (path.empty()) { out.error = "an EDIT block names no path"; return out; }
+        if (kind.empty()) {
+            if (!search) { out.error = "the EDIT of '" + path + "' names no LINES a-b, AFTER n or SYMBOL name and holds no SEARCH block"; return out; }
+            out.searchEdits += "=== EDIT: " + path + " ===\n" + raw + "=== END EDIT ===\n";
+            continue;
+        }
+        CanvasOp op;
+        op.text = blockText(body);
+        if (kind == "SYMBOL") {
+            if (spec.empty()) { out.error = "the EDIT of '" + path + "' says SYMBOL but names no function"; return out; }
+            if (op.text.empty()) { out.error = "the SYMBOL edit of '" + spec + "' is empty: give the whole function, from its signature to its last line"; return out; }
+            op.kind = CanvasOp::Kind::replaceSymbol;
+            op.symbol = spec;
+        } else if (kind == "LINES" || kind == "LINE" || kind == "AFTER") {
+            if (spec.empty() || !std::isdigit(static_cast<unsigned char>(spec[0]))) { out.error = "the EDIT of '" + path + "' says " + kind + " but gives no line number"; return out; }
+            op.from = std::atoi(spec.c_str());
+            const auto dash = spec.find('-');
+            op.to = dash == std::string::npos ? op.from : std::atoi(spec.c_str() + dash + 1);
+            op.kind = kind == "AFTER" ? CanvasOp::Kind::insertAfter : CanvasOp::Kind::replaceLines;
+        } else { out.error = "the EDIT of '" + path + "' has an unknown form '" + kind + "' (use LINES a-b, AFTER n or SYMBOL name)"; return out; }
+        txFor(path).ops.push_back(std::move(op));
+    }
+    return out;
 }
 
 }  // namespace sub0squad
