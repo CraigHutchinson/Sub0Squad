@@ -4,3 +4,4 @@ build/
 .idea/
 *.swp
 test-tmp/
+.claude/worktrees/
