@@ -13,6 +13,12 @@ namespace {
 std::string knownHarnesses() { std::string s; for (const auto& n : harnessNames()) s += (s.empty() ? "" : ", ") + n; return s; }
 }  // namespace
 
+std::string Plan::notRunnable() const
+{
+    if (findHarness(harness)) return {};
+    return harness.empty() ? "the plan names no project harness (known: " + knownHarnesses() + ")" : "unknown project harness '" + harness + "' (known: " + knownHarnesses() + ")";
+}
+
 std::string Plan::toJson() const
 {
     json::Writer w;
@@ -152,7 +158,7 @@ std::expected<Plan, std::string> Plan::fromJson(std::string_view text, int cardB
     } catch (const simdjson::simdjson_error& e) {
         return std::unexpected("plan is not valid JSON of the expected shape (at " + where + "): " + e.what());
     }
-    if (schema != "plan-1" && schema != "plan-2") return std::unexpected("unsupported plan schema '" + schema + "'");
+    if (schema != "plan-2") return std::unexpected("unsupported plan schema '" + schema + "' (plan-2 is the only one)");
     if (plan.harness != "" && !findHarness(plan.harness)) return std::unexpected("unknown project harness '" + plan.harness + "' (known: " + knownHarnesses() + ")");
     if (auto ok = plan.validate(cardBudgetTokens); !ok) return std::unexpected(ok.error());
     return plan;

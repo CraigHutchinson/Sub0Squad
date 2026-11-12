@@ -86,6 +86,14 @@ static Sim startSim(int maxLocal = 2, FrontierMode fm = FrontierMode::stub, bool
 
 int main()
 {
+    {   // A plan that is to run names a registered harness; the parser alone still reads one without (these rule tests build such plans in memory).
+        CHECK(makePlan().notRunnable().find("names no project harness") != std::string::npos);
+        Plan p = makePlan();
+        p.harness = "web-static";
+        CHECK(p.notRunnable().empty());
+        p.harness = "mystery";
+        CHECK(p.notRunnable().find("unknown project harness 'mystery'") != std::string::npos);
+    }
     { // failure detail: expected and actual values reach the worker
         const std::string tap = "TAP version 13\nnot ok 1 - adds\n  ---\n  location: '/x/a.test.mjs:2:1'\n  error: |-\n    Expected values to be strictly equal:\n  code: 'ERR_ASSERTION'\n  expected: 3\n  actual: 2\n  ...\n# tests 1\n# pass 0\n# fail 1\n";
         const std::string ex = webFailureExcerpt(tap);
@@ -124,7 +132,8 @@ int main()
         const TriageResult web = triage("write a scientific calculator as a web page");
         CHECK(web.blueprint == "calculator-web" && web.architect == "not needed" && web.split && web.projectType == "web-static");
         const TriageResult basic = triage("make a calculator");
-        CHECK(basic.blueprint == "calculator-basic" && !basic.split);
+        CHECK(basic.blueprint == "calculator-cpp" && basic.split && basic.projectType == "cpp-cmake");   // no platform named: the native one
+        CHECK(isKnownTask("calculator-py") && isKnownTask("calculator-cpp") && !isKnownTask("calculator-basic"));   // a blueprint is what a registered harness offers
         const TriageResult unknown = triage("build a unit converter page with length and mass");
         CHECK(unknown.blueprint.empty() && unknown.architect == "deferred" && unknown.projectType == "web-static");
         CHECK(needsPlanPacket("x", unknown, "w-1").find("plan-2 syntax") != std::string::npos);

@@ -73,7 +73,6 @@ add_library(sub0squad_core STATIC
   src/portal.cpp
   src/portal_page.cpp
   src/event_channel.cpp
-  src/calculator_templates.cpp
   src/sandbox.cpp
   src/workflow.cpp
   src/policy.cpp
@@ -82,7 +81,8 @@ target_include_directories(sub0squad_core PUBLIC include PRIVATE src)
 target_compile_options(sub0squad_core PRIVATE ${SUB0SQUAD_STRICT})
 target_link_libraries(sub0squad_core PUBLIC Sub0Pipeline::Sub0Pipeline Sub0Pipeline::Priority Sub0Pub::Sub0Pub Threads::Threads PRIVATE simdjson::simdjson)
 
-add_executable(sub0squad src/sub0squad.cpp)
+add_executable(sub0squad src/sub0squad.cpp src/first_use.cpp)
+target_include_directories(sub0squad PRIVATE src)
 target_link_libraries(sub0squad PRIVATE version::version)
 target_compile_options(sub0squad PRIVATE ${SUB0SQUAD_STRICT})
 target_link_libraries(sub0squad PRIVATE sub0squad_core simdjson::simdjson)
@@ -107,8 +107,6 @@ sub0squad_add_test(test_journal)
 sub0squad_add_test(test_job_store)
 sub0squad_add_test(test_workflow)
 sub0squad_add_test(test_host_guard)
-sub0squad_add_test(test_sandbox)
-set_tests_properties(test_sandbox PROPERTIES TIMEOUT 300)
 sub0squad_add_test(test_platforms)
 set_tests_properties(test_platforms PROPERTIES TIMEOUT 300)
 sub0squad_add_test(test_stream)
@@ -129,6 +127,12 @@ set_tests_properties(test_agent PROPERTIES TIMEOUT 300)
 sub0squad_add_test(test_scenarios)
 set_tests_properties(test_scenarios PROPERTIES TIMEOUT 600)
 sub0squad_add_test(test_project)
+add_executable(test_readme tests/test_readme.cpp)
+target_compile_options(test_readme PRIVATE ${SUB0SQUAD_STRICT})
+target_include_directories(test_readme PRIVATE tests)
+add_test(NAME test_readme COMMAND test_readme $<TARGET_FILE:sub0squad> ${CMAKE_CURRENT_SOURCE_DIR}/README.md)
+add_dependencies(test_readme sub0squad)
+set_tests_properties(test_readme PROPERTIES TIMEOUT 900)
 set_tests_properties(test_project PROPERTIES TIMEOUT 600)
 sub0squad_add_test(test_e2e)
 set_tests_properties(test_e2e PROPERTIES TIMEOUT 300)

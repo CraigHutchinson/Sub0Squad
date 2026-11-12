@@ -16,7 +16,7 @@ bool has(const std::string& text, std::initializer_list<const char*> words)
 }
 }  // namespace
 
-bool isKnownTask(const std::string& t) { return t == "calculator-basic" || t == "calculator-scientific" || t == "calculator-web"; }
+bool isKnownTask(const std::string& t) { return harnessWithBlueprint(t) != nullptr; }
 
 std::string TriageResult::toJson() const
 {
@@ -41,8 +41,7 @@ TriageResult triage(const std::string& original)
     const bool python = py && py->claimsTask && py->claimsTask(t) && !has(t, {"html", "browser", "website", "web page", "javascript", "frontend"});
     const bool web = !native && !python && has(t, {"web", "html", "browser", "website", "page", "javascript", "frontend"});
     const bool calc = has(t, {"calculator", "calc"});
-    const bool scientific = has(t, {"scientific", "trig", "sin", "log"});
-    r.projectType = python ? "py-unittest" : native ? "cpp-cmake" : web ? "web-static" : calc ? "cpp-header" : "unknown";
+    r.projectType = python ? "py-unittest" : native ? "cpp-cmake" : web ? "web-static" : calc ? "cpp-cmake" : "unknown";
     r.reasons.push_back(python ? "mentions Python: py-unittest project harness (standard library, unittest, a TAP runner, a text-frame capture)" : native ? "mentions a native or command-line program: cpp-cmake project harness (CMake, sanitizers, test executables, a text-frame capture)" : web ? "mentions a web page or browser: web-static project harness (static server, node test runner, fake DOM)" : calc ? "a calculator with no web wording: header-only C++ sandbox project" : "no known project type in the task text");
     int c = 1 + static_cast<int>(std::count(t.begin(), t.end(), ' ') / 12);
     for (const char* feature : {"scientific", "matrix", "plot", "graph", "units", "history", "database", "login", "network", "multi", "mobile"}) if (t.find(feature) != std::string::npos) ++c;
@@ -50,8 +49,7 @@ TriageResult triage(const std::string& original)
     if (calc && python) { r.blueprint = "calculator-py"; r.personas = {"tester", "developer"}; r.split = true; }
     else if (calc && native) { r.blueprint = "calculator-cpp"; r.personas = {"tester", "developer"}; r.split = true; }
     else if (calc && web) { r.blueprint = "calculator-web"; r.personas = {"tester", "developer"}; r.split = true; }
-    else if (calc && scientific) { r.blueprint = "calculator-scientific"; r.personas = {"developer"}; r.split = true; }
-    else if (calc) { r.blueprint = "calculator-basic"; r.personas = {"developer"}; r.split = false; }
+    else if (calc) { r.blueprint = "calculator-cpp"; r.personas = {"tester", "developer"}; r.split = true; }   // no platform named: the native one
     if (!r.blueprint.empty()) {
         r.architect = "not needed";
         r.reasons.push_back("a known blueprint ('" + r.blueprint + "') covers this task: no architect, no project manager, no frontier");

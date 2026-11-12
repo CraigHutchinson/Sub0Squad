@@ -344,7 +344,7 @@ JobSpec agentJob(const WorkflowRecord& wf, const WorkflowSettings& st, const Wor
 JobSpec gateJob(const WorkflowRecord& wf, const WorkflowSettings& st, const WorkItem& it, int attempt, const std::string& tier)
 {
     const Harness* harness = wf.plan ? findHarness(wf.plan->harness) : nullptr;
-    const char* gateCommand = harness ? harness->gateCommand : "sandbox-gate";
+    const char* gateCommand = harness ? harness->gateCommand : "";   // a plan always names a registered harness (Plan::fromJson refuses one that does not)
     JobSpec s = baseJob(wf, st, "gate", gateCommand, tier.c_str(), 120);
     s.item = it.id;
     s.attempt = attempt;
@@ -579,7 +579,7 @@ std::vector<WorkflowAction> advance(const WorkflowRecord& wf, const JobStore& st
         for (const JobRecord* j : mine.all) if (j->spec.role == "integrator") integ = j;
         if (!integ) {
             const Harness* harness = findHarness(plan.harness);
-            const char* integrateCommand = harness ? harness->integrateCommand : "sandbox-integrate";
+            const char* integrateCommand = harness ? harness->integrateCommand : "";
             JobSpec s = baseJob(wf, st, "integrator", integrateCommand, "stub", 300);
             s.argv = {st.exe, integrateCommand, "--workflow-dir", wf.spec.sandboxDir};
             out.push_back(start(std::move(s)));
