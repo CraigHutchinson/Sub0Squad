@@ -10,6 +10,7 @@
 #include <chrono>
 #include <filesystem>
 #include <map>
+#include <optional>
 #include <set>
 #include <string>
 #include <vector>
@@ -64,6 +65,9 @@ struct AttemptContext
 /// Apply a parsed reply to `canvas` (whole files, transactions against the current revisions, the older search edits): "" when everything applied, else why
 /// not. The caller passes a scratch copy, so a refusal leaves the real canvas untouched (all or nothing across the whole reply).
 [[nodiscard]] std::string applyCanvasReply(Canvas& canvas, const CanvasReply& reply, const std::set<std::string>& allowed, const std::string& by);
+/// The edits of `reply` applied to `files` as one all-or-nothing transaction set (every edit form the canvas reads): the updated files, or nullopt with why.
+[[nodiscard]] std::optional<std::map<std::string, std::string>> applyAsTransactions(const std::string& reply, const std::map<std::string, std::string>& files, const std::set<std::string>& allowed,
+                                                                                    const std::string& by, std::string& error);
 /// The harness's cheapest check over the canvas's current files: "" when they pass (or the harness has no precheck).
 [[nodiscard]] std::string precheckCanvas(const Canvas& canvas, const Harness* harness, const std::filesystem::path& dir, const std::string& itemId, int attempt, const std::filesystem::path& attemptDir);
 /// Write `canvas.json` (the log) and every file's current revision under `canvas/` in the attempt directory.

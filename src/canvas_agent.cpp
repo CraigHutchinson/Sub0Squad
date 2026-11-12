@@ -87,6 +87,17 @@ std::string applyCanvasReply(Canvas& canvas, const CanvasReply& reply, const std
     return {};
 }
 
+std::optional<std::map<std::string, std::string>> applyAsTransactions(const std::string& reply, const std::map<std::string, std::string>& files, const std::set<std::string>& allowed, const std::string& by, std::string& error)
+{
+    Canvas canvas;
+    for (const auto& [path, text] : files) canvas.addFile(path, text);
+    const CanvasReply parsed = parseCanvasReply(reply);
+    if (parsed.error.empty() && !parsed.hasEdits()) { error = "the reply holds no edit blocks"; return std::nullopt; }
+    error = applyCanvasReply(canvas, parsed, allowed, by);
+    if (!error.empty()) return std::nullopt;
+    return canvas.files();
+}
+
 std::string precheckCanvas(const Canvas& canvas, const Harness* harness, const fs::path& dir, const std::string& itemId, int attempt, const fs::path& attemptDir)
 {
     if (!harness || !harness->precheck) return {};

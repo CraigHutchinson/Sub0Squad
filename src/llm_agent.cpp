@@ -8,6 +8,7 @@
 #include "sub0squad/plan.hpp"
 #include "sub0squad/policy.hpp"
 #include "sub0squad/trace.hpp"
+#include "sub0squad/turn_control.hpp"
 #include "sub0squad/sandbox.hpp"
 
 #include <algorithm>
@@ -195,7 +196,8 @@ int runLlmAgent(const std::vector<std::string>& args)
     std::size_t lastFiles = 0, lastRejected = 0;
     std::string partialPath, partialText;               // a file cut off at the token limit, and what was written of it: the next turn continues it instead of starting over
     std::map<std::string, std::string> carryFiles;      // the files that were complete before the cut
-    int continuations = 0, reads = 0;
+    int continuations = 0, reads = 0, aborts = 0;
+    std::string partialEdit;                            // an EDIT reply cut off at the token limit, so far: the next reply is appended to it
     std::map<std::string, std::string> currentFiles = baselineFiles;  // the files of the latest turn (or the best earlier attempt): what an edit applies to
     int turnLimit = repairTurns;   // continuing a cut-off file does not use up a repair turn
     for (int turn = 0; turn <= turnLimit; ++turn) {
@@ -219,7 +221,10 @@ int runLlmAgent(const std::vector<std::string>& args)
             if (!reasoning.empty()) { if (!inReasoning) { o << "[thinking]\n"; inReasoning = true; } o << reasoning; }
             if (!content.empty()) { if (inReasoning) { o << "\n[answer]\n"; inReasoning = false; } o << content; }
         };
-        auto reply = chatCompleteMessages(turnEngine, convo, maxTokens, timeoutSec, liveSink);
+        // Early abort (row 34): the reply is judged while it streams and cancelled when it is going wrong in a known way (twice at most per attempt).
+        Runaway runaway;
+        const StreamGuard guard = [&](const std::string& soFar) { runaway = detectRunaway(partialEdit + soFar, currentFiles); return static_cast<bool>(runaway); };
+        auto reply = chatCompleteMessages(turnEngine, convo, maxTokens, timeoutSec, liveSink, aborts < 2 ? guard : StreamGuard{});
         { std::error_code lec; fs::remove(livePath, lec); }
         if (!reply) {
             traceVerdict(tracePath, turn, "the engine call failed: " + reply.error());
@@ -231,7 +236,28 @@ int runLlmAgent(const std::vector<std::string>& args)
         traceReply(tracePath, turn, *reply);
         writeFile(attemptDir / ("reply-" + std::to_string(turn) + ".txt"), reply->content);
         writeFile(attemptDir / "reply.txt", reply->content);
-        if (!currentFiles.empty() && reads < 6 && reply->content.find("=== EDIT:") == std::string::npos && reply->content.find("=== FILE:") == std::string::npos) {
+        if (reply->finishReason == "aborted") {
+            ++aborts;
+            ++turnLimit;   // nothing was applied: the re-prompt is not a repair turn
+            partialEdit.clear();
+            traceVerdict(tracePath, turn, "cancelled while streaming (" + runaway.kind + ") after " + std::to_string(reply->content.size()) + " characters");
+            std::printf("turn %d: cancelled early (%s)\n", turn, runaway.kind.c_str());
+            events::note("reply cancelled early: " + runaway.kind);
+            continueWith("[your previous reply was stopped and is not repeated here]", false, runaway.instruction);
+            continue;
+        }
+        // A cut-off EDIT reply is continued by appending, like a cut-off file (row 34); the overlap a continuation repeats is trimmed (row 35).
+        if (!partialEdit.empty()) { reply->content = partialEdit + continuationText(partialEdit, reply->content); partialEdit.clear(); }
+        if (reply->finishReason == "length" && partialPath.empty() && continuations < 3 && cutOffInsideEdit(reply->content)) {
+            ++continuations;
+            ++turnLimit;
+            partialEdit = reply->content;
+            traceVerdict(tracePath, turn, "cut off at the token limit inside an edit after " + std::to_string(partialEdit.size()) + " characters: asked to continue it (continuation " + std::to_string(continuations) + ")");
+            std::printf("turn %d: edit cut off, continuing (%d)\n", turn, continuations);
+            continueWith(reply->content, true, "Your reply was cut off at the token limit in the middle of an edit. It ended with:\n```\n" + (partialEdit.size() > 700 ? partialEdit.substr(partialEdit.size() - 700) : partialEdit) + "\n```\nContinue from exactly that point: reply with only the rest (no header, no repetition, no explanation) and finish it.");
+            continue;
+        }
+        if (!currentFiles.empty() && reply->content.find("=== EDIT:") == std::string::npos && reply->content.find("=== FILE:") == std::string::npos) {
             // A read request (docs/FOLDED_VIEWS.md): the worker asks for folded lines before editing. Answered in the same conversation; it costs no repair turn.
             const auto requests = parseReadRequests(reply->content);
             if (!requests.empty()) {
@@ -240,27 +266,24 @@ int runLlmAgent(const std::vector<std::string>& args)
                     const auto f = currentFiles.find(rq.path);
                     answer += f == currentFiles.end() ? "=== " + rq.path + ": not one of the files of this item ===\n" : answerRead(rq, f->second, isPythonPath(rq.path));
                 }
+                // Reads are bounded (row 36): two read-only replies are answered without using a turn; from the third each one is a spent turn.
                 ++reads;
-                ++turnLimit;
-                traceVerdict(tracePath, turn, "read request: " + std::to_string(requests.size()) + " region(s) shown, no repair turn used");
-                std::printf("turn %d: read request answered (%zu region(s))\n", turn, requests.size());
-                continueWith(reply->content, false, answer + "Now reply with your edits (or complete files).");
+                const bool freeRead = reads <= 2;
+                if (freeRead) ++turnLimit;
+                traceVerdict(tracePath, turn, "read request: " + std::to_string(requests.size()) + " region(s) shown" + (freeRead ? ", no repair turn used" : ", counted as a turn (reads are used up)"));
+                std::printf("turn %d: read request answered (%zu region(s))%s\n", turn, requests.size(), freeRead ? "" : ", turn spent");
+                if (turn == turnLimit) break;
+                continueWith(reply->content, false, answer + (reads >= 2 ? "You have used your reads: your next reply MUST be an edit (=== EDIT: ... ===) or a complete file, not another read." : "Now reply with your edits (or complete files)."));
                 continue;
             }
         }
         Parsed parsed;
         std::string cutPath = partialPath;
         if (!partialPath.empty()) {   // this reply continues the file that was cut off: append it, never rewrite what was written
-            std::string body;
-            std::istringstream in(reply->content);
-            for (std::string line; std::getline(in, line);) {
-                if (line.rfind("=== FILE:", 0) == 0 || line.rfind("=== END FILE", 0) == 0) continue;
-                body += line + "\n";
-            }
-            if (body.rfind("```", 0) == 0) { const auto nl = body.find('\n'); body = nl == std::string::npos ? "" : body.substr(nl + 1); }
-            for (const std::string tail : {"\n```\n", "```\n"}) if (body.size() >= tail.size() && body.compare(body.size() - tail.size(), tail.size(), tail) == 0) { body.erase(body.size() - tail.size()); body.push_back('\n'); break; }
+            const std::string body = continuationText(partialText, reply->content);
             parsed.files = carryFiles;
             parsed.files[partialPath] = partialText + body;
+            if (parsed.files[partialPath].empty() || parsed.files[partialPath].back() != '\n') parsed.files[partialPath].push_back('\n');
             parsed.fileChars = body.size();
             std::printf("turn %d: continued %s (%zu more characters)\n", turn, partialPath.c_str(), body.size());
             partialPath.clear();
@@ -286,7 +309,7 @@ int runLlmAgent(const std::vector<std::string>& args)
         }
         if (parsed.files.empty() && !currentFiles.empty() && reply->content.find("=== EDIT:") != std::string::npos) {
             std::string editError;
-            if (auto merged = applyEdits(reply->content, currentFiles, allowed, editError)) {
+            if (auto merged = applyAsTransactions(reply->content, currentFiles, allowed, itemId, editError)) {   // one applier for every edit form (LINES, AFTER, SYMBOL, SEARCH)
                 parsed.files = *merged;
                 parsed.fileChars = reply->content.size();
                 std::printf("turn %d: edits applied to %zu file(s)\n", turn, parsed.files.size());
@@ -316,6 +339,8 @@ int runLlmAgent(const std::vector<std::string>& args)
             ++continuations;
             partialPath = cutPath;
             partialText = parsed.files[cutPath];
+            // The text exactly as it was cut: the parser ends every file with a newline, but a reply cut in the middle of a line must be continued on that line.
+            if (!reply->content.empty() && reply->content.back() != '\n' && !partialText.empty() && partialText.back() == '\n') partialText.pop_back();
             carryFiles = parsed.files;
             carryFiles.erase(cutPath);
             const std::string tail = partialText.size() > 700 ? partialText.substr(partialText.size() - 700) : partialText;
