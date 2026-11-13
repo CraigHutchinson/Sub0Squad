@@ -102,6 +102,25 @@ int main(int argc, char** argv)
         CHECK_EQ(cv.text("a.cpp"), std::string("int tiny() { return 10; }\n\nint two() { return 20; }\n"));
         CHECK(cv.logJson().find("\"a.cpp\":3") != std::string::npos);
     }
+    // ---- the skeleton is the harness's job (row 46): `@@ signature` lines become stubbed functions, per language ----
+    {
+        const Skeleton py = expandSkeleton("import math\n\nclass P:\n    def __init__(self):\n        self.n = 0\n\n    @@ def term(self, x)\n\n@@ def evaluate(expr):\n", "calc/engine.py");
+        CHECK(py.error.empty() && py.sections.size() == 2 && py.sections[0].name == "term" && py.sections[1].name == "evaluate");
+        CHECK(py.text.find("    def term(self, x):\n        raise NotImplementedError(\"not implemented: term\")\n") != std::string::npos);
+        CHECK(py.text.find("def evaluate(expr):\n    raise NotImplementedError(\"not implemented: evaluate\")\n") != std::string::npos && py.text.find("@@") == std::string::npos);
+        CHECK_EQ(foldRegions(py.text, true, true).size(), static_cast<std::size_t>(3));                // every stub is a function that can be replaced by name
+        const Skeleton cpp = expandSkeleton("#include <cmath>\n\nnamespace n {\n\nclass P\n{\n    @@ double term();\n};\n\n@@ static double sq(double x)\n@@ double area(double r) {\n\n}\n", "src/a.cpp");
+        CHECK(cpp.error.empty() && cpp.sections.size() == 3);
+        CHECK(cpp.text.find("#include <cmath>\n#include <stdexcept>\n") != std::string::npos);     // what the placeholders need
+        CHECK(cpp.text.find("static double sq(double x);\ndouble area(double r);\n\nstatic double sq(double x)\n{\n    throw std::logic_error(\"not implemented: sq\");\n}\n") != std::string::npos);   // prototypes first: sections may call each other in any order
+        CHECK(cpp.text.find("    double term()\n    {\n        throw std::logic_error(\"not implemented: term\");\n    }\n") != std::string::npos);
+        CHECK(cpp.text.find("double term();") == std::string::npos);                                 // a method needs no prototype
+        const Skeleton js = expandSkeleton("@@ export function evaluate(expr) {\n", "src/calc.js");
+        CHECK_EQ(js.text, std::string("export function evaluate(expr) {\n    throw new Error('not implemented: evaluate');\n}\n"));
+        CHECK(expandSkeleton("x = 1\n@@ compute the total\n", "a.py").error.find("line 2 is not a function signature") != std::string::npos);
+        CHECK(expandSkeleton("@@ def f(a)\n@@ def f(b)\n", "a.py").error.find("declared twice") != std::string::npos);
+        CHECK(expandSkeleton("x = 1\n", "a.py").sections.empty() && expandSkeleton("x = 1\n", "a.py").text == "x = 1\n");
+    }
     // ---- block 5: the canvas against a model ----
     {
         const ModelCheck m = canvasModelCheck(1000, 20261112u);

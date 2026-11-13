@@ -3,6 +3,7 @@
 #include <filesystem>
 #include <fstream>
 #include <sstream>
+#include "sub0squad/harness.hpp"
 #include "sub0squad/harness_web.hpp"
 #include "sub0squad/briefing.hpp"
 #include "sub0squad/canvas.hpp"
@@ -321,6 +322,60 @@ int main()
         CHECK(policy.decide(c).action == Action::decompose);
         c.localAttempts = 2; c.nearPass = false;   // not a near pass: the ladder starts at decompose
         CHECK(policy.decide(c).action == Action::decompose);
+    }
+    { RulePolicy policy; // Row 44: only a developer's item is ever divided. A tester that fails goes retry, then the card is rewritten, then escalation or fail.
+        DecisionContext c; c.persona = "tester"; c.localAttempts = 2; c.maxLocalAttempts = 2; c.totalAttempts = 2; c.splittable = true; c.frontier = FrontierMode::off;
+        CHECK(policy.decide(c).action == Action::rearchitect);
+        c.oversize = true;
+        CHECK(policy.decide(c).action == Action::rearchitect);
+        c.rearchitectTried = true;
+        CHECK(policy.decide(c).action == Action::fail);
+        c.persona = "developer"; c.oversize = false; c.rearchitectTried = false;
+        CHECK(policy.decide(c).action == Action::decompose);                                   // the same context for a developer divides
+        // The validator says the same of a fragment: a tester's item is not divided, least of all into implementation work.
+        Plan base = Plan::fromJson(blueprintJson("calculator-web")).value();
+        Plan frag; frag.task = "x"; frag.harness = "web-static";
+        WorkItem d1; d1.id = "dev-calc"; d1.persona = "developer"; d1.files = {"src/x.js"};
+        WorkItem d2; d2.id = "dev-cli"; d2.persona = "developer"; d2.files = {"src/y.js"};
+        frag.items = {d1, d2};
+        const auto refused = Plan::amended(base, "test-engine", frag);
+        CHECK(!refused.has_value() && refused.error().find("is a tester's item and cannot be divided into implementation work (part 'dev-calc' is a developer's)") != std::string::npos);
+    }
+    { RulePolicy policy; // Row 45: where the platform divides by sections of a file, the ladder never asks for a division into new modules; it writes the item as forked sections, once.
+        DecisionContext c; c.divideBySections = true; c.localAttempts = 2; c.maxLocalAttempts = 2; c.totalAttempts = 2; c.splittable = true;
+        CHECK(policy.decide(c).action == Action::sections);
+        c.sectionsTried = true; c.hasTesterDep = true;
+        CHECK(policy.decide(c).action == Action::reviseTests);                                 // then the ladder goes on, never to decompose
+        DecisionContext o; o.divideBySections = true; o.oversize = true; o.localAttempts = 1; o.totalAttempts = 1;
+        CHECK(policy.decide(o).action == Action::sections);                                    // too big for one reply: sections at once, even for one file
+        o.persona = "tester";
+        CHECK(policy.decide(o).action == Action::retry);
+        CHECK(std::string(toString(Action::sections)) == "sections");
+    }
+    { // Row 45 through the engine: on the C++ platform a spent developer item gets a `sections` decision and its next attempt IS the fork executor.
+        Sim s;
+        s.settings.frontier = FrontierMode::off;
+        WorkflowSpec spec;
+        spec.task = "t"; spec.sandboxDir = "/sb"; spec.maxLocalAttempts = 1; spec.agent = "llm"; spec.engines = {"e=http://127.0.0.1:9/v1"};
+        s.feed("workflowSubmitted", wfbody::submitted("w-000001", spec));
+        Plan p = Plan::fromJson(findHarness("cpp-cmake")->blueprint("calculator-cpp")).value();
+        s.feed("workflowPlanned", wfbody::planned("w-000001", p));
+        bool sawSections = false, sawDecompose = false, sawFork = false;
+        int sectionsAttempt = 0;
+        for (int guard = 0; guard < 40 && s.wfs.find("w-000001")->state == WorkflowState::running; ++guard) {
+            const auto acts = s.step();
+            for (const auto& a : acts) {
+                if (a.kind == WorkflowAction::Kind::recordDecision && a.decisionAction == "sections") { sawSections = true; sectionsAttempt = a.attempt + 1; CHECK_EQ(a.item, std::string("dev-engine")); }
+                if (a.kind == WorkflowAction::Kind::startJob && a.job.role == "decompose") sawDecompose = true;
+                if (a.kind == WorkflowAction::Kind::startJob && a.job.role == "agent" && a.job.item == "dev-engine" && a.job.argv.size() > 1) {
+                    if (static_cast<int>(a.job.attempt) == sectionsAttempt) { sawFork = true; CHECK_EQ(a.job.argv[1], std::string("llm-fork")); }
+                    else if (a.job.attempt == 1) CHECK_EQ(a.job.argv[1], std::string("llm-agent"));
+                }
+            }
+            // testers pass; developers' gates fail, so dev-engine climbs its ladder
+            for (const auto& id : s.run(acts)) { const auto* j = s.job(id); s.finishJob(id, j->spec.item.rfind("test-", 0) == 0 || j->spec.role == "agent" || j->spec.role == "rearchitect" ? JobState::succeeded : JobState::failed); }
+        }
+        CHECK(sawSections && sawFork && !sawDecompose && sectionsAttempt > 1);
     }
     { RulePolicy policy; // Plan phase: an oversize verdict divides at once, before any local retry; at the depth limit it does not.
         DecisionContext c; c.workflow = "w"; c.item = "engine"; c.attempt = 1; c.localAttempts = 1; c.failedRole = "agent"; c.splittable = true; c.oversize = true; c.totalAttempts = 1;

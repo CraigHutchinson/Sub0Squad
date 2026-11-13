@@ -19,7 +19,7 @@ namespace sub0squad {
 /// `llm-agent --workflow-dir D --item I --tier T --attempt N --engine NAME=URL[,model=..]`: one real engine call per attempt (tier `frontier-stub` stands in
 /// with the mock templates: no frontier provider exists in this build). Reports where its tokens went.
 [[nodiscard]] int runLlmAgent(const std::vector<std::string>& args);
-/// `llm-fork --workflow-dir D --item I --attempt N --engine E [--parallel N] [--sequential-reason TEXT] [--mem-floor-mib N] [--agent-exit 1]`: forked sections
+/// `llm-fork --workflow-dir D --item I --attempt N --engine E [--parallel N] [--sequential-reason TEXT] [--mem-floor-mib N] [--attempt-wall SEC] [--agent-exit 1]`: forked sections
 /// on the canvas (include/sub0squad/fork.hpp): a primer writes the skeleton, each function is a section written by a session of its own, side by side up
 /// to the idle slots. Exit 0 the merged file passes its gate, 1 it does not, 2 no usable skeleton (`--agent-exit 1`: 0 whenever the files were written).
 [[nodiscard]] int runLlmFork(const std::vector<std::string>& args);

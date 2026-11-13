@@ -5,6 +5,7 @@
 // commit gate, the integration round, and that no edit is lost in the merge.
 #include "agent_bench.hpp"
 #include "sub0squad/fork.hpp"
+#include "sub0squad/harness_cpp.hpp"
 #include "sub0squad/outline.hpp"
 
 #include <map>
@@ -13,25 +14,29 @@
 using namespace sub0squad;
 using namespace bench;
 
-/// The reference with the bodies of `names` replaced by stubs; `functions` receives each one's reference text.
-static std::string skeletonOf(const std::string& ref, const std::vector<std::string>& names, std::map<std::string, std::string>& functions)
+/// The reference as a DECLARED skeleton (what a primer replies): each function in `names` becomes one `@@ signature` line; `functions` receives each
+/// one's reference text. `python` selects the language of the fold detection.
+static std::string skeletonOf(const std::string& ref, const std::vector<std::string>& names, std::map<std::string, std::string>& functions, bool python = true)
 {
     auto v = lines(ref);
-    const auto regions = foldRegions(ref, true, true);
+    const auto regions = foldRegions(ref, python, true);
     for (auto r = regions.rbegin(); r != regions.rend(); ++r) {   // bottom up, so earlier line numbers stay valid
         if (std::find(names.begin(), names.end(), r->name) == names.end() || functions.count(r->name)) continue;
         std::string text;
         for (int k = r->first; k <= r->bodyTo; ++k) text += v[static_cast<std::size_t>(k) - 1] + "\n";
         functions[r->name] = text;
-        const std::string& first = v[static_cast<std::size_t>(r->bodyFrom) - 1];
-        const std::string stub = first.substr(0, first.find_first_not_of(" \t")) + "raise NotImplementedError(\"not implemented: " + r->name + "\")";
-        v.erase(v.begin() + (r->bodyFrom - 1), v.begin() + r->bodyTo);
-        v.insert(v.begin() + (r->bodyFrom - 1), stub);
+        const std::string sig = v[static_cast<std::size_t>(r->first) - 1];
+        const auto ind = sig.find_first_not_of(" \t");
+        std::string decl = sig.substr(ind);
+        if (python) decl.erase(decl.rfind(':'));
+        v.erase(v.begin() + (r->first - 1), v.begin() + r->bodyTo);
+        v.insert(v.begin() + (r->first - 1), sig.substr(0, ind) + "@@ " + decl);
     }
     std::string out;
     for (const auto& l : v) out += l + "\n";
     return out;
 }
+static std::string skeletonBlock(const std::string& path, const std::string& declared) { return "=== SKELETON: " + path + " ===\n" + declared + "=== END SKELETON ===\n"; }
 static std::string ownerOf(const fake::Request& rq)
 {
     const std::string& ask = rq.last();
@@ -55,9 +60,9 @@ int main()
     std::map<std::string, std::string> fn;
     const std::string skeleton = skeletonOf(ref, names, fn);
     CHECK_EQ(fn.size(), names.size());
-    CHECK(skeleton.find("not implemented: term") != std::string::npos && skeleton.find("math.fmod") == std::string::npos);
+    CHECK(skeleton.find("    @@ def term(self)\n") != std::string::npos && skeleton.find("math.fmod") == std::string::npos);
     const auto primerOr = [&](const fake::Request& rq, const std::function<fake::Reply(const std::string&)>& section) -> fake::Reply {
-        if (rq.last().find("Write the SKELETON first") != std::string::npos) return {fileBlock(skeleton)};
+        if (rq.last().find("Declare the STRUCTURE") != std::string::npos) return {skeletonBlock(kFile, skeleton)};
         return section(ownerOf(rq));
     };
 
@@ -73,7 +78,7 @@ int main()
         const auto rq = engine.requests();
         std::string prefix;
         for (const auto& r : rq) {
-            if (r.last().find("Write the SKELETON first") != std::string::npos) continue;
+            if (r.last().find("Declare the STRUCTURE") != std::string::npos) continue;
             CHECK_EQ(r.messages.size(), static_cast<std::size_t>(2));               // a section's session is small: the system block and one message
             const std::string shared = r.last().substr(0, r.last().find("\nYou own `"));
             if (prefix.empty()) prefix = shared;
@@ -149,12 +154,76 @@ int main()
             }
         CHECK(sawRound);
     }
+    {   // Row 46, as it happened: asked for the structure, the model writes the IMPLEMENTATION. The stream is cancelled past 120 lines (the server is
+        // stopped, not waited for), the re-prompt says why, and a declared skeleton then runs as usual. The skeleton reply is also bounded at the server.
+        const fs::path d = workflow("fork-ignores");
+        std::string implementation = std::string{"=== SKELETON: "} + kFile + " ===\n" + ref + "\n" + ref + "=== END SKELETON ===\n";   // about 300 lines
+        fake::Engine engine([&](const fake::Request& rq, int index) {
+            if (index == 0) { fake::Reply slow{implementation}; slow.pieceChars = 80; slow.pauseMs = 2; return slow; }
+            return primerOr(rq, [&](const std::string& name) { return fake::Reply{edit(name, fn[name])}; });
+        });
+        CHECK_EQ(runLlmFork(forkArgs(d, engine)), 0);
+        CHECK_EQ(slurp(attemptDir(d, 1) / "out" / kFile), ref);
+        CHECK(engine.abortedAfter(0) >= 0 && engine.abortedAfter(0) < static_cast<long>(implementation.size() * 3 / 4));
+        const auto rq = engine.requests();
+        CHECK(rq.size() >= 2 && rq[0].maxTokens == 1500);                                   // bounded at the server, whatever the item's budget
+        CHECK(rq.size() >= 2 && rq[1].last().find("ran past 120 lines and was stopped") != std::string::npos && rq[1].last().find("NO function bodies") != std::string::npos);
+        CHECK(slurp(attemptDir(d, 1) / "fork.json").find("\"skeletonTries\":2") != std::string::npos);
+    }
+    {   // The harness completes the skeleton: a `@@` line that is no signature is refused with its line, and the wall budget stops an attempt that has
+        // none left before another session starts.
+        const fs::path d = workflow("fork-badline");
+        fake::Engine engine([&](const fake::Request& rq, int index) {
+            if (index == 0) return fake::Reply{skeletonBlock(kFile, "import math\n\n@@ evaluate the expression\n")};
+            return primerOr(rq, [&](const std::string& name) { return fake::Reply{edit(name, fn[name])}; });
+        });
+        CHECK_EQ(runLlmFork(forkArgs(d, engine)), 0);
+        const auto rq = engine.requests();
+        CHECK(rq.size() >= 2 && rq[1].last().find("line 3 is not a function signature") != std::string::npos);
+
+        const fs::path d2 = workflow("fork-budget");
+        fake::Reply slow{skeletonBlock(kFile, skeleton)};
+        slow.pieceChars = 8;
+        slow.pauseMs = 40;                                                                   // several seconds for the skeleton alone
+        fake::Engine engine2([&](const fake::Request& rq, int index) { return index == 0 ? slow : primerOr(rq, [&](const std::string& name) { return fake::Reply{edit(name, fn[name])}; }); });
+        CHECK_EQ(runLlmFork(forkArgs(d2, engine2, {"--attempt-wall", "1"})), 2);            // one second: the skeleton call times out
+        CHECK_EQ(engine2.requestCount(), static_cast<std::size_t>(1));                      // and no second session starts on a spent budget
+    }
     {   // A primer that gives no usable skeleton twice ends the attempt with exit 2: nothing is delegated on a skeleton that does not parse.
         const fs::path d = workflow("fork-noskeleton");
-        fake::Engine engine({{fileBlock("def broken(:\n")}});
+        fake::Engine engine({{skeletonBlock(kFile, "def broken(:\n")}});
         CHECK_EQ(runLlmFork(forkArgs(d, engine)), 2);
         CHECK_EQ(engine.requestCount(), static_cast<std::size_t>(2));
         CHECK(slurp(attemptDir(d, 1) / "fork.json").find("no usable skeleton") != std::string::npos);
+    }
+    {   // Rows 45 and 46 on the platform where they happened: the C++ calculator blueprint. The engine is ONE file; it is divided by SECTIONS under a
+        // skeleton the harness completes (no new header, so no part can call a class nobody declared). The declared skeleton holds the class with one
+        // `@@` line per method; the stubs leave methods uncalled and parameters unused, which the partial compile check allows; every section commits
+        // through that check; the merged file passes the real C++ gate and is the reference, byte for byte.
+        const Harness* cpp = findHarness("cpp-cmake");
+        CHECK(cpp && cpp->divideBySections);
+        const std::string file = "src/calc.cpp", cref = cpp->mockFile(file, false);
+        const std::vector<std::string> methods = {"expr", "term", "unary", "postfix", "primary", "number", "name", "call"};
+        std::map<std::string, std::string> cfn;
+        const std::string cskel = skeletonOf(cref, methods, cfn, false);
+        CHECK_EQ(cfn.size(), methods.size());
+        const fs::path d = makeTempDir("fork-cpp");
+        CHECK_EQ(runMockPlanner({"--task", "calculator-cpp", "--out", (d / "plan.json").string()}), 0);
+        CHECK_EQ(runMockAgent({"--workflow-dir", d.string(), "--item", "test-engine", "--tier", "local", "--attempt", "1", "--delay-ms", "0"}), 0);
+        CHECK_EQ(cpp->gate({"--workflow-dir", d.string(), "--item", "test-engine", "--attempt", "1"}), 0);
+        fake::Engine engine([&](const fake::Request& rq, int) {
+            if (rq.last().find("Declare the STRUCTURE") != std::string::npos) return fake::Reply{skeletonBlock(file, cskel)};
+            const std::string name = ownerOf(rq);
+            return fake::Reply{"=== EDIT: " + file + " SYMBOL " + name + " ===\n" + cfn[name] + "=== END EDIT ===\n"};
+        });
+        CHECK_EQ(runLlmFork({"--workflow-dir", d.string(), "--item", "dev-engine", "--attempt", "1", "--engine", engine.profile() + ",slots=4", "--max-tokens", "3000", "--timeout", "60", "--repair-turns", "1"}), 0);
+        const fs::path attempt = d / "items" / "dev-engine" / "attempt-1";
+        CHECK_EQ(slurp(attempt / "out" / file), cref);
+        CHECK_EQ(slurp(attempt / "canvas" / "src_calc.cpp.r1").find("@@"), std::string::npos);                       // revision 1 is the completed skeleton
+        CHECK(slurp(attempt / "canvas" / "src_calc.cpp.r1").find("throw std::logic_error(\"not implemented: term\");") != std::string::npos);
+        const std::string stats = slurp(attempt / "fork.json");
+        CHECK(stats.find("\"passed\":true") != std::string::npos && stats.find("\"skeletonTries\":1") != std::string::npos && stats.find("\"refused\":0") != std::string::npos);
+        CHECK_EQ(engine.requestCount(), static_cast<std::size_t>(9));                                                // the primer and eight sections
     }
     return finish();
 }

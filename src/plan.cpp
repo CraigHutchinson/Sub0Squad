@@ -218,6 +218,11 @@ std::expected<Plan, std::string> Plan::amended(const Plan& base, const std::stri
     const int depth = static_cast<int>(std::count(parentId.begin(), parentId.end(), '.'));
     if (depth >= maxDepth) return std::unexpected("item '" + parentId + "' is already at the maximum division depth (" + std::to_string(maxDepth) + ")");
     if (fragment.items.size() < 2) return std::unexpected("a division needs at least two items");
+    if (parent->persona == "tester") {   // a tester writes one test file; dividing it invents implementation work (docs/INTERVENTIONS.md row 44)
+        for (const auto& f : fragment.items)
+            if (f.persona == "developer") return std::unexpected("'" + parentId + "' is a tester's item and cannot be divided into implementation work (part '" + f.id + "' is a developer's)");
+        return std::unexpected("'" + parentId + "' is a tester's item: a tester's item is not divided");
+    }
     std::set<std::string> fragIds, depended;
     for (const auto& f : fragment.items) fragIds.insert(f.id);
     for (const auto& f : fragment.items) for (const auto& d : f.deps) depended.insert(d);

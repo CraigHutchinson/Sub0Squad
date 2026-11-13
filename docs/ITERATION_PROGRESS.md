@@ -3,7 +3,19 @@
 Branch `worktree-agent-a507f5df083b20ce3`, from tag `parked-v1`. Newest state first. Every "passes" below was observed in `out/build/fable`, run sequentially under a
 process cap; nothing here has run on a real model.
 
-## Where it stands (2026-11-12, last update)
+## Second pass (2026-11-13), newest first
+
+* **Rows 44, 45, 46 from run-v8 (the first real use of the fork executor) are built and tested without a model.** 44: only a developer's item is divided
+  (`RulePolicy`, `Plan::amended`). 46: the primer declares, the harness completes the skeleton (`expandSkeleton`), checked as a partial file; bounded at the
+  server, aborted past 120 lines, an attempt wall budget. 45: the choice is SECTIONS on compiled platforms (`Harness::divideBySections`, `Action::sections`);
+  the CONTRACT stage is recorded as the answer for projects that need new modules and is not built. Design and reasons: `docs/CANVAS.md`, "After the first
+  real run". Tests: `test_fork` (now 8 scenarios, one on the C++ calculator blueprint through the real C++ gate), `test_blocks`, `test_workflow`.
+* **Every plan names a registered harness**: `Plan::fromJson` refuses one that does not; `test_workflow`'s scenarios run on `web-static`; the division
+  scenario is rewritten for the coordinator semantics, the only one left.
+* Next, in order: process as data (golden action logs first), scenarios and `replay` plumbing, the open catalogue rows and the daemon end-to-end test for the
+  canvas and fork executors, components cleanup, the stale documents.
+
+## Where it stood after the first pass (2026-11-12)
 
 * `ctest`: **22 of 22 pass** (the last full sequential run, 133 s); `cmake -P cmake/CheckLayers.cmake` passes with no tolerated violations.
 * `sub0squad block run`: block 1 proven (24 of 24 cases); blocks 5 and 6 partly proven (their model-free part); the rest by ctest, needing a model, or not built.
@@ -27,9 +39,7 @@ process cap; nothing here has run on a real model.
 
 * **Item 1, process as data** (and with it "every workflow is a registered process", and the README's second sample that adds a workflow): not started. It needs the
   golden action logs of `advance()` first; that is the next thing to build. The three executors and the block command are the first entries its registry should hold.
-* **The engine's harness-less branch.** `Plan::fromJson` still reads a plan without a harness and `advance()` still has the non-coordinator division semantics,
-  because `test_workflow`'s `Sim` scenarios are written on such a plan. Nothing can RUN one any more. Removing the branch means rewriting those scenarios on a
-  registered harness; do it together with the goldens of item 1, not before.
+* (Done in the second pass: the engine's harness-less branch is gone.)
 * **Item 3, scenarios:** only `--executor` was added. The six "next scenarios", `scenario compare` and archiving are not built.
 * **Item 4, open catalogue rows:** 14, 19, 20, 22 (the shed check), 25/26 and 31 are untouched.
 * **Item 5:** `test_workflow.cpp`, `client.cpp` and `portal.cpp` are not split; one library per layer is not done.

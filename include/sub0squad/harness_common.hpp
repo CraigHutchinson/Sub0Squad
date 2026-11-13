@@ -70,6 +70,9 @@ struct GateHooks
     std::string (*buildAndRun)(const std::filesystem::path& ws, const std::vector<std::string>& tests, Tap& tap, bool& timedOut) = nullptr;
     /// Optional extra judgement of a tester's tests that already fail against the stubs (the test oracle); returns a failure text or "".
     std::string (*afterTesterJudged)(const GateContext& ctx, const Tap& tap) = nullptr;
+    /// The same check for a file that is still being written in sections (`--partial 1`): a skeleton's stubs leave helpers uncalled and parameters unused,
+    /// which is not an error until the file is whole (row 46). Null: the ordinary precheck serves.
+    std::string (*precheckPartial)(const std::filesystem::path& out, const std::filesystem::path& ws) = nullptr;
 };
 
 /// The precheck alone, over candidate files in `--files-dir` (default: the attempt's `out`): a scratch workspace (`attempt-N/ws-pre`: scaffold, the accepted

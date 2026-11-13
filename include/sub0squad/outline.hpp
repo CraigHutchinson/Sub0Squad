@@ -38,6 +38,21 @@ struct ReadRequest { std::string path; int from = 0, to = 0; std::string symbol;
 /// The numbered lines a request asks for (at most `maxLines`), or a short message when the path, lines or symbol do not exist.
 [[nodiscard]] std::string answerRead(const ReadRequest& r, const std::string& text, bool python, int maxLines = 160);
 
+/// A skeleton the HARNESS completes (docs/CANVAS.md, "The skeleton is the harness's job"; docs/INTERVENTIONS.md row 46). The model declares the structure
+/// only: the file's imports, constants and type declarations written normally, and ONE line `@@ <signature>` where each function or method belongs
+/// (indented as the function will be). The harness turns every `@@` line into that function with a placeholder body that raises
+/// `not implemented: <name>`, adds what the placeholders need (C++: `<stdexcept>`, and a prototype for each file-scope function so sections may call
+/// each other in any order), and the result is what the compile check sees. A model that was asked for stubs and wrote bodies cannot break this:
+/// there is no body for it to write.
+struct SkeletonSection { std::string name, signature; };
+struct Skeleton
+{
+    std::string text;                        ///< the complete file, every section a stub
+    std::vector<SkeletonSection> sections;   ///< in file order
+    std::string error;                       ///< a `@@` line that is not a signature, or the same function twice; `text` is then empty
+};
+[[nodiscard]] Skeleton expandSkeleton(const std::string& declared, const std::string& path);
+
 /// Whether the file's language is indentation-based (by extension).
 [[nodiscard]] bool isPythonPath(const std::string& path);
 

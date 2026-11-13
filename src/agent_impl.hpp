@@ -69,7 +69,8 @@ struct AttemptContext
 [[nodiscard]] std::optional<std::map<std::string, std::string>> applyAsTransactions(const std::string& reply, const std::map<std::string, std::string>& files, const std::set<std::string>& allowed,
                                                                                     const std::string& by, std::string& error);
 /// The harness's cheapest check over the canvas's current files: "" when they pass (or the harness has no precheck).
-[[nodiscard]] std::string precheckCanvas(const Canvas& canvas, const Harness* harness, const std::filesystem::path& dir, const std::string& itemId, int attempt, const std::filesystem::path& attemptDir);
+/// `partial`: the file is still being written in sections (stubs leave helpers and parameters unused), so only what is wrong regardless is reported.
+[[nodiscard]] std::string precheckCanvas(const Canvas& canvas, const Harness* harness, const std::filesystem::path& dir, const std::string& itemId, int attempt, const std::filesystem::path& attemptDir, bool partial = false);
 /// Write `canvas.json` (the log) and every file's current revision under `canvas/` in the attempt directory.
 void persistCanvas(const Canvas& canvas, const std::filesystem::path& attemptDir);
 /// The fixed system block of a canvas worker (transaction forms, a worked LINES example, the read rule), persona last.

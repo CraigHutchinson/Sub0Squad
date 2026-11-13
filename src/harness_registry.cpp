@@ -17,7 +17,7 @@ const Harness kWebStatic = {
 const Harness kCppCmake = {
     "cpp-cmake", "cpp-gate", "cpp-integrate", true,
     &cppHarnessBrief, &cppHarnessFacts, &cppScaffoldBytes, &runCppGate, &cppMockFile, &cppMockBugTarget,
-    "ctest", ".test.cpp", "C++20, standard library only, no warnings", &cppBlueprintJson, &cppClaimsTask, &runCppPrecheck,
+    "ctest", ".test.cpp", "C++20, standard library only, no warnings", &cppBlueprintJson, &cppClaimsTask, &runCppPrecheck, true,
 };
 
 const Harness kPyUnittest = {

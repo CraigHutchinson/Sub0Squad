@@ -39,11 +39,18 @@ struct DecisionContext
     int maxNearPassRepairs = 2;    ///< extra local repair attempts granted to a near pass before the ladder moves on
     bool decomposeTried = false, reviseTried = false, rearchitectTried = false;
     int maxDepth = 2;
+    /// Whose work it is. Only a DEVELOPER's item is ever divided: a tester writes one test file, and an architect asked to divide it invents
+    /// implementation work (docs/INTERVENTIONS.md row 44).
+    std::string persona = "developer";
+    /// The project's harness divides work by SECTIONS of a file, never into new modules (row 45: in a compiled language a new module needs a header that
+    /// no item owns). Where the ladder would divide, it writes the item as forked sections instead, once.
+    bool divideBySections = false, sectionsTried = false;
 };
 
 /// retry: another local attempt. decompose: ask the model to divide the item. reviseTests: send back to the producer (the tester that wrote
 /// the tests this item is graded by). rearchitect: a dedicated job rewrites the work card. escalate: the frontier-stub tier. fail.
-enum class Action { retry, escalate, fail, decompose, reviseTests, rearchitect };
+/// sections: the next attempt writes the item as forked sections on the canvas (a skeleton, then one function per session).
+enum class Action { retry, escalate, fail, decompose, reviseTests, rearchitect, sections };
 
 struct Decision
 {
