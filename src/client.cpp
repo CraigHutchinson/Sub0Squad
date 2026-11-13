@@ -80,7 +80,7 @@ constexpr const char* kUsage =
     "  project plan ID --file plan.json     supply the plan a workflow is awaiting (the deferred architect's answer)\n"
     "  request list [WF] | raise WF --kind K [--scope a,b] [--blocking] [--title T] [--detail D] [--option O]... | answer WF RID [--resolution retry|stop] [--answer TEXT]\n"
     "                                       the inbox: questions, clarifications, requirements, blockers, proposals, escalations\n"
-    "  replay WF NODE [--seeds 1,2,3] [--think] [--decompose]   run one node again in isolation, several seeds side by side (minutes, not a whole workflow)\n"
+    "  replay WF NODE [--seeds 1,2,3] [--think] [--decompose] [--fork [--parallel N | --sequential-reason TEXT]]   run one node again in isolation, several seeds side by side (minutes, not a whole workflow)\n"
     "  qa DIR|WORKFLOW                      quality findings over sources: duplicated code, the same helper declared twice, very long functions\n"
     "  recall WF words... [--item NODE] [--limit N]   search what a workflow already did: conversations, replies, gate outputs, briefings\n"
     "  plan-lint FILE [--tps N]             audit a plan: width, critical path, rough time, serial tails\n"
@@ -758,6 +758,8 @@ int runCli(int argc, char** argv)
             else if (a == "--think") ro.think = true;
             else if (a == "--decompose") ro.decompose = true;
             else if (a == "--fork") ro.fork = true;
+            else if (a == "--parallel") ro.parallel = std::atoi(val().c_str());
+            else if (a == "--sequential-reason") ro.sequentialReason = val();
             else if (a == "--engine") ro.engineProfile = val();
             else if (a == "--max-tokens") ro.maxTokens = std::atoi(val().c_str());
             else if (a == "--repair-turns") ro.repairTurns = std::atoi(val().c_str());

@@ -96,11 +96,18 @@ Run one at a time, with the engine otherwise idle, and archive each `--out` dire
    ```sh
    sub0squad replay WORKFLOW dev-engine --fork --seeds 1,2,3 --engine ENGINE --max-tokens 1500 --repair-turns 2
    ```
-   `replay --fork` runs `llm-fork` per seed; each variant's `items/dev-engine/attempt-1/fork.json` holds `passed`, `width`, `widthReason`, `wallSec`,
-   `sectionWallSec`, `idleShare`, `conflicts`, `lostEdits` and the tokens per phase. For the sequential arm run `llm-fork` directly on a copy of the workflow
-   directory with `--sequential-reason "block 6 baseline"`; for a fixed width `--parallel 2`. Speed-up is sequential `wallSec` over parallel `wallSec` for the
-   variants that pass; parity is the pass rate of each arm over the seeds. **`replay` does not yet take `--parallel` or `--sequential-reason`; that is the one
-   piece of plumbing this measurement still needs.**
+   `replay --fork` runs `llm-fork` per seed, each from its own skeleton. The arms of the comparison:
+   ```sh
+   sub0squad replay WORKFLOW dev-engine --fork --sequential-reason "block 6 baseline" --seeds 1,2,3 --engine ENGINE --max-tokens 1500 --repair-turns 2
+   sub0squad replay WORKFLOW dev-engine --fork --parallel 2 --seeds 1,2,3 --engine ENGINE --max-tokens 1500 --repair-turns 2
+   sub0squad replay WORKFLOW dev-engine --fork --parallel 4 --seeds 1,2,3 --engine ENGINE --max-tokens 1500 --repair-turns 2
+   ```
+   Each variant's `items/dev-engine/attempt-1/fork.json` holds `passed`, `failure`, `width`, `wallSec`, `sectionWallSec`, `targeted`, `mechanicalMends`,
+   `conflicts`, `lostEdits`, the tokens per phase and each section's calls and refusals. Speed-up is sequential `wallSec` over parallel `wallSec` for the
+   variants that pass; parity is the pass rate of each arm over the seeds. **Read row 47 first:** before 2026-11-13 forked sessions were pinned to one slot,
+   so no earlier run measured parallel sections at all. In each section's conversation the per-call decode speed should now be BELOW the single-sequence
+   speed while the aggregate is above it; if every call still decodes at the single-sequence speed, the sessions are queueing again. (`idleShare` is
+   measured from client spans and cannot show this.)
 4. **The whole on a platform with sections** (block 11): `sub0squad up --frontier off`, then
    `sub0squad do "write a calculator in C++" --agent llm --engine ENGINE --executor fork --max-tokens 1500`.
 

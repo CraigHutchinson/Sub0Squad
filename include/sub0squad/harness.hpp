@@ -16,7 +16,6 @@ struct Harness
     const char* name = "";                                   ///< the plan's `harness` value
     const char* gateCommand = "";                            ///< CLI command of the per-item gate job (`<exe> <gateCommand> --workflow-dir D --item I --attempt N`)
     const char* integrateCommand = "";                       ///< CLI command of the integrator job
-    bool coordinators = false;                               ///< divided items are kept as integrating coordinators (the V)
     std::string (*brief)() = nullptr;                        ///< short description for the fixed system block
     std::string (*facts)() = nullptr;                        ///< what an expert needs to know about how the harness behaves
     std::size_t (*scaffoldBytes)() = nullptr;                ///< bytes of scaffold and stubs the harness supplies itself

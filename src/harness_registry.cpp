@@ -9,19 +9,19 @@ namespace sub0squad {
 namespace {
 
 const Harness kWebStatic = {
-    "web-static", "harness-gate", "harness-integrate", true,
+    "web-static", "harness-gate", "harness-integrate",
     &webHarnessBrief, &webHarnessFacts, &webScaffoldBytes, &runHarnessGate, &webMockFile, &webMockBugTarget,
     "node-test", ".test.mjs", "plain ES module, no dependencies", &blueprintJson, nullptr, &runWebPrecheck,
 };
 
 const Harness kCppCmake = {
-    "cpp-cmake", "cpp-gate", "cpp-integrate", true,
+    "cpp-cmake", "cpp-gate", "cpp-integrate",
     &cppHarnessBrief, &cppHarnessFacts, &cppScaffoldBytes, &runCppGate, &cppMockFile, &cppMockBugTarget,
     "ctest", ".test.cpp", "C++20, standard library only, no warnings", &cppBlueprintJson, &cppClaimsTask, &runCppPrecheck, true,
 };
 
 const Harness kPyUnittest = {
-    "py-unittest", "py-gate", "py-integrate", true,
+    "py-unittest", "py-gate", "py-integrate",
     &pyHarnessBrief, &pyHarnessFacts, &pyScaffoldBytes, &runPyGate, &pyMockFile, &pyMockBugTarget,
     "unittest", "_test.py", "Python 3, standard library only", &pyBlueprintJson, &pyClaimsTask, &runPyPrecheck,
 };
