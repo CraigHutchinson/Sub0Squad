@@ -53,13 +53,13 @@ Decision RulePolicy::decide(const DecisionContext& c) const
         d.reasons.push_back("attempt budget exhausted (" + std::to_string(c.maxTotalAttempts) + " attempts, divisions and rewrites included)");
         return d;
     }
-    if (c.repeatedFailure && c.hasTesterDep && !c.reviseTried) {
+    if (c.repeatedFailure && c.hasTesterDep && !c.reviseTried && c.allowReviseTests) {
         d.action = Action::reviseTests;
         d.tier = "local";
         d.reasons.push_back("the same tests failed with the same messages twice: repairing does not change the outcome, so the tests are suspect; send them back to the tester");
         return d;
     }
-    if (c.interfaceGap && !c.rearchitectTried) {
+    if (c.interfaceGap && !c.rearchitectTried && c.allowRearchitect) {
         // Widen before retrying: a missing export or symbol is a gap between two modules' contracts, which a second attempt at one file cannot close.
         d.action = Action::rearchitect;
         d.tier = "local";
@@ -67,13 +67,13 @@ Decision RulePolicy::decide(const DecisionContext& c) const
         return d;
     }
     const bool developer = c.persona == "developer";   // a tester's item is never divided (row 44)
-    if (c.oversize && developer && c.divideBySections && !c.sectionsTried) {
+    if (c.oversize && developer && c.divideBySections && !c.sectionsTried && c.allowSections) {
         d.action = Action::sections;
         d.tier = "local";
         d.reasons.push_back("plan phase: the item is estimated too big for one reply; this platform divides by sections of a file, so the next attempt writes it as forked sections (a skeleton, then one function per session)");
         return d;
     }
-    if (c.oversize && developer && !c.divideBySections && !c.decomposeTried && c.splittable && c.depth < c.maxDepth) {
+    if (c.oversize && developer && !c.divideBySections && !c.decomposeTried && c.splittable && c.depth < c.maxDepth && c.allowDecompose) {
         d.action = Action::decompose;
         d.tier = "local";
         d.reasons.push_back("plan phase: the item is estimated too big for one attempt, so it is divided before any code is written");
@@ -92,38 +92,38 @@ Decision RulePolicy::decide(const DecisionContext& c) const
         return d;
     }
     d.reasons.push_back("local attempts exhausted (" + std::to_string(c.localAttempts) + ")");
-    if (developer && c.divideBySections && !c.sectionsTried) {
+    if (developer && c.divideBySections && !c.sectionsTried && c.allowSections) {
         d.action = Action::sections;
         d.tier = "local";
         d.reasons.push_back("first rung: this platform divides by sections of a file (a new module would need a header no item owns), so the next attempt writes the item as forked sections");
         return d;
     }
-    if (developer && !c.divideBySections && !c.decomposeTried && c.splittable && c.depth < c.maxDepth) {
+    if (developer && !c.divideBySections && !c.decomposeTried && c.splittable && c.depth < c.maxDepth && c.allowDecompose) {
         d.action = Action::decompose;
         d.tier = "local";
         d.reasons.push_back("first rung: let the model decide how to divide the item into smaller work packages");
         return d;
     }
-    if (!c.reviseTried && c.hasTesterDep) {
+    if (!c.reviseTried && c.hasTesterDep && c.allowReviseTests) {
         d.action = Action::reviseTests;
         d.tier = "local";
         d.reasons.push_back("send back to the producer: the tests this item is graded by may be wrong, so the tester revises them from this failure");
         return d;
     }
-    if (!c.rearchitectTried) {
+    if (!c.rearchitectTried && c.allowRearchitect) {
         d.action = Action::rearchitect;
         d.tier = "local";
         d.reasons.push_back("a dedicated job rewrites the work card, shorter and focused on the failures");
         return d;
     }
-    if (c.frontier != FrontierMode::off && c.frontierAttempts < c.maxFrontierAttempts && c.frontierHasReference) {
+    if (c.frontier != FrontierMode::off && c.frontierAttempts < c.maxFrontierAttempts && c.frontierHasReference && c.allowEscalate) {
         d.action = Action::escalate;
         d.tier = "frontier-stub";
         d.reasons.push_back("every local rung was tried: escalate once to the frontier tier (stub: nothing leaves the machine)");
         return d;
     }
     d.action = Action::fail;
-    d.reasons.push_back(c.frontier == FrontierMode::off ? "frontier mode is off: no escalation allowed" : !c.frontierHasReference ? "the frontier stub has no reference for this item, so escalating would only repeat the failure" : "frontier attempts exhausted");
+    d.reasons.push_back(c.frontier == FrontierMode::off ? "frontier mode is off: no escalation allowed" : !c.allowEscalate ? "this process has no escalation rung" : !c.frontierHasReference ? "the frontier stub has no reference for this item, so escalating would only repeat the failure" : "frontier attempts exhausted");
     return d;
 }
 

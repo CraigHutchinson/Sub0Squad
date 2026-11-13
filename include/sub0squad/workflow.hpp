@@ -1,13 +1,14 @@
 #pragma once
 /// @file workflow.hpp
 /// Workflows: a project-scope task delegated into work items (docs/SANDBOX.md). `WorkflowStore` is rebuilt from the journal;
-/// `advance()` is the level-triggered engine, a pure function from (workflow, its labelled jobs, settings, policy) to the next
+/// `advance()` is the level-triggered engine, a pure function from (workflow, which carries its process, its labelled jobs, settings, policy) to the next
 /// actions, so a restarted daemon derives exactly the same next steps and needs no special recovery. No I/O happens here.
 
 #include "sub0squad/engine.hpp"
 #include "sub0squad/job_store.hpp"
 #include "sub0squad/plan.hpp"
 #include "sub0squad/policy.hpp"
+#include "sub0squad/process.hpp"
 
 #include <map>
 #include <optional>
@@ -30,7 +31,11 @@ struct WorkflowSpec
     std::map<std::string, std::string> route;     ///< persona -> engine name, e.g. tester=qwen3-6 (extensibility: engines are per persona)
     /// How an llm item is executed (docs/CANVAS.md): "session" one conversation that carries the files (the baseline); "canvas" replies are transactions on a
     /// revisioned document gated by the precheck; "fork" developers' items are written as forked sections on the canvas, side by side (testers use the canvas).
-    std::string executor = "session";
+    /// "" (the default): the process says (developer's and tester's executor). Otherwise this overrides it for every item: developers' items run it, testers'
+    /// run it too except that `fork` means the canvas for them (a test file has no sections).
+    std::string executor;
+    /// The process this workflow runs (docs/PROCESS_DESIGN.md): resolved when the workflow is submitted and kept in the spec, so the journal says what ran.
+    Process process = standardProcess();
     std::string treatment = "baseline";           ///< prompt treatment of llm agents: baseline | index | planfirst (see docs/OPTIMIZATION.md)
     int repairTurns = 2;                          ///< extra turns an llm agent takes to run the tests and fix failures before it says done
     int sizeBudget = 1800;                        ///< estimated completion tokens above which an item that has tests is divided BEFORE the first attempt (0 = never)

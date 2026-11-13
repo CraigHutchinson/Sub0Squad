@@ -76,6 +76,8 @@ add_library(sub0squad_core STATIC
   src/sandbox.cpp
   src/workflow.cpp
   src/policy.cpp
+  src/process.cpp
+  src/cmd_process.cpp
   src/client.cpp)
 target_include_directories(sub0squad_core PUBLIC include PRIVATE src)
 target_compile_options(sub0squad_core PRIVATE ${SUB0SQUAD_STRICT})
@@ -105,6 +107,8 @@ endfunction()
 sub0squad_add_test(test_job_spec)
 sub0squad_add_test(test_journal)
 sub0squad_add_test(test_job_store)
+sub0squad_add_test(test_process)
+target_compile_definitions(test_process PRIVATE SUB0SQUAD_REGISTRY_DIR="${CMAKE_CURRENT_SOURCE_DIR}/registry")
 sub0squad_add_test(test_workflow)
 target_compile_definitions(test_workflow PRIVATE SUB0SQUAD_TEST_DATA="${CMAKE_CURRENT_SOURCE_DIR}/tests/data")
 sub0squad_add_test(test_host_guard)

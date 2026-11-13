@@ -18,7 +18,7 @@ const char* toString(WorkflowState s)
 std::string WorkflowSpec::toJson() const
 {
     json::Writer w;
-    w.beginObject().kv("task", task).kv("taskText", taskText).kv("triage", triage).kv("sandbox", sandboxDir).kv("maxLocalAttempts", maxLocalAttempts).kv("agent", agent).kv("treatment", treatment).kv("executor", executor).kv("repairTurns", repairTurns).kv("sizeBudget", sizeBudget).kv("maxTokens", maxTokens).kvBool("ask", ask).kv("fallbackEngine", fallbackEngine).key("inject").beginArray();
+    w.beginObject().kv("task", task).kv("taskText", taskText).kv("triage", triage).kv("sandbox", sandboxDir).kv("maxLocalAttempts", maxLocalAttempts).kv("agent", agent).kv("treatment", treatment).kv("executor", executor).kvRaw("process", process.toJson()).kv("repairTurns", repairTurns).kv("sizeBudget", sizeBudget).kv("maxTokens", maxTokens).kvBool("ask", ask).kv("fallbackEngine", fallbackEngine).key("inject").beginArray();
     for (const auto& i : inject) w.str(i);
     w.endArray().key("engines").beginArray();
     for (const auto& e : engines) w.str(e);
@@ -45,6 +45,12 @@ std::expected<WorkflowSpec, std::string> WorkflowSpec::fromJson(std::string_view
                 else if (k == "agent") s.agent = json::toString(v);
                 else if (k == "treatment") s.treatment = json::toString(v);
                 else if (k == "executor") s.executor = json::toString(v);
+                else if (k == "process") {
+                    std::string_view r = v.raw_json();
+                    auto p = Process::fromJson(std::string_view{r});
+                    if (!p) throw std::runtime_error(p.error());
+                    s.process = std::move(*p);
+                }
                 else if (k == "repairTurns") s.repairTurns = static_cast<int>(v.get_int64());
                 else if (k == "sizeBudget") s.sizeBudget = static_cast<int>(v.get_int64());
                 else if (k == "maxTokens") s.maxTokens = static_cast<int>(v.get_int64());
@@ -55,6 +61,7 @@ std::expected<WorkflowSpec, std::string> WorkflowSpec::fromJson(std::string_view
             }
         });
     } catch (const simdjson::simdjson_error& e) { return std::unexpected(std::string{"bad workflow spec: "} + e.what()); }
+    catch (const std::runtime_error& e) { return std::unexpected(std::string{"bad workflow spec: "} + e.what()); }   // the process it carries is invalid
     if (s.task.empty()) return std::unexpected("workflow needs a task");
     if (s.taskText.size() > 4000) return std::unexpected("task text is too long");
     if (!s.sandboxDir.empty() && s.sandboxDir[0] != '/') return std::unexpected("workflow sandbox must be an absolute directory");  // empty: the daemon chooses
@@ -66,7 +73,7 @@ std::expected<WorkflowSpec, std::string> WorkflowSpec::fromJson(std::string_view
     if (!s.fallbackEngine.empty() && !names.count(s.fallbackEngine)) return std::unexpected("fallback engine '" + s.fallbackEngine + "' names an unknown engine");
     for (const auto& [persona, name] : s.route) if (!names.count(name)) return std::unexpected("route " + persona + "=" + name + " names an unknown engine");
     if (s.treatment != "baseline" && s.treatment != "index" && s.treatment != "planfirst") return std::unexpected("treatment must be baseline, index or planfirst");
-    if (s.executor != "session" && s.executor != "canvas" && s.executor != "fork") return std::unexpected("executor must be session, canvas or fork");
+    if (!s.executor.empty() && s.executor != "session" && s.executor != "canvas" && s.executor != "fork") return std::unexpected("executor must be session, canvas or fork");
     if (s.maxTokens < 256 || s.maxTokens > 32768) return std::unexpected("maxTokens must be 256..32768");
     return s;
 }
@@ -363,13 +370,22 @@ const DecisionRecord* decisionFor(const WorkflowRecord& wf, const std::string& i
     return nullptr;
 }
 
+/// How an item of this persona is executed: the spec's override if it has one (a tester's `fork` is the canvas), else the process's choice.
+std::string executorFor(const WorkflowSpec& spec, const std::string& persona)
+{
+    const bool tester = persona == "tester";
+    if (!spec.executor.empty()) return tester && spec.executor == "fork" ? std::string{"canvas"} : spec.executor;
+    return tester ? spec.process.leaf.testerExecutor : spec.process.leaf.developerExecutor;
+}
+
 JobSpec agentJob(const WorkflowRecord& wf, const WorkflowSettings& st, const WorkItem& it, int attempt, const std::string& tier)
 {
     auto engine = wf.spec.engineFor(it.persona);
     if (!wf.spec.fallbackEngine.empty() && hasStrategy(wf, it.id, "engine"))   // the manager moved this item to the stronger engine
         for (const auto& e : wf.spec.engines) if (auto p = EngineProfile::parse(e); p && p->name == wf.spec.fallbackEngine) engine = *p;
     const bool llm = wf.spec.agent == "llm" && engine.has_value();
-    JobSpec s = baseJob(wf, st, "agent", llm ? "llm-agent" : "mock-agent", tier.c_str(), llm && tier == "local" ? 3 * 3600 : 120);
+    const Process::Leaf& leaf = wf.spec.process.leaf;
+    JobSpec s = baseJob(wf, st, "agent", llm ? "llm-agent" : "mock-agent", tier.c_str(), llm && tier == "local" ? leaf.agentWallLlmSeconds : leaf.agentWallOtherSeconds);
     s.item = it.id;
     s.attempt = attempt;
     if (llm) { s.leaseResource = engine->endpoint; s.leaseCap = std::max(1, engine->maxConcurrent); }
@@ -378,10 +394,11 @@ JobSpec agentJob(const WorkflowRecord& wf, const WorkflowSettings& st, const Wor
                   "--max-tokens", std::to_string(wf.spec.maxTokens), "--timeout", "1700", "--treatment", wf.spec.treatment, "--repair-turns", std::to_string(wf.spec.repairTurns), "--size-budget", std::to_string(wf.spec.sizeBudget)};
         const DecisionRecord* before = attempt > 1 ? decisionFor(wf, it.id, attempt - 1) : nullptr;
         const bool sections = before && before->action == "sections";   // the ladder chose forked sections for this attempt
-        if ((wf.spec.executor == "fork" || sections) && tier == "local" && it.persona != "tester")   // a developer's item as forked sections; the gate job judges the merged files
+        const std::string executor = executorFor(wf.spec, it.persona);
+        if ((executor == "fork" || sections) && tier == "local" && it.persona != "tester")   // a developer's item as forked sections; the gate job judges the merged files
             s.argv = {st.exe, "llm-fork", "--workflow-dir", wf.spec.sandboxDir, "--item", it.id, "--attempt", std::to_string(attempt), "--engine", engine->toArg(),
                       "--max-tokens", std::to_string(wf.spec.maxTokens), "--timeout", "1700", "--repair-turns", std::to_string(wf.spec.repairTurns), "--agent-exit", "1"};
-        else if (wf.spec.executor != "session") s.argv.insert(s.argv.end(), {"--executor", "canvas"});
+        else if (executor != "session") s.argv.insert(s.argv.end(), {"--executor", "canvas"});
     } else {
         s.argv = {st.exe, "mock-agent", "--workflow-dir", wf.spec.sandboxDir, "--item", it.id, "--tier", tier, "--attempt", std::to_string(attempt)};
         for (const auto& i : wf.spec.inject) { s.argv.push_back("--inject"); s.argv.push_back(i); }
@@ -393,7 +410,7 @@ JobSpec gateJob(const WorkflowRecord& wf, const WorkflowSettings& st, const Work
 {
     const Harness* harness = wf.plan ? findHarness(wf.plan->harness) : nullptr;
     const char* gateCommand = harness ? harness->gateCommand : "";   // a plan always names a registered harness (Plan::fromJson refuses one that does not)
-    JobSpec s = baseJob(wf, st, "gate", gateCommand, tier.c_str(), 120);
+    JobSpec s = baseJob(wf, st, "gate", gateCommand, tier.c_str(), wf.spec.process.leaf.gateWallSeconds);
     s.item = it.id;
     s.attempt = attempt;
     s.argv = {st.exe, gateCommand, "--workflow-dir", wf.spec.sandboxDir, "--item", it.id, "--attempt", std::to_string(attempt)};
@@ -404,7 +421,7 @@ JobSpec architectJob(const WorkflowRecord& wf, const WorkflowSettings& st, const
 {
     const auto engine = wf.spec.engineFor("architect");
     const bool llm = wf.spec.agent == "llm" && engine.has_value();
-    JobSpec s = baseJob(wf, st, mode, llm ? "llm-architect" : "mock-architect", "local", llm ? 5400 : 120);  // three turns of up to 1700 s each: the first real timeout killed a correction mid-turn
+    JobSpec s = baseJob(wf, st, mode, llm ? "llm-architect" : "mock-architect", "local", llm ? wf.spec.process.leaf.architectWallLlmSeconds : wf.spec.process.leaf.architectWallOtherSeconds);  // three turns of up to 1700 s each: the first real timeout killed a correction mid-turn
     s.item = it.id;
     s.attempt = attempt;
     s.argv = {st.exe, llm ? "llm-architect" : "mock-architect", "--mode", mode, "--workflow-dir", wf.spec.sandboxDir, "--item", it.id, "--attempt", std::to_string(attempt)};
@@ -445,15 +462,15 @@ std::vector<WorkflowAction> advance(const WorkflowRecord& wf, const JobStore& st
         const JobRecord* last = nullptr;
         for (const JobRecord* j : mine.all) if (j->spec.role == "planner") { ++plannerJobs; last = j; }
         if (plannerJobs == 0) {
-            JobSpec s = baseJob(wf, st, "planner", "mock-planner", "stub", 60);
+            JobSpec s = baseJob(wf, st, "planner", "mock-planner", "stub", wf.spec.process.planner.wallSeconds);
             s.argv = {st.exe, "mock-planner", "--task", wf.spec.task, "--out", wf.spec.sandboxDir + "/plan.json"};
             out.push_back(start(std::move(s)));
         } else if (!terminalJob(last)) {
             // wait
         } else if (last->state == JobState::succeeded) {
             WorkflowAction a; a.kind = WorkflowAction::Kind::loadPlan; out.push_back(std::move(a));
-        } else if (plannerJobs < 2) {
-            JobSpec s = baseJob(wf, st, "planner", "mock-planner", "stub", 60);
+        } else if (plannerJobs < 1 + wf.spec.process.planner.retries) {
+            JobSpec s = baseJob(wf, st, "planner", "mock-planner", "stub", wf.spec.process.planner.wallSeconds);
             s.argv = {st.exe, "mock-planner", "--task", wf.spec.task, "--out", wf.spec.sandboxDir + "/plan.json"};
             out.push_back(start(std::move(s)));
         } else {
@@ -480,7 +497,7 @@ std::vector<WorkflowAction> advance(const WorkflowRecord& wf, const JobStore& st
             // The V's ascent. A coordinator has no agent step: when its parts are accepted its own tests run over them (a gate per round). A
             // failing round is sent down to the part the failure points at (the daemon picks it and writes the feedback), the part is redone,
             // and the coordinator integrates again, up to kMaxRoundTrips times; then the item fails with the evidence.
-            constexpr int kMaxRoundTrips = 3;
+            const int kMaxRoundTrips = wf.spec.process.ascent.maxRoundTrips;
             int round = 0;
             const JobRecord* g = nullptr;
             for (const JobRecord* x : v.gates) if (x->spec.attempt >= round) { round = static_cast<int>(x->spec.attempt); g = x; }
@@ -545,6 +562,8 @@ std::vector<WorkflowAction> advance(const WorkflowRecord& wf, const JobStore& st
             if (role == "agent" && latest->exitJson.find("\"code\":4") != std::string::npos) ctx.oversize = true;
             if (const Harness* hs = wf.plan ? findHarness(wf.plan->harness) : nullptr; hs && hs->mockFile) { ctx.frontierHasReference = !v.item->files.empty(); for (const auto& f : v.item->files) if (hs->mockFile(f, false).empty()) ctx.frontierHasReference = false; }
             ctx.persona = v.item->persona;
+            ctx.allowDecompose = wf.spec.process.leaf.allowDecompose; ctx.allowSections = wf.spec.process.leaf.allowSections; ctx.allowReviseTests = wf.spec.process.leaf.allowReviseTests;
+            ctx.allowRearchitect = wf.spec.process.leaf.allowRearchitect; ctx.allowEscalate = wf.spec.process.leaf.allowEscalate;
             if (const Harness* hs = findHarness(plan.harness)) ctx.divideBySections = hs->divideBySections;
             for (const auto& dd : wf.decisions) if (dd.item == v.item->id && dd.action == "sections") ctx.sectionsTried = true;
             ctx.decomposeTried = v.decomposeTried;
@@ -637,7 +656,7 @@ std::vector<WorkflowAction> advance(const WorkflowRecord& wf, const JobStore& st
         if (!integ) {
             const Harness* harness = findHarness(plan.harness);
             const char* integrateCommand = harness ? harness->integrateCommand : "";
-            JobSpec s = baseJob(wf, st, "integrator", integrateCommand, "stub", 300);
+            JobSpec s = baseJob(wf, st, "integrator", integrateCommand, "stub", wf.spec.process.integrate.wallSeconds);
             s.argv = {st.exe, integrateCommand, "--workflow-dir", wf.spec.sandboxDir};
             out.push_back(start(std::move(s)));
         } else if (terminalJob(integ)) {
