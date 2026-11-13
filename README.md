@@ -56,21 +56,25 @@ sub0squad project status                      # the workflow and each item
   `state/workflows/w-000001/report.md` the report, and `items/<item>/attempt-N/` every attempt with its conversation, files and gate output.
 * **Other starts:** `sub0squad do "write a calculator in Python"`, `sub0squad do "write a scientific calculator as a web page"`, or by name:
   `sub0squad project submit --task calculator-py`. A task with no blueprint stops at "awaiting a plan" and says where the request is.
-* **A workflow of your own.** A workflow is a **process**: data that says which executor writes developers' and testers' items, which rungs of the escalation
-  ladder exist (divide into modules, write by sections, send the tests back, rewrite the card, escalate) and how long each kind of job may run. `standard`
-  is today's behaviour; `sections` writes developers' items as forked sections and never divides them into modules. A new one is a copy with changes:
+* **A workflow of your own.** A workflow is a **process**: a file that lists its **stages** in order. A stage either runs one registered tool as a job (the
+  planner, the final integration, a review) or runs the plan's items (which executor writes developers' and testers' items, which rungs of the escalation
+  ladder exist, how long each kind of job may run). When a stage starts and when it is done are conditions, such as `stage.build.done && !requests.openBlocking`.
+  Built in: `standard` (plan, build, integrate), `sections` (the same stages; developers' items are written as forked sections and never divided into modules)
+  and `reviewed` (the standard stages and a `review` stage after integration). A new one is a copy with changes, or a file you wrote:
 
   ```sh
   sub0squad process list                        # built-in processes and the files in $SUB0SQUAD_HOME/state/processes/
-  sub0squad process add my-flow --from sections --set ascent.maxRoundTrips=5 --describe "sections, five integration round trips"
+  sub0squad process add my-flow --from reviewed --set build.ascent.maxRoundTrips=5 --describe "reviewed, five integration round trips"
   sub0squad do "write a calculator in Python" --process my-flow
   sub0squad project wait w-000002 --timeout 900
-  sub0squad process show my-flow                # the file: every parameter, so it says what runs
+  sub0squad process show my-flow                # the file: every stage and parameter, so it says what runs
   ```
 
-  Nothing in the engine changes: `process show standard` lists every parameter, `process add --set PATH=VALUE` changes one, and the file can be edited by hand
-  (an unknown key is an error that names it). The workflow keeps a copy of its process, so editing the file later changes nothing that is already running. With
-  the mock agent the executors are not used (the mock writes reference files); the ladder's rungs and the wall times are.
+  The engine has no stage of its own: it walks the process's stages, so `--without integrate` (a process with a stage fewer), a stage added in the file
+  (`process tools` lists what a job stage may run; `process check FILE` says what is wrong with a file; `process add NAME --file FILE` registers it) or another
+  condition is a new workflow with no code changed. `project status --json` shows each stage's state and, for one that waits, the condition it waits on. The
+  workflow keeps a copy of its process, so editing the file later changes nothing that is already running. With the mock agent the executors are not used (the
+  mock writes reference files); the stages, the ladder's rungs and the wall times are.
 * **If something is wrong:** `sub0squad doctor` again; `sub0squad status` and `sub0squad logs ID` show the jobs; the daemon's log is under `state/up/`.
 
 ```sh

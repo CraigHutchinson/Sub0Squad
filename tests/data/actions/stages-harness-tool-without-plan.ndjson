@@ -1,0 +1,1 @@
+{"scenario":"stages-harness-tool-without-plan","pass":1,"actions":[{"kind":"finish","state":"failed","note":"stage 'integrate' cannot run: its tool is the plan's harness, and there is no plan"}],"items":[],"state":"running"}

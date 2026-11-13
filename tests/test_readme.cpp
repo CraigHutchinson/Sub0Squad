@@ -124,8 +124,8 @@ int main(int argc, char** argv)
         if (c[1] == "up") { sawUp = true; CHECK(r.out.find("daemon: started") != std::string::npos && r.out.find("portal: http://127.0.0.1:") != std::string::npos); }
         if (c[1] == "do") { sawDo = true; ++doCount; CHECK(r.out.find("workflow w-00000" + std::to_string(doCount)) != std::string::npos && r.out.find("awaiting a plan") == std::string::npos); }   // the blueprint loaded itself
         if (c[1] == "process" && c.size() > 2 && c[2] == "add") sawProcessAdd = true;
-        if (c[1] == "process" && c.size() > 2 && c[2] == "show") CHECK(r.out.find("\"name\":\"my-flow\"") != std::string::npos && r.out.find("\"maxRoundTrips\":5") != std::string::npos && r.out.find("\"developer\":\"fork\"") != std::string::npos);
-        if (c[1] == "process" && c.size() > 2 && c[2] == "list") CHECK(r.out.find("standard") != std::string::npos && r.out.find("sections") != std::string::npos);
+        if (c[1] == "process" && c.size() > 2 && c[2] == "show") CHECK(r.out.find("\"name\":\"my-flow\"") != std::string::npos && r.out.find("\"maxRoundTrips\":5") != std::string::npos && r.out.find("\"name\":\"review\"") != std::string::npos);
+        if (c[1] == "process" && c.size() > 2 && c[2] == "list") CHECK(r.out.find("standard") != std::string::npos && r.out.find("sections") != std::string::npos && r.out.find("reviewed") != std::string::npos);
         if (c[1] == "down") { sawDown = true; CHECK(r.out.find("daemon: stopped") != std::string::npos && r.out.find("portal: stopped") != std::string::npos); }
         if (c[1] == "project" && c.size() > 2 && c[2] == "status") CHECK(r.out.find("succeeded") != std::string::npos);
     }
@@ -140,6 +140,11 @@ int main(int argc, char** argv)
     CHECK(fs::exists(home / "state" / "processes" / "my-flow.json"));
     const Result second = run({exe, "project", "status", "w-000002", "--json"});
     CHECK(second.out.find("\"process\":\"my-flow@1\"") != std::string::npos && second.out.find("\"state\":\"succeeded\"") != std::string::npos);
+    // ... and that process has a stage the standard one lacks: it ran (a real `qa` job through the daemon) and is done, after the three standard stages.
+    CHECK(second.out.find("{\"name\":\"review\",\"kind\":\"job\",\"state\":\"done\",\"waitingOn\":\"\"}") != std::string::npos);
+    CHECK(second.out.find("all items accepted; integration passed; review passed") != std::string::npos);
+    const Result jobs = run({exe, "status", "--json"});
+    CHECK(jobs.out.find("\"role\":\"qa\"") != std::string::npos);
     const Result first = run({exe, "project", "status", "w-000001", "--json"});
     CHECK(first.out.find("\"process\":\"standard@1\"") != std::string::npos);
     CHECK(readme.find("state/workflows/w-000001/project") != std::string::npos && readme.find("report.md") != std::string::npos);

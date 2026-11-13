@@ -749,6 +749,137 @@ int main()
             }
         }
     }
+    {   // Stages as data (docs/PROCESS_DESIGN.md section 13): processes whose STAGES differ from the standard one run on the same engine, which names no stage.
+        using Outcome = std::pair<JobState, std::string>;
+        const auto drive = [](Sim& s, const std::function<Outcome(const JobRecord&)>& outcome) {
+            for (int guard = 0; guard < 60 && s.wfs.find("w-000001")->state == WorkflowState::running; ++guard) {
+                const auto acts = s.step();
+                for (const auto& id : s.run(acts)) { const Outcome o = outcome(*s.job(id)); s.finishJob(id, o.first, o.second); }
+            }
+        };
+        const auto allPass = [](const JobRecord&) { return Outcome{JobState::succeeded, ""}; };
+        const auto roles = [](Sim& s) { std::string r; for (const auto& j : s.jobs.jobs()) r += (r.empty() ? "" : " ") + j.spec.role; return r; };
+        const auto stages = [](Sim& s) { std::string r; for (const auto& st : stageStatuses(*s.wfs.find("w-000001"), s.jobs)) r += (r.empty() ? "" : " ") + st.name + "=" + st.state; return r; };
+        const auto waitingOn = [](Sim& s, const char* name) { for (const auto& st : stageStatuses(*s.wfs.find("w-000001"), s.jobs)) if (st.name == name) return st.waitingOn; return std::string{"?"}; };
+        {   // one stage MORE than the standard process: after integration the review runs a registered tool, and only then is the workflow done
+            SCENARIO("stages-reviewed");
+            Sim s = startSim(2, FrontierMode::off, false, reviewedProcess());
+            CHECK_EQ(stages(s), std::string("plan=active build=waiting integrate=waiting review=waiting"));
+            CHECK_EQ(waitingOn(s, "plan"), std::string("plan.present"));
+            CHECK_EQ(waitingOn(s, "build"), std::string("stage.plan.done"));
+            s.feed("workflowPlanned", wfbody::planned("w-000001", onePlan()));
+            CHECK_EQ(stages(s), std::string("plan=done build=active integrate=waiting review=waiting"));
+            CHECK_EQ(waitingOn(s, "build"), std::string("items.all(accepted)"));
+            drive(s, allPass);
+            const WorkflowRecord& wf = *s.wfs.find("w-000001");
+            CHECK(wf.state == WorkflowState::succeeded);
+            CHECK_EQ(wf.note, std::string("all items accepted; integration passed; review passed"));
+            CHECK_EQ(roles(s), std::string("agent gate integrator qa"));
+            const JobRecord& qa = s.jobs.jobs().back();
+            CHECK(qa.spec.argv == (std::vector<std::string>{"/bin/sub0squad", "qa", "/sb/project"}) && qa.spec.tool == "qa" && qa.spec.wallSeconds == 120 && qa.spec.item.empty());   // the placeholder is the workflow's sandbox
+            CHECK_EQ(stages(s), std::string("plan=done build=done integrate=done review=done"));
+        }
+        {   // the same process when its extra stage fails: the workflow fails and says which step, with the job's note
+            SCENARIO("stages-reviewed-review-fails");
+            Sim s = startSim(2, FrontierMode::off, false, reviewedProcess());
+            s.feed("workflowPlanned", wfbody::planned("w-000001", onePlan()));
+            for (int guard = 0; guard < 60 && s.wfs.find("w-000001")->state == WorkflowState::running; ++guard) {
+                const auto acts = s.step();
+                for (const auto& id : s.run(acts)) {
+                    if (s.job(id)->spec.role == "qa") s.feed("jobFinished", journalbody::finished(id, s.job(id)->run, JobState::failed, "", "exit 2"));
+                    else s.finishJob(id, JobState::succeeded);
+                }
+            }
+            const WorkflowRecord& wf = *s.wfs.find("w-000001");
+            CHECK(wf.state == WorkflowState::failed);
+            CHECK_EQ(wf.note, std::string("review failed: exit 2"));
+            CHECK_EQ(stages(s), std::string("plan=done build=done integrate=done review=failed"));
+        }
+        {   // one stage FEWER: without the integration stage the accepted items are the result
+            SCENARIO("stages-no-integration");
+            Process p = standardProcess();
+            p.name = "items-only";
+            CHECK(p.removeStage("integrate").has_value());
+            Sim s = startSim(2, FrontierMode::off, false, p);
+            s.feed("workflowPlanned", wfbody::planned("w-000001", onePlan()));
+            drive(s, allPass);
+            const WorkflowRecord& wf = *s.wfs.find("w-000001");
+            CHECK(wf.state == WorkflowState::succeeded);
+            CHECK_EQ(wf.note, std::string("all items accepted"));
+            CHECK_EQ(roles(s), std::string("agent gate"));
+        }
+        {   // no plan and no items at all: a process of job stages, the second waiting for the first; retries are the stage's
+            SCENARIO("stages-jobs-only");
+            auto p = Process::fromJson("{\"schema\":\"process-1\",\"name\":\"two-jobs\",\"stages\":["
+                                       "{\"name\":\"first\",\"kind\":\"job\",\"job\":{\"step\":\"lint\",\"label\":\"the lint\",\"tool\":\"plan-lint\",\"args\":[\"/sb/a.json\"],\"retries\":2,\"wallSeconds\":30}},"
+                                       "{\"name\":\"second\",\"kind\":\"job\",\"entry\":\"stage.first.done && job(lint).tries >= 2\",\"job\":{\"step\":\"scan\",\"tool\":\"qa\",\"args\":[\"/sb\"]}}]}");
+            CHECK(p.has_value());
+            if (p) {
+                Sim s = startSim(2, FrontierMode::off, false, *p);
+                int lints = 0;
+                drive(s, [&](const JobRecord& j) { return j.spec.role == "lint" && ++lints < 2 ? Outcome{JobState::failed, ""} : Outcome{JobState::succeeded, ""}; });   // the first try fails, the second passes
+                const WorkflowRecord& wf = *s.wfs.find("w-000001");
+                CHECK(wf.state == WorkflowState::succeeded);
+                CHECK_EQ(wf.note, std::string("the lint passed; scan passed"));
+                CHECK_EQ(roles(s), std::string("lint lint scan"));
+                CHECK(s.jobs.jobs().front().spec.wallSeconds == 30 && s.jobs.jobs().front().spec.argv == (std::vector<std::string>{"/bin/sub0squad", "plan-lint", "/sb/a.json"}));
+                // every try fails: three tries (two retries), then the workflow fails and counts them
+                Sim f = startSim(2, FrontierMode::off, false, *p);
+                drive(f, [](const JobRecord&) { return Outcome{JobState::failed, ""}; });
+                CHECK(f.wfs.find("w-000001")->state == WorkflowState::failed);
+                CHECK_EQ(f.wfs.find("w-000001")->note, std::string("the lint failed 3 times"));
+                CHECK_EQ(roles(f), std::string("lint lint lint"));
+                // the first try passes: the second stage's entry also asks for two tries, so it WAITS, and the status says on what (a stall is visible, not silent)
+                Sim w = startSim(2, FrontierMode::off, false, *p);
+                for (int k = 0; k < 3; ++k) { const auto acts = w.step(); for (const auto& id : w.run(acts)) w.finishJob(id, JobState::succeeded); }
+                CHECK(w.wfs.find("w-000001")->state == WorkflowState::running);
+                CHECK_EQ(stages(w), std::string("first=done second=waiting"));
+                CHECK_EQ(waitingOn(w, "second"), std::string("job(lint).tries >= 2"));
+                CHECK(w.step().empty());
+            }
+        }
+        {   // Stage state is DERIVED, never stored: a dispute that voids an accepted item re-opens `build` and closes the stage that waited for it.
+            SCENARIO("stages-derived-state");
+            Sim s = startSim(2, FrontierMode::off, false, reviewedProcess());
+            s.feed("workflowPlanned", wfbody::planned("w-000001", onePlan()));
+            std::string integrator;
+            for (int guard = 0; guard < 20 && integrator.empty(); ++guard) {
+                const auto acts = s.step();
+                for (const auto& id : s.run(acts)) { if (s.job(id)->spec.role == "integrator") integrator = id; else s.finishJob(id, JobState::succeeded); }
+            }
+            CHECK(!integrator.empty());
+            CHECK_EQ(stages(s), std::string("plan=done build=done integrate=active review=waiting"));
+            s.feed("workflowDecision", wfbody::decision("w-000001", "a", 1, "disputed", "local", "{}"));
+            CHECK_EQ(stages(s), std::string("plan=done build=active integrate=waiting review=waiting"));
+            CHECK_EQ(waitingOn(s, "integrate"), std::string("stage.build.done"));
+            s.finishJob(integrator, JobState::succeeded);
+            auto acts = s.step();   // the integration that ran on the voided item does not finish the workflow: the item is redone first
+            CHECK(acts.size() == 1 && acts[0].kind == WorkflowAction::Kind::startJob && acts[0].job.role == "agent" && acts[0].job.item == "a" && acts[0].job.attempt == 2);
+        }
+        {   // a stage whose tool is the plan's harness cannot run before there is a plan: the workflow says so instead of starting a job with no command
+            SCENARIO("stages-harness-tool-without-plan");
+            auto p = Process::fromJson("{\"schema\":\"process-1\",\"name\":\"early\",\"stages\":[{\"name\":\"integrate\",\"kind\":\"job\",\"job\":{\"step\":\"integrator\",\"tool\":\"harness:integrate\"}}]}");
+            CHECK(p.has_value());
+            if (p) {
+                Sim s = startSim(2, FrontierMode::off, false, *p);
+                const auto acts = s.step();
+                CHECK(acts.size() == 1 && acts[0].kind == WorkflowAction::Kind::finish && acts[0].finalState == WorkflowState::failed);
+                if (acts.size() == 1) CHECK_EQ(acts[0].note, std::string("stage 'integrate' cannot run: its tool is the plan's harness, and there is no plan"));
+            }
+        }
+        {   // the decision of a process that lacks rungs says which, so it can be explained from its own record
+            SCENARIO("stages-process-lacks");
+            Sim s = startSim(1, FrontierMode::off, false, sectionsProcess());
+            s.feed("workflowPlanned", wfbody::planned("w-000001", onePlan()));
+            for (int guard = 0; guard < 6 && s.wfs.find("w-000001")->decisions.empty(); ++guard) {
+                const auto acts = s.step();
+                for (const auto& id : s.run(acts)) s.finishJob(id, s.job(id)->spec.role == "gate" ? JobState::failed : JobState::succeeded);
+            }
+            const auto& decisions = s.wfs.find("w-000001")->decisions;
+            CHECK(!decisions.empty());
+            if (!decisions.empty()) CHECK(decisions[0].json.find("\"processLacks\":[\"decompose\"]") != std::string::npos);
+        }
+    }
     { // Divide only when it pays: over the ceiling always, under the soft budget never, in between only when the saving beats the division's cost.
         CHECK(shouldDivide(3000, 1800, 2800, 7, 8));                 // cannot fit one attempt: divide whatever it costs
         CHECK(!shouldDivide(1500, 1800, 2800, 7, 8));                // under the soft budget: never
