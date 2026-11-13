@@ -3,6 +3,41 @@
 Branch `worktree-agent-a507f5df083b20ce3`, from tag `parked-v1`. Newest state first. Every "passes" below was observed in `out/build/fable`, run sequentially under a
 process cap; nothing here has run on a real model.
 
+## STOPPED HERE (2026-11-13, machine restart): where it stands and how to resume
+
+**Last commit:** `1ba50c4` on this branch. It builds. `ctest` was last run IN FULL at `38c4dc2` (24 of 24 pass); after that only `test_project`, `test_workflow`,
+`test_readme`, `test_platforms` and `test_executors` were run (pass), so the full suite has NOT been run at `1ba50c4`. Nothing is uncommitted.
+
+**Done since the third pass** (all committed, each with tests): the build and tests moved to the new mount (a non-throwing test cleanup; no machine path in the
+docs; `core.fileMode false`); `replay --fork --parallel/--sequential-reason`; `Harness::coordinators` removed; golden action logs of the engine (14 scenarios,
+recorded BEFORE the refactor); **process as data** (`process.hpp`, `registry/processes/`, `process list|show|add`, `--process`, the engine reads its process, the
+goldens reproduced byte for byte; design as built: `docs/PROCESS_DESIGN.md` section 12); the `sections` process and scenarios for it; the executors through a real
+daemon with a fake engine (`test_executors`); the README's "A workflow of your own" run by `test_readme`; row 31 (items labelled model/stub/mock/parts in status,
+table and report); row 14 (a failed workflow names the item that failed first).
+
+**Next three steps**
+1. Run the full suite at `1ba50c4` and fix anything (commands below).
+2. Row 20: a build id in the daemon (`ping`, `run-info.json`), refused at submit when it differs from the CLI's (an `--allow-build-mismatch` override), and an
+   `archive` command (needs the daemon stopped; moves the state aside, leaves a fresh home). Test with `SUB0SQUAD_BUILD_ID` as a test-only override.
+3. `scenario compare A.json B.json` (and `--executor` already archived in `scenario-results.json`), then rows 19 (a lease class so structural jobs are not queued
+   behind workers), 22, 25/26; then the components cleanup (split `test_workflow.cpp`, `client.cpp`, `portal.cpp`) and the stale documents
+   (`DESIGN.md`, `M1_PLAN.md`, `SCENARIOS.md`, `WORK_GRAPH.md` section 23).
+
+**Resume** (from the worktree; the shell's old `CPM_*` variables are stale, so use the script below, which derives them from the main checkout):
+```sh
+cd /mnt/development/GitHub/Sub0Squad/.claude/worktrees/agent-a507f5df083b20ce3
+. scripts/dev-env.sh 2>/dev/null || true      # main's script derives SUB0_GITHUB_DIR from the repository's parent; in a worktree that is wrong, so also:
+export SUB0_GITHUB_DIR=$(dirname "$(cd "$(git rev-parse --git-common-dir)/.." && pwd)")
+for n in Sub0Pipeline Sub0Pub Sub0Log Sub0ECS Sub0Math Sub0MemPage Sub0TieredCache Sub0HexGrid Sub0Physics; do export CPM__SOURCE=$SUB0_GITHUB_DIR/$n; done
+rm -rf out/build/fable                        # only if the directory is stale
+cmake -S . -B out/build/fable -G Ninja -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_BUILD_TYPE=Release
+nice cmake --build out/build/fable -j2
+ulimit -u $(( $(ps -u $USER -L --no-headers | wc -l) + 600 ))     # a process cap, always
+timeout 1700 nice ctest --test-dir out/build/fable --output-on-failure -j1
+```
+Golden logs: `SUB0SQUAD_WRITE_GOLDENS=1 out/build/fable/test_workflow out/build/fable/sub0squad` rewrites them (review `git diff tests/data/actions`: the 14
+pre-refactor goldens must not change). Known flake: `test_shim`'s wall-timeout check failed once on the slower file system and passed on rerun.
+
 ## Third pass (2026-11-13): assembly convergence, from run-v9
 
 run-v9 was the first real run in which the fork mechanism worked, and no attempt converged. What its logs showed and what was changed is in
