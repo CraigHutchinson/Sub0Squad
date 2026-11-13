@@ -77,6 +77,9 @@ add_library(sub0squad_core STATIC
   src/workflow.cpp
   src/policy.cpp
   src/predicate.cpp
+  src/scenario_compare.cpp
+  src/build_id.cpp
+  src/cmd_archive.cpp
   src/process.cpp
   src/cmd_process.cpp
   src/client.cpp)
@@ -141,6 +144,7 @@ add_test(NAME test_readme COMMAND test_readme $<TARGET_FILE:sub0squad> ${CMAKE_C
 add_dependencies(test_readme sub0squad)
 set_tests_properties(test_readme PROPERTIES TIMEOUT 900)
 set_tests_properties(test_project PROPERTIES TIMEOUT 600)
+sub0squad_add_test(test_archive)
 sub0squad_add_test(test_executors)
 set_tests_properties(test_executors PROPERTIES TIMEOUT 900)
 sub0squad_add_test(test_e2e)

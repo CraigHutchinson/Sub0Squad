@@ -1,13 +1,13 @@
 # Component layering check (docs/COMPONENTS.md): a source or header may include only its own layer or a lower one.
 # Run as: cmake -DSRC_DIR=<repo> -P CheckLayers.cmake. Known upward includes are listed in KNOWN_VIOLATIONS; the list may only shrink
 # (a listed violation that no longer exists is an error, so fixed ones are removed and cannot come back).
-set(LAYER0 paths frame unix_socket journal job_spec job_store process_tree progress event_channel host_guard harness)
+set(LAYER0 build_id paths frame unix_socket journal job_spec job_store process_tree progress event_channel host_guard harness)
 set(LAYER1 shim supervisor status mock_worker)
-set(LAYER2 engine plan division policy predicate process plan_lint ledger workflow workflow_status overseer briefing recall trace triage edits outline canvas turn_control throughput qa)
+set(LAYER2 engine plan division policy predicate scenario_compare process plan_lint ledger workflow workflow_status overseer briefing recall trace triage edits outline canvas turn_control throughput qa)
 set(LAYER3 harness_registry harness_common harness_web harness_cpp cpp_templates harness_py py_templates calculator_spec web_templates sandbox)
 set(LAYER4 llm_agent agent_card canvas_agent fork architect optimizer replay scenario blocks)
 set(LAYER5 daemon daemon_impl daemon_jobs daemon_workflow daemon_governance)
-set(LAYER6 portal portal_page client cmd_process first_use sub0squad)
+set(LAYER6 portal portal_page client cmd_process cmd_archive first_use sub0squad)
 # "file->included-header" pairs that go upward today; each is a refactor target.
 set(KNOWN_VIOLATIONS
   )

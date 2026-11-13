@@ -1,6 +1,8 @@
 #include "sub0squad/client.hpp"
 
+#include "cmd_archive.hpp"
 #include "cmd_process.hpp"
+#include "sub0squad/build_id.hpp"
 
 #include "json_util.hpp"
 #include "sub0squad/daemon.hpp"
@@ -78,6 +80,8 @@ constexpr const char* kUsage =
     "  status [ID] [--json]                 jobs and progress (works without the daemon, from the journal)\n"
     "  logs ID [--stderr] [--follow] [--run N]\n"
     "  cancel ID | resume ID | wait ID [--timeout SEC] | ping | stop\n"
+    "  archive [--label TEXT]               set the finished runs aside (state -> archive/<UTC time>[-label]/state) and leave a fresh, empty state; the daemon must be stopped\n"
+    "  every submit (submit, do, project submit) is refused when the running daemon is another build of this program: restart it, or pass --allow-build-mismatch\n"
     "  do \"<task in words>\" [project options]   triage first, then run: a known blueprint starts at once, otherwise a needs-plan.md handoff is written\n"
     "  project submit --task calculator-web|calculator-cpp|calculator-py (any blueprint of a registered harness starts at once) [--sandbox DIR] [--inject ITEM[:N]]... [--max-local N]\n"
     "         [--agent mock|llm] [--engine NAME=http://127.0.0.1:PORT/v1[,model=..][,ctx=N][,slots=N]]... [--engine-for PERSONA=NAME]... [--max-tokens N] [--treatment baseline|index|planfirst] [--executor session|canvas|fork] [--process NAME] [--repair-turns N] [--size-budget TOKENS] [--fallback-engine NAME] [--ask]\n"
@@ -253,6 +257,25 @@ int cmdLogs(const RuntimePaths& paths, int argc, char** argv)
     return 0;
 }
 
+/// What every submit tells the daemon about its sender (catalogue row 20): this program's build id, and whether a different daemon build is accepted.
+std::string submitFields(bool allowBuildMismatch)
+{
+    json::Writer w;
+    w.beginObject().kv("build", buildId()).kvBool("allowBuildMismatch", allowBuildMismatch).endObject();
+    std::string fields = w.take();
+    return fields.substr(1, fields.size() - 2) + ",";   // the two members, to splice into a request
+}
+
+/// Take `--allow-build-mismatch` out of a workflow command's arguments (it is about the submit, not the workflow); true when it was there.
+bool takeAllowMismatch(int& argc, char** argv)
+{
+    bool found = false;
+    int kept = 0;
+    for (int i = 0; i < argc; ++i) { if (std::string_view{argv[i]} == "--allow-build-mismatch") found = true; else argv[kept++] = argv[i]; }
+    argc = kept;
+    return found;
+}
+
 int simpleCommand(const RuntimePaths& paths, const char* cmd, const std::string& id, bool printJson)
 {
     auto client = ControlClient::connect(paths);
@@ -270,6 +293,7 @@ int cmdSubmit(const RuntimePaths& paths, int argc, char** argv)
 {
     JobSpec spec;
     std::string specFile;
+    bool allowMismatch = false;
     int i = 0;
     for (; i < argc; ++i) {
         const std::string a = argv[i];
@@ -288,6 +312,7 @@ int cmdSubmit(const RuntimePaths& paths, int argc, char** argv)
         else if (a == "--state-file") { spec.adapter.type = "state-file"; spec.adapter.path = val(); }
         else if (a == "--state-schema") spec.adapter.schema = val();
         else if (a == "--spec") specFile = val();
+        else if (a == "--allow-build-mismatch") allowMismatch = true;
         else { std::fprintf(stderr, "submit: unknown option %s (put the command after --)\n", a.c_str()); return 2; }
     }
     if (!specFile.empty()) {
@@ -300,7 +325,7 @@ int cmdSubmit(const RuntimePaths& paths, int argc, char** argv)
     if (spec.cwd.empty()) { char buf[4096]; if (::getcwd(buf, sizeof buf)) spec.cwd = buf; }
     auto client = ControlClient::connect(paths);
     if (!client) { std::fprintf(stderr, "%s%s\n", client.error().message.c_str(), client.error().noDaemon ? " (is `sub0squad serve` running?)" : ""); return 3; }
-    auto reply = client->request("submit", "\"spec\":" + spec.toJson());
+    auto reply = client->request("submit", submitFields(allowMismatch) + "\"spec\":" + spec.toJson());
     if (!reply) { std::fprintf(stderr, "%s\n", reply.error().c_str()); return 1; }
     const Reply r = parseReply(*reply);
     if (!r.ok) { std::fprintf(stderr, "error: %s\n", r.error.c_str()); return 1; }
@@ -521,6 +546,7 @@ int parseWorkflowFlags(int argc, char** argv, int from, WorkflowSpec& spec)
 
 int cmdDo(const RuntimePaths& paths, int argc, char** argv)
 {
+    const bool allowMismatch = takeAllowMismatch(argc, argv);
     if (argc < 1 || argv[0][0] == '-') { std::fputs(kUsage, stderr); return 2; }
     const std::string text = argv[0];
     WorkflowSpec spec;
@@ -534,7 +560,7 @@ int cmdDo(const RuntimePaths& paths, int argc, char** argv)
     if (!spec.sandboxDir.empty() && spec.sandboxDir[0] != '/') { char b[4096]; if (::getcwd(b, sizeof b)) spec.sandboxDir = std::string{b} + "/" + spec.sandboxDir; }
     auto client = ControlClient::connect(paths);
     if (!client) { std::fprintf(stderr, "%s%s\n", client.error().message.c_str(), client.error().noDaemon ? " (is `sub0squad serve` running?)" : ""); return 3; }
-    auto reply = client->request("workflowSubmit", "\"spec\":" + spec.toJson());
+    auto reply = client->request("workflowSubmit", submitFields(allowMismatch) + "\"spec\":" + spec.toJson());
     if (!reply) { std::fprintf(stderr, "%s\n", reply.error().c_str()); return 1; }
     const Reply r = parseReply(*reply);
     if (!r.ok) { std::fprintf(stderr, "error: %s\n", r.error.c_str()); return 1; }
@@ -624,12 +650,13 @@ int cmdProject(const RuntimePaths& paths, int argc, char** argv)
     if (argc < 1) { std::fputs(kUsage, stderr); return 2; }
     const std::string sub = argv[0];
     if (sub == "submit") {
+        const bool allowMismatch = takeAllowMismatch(argc, argv);
         WorkflowSpec spec;
         if (int rc = parseWorkflowFlags(argc, argv, 1, spec)) return rc;
         if (!spec.sandboxDir.empty() && spec.sandboxDir[0] != '/') { char b[4096]; if (::getcwd(b, sizeof b)) spec.sandboxDir = std::string{b} + "/" + spec.sandboxDir; }
         auto client = ControlClient::connect(paths);
         if (!client) { std::fprintf(stderr, "%s%s\n", client.error().message.c_str(), client.error().noDaemon ? " (is `sub0squad serve` running?)" : ""); return 3; }
-        auto reply = client->request("workflowSubmit", "\"spec\":" + spec.toJson());
+        auto reply = client->request("workflowSubmit", submitFields(allowMismatch) + "\"spec\":" + spec.toJson());
         if (!reply) { std::fprintf(stderr, "%s\n", reply.error().c_str()); return 1; }
         const Reply r = parseReply(*reply);
         if (!r.ok) { std::fprintf(stderr, "error: %s\n", r.error.c_str()); return 1; }
@@ -755,6 +782,7 @@ int runCli(int argc, char** argv)
         });
     }
     if (cmd == "do") return cmdDo(paths, argc - 2, argv + 2);
+    if (cmd == "archive") return runArchiveCommand(std::vector<std::string>(argv + 2, argv + argc), paths);
     if (cmd == "process") return runProcessCommand(std::vector<std::string>(argv + 2, argv + argc), paths.stateDir);
     if (cmd == "blueprint") { if (argc < 3) { std::fputs(kUsage, stderr); return 2; } const Harness* bh = harnessWithBlueprint(argv[2]); const std::string b = bh ? bh->blueprint(argv[2]) : std::string{}; if (b.empty()) { std::fprintf(stderr, "no blueprint '%s'\n", argv[2]); return 1; } std::printf("%s", b.c_str()); return 0; }
     if (cmd == "project") return cmdProject(paths, argc - 2, argv + 2);

@@ -4,6 +4,7 @@
 #include "sub0squad/harness.hpp"
 #include "sub0squad/harness_common.hpp"
 #include "sub0squad/plan.hpp"
+#include "sub0squad/scenario_compare.hpp"
 
 #include <algorithm>
 #include <atomic>
@@ -233,6 +234,15 @@ int runScenarioCommand(const std::vector<std::string>& args)
         for (const auto& s : scenarioCatalogue()) std::printf("%-12s %s\n", s.platform.c_str(), s.element.c_str());
         return 0;
     }
+    if (args[0] == "compare") {   // two result files side by side; exit 1 when B is worse than A beyond chance, so a script can gate on it
+        if (args.size() != 3) { std::fprintf(stderr, "scenario compare A.json B.json   (each a scenario-results.json written by `scenario run --out DIR`)\n"); return 64; }
+        const auto slurp = [](const std::string& path) { std::ifstream in(path, std::ios::binary); std::stringstream ss; ss << in.rdbuf(); return ss.str(); };
+        for (int k = 1; k <= 2; ++k) if (!std::ifstream(args[static_cast<std::size_t>(k)])) { std::fprintf(stderr, "scenario compare: cannot read %s\n", args[static_cast<std::size_t>(k)].c_str()); return 64; }
+        const auto c = compareScenarioResults(slurp(args[1]), slurp(args[2]));
+        if (!c) { std::fprintf(stderr, "scenario compare: %s\n", c.error().c_str()); return 64; }
+        std::fputs(c->text().c_str(), stdout);
+        return c->regressions ? 1 : 0;
+    }
     const auto a = parseArgs(std::vector<std::string>(args.begin() + 1, args.end()));
     const std::string only = one(a, "only", "");
     if (args[0] == "selftest") {
@@ -241,7 +251,7 @@ int runScenarioCommand(const std::vector<std::string>& args)
         std::printf(problems.empty() ? "every scenario fixture is valid: the reference passes and the starting state does not\n" : "%zu problem(s)\n", problems.size());
         return problems.empty() ? 0 : 1;
     }
-    if (args[0] != "run") { std::fprintf(stderr, "scenario: list | selftest | run\n"); return 64; }
+    if (args[0] != "run") { std::fprintf(stderr, "scenario: list | selftest | run | compare A.json B.json\n"); return 64; }
     const std::string engine = one(a, "engine", "");
     if (engine.empty()) { std::fprintf(stderr, "scenario run: --engine is required\n"); return 64; }
     const int trials = std::max(1, std::atoi(one(a, "trials", "10").c_str()));

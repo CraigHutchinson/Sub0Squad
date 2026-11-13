@@ -28,7 +28,7 @@ struct ScenarioInfo
 /// `exe` is the path of the sub0squad binary (its gate commands are run as processes); it is checked, and a nested run is refused.
 [[nodiscard]] std::vector<std::string> scenarioSelfTest(const std::string& only, const std::string& exe);
 
-/// `sub0squad scenario list | selftest [--only X] | run --engine E [--trials N] [--parallel P] [--only X] [--treatment T] [--executor session|canvas] [--repair-turns N] [--out DIR] [--min-lower F]`
+/// `sub0squad scenario list | selftest [--only X] | run --engine E [--trials N] [--parallel P] [--only X] [--treatment T] [--executor session|canvas] [--repair-turns N] [--out DIR] [--min-lower F] | compare A.json B.json`
 [[nodiscard]] int runScenarioCommand(const std::vector<std::string>& args);
 
 }  // namespace sub0squad
