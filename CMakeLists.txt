@@ -76,6 +76,12 @@ add_library(sub0squad_core STATIC
   src/sandbox.cpp
   src/workflow.cpp
   src/policy.cpp
+  src/predicate.cpp
+  src/scenario_compare.cpp
+  src/build_id.cpp
+  src/cmd_archive.cpp
+  src/process.cpp
+  src/cmd_process.cpp
   src/client.cpp)
 target_include_directories(sub0squad_core PUBLIC include PRIVATE src)
 target_compile_options(sub0squad_core PRIVATE ${SUB0SQUAD_STRICT})
@@ -105,7 +111,11 @@ endfunction()
 sub0squad_add_test(test_job_spec)
 sub0squad_add_test(test_journal)
 sub0squad_add_test(test_job_store)
+sub0squad_add_test(test_predicate)
+sub0squad_add_test(test_process)
+target_compile_definitions(test_process PRIVATE SUB0SQUAD_REGISTRY_DIR="${CMAKE_CURRENT_SOURCE_DIR}/registry")
 sub0squad_add_test(test_workflow)
+target_compile_definitions(test_workflow PRIVATE SUB0SQUAD_TEST_DATA="${CMAKE_CURRENT_SOURCE_DIR}/tests/data")
 sub0squad_add_test(test_host_guard)
 sub0squad_add_test(test_platforms)
 set_tests_properties(test_platforms PROPERTIES TIMEOUT 300)
@@ -134,6 +144,9 @@ add_test(NAME test_readme COMMAND test_readme $<TARGET_FILE:sub0squad> ${CMAKE_C
 add_dependencies(test_readme sub0squad)
 set_tests_properties(test_readme PROPERTIES TIMEOUT 900)
 set_tests_properties(test_project PROPERTIES TIMEOUT 600)
+sub0squad_add_test(test_archive)
+sub0squad_add_test(test_executors)
+set_tests_properties(test_executors PROPERTIES TIMEOUT 900)
 sub0squad_add_test(test_e2e)
 set_tests_properties(test_e2e PROPERTIES TIMEOUT 300)
 sub0squad_add_test(test_idle)

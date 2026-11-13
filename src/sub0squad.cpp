@@ -7,6 +7,7 @@
 
 #include <string_view>
 #include <Version.hpp>
+#include "sub0squad/build_id.hpp"
 #include "sub0squad/client.hpp"
 #include "sub0squad/mock_worker.hpp"
 #include "sub0squad/harness_cpp.hpp"
@@ -100,6 +101,7 @@ int selftest()
 
 int main(int argc, char** argv)
 {
+    sub0squad::setBuildId(std::string(sub0squad::version::version_full));
     if (argc > 2 && std::strcmp(argv[1], "exec-shim") == 0) return sub0squad::runShim(argv[2]);
     if (argc > 1 && std::strcmp(argv[1], "mock-worker") == 0) return sub0squad::runMockWorker(argc - 2, argv + 2);
     if (argc > 1) {

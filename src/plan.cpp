@@ -228,8 +228,7 @@ std::expected<Plan, std::string> Plan::amended(const Plan& base, const std::stri
     for (const auto& f : fragment.items) for (const auto& d : f.deps) depended.insert(d);
     // The V: on a web project the parent stays in the plan as a coordinator that integrates its parts. Each part must be gradeable on its own:
     // a part whose gate is the parent's test file could only pass when every other part's code exists too (the first real page item).
-    const Harness* harness = findHarness(base.harness);
-    const bool coordinate = harness && harness->coordinators && parent->persona != "integrator";
+    const bool coordinate = parent->persona != "integrator";   // a divided item stays as the coordinator of its parts; dividing a coordinator replaces it
     if (coordinate) {
         const std::set<std::string> parentTests(parent->gate.tests.begin(), parent->gate.tests.end());
         int developers = 0;

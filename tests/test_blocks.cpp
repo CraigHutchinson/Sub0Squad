@@ -7,6 +7,7 @@
 #include "check.hpp"
 #include "sub0squad/blocks.hpp"
 #include "sub0squad/canvas.hpp"
+#include "sub0squad/fork.hpp"
 #include "sub0squad/outline.hpp"
 #include "sub0squad/throughput.hpp"
 #include "sub0squad/turn_control.hpp"
@@ -112,7 +113,7 @@ int main(int argc, char** argv)
         const Skeleton cpp = expandSkeleton("#include <cmath>\n\nnamespace n {\n\nclass P\n{\n    @@ double term();\n};\n\n@@ static double sq(double x)\n@@ double area(double r) {\n\n}\n", "src/a.cpp");
         CHECK(cpp.error.empty() && cpp.sections.size() == 3);
         CHECK(cpp.text.find("#include <cmath>\n#include <stdexcept>\n") != std::string::npos);     // what the placeholders need
-        CHECK(cpp.text.find("static double sq(double x);\ndouble area(double r);\n\nstatic double sq(double x)\n{\n    throw std::logic_error(\"not implemented: sq\");\n}\n") != std::string::npos);   // prototypes first: sections may call each other in any order
+        CHECK(cpp.text.find("static double sq(double x);\ndouble area(double r);\n\nstatic double sq(double x)\n{\n    (void)x;\n    throw std::logic_error(\"not implemented: sq\");\n}\n") != std::string::npos);   // prototypes first: sections may call each other in any order
         CHECK(cpp.text.find("    double term()\n    {\n        throw std::logic_error(\"not implemented: term\");\n    }\n") != std::string::npos);
         CHECK(cpp.text.find("double term();") == std::string::npos);                                 // a method needs no prototype
         const Skeleton js = expandSkeleton("@@ export function evaluate(expr) {\n", "src/calc.js");
@@ -120,6 +121,34 @@ int main(int argc, char** argv)
         CHECK(expandSkeleton("x = 1\n@@ compute the total\n", "a.py").error.find("line 2 is not a function signature") != std::string::npos);
         CHECK(expandSkeleton("@@ def f(a)\n@@ def f(b)\n", "a.py").error.find("declared twice") != std::string::npos);
         CHECK(expandSkeleton("x = 1\n", "a.py").sections.empty() && expandSkeleton("x = 1\n", "a.py").text == "x = 1\n");
+    }
+    // ---- assembly convergence (run-v9): the declaration is the harness's; compiler findings are located ----
+    {
+        // A placeholder uses every named parameter, whatever its type; unnamed ones and defaults are left alone.
+        const Skeleton sk = expandSkeleton("@@ double f(const std::string& name, std::vector<std::pair<int, int>> pairs, int n = 2, double)\n", "a.cpp");
+        CHECK(sk.text.find("{\n    (void)name;\n    (void)pairs;\n    (void)n;\n    throw std::logic_error") != std::string::npos);
+        // C++: the model dropped the class qualifier and renamed a parameter; the skeleton's declaration is put back and the body kept.
+        CHECK_EQ(applySectionSignature("double peek(int ahead) {\n    return s[pos + ahead];\n}\n", "char Parser::peek(std::size_t k) const", "", "src/a.cpp"),
+                 std::string("char Parser::peek(std::size_t k) const\n{\n    return s[pos + ahead];\n}\n"));
+        // A body alone is wrapped; an in-class method keeps the skeleton's indentation on its declaration and brace.
+        CHECK_EQ(applySectionSignature("return 1;", "int one()", "    ", "src/a.cpp"), std::string("    int one()\n    {\nreturn 1;\n    }\n"));
+        CHECK_EQ(applySectionSignature("    int one()\n    {\n        return 1;\n    }\n", "int one()", "    ", "src/a.cpp"), std::string("    int one()\n    {\n        return 1;\n    }\n"));
+        // JavaScript keeps its brace on the declaration line.
+        CHECK_EQ(applySectionSignature("function f(a) {\n    return a;\n}", "export function f(x)", "", "src/a.js"), std::string("export function f(x) {\n    return a;\n}\n"));
+        // Python: a method written at the wrong indentation, with a changed parameter and a decorator repeated, is moved under the skeleton's declaration.
+        CHECK_EQ(applySectionSignature("@staticmethod\ndef term(this):\n    v = 1\n\n    return v\n", "def term(self)", "    ", "calc/a.py"),
+                 std::string("    def term(self):\n        v = 1\n\n        return v\n"));
+        CHECK_EQ(applySectionSignature("    def term(self):\n        return 2\n", "def term(self)", "    ", "calc/a.py"), std::string("    def term(self):\n        return 2\n"));
+        CHECK_EQ(applySectionSignature("v = 1\nreturn v\n", "def term(self)", "    ", "calc/a.py"), std::string("    def term(self):\n        v = 1\n        return v\n"));
+        // Compiler findings, as GCC prints them through the gate (an absolute path, context lines, a note that is not a finding of its own).
+        const std::string gcc = "  /w/ws/src/calc.cpp:216:1: error: control reaches end of non-void function [-Werror=return-type]\n    216 | }\n        | ^\n"
+                                "  /w/ws/src/calc.cpp:367:15: error: 'double calc::pow(double, double)' defined but not used [-Werror=unused-function]\n    367 | static double pow(double base, double exp)\n"
+                                "  /w/ws/src/calc.cpp:30:5: note: declared here\n  /w/ws/src/other.cpp:3:1: error: something else\n";
+        const auto found = compileFindings(gcc, "src/calc.cpp");
+        CHECK_EQ(found.size(), static_cast<std::size_t>(2));
+        CHECK(found.size() == 2 && found[0].line == 216 && !found[0].unusedFunction && found[0].text.find("216 | }") != std::string::npos);
+        CHECK(found.size() == 2 && found[1].line == 367 && found[1].unusedFunction);
+        CHECK_EQ(compileFindings("syntax error in calc/engine.py:12: invalid syntax\n    x = (\n", "calc/engine.py").size(), static_cast<std::size_t>(1));
     }
     // ---- block 5: the canvas against a model ----
     {

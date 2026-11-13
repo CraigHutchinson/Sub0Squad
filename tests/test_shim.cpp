@@ -116,8 +116,14 @@ int main(int, char** argv)
         auto r = startRun("t1", {"--steps", "5", "--stall-at", "1"}, /*wall*/ 1, /*grace*/ 1);
         waitShim(r);
         auto ex = readExitRecord(r.dir);
-        CHECK(ex && ex->outcome == "timeout" && ex->teardown == "verified");
-        CHECK_EQ(countByTag("t1"), 0);
+        const bool timedOut = ex && ex->outcome == "timeout" && ex->teardown == "verified";
+        CHECK(timedOut);
+        const int left = countByTag("t1");
+        CHECK_EQ(left, 0);
+        // This check failed once and could not be reproduced (docs/INTERVENTIONS.md row 58): if it fails again, the evidence is printed rather than lost.
+        if (!timedOut || left != 0)
+            std::fprintf(stderr, "wall timeout: exit.json=[%s] shim.json=[%s] processes left=%d events=[%s] stderr=[%s]\n", slurp(r.dir / "exit.json").c_str(), slurp(r.dir / "shim.json").c_str(), left,
+                         slurp(r.dir / "events.ndjson").c_str(), slurp(r.dir / "stderr.log").c_str());
     }
     return finish();
 }

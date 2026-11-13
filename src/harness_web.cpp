@@ -248,6 +248,7 @@ int runHarnessIntegrate(const std::vector<std::string>& args)
             writeFile(dir / "qa.txt", q);
             md += "\n## Quality findings (advisory)\n\n" + (q.empty() ? std::string{"none\n"} : "```\n" + q + "```\n");
         }
+        md += provenanceMarkdown(*plan, dir);
         if (!plan->reasons.empty()) { md += "\n## Why this split\n\n"; for (const auto& r : plan->reasons) md += "- " + r + "\n"; }
         writeFile(dir / "report.md", md);
         json::Writer w;

@@ -41,6 +41,12 @@ struct Tap { int tests = -1, pass = 0, fail = 0; std::string excerpt; std::strin
 
 /// Recursive copy that overwrites; a missing source is not an error.
 void copyTree(const std::filesystem::path& from, const std::filesystem::path& to);
+/// Who built an ACCEPTED item (catalogue row 31: an item accepted by the frontier stub says nothing about the model): "model" (a model-driven attempt),
+/// "stub" (the frontier stub tier wrote the reference), "mock" (the mock agent, no model at all), "parts" (a coordinator: its parts built it) or "" (not accepted).
+/// Read from the accepted attempt's `agent.json`, so it is a fact of the files, not of the workflow's settings.
+[[nodiscard]] std::string builtBy(const std::filesystem::path& workflowDir, const std::string& itemId);
+/// A markdown section "How each item was built" for the final report: one row per item and a sentence that says how much of the project a model wrote.
+[[nodiscard]] std::string provenanceMarkdown(const Plan& plan, const std::filesystem::path& workflowDir);
 /// Ids of every item `id` depends on, directly or not.
 [[nodiscard]] std::set<std::string> closure(const Plan& plan, const std::string& id);
 

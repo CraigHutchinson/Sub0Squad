@@ -166,7 +166,7 @@ std::string Daemon::Impl::doWorkflowSubmit(const std::string& specJson)
     if (ec) return errorReply("cannot create the sandbox " + spec->sandboxDir + ": " + ec.message());
     record("workflowSubmitted", wfbody::submitted(id, *spec));
     logf("workflow %s submitted: task '%s', sandbox %s", id.c_str(), spec->task.c_str(), spec->sandboxDir.c_str());
-    if (!isKnownTask(spec->task)) {  // no blueprint: the architect role is deferred as a file handoff
+    if (!isKnownTask(spec->task) && spec->process.producesPlan()) {  // the process plans, and no blueprint exists: the architect role is deferred as a file handoff
         TriageResult t = triage(spec->taskText.empty() ? spec->task : spec->taskText);
         const std::filesystem::path packet = std::filesystem::path{spec->sandboxDir} / "needs-plan.md";
         std::ofstream(packet) << needsPlanPacket(spec->taskText.empty() ? spec->task : spec->taskText, t, id);

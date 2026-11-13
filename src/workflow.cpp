@@ -3,6 +3,7 @@
 #include "json_util.hpp"
 
 #include "sub0squad/harness.hpp"
+#include "sub0squad/predicate.hpp"
 #include <algorithm>
 #include <set>
 #include <cstdio>
@@ -18,7 +19,7 @@ const char* toString(WorkflowState s)
 std::string WorkflowSpec::toJson() const
 {
     json::Writer w;
-    w.beginObject().kv("task", task).kv("taskText", taskText).kv("triage", triage).kv("sandbox", sandboxDir).kv("maxLocalAttempts", maxLocalAttempts).kv("agent", agent).kv("treatment", treatment).kv("executor", executor).kv("repairTurns", repairTurns).kv("sizeBudget", sizeBudget).kv("maxTokens", maxTokens).kvBool("ask", ask).kv("fallbackEngine", fallbackEngine).key("inject").beginArray();
+    w.beginObject().kv("task", task).kv("taskText", taskText).kv("triage", triage).kv("sandbox", sandboxDir).kv("maxLocalAttempts", maxLocalAttempts).kv("agent", agent).kv("treatment", treatment).kv("executor", executor).kvRaw("process", process.toJson()).kv("repairTurns", repairTurns).kv("sizeBudget", sizeBudget).kv("maxTokens", maxTokens).kvBool("ask", ask).kv("fallbackEngine", fallbackEngine).key("inject").beginArray();
     for (const auto& i : inject) w.str(i);
     w.endArray().key("engines").beginArray();
     for (const auto& e : engines) w.str(e);
@@ -45,6 +46,12 @@ std::expected<WorkflowSpec, std::string> WorkflowSpec::fromJson(std::string_view
                 else if (k == "agent") s.agent = json::toString(v);
                 else if (k == "treatment") s.treatment = json::toString(v);
                 else if (k == "executor") s.executor = json::toString(v);
+                else if (k == "process") {
+                    std::string_view r = v.raw_json();
+                    auto p = Process::fromJson(std::string_view{r});
+                    if (!p) throw std::runtime_error(p.error());
+                    s.process = std::move(*p);
+                }
                 else if (k == "repairTurns") s.repairTurns = static_cast<int>(v.get_int64());
                 else if (k == "sizeBudget") s.sizeBudget = static_cast<int>(v.get_int64());
                 else if (k == "maxTokens") s.maxTokens = static_cast<int>(v.get_int64());
@@ -55,6 +62,7 @@ std::expected<WorkflowSpec, std::string> WorkflowSpec::fromJson(std::string_view
             }
         });
     } catch (const simdjson::simdjson_error& e) { return std::unexpected(std::string{"bad workflow spec: "} + e.what()); }
+    catch (const std::runtime_error& e) { return std::unexpected(std::string{"bad workflow spec: "} + e.what()); }   // the process it carries is invalid
     if (s.task.empty()) return std::unexpected("workflow needs a task");
     if (s.taskText.size() > 4000) return std::unexpected("task text is too long");
     if (!s.sandboxDir.empty() && s.sandboxDir[0] != '/') return std::unexpected("workflow sandbox must be an absolute directory");  // empty: the daemon chooses
@@ -66,7 +74,7 @@ std::expected<WorkflowSpec, std::string> WorkflowSpec::fromJson(std::string_view
     if (!s.fallbackEngine.empty() && !names.count(s.fallbackEngine)) return std::unexpected("fallback engine '" + s.fallbackEngine + "' names an unknown engine");
     for (const auto& [persona, name] : s.route) if (!names.count(name)) return std::unexpected("route " + persona + "=" + name + " names an unknown engine");
     if (s.treatment != "baseline" && s.treatment != "index" && s.treatment != "planfirst") return std::unexpected("treatment must be baseline, index or planfirst");
-    if (s.executor != "session" && s.executor != "canvas" && s.executor != "fork") return std::unexpected("executor must be session, canvas or fork");
+    if (!s.executor.empty() && s.executor != "session" && s.executor != "canvas" && s.executor != "fork") return std::unexpected("executor must be session, canvas or fork");
     if (s.maxTokens < 256 || s.maxTokens > 32768) return std::unexpected("maxTokens must be 256..32768");
     return s;
 }
@@ -201,6 +209,52 @@ void WorkflowStore::apply(const JournalRecord& rec)
     }
 }
 
+const char* kindName(WorkflowAction::Kind k)
+{
+    switch (k) {
+        case WorkflowAction::Kind::startJob: return "startJob";
+        case WorkflowAction::Kind::loadPlan: return "loadPlan";
+        case WorkflowAction::Kind::recordDecision: return "recordDecision";
+        case WorkflowAction::Kind::cancelJob: return "cancelJob";
+        case WorkflowAction::Kind::finish: return "finish";
+        case WorkflowAction::Kind::amendPlan: return "amendPlan";
+        case WorkflowAction::Kind::writeDispute: return "writeDispute";
+        case WorkflowAction::Kind::sendDown: return "sendDown";
+        case WorkflowAction::Kind::raiseRequest: return "raiseRequest";
+        case WorkflowAction::Kind::setStrategy: return "setStrategy";
+    }
+    return "?";
+}
+
+std::string WorkflowAction::toJson() const
+{
+    json::Writer w;
+    w.beginObject().kv("kind", kindName(kind));
+    switch (kind) {
+        case Kind::startJob: w.kvRaw("job", job.toJson()); break;
+        case Kind::loadPlan: break;
+        case Kind::recordDecision:
+            w.kv("item", item).kv("attempt", attempt).kv("action", decisionAction).kv("tier", decisionTier);
+            if (!decisionJson.empty()) w.kvRaw("decision", decisionJson);
+            break;
+        case Kind::cancelJob: w.kv("jobId", jobId); break;
+        case Kind::finish: w.kv("state", toString(finalState)).kv("note", note); break;
+        case Kind::amendPlan: w.kv("item", item).kv("attempt", attempt); break;
+        case Kind::writeDispute: w.kv("item", item).kv("from", fromItem).kv("attempt", attempt); break;
+        case Kind::sendDown: w.kv("item", item).kv("attempt", attempt); break;
+        case Kind::raiseRequest:
+            w.kv("requestKind", request.kind).kv("from", request.from).kv("title", request.title).kv("detail", request.detail).kv("attempt", request.attempt).kvBool("blocking", request.blocking).key("scope").beginArray();
+            for (const auto& s : request.scope) w.str(s);
+            w.endArray().key("options").beginArray();
+            for (const auto& o : request.options) w.str(o);
+            w.endArray();
+            break;
+        case Kind::setStrategy: w.kv("item", item).kv("strategy", note); break;
+    }
+    w.endObject();
+    return w.take();
+}
+
 // ---- engine ---------------------------------------------------------------------------------------------------------
 
 namespace {
@@ -214,7 +268,7 @@ Mine jobsOf(const WorkflowRecord& wf, const JobStore& store)
     return m;
 }
 
-JobSpec baseJob(const WorkflowRecord& wf, const WorkflowSettings& st, const char* role, const char* tool, const char* tier, std::int64_t wall)
+JobSpec baseJob(const WorkflowRecord& wf, const WorkflowSettings& st, const std::string& role, const std::string& tool, const std::string& tier, std::int64_t wall)
 {
     JobSpec s;
     s.cwd = wf.spec.sandboxDir;
@@ -317,13 +371,30 @@ const DecisionRecord* decisionFor(const WorkflowRecord& wf, const std::string& i
     return nullptr;
 }
 
+/// How an item of this persona is executed: the spec's override if it has one (a tester's `fork` is the canvas), else the process's choice.
+std::string executorFor(const WorkflowSpec& spec, const LeafParams& leaf, const std::string& persona)
+{
+    const bool tester = persona == "tester";
+    if (!spec.executor.empty()) return tester && spec.executor == "fork" ? std::string{"canvas"} : spec.executor;
+    return tester ? leaf.testerExecutor : leaf.developerExecutor;
+}
+
+/// The parameters of the stage that runs the plan's items (the standard values when the process has no such stage: nothing then runs an item).
+const Stage& itemsStageOf(const WorkflowRecord& wf)
+{
+    static const Stage standard = [] { Stage s; s.kind = StageKind::items; return s; }();
+    const Stage* st = wf.spec.process.itemsStage();
+    return st ? *st : standard;
+}
+
 JobSpec agentJob(const WorkflowRecord& wf, const WorkflowSettings& st, const WorkItem& it, int attempt, const std::string& tier)
 {
     auto engine = wf.spec.engineFor(it.persona);
     if (!wf.spec.fallbackEngine.empty() && hasStrategy(wf, it.id, "engine"))   // the manager moved this item to the stronger engine
         for (const auto& e : wf.spec.engines) if (auto p = EngineProfile::parse(e); p && p->name == wf.spec.fallbackEngine) engine = *p;
     const bool llm = wf.spec.agent == "llm" && engine.has_value();
-    JobSpec s = baseJob(wf, st, "agent", llm ? "llm-agent" : "mock-agent", tier.c_str(), llm && tier == "local" ? 3 * 3600 : 120);
+    const LeafParams& leaf = itemsStageOf(wf).leaf;
+    JobSpec s = baseJob(wf, st, "agent", llm ? "llm-agent" : "mock-agent", tier, llm && tier == "local" ? leaf.agentWallLlmSeconds : leaf.agentWallOtherSeconds);
     s.item = it.id;
     s.attempt = attempt;
     if (llm) { s.leaseResource = engine->endpoint; s.leaseCap = std::max(1, engine->maxConcurrent); }
@@ -332,10 +403,11 @@ JobSpec agentJob(const WorkflowRecord& wf, const WorkflowSettings& st, const Wor
                   "--max-tokens", std::to_string(wf.spec.maxTokens), "--timeout", "1700", "--treatment", wf.spec.treatment, "--repair-turns", std::to_string(wf.spec.repairTurns), "--size-budget", std::to_string(wf.spec.sizeBudget)};
         const DecisionRecord* before = attempt > 1 ? decisionFor(wf, it.id, attempt - 1) : nullptr;
         const bool sections = before && before->action == "sections";   // the ladder chose forked sections for this attempt
-        if ((wf.spec.executor == "fork" || sections) && tier == "local" && it.persona != "tester")   // a developer's item as forked sections; the gate job judges the merged files
+        const std::string executor = executorFor(wf.spec, leaf, it.persona);
+        if ((executor == "fork" || sections) && tier == "local" && it.persona != "tester")   // a developer's item as forked sections; the gate job judges the merged files
             s.argv = {st.exe, "llm-fork", "--workflow-dir", wf.spec.sandboxDir, "--item", it.id, "--attempt", std::to_string(attempt), "--engine", engine->toArg(),
                       "--max-tokens", std::to_string(wf.spec.maxTokens), "--timeout", "1700", "--repair-turns", std::to_string(wf.spec.repairTurns), "--agent-exit", "1"};
-        else if (wf.spec.executor != "session") s.argv.insert(s.argv.end(), {"--executor", "canvas"});
+        else if (executor != "session") s.argv.insert(s.argv.end(), {"--executor", "canvas"});
     } else {
         s.argv = {st.exe, "mock-agent", "--workflow-dir", wf.spec.sandboxDir, "--item", it.id, "--tier", tier, "--attempt", std::to_string(attempt)};
         for (const auto& i : wf.spec.inject) { s.argv.push_back("--inject"); s.argv.push_back(i); }
@@ -347,7 +419,7 @@ JobSpec gateJob(const WorkflowRecord& wf, const WorkflowSettings& st, const Work
 {
     const Harness* harness = wf.plan ? findHarness(wf.plan->harness) : nullptr;
     const char* gateCommand = harness ? harness->gateCommand : "";   // a plan always names a registered harness (Plan::fromJson refuses one that does not)
-    JobSpec s = baseJob(wf, st, "gate", gateCommand, tier.c_str(), 120);
+    JobSpec s = baseJob(wf, st, "gate", gateCommand, tier, itemsStageOf(wf).leaf.gateWallSeconds);
     s.item = it.id;
     s.attempt = attempt;
     s.argv = {st.exe, gateCommand, "--workflow-dir", wf.spec.sandboxDir, "--item", it.id, "--attempt", std::to_string(attempt)};
@@ -358,7 +430,7 @@ JobSpec architectJob(const WorkflowRecord& wf, const WorkflowSettings& st, const
 {
     const auto engine = wf.spec.engineFor("architect");
     const bool llm = wf.spec.agent == "llm" && engine.has_value();
-    JobSpec s = baseJob(wf, st, mode, llm ? "llm-architect" : "mock-architect", "local", llm ? 5400 : 120);  // three turns of up to 1700 s each: the first real timeout killed a correction mid-turn
+    JobSpec s = baseJob(wf, st, mode, llm ? "llm-architect" : "mock-architect", "local", llm ? itemsStageOf(wf).leaf.architectWallLlmSeconds : itemsStageOf(wf).leaf.architectWallOtherSeconds);  // three turns of up to 1700 s each: the first real timeout killed a correction mid-turn
     s.item = it.id;
     s.attempt = attempt;
     s.argv = {st.exe, llm ? "llm-architect" : "mock-architect", "--mode", mode, "--workflow-dir", wf.spec.sandboxDir, "--item", it.id, "--attempt", std::to_string(attempt)};
@@ -374,59 +446,151 @@ WorkflowAction finish(WorkflowState s, std::string note) { WorkflowAction a; a.k
 
 }  // namespace
 
-std::vector<WorkflowAction> advance(const WorkflowRecord& wf, const JobStore& store, const WorkflowSettings& st, const IDecisionPolicy& policy)
+std::string firstCause(const WorkflowRecord& wf)
 {
-    std::vector<WorkflowAction> out;
-    if (wf.state != WorkflowState::running) return out;
-    const Mine mine = jobsOf(wf, store);
-    bool anyActive = false;
-    for (const JobRecord* j : mine.all) if (!terminalJob(j)) anyActive = true;
+    for (const auto& d : wf.decisions) if (d.action == "fail" && (!wf.plan || wf.plan->find(d.item))) return d.item;
+    return {};
+}
 
-    auto cancelActive = [&] {
-        for (const JobRecord* j : mine.all) if (!terminalJob(j) && j->state != JobState::cancelling) {
-            WorkflowAction a; a.kind = WorkflowAction::Kind::cancelJob; a.jobId = j->id; out.push_back(std::move(a));
-        }
+std::vector<std::string> laterFailures(const WorkflowRecord& wf)
+{
+    const std::string first = firstCause(wf);
+    std::vector<std::string> later;
+    for (const auto& d : wf.decisions)
+        if (d.action == "fail" && d.item != first && (!wf.plan || wf.plan->find(d.item)) && std::find(later.begin(), later.end(), d.item) == later.end()) later.push_back(d.item);
+    return later;
+}
+
+namespace {
+
+/// An item's state as the status output and the predicates read it.
+const char* stateOf(const ItemView& v, const WorkflowRecord& wf)
+{
+    int attempts = v.maxAttempt;
+    if (v.item->persona == "integrator") for (const JobRecord* x : v.gates) attempts = std::max<int>(attempts, static_cast<int>(x->spec.attempt));
+    const DecisionRecord* d = attempts ? decisionFor(wf, v.item->id, attempts) : nullptr;
+    return v.accepted ? "accepted" : v.active ? "running" : (d && d->action == "fail") ? "failed" : "pending";
+}
+
+/// One stage as derived this pass. Nothing here is stored: it is a function of the workflow record and its jobs (docs/PROCESS_DESIGN.md 2.2), so a dispute
+/// that voids an accepted item re-opens the stage it belongs to and closes the ones that waited for it, with no bookkeeping to repair.
+struct StageView
+{
+    const Stage* stage = nullptr;
+    bool entered = false, done = false, failed = false;
+    std::string waitingOn;   ///< the first atom that keeps it from being entered, or from being done
+};
+
+struct Derived
+{
+    Snapshot snapshot;
+    std::vector<StageView> stages;
+};
+
+Derived derive(const WorkflowRecord& wf, const Mine& mine, const std::vector<ItemView>& views)
+{
+    Derived d;
+    Snapshot& snap = d.snapshot;
+    snap.planPresent = wf.plan.has_value();
+    snap.openBlocking = anyOpenBlocking(wf);
+    for (const ItemView& v : views) {
+        const std::string_view state = stateOf(v, wf);
+        ++(state == "accepted" ? snap.accepted : state == "running" ? snap.running : state == "failed" ? snap.failed : snap.pending);
+    }
+    Vocabulary vocabulary;
+    for (const Stage& stage : wf.spec.process.stages) if (stage.kind == StageKind::job) vocabulary.steps.push_back(stage.job.step);
+    for (const JobRecord* j : mine.all) {
+        if (!j->spec.item.empty() || std::find(vocabulary.steps.begin(), vocabulary.steps.end(), j->spec.role) == vocabulary.steps.end()) continue;
+        Snapshot::JobFacts& f = snap.jobs[j->spec.role];   // jobs are in submission order: the last one seen is the latest
+        ++f.tries;
+        f.active = !terminalJob(j);
+        f.succeeded = j->state == JobState::succeeded;
+        f.failed = terminalJob(j) && !f.succeeded;
+    }
+    for (const Stage& stage : wf.spec.process.stages) {
+        StageView sv;
+        sv.stage = &stage;
+        const auto entry = Predicate::parse(stage.entry, vocabulary), exit = Predicate::parse(stage.exit, vocabulary);   // checked when the process was loaded
+        sv.entered = entry && entry->eval(snap);
+        sv.done = sv.entered && exit && exit->eval(snap);
+        if (!sv.entered) sv.waitingOn = entry ? entry->firstFalse(snap) : entry.error();
+        else if (!sv.done) sv.waitingOn = exit ? exit->firstFalse(snap) : exit.error();
+        if (stage.kind == StageKind::job) { const auto it = snap.jobs.find(stage.job.step); sv.failed = !sv.done && it != snap.jobs.end() && it->second.failed && it->second.tries >= 1 + stage.job.retries; }
+        else sv.failed = sv.entered && snap.failed > 0;
+        snap.stages[stage.name] = {sv.done, sv.entered && !sv.done, sv.failed};
+        vocabulary.stages.push_back(stage.name);
+        d.stages.push_back(std::move(sv));
+    }
+    return d;
+}
+
+std::string substituted(std::string arg, const WorkflowRecord& wf)
+{
+    const std::pair<const char*, const std::string*> names[] = {{"${task}", &wf.spec.task}, {"${sandbox}", &wf.spec.sandboxDir}, {"${workflow}", &wf.id}};
+    for (const auto& [name, value] : names)
+        for (std::size_t at = arg.find(name); at != std::string::npos; at = arg.find(name, at + value->size())) arg.replace(at, std::string_view{name}.size(), *value);
+    return arg;
+}
+
+/// "twice", as the engine has always said it.
+std::string times(int n) { return n == 2 ? "twice" : std::to_string(n) + " times"; }
+
+/// A stage of kind `job` that is entered and not done: start its job, wait for it, accept what it wrote, run it again, or fail the workflow.
+/// Returns true when the workflow was finished (nothing else may be decided this pass).
+bool advanceJobStage(const WorkflowRecord& wf, const Mine& mine, const WorkflowSettings& st, const Stage& stage, const Snapshot& snap, std::vector<WorkflowAction>& out)
+{
+    const JobParams& p = stage.job;
+    std::string command = p.tool;
+    if (p.tool == "harness:integrate") {
+        const Harness* harness = wf.plan ? findHarness(wf.plan->harness) : nullptr;
+        if (!harness) { out.push_back(finish(WorkflowState::failed, "stage '" + stage.name + "' cannot run: its tool is the plan's harness, and there is no plan")); return true; }
+        command = harness->integrateCommand;
+    }
+    const auto it = snap.jobs.find(p.step);
+    const Snapshot::JobFacts facts = it == snap.jobs.end() ? Snapshot::JobFacts{} : it->second;
+    const auto startIt = [&] {
+        JobSpec s = baseJob(wf, st, p.step, command, p.tier, p.wallSeconds);
+        s.argv = {st.exe, command};
+        for (const auto& a : p.args) s.argv.push_back(substituted(a, wf));
+        out.push_back(start(std::move(s)));
     };
-    if (wf.cancelRequested) {
-        cancelActive();
-        if (!anyActive) out.push_back(finish(WorkflowState::cancelled, "cancelled by request"));
-        return out;
+    if (facts.tries == 0) startIt();
+    else if (facts.active) {}   // wait
+    else if (facts.succeeded) {
+        // The job is done and the stage is not: either its output is still to be accepted, or the stage's exit asks for more than the job (a stall the
+        // status shows, with the atom that is false).
+        if (p.accept == "plan" && !wf.plan) { WorkflowAction a; a.kind = WorkflowAction::Kind::loadPlan; out.push_back(std::move(a)); }
     }
-
-    // 1. Planner.
-    if (!wf.plan) {
-        int plannerJobs = 0;
-        const JobRecord* last = nullptr;
-        for (const JobRecord* j : mine.all) if (j->spec.role == "planner") { ++plannerJobs; last = j; }
-        if (plannerJobs == 0) {
-            JobSpec s = baseJob(wf, st, "planner", "mock-planner", "stub", 60);
-            s.argv = {st.exe, "mock-planner", "--task", wf.spec.task, "--out", wf.spec.sandboxDir + "/plan.json"};
-            out.push_back(start(std::move(s)));
-        } else if (!terminalJob(last)) {
-            // wait
-        } else if (last->state == JobState::succeeded) {
-            WorkflowAction a; a.kind = WorkflowAction::Kind::loadPlan; out.push_back(std::move(a));
-        } else if (plannerJobs < 2) {
-            JobSpec s = baseJob(wf, st, "planner", "mock-planner", "stub", 60);
-            s.argv = {st.exe, "mock-planner", "--task", wf.spec.task, "--out", wf.spec.sandboxDir + "/plan.json"};
-            out.push_back(start(std::move(s)));
-        } else {
-            out.push_back(finish(WorkflowState::failed, "planner failed twice"));
-        }
-        return out;
+    else if (facts.tries < 1 + p.retries) startIt();
+    else {
+        std::string note;
+        for (const JobRecord* j : mine.all) if (j->spec.item.empty() && j->spec.role == p.step) note = j->note;   // the latest one's
+        out.push_back(finish(WorkflowState::failed, facts.tries == 1 ? p.label + " failed: " + note : p.label + " failed " + times(facts.tries)));
+        return true;
     }
+    return false;
+}
 
-    // 2. Items.
+/// What a finished workflow achieved, from its stages: the standard process reads "all items accepted; integration passed".
+std::string successNote(const Process& process)
+{
+    std::string note;
+    for (const Stage& s : process.stages) {
+        if (s.kind == StageKind::job && s.job.accept == "plan") continue;   // that there was a plan goes without saying
+        note += (note.empty() ? "" : "; ") + (s.kind == StageKind::items ? std::string{"all items accepted"} : s.job.label + " passed");
+    }
+    return note.empty() ? "every stage is done" : note;
+}
+
+/// The stage of kind `items`: every item of the plan under its executor (a coordinator ascends, anything else is a leaf), in plan order.
+/// Returns true when `advance` must return what is in `out` now (an item failed: see the end of the function).
+bool advanceItems(const WorkflowRecord& wf, const std::vector<ItemView>& views, const WorkflowSettings& st, const IDecisionPolicy& policy, bool anyActive, std::vector<WorkflowAction>& out)
+{
     const Plan& plan = *wf.plan;
-    std::vector<ItemView> views;
-    for (const auto& it : plan.items) views.push_back(viewOf(it, mine, wf));
-
-    bool allAccepted = true;
     std::string failedItem;
     auto isAccepted = [&](const std::string& id) { for (const auto& v : views) if (v.item->id == id) return v.accepted; return false; };
     for (const ItemView& v : views) {
         if (v.accepted) continue;
-        allAccepted = false;
         if (v.active) continue;
         if (!std::all_of(v.item->deps.begin(), v.item->deps.end(), isAccepted)) continue;
         if (blockedByRequest(wf, v.item->id)) continue;  // waiting for the owner or the architect: nothing new starts for this node
@@ -434,7 +598,7 @@ std::vector<WorkflowAction> advance(const WorkflowRecord& wf, const JobStore& st
             // The V's ascent. A coordinator has no agent step: when its parts are accepted its own tests run over them (a gate per round). A
             // failing round is sent down to the part the failure points at (the daemon picks it and writes the feedback), the part is redone,
             // and the coordinator integrates again, up to kMaxRoundTrips times; then the item fails with the evidence.
-            constexpr int kMaxRoundTrips = 3;
+            const int kMaxRoundTrips = itemsStageOf(wf).ascent.maxRoundTrips;
             int round = 0;
             const JobRecord* g = nullptr;
             for (const JobRecord* x : v.gates) if (x->spec.attempt >= round) { round = static_cast<int>(x->spec.attempt); g = x; }
@@ -499,6 +663,9 @@ std::vector<WorkflowAction> advance(const WorkflowRecord& wf, const JobStore& st
             if (role == "agent" && latest->exitJson.find("\"code\":4") != std::string::npos) ctx.oversize = true;
             if (const Harness* hs = wf.plan ? findHarness(wf.plan->harness) : nullptr; hs && hs->mockFile) { ctx.frontierHasReference = !v.item->files.empty(); for (const auto& f : v.item->files) if (hs->mockFile(f, false).empty()) ctx.frontierHasReference = false; }
             ctx.persona = v.item->persona;
+            const LeafParams& leaf = itemsStageOf(wf).leaf;
+            ctx.allowDecompose = leaf.allowDecompose; ctx.allowSections = leaf.allowSections; ctx.allowReviseTests = leaf.allowReviseTests;
+            ctx.allowRearchitect = leaf.allowRearchitect; ctx.allowEscalate = leaf.allowEscalate;
             if (const Harness* hs = findHarness(plan.harness)) ctx.divideBySections = hs->divideBySections;
             for (const auto& dd : wf.decisions) if (dd.item == v.item->id && dd.action == "sections") ctx.sectionsTried = true;
             ctx.decomposeTried = v.decomposeTried;
@@ -579,27 +746,62 @@ std::vector<WorkflowAction> advance(const WorkflowRecord& wf, const JobStore& st
     if (!failedItem.empty()) {
         // Never discard progress (owner rule): an item that ran out of options stops its own branch, not the others. Jobs in flight and work this pass
         // started carry on; the workflow fails once nothing else can move (everything that depended on the failed item stays pending).
-        if (anyActive || !out.empty()) return out;
-        if (!anyActive) out.push_back(finish(WorkflowState::failed, "item '" + failedItem + "' failed after the policy ran out of options"));
+        if (anyActive || !out.empty()) return true;
+        if (!anyActive) {
+            // Name the FIRST cause (row 14), not whichever item the loop above reached last, and say what failed after it.
+            const std::string cause = firstCause(wf).empty() ? failedItem : firstCause(wf);
+            std::string note = "item '" + cause + "' failed after the policy ran out of options";
+            const auto later = laterFailures(wf);
+            if (!later.empty()) { note += " (it failed first; later failures:"; for (const auto& l : later) note += " '" + l + "'"; note += ")"; }
+            out.push_back(finish(WorkflowState::failed, note));
+        }
+        return true;
+    }
+    return false;
+}
+
+}  // namespace
+
+std::vector<WorkflowAction> advance(const WorkflowRecord& wf, const JobStore& store, const WorkflowSettings& st, const IDecisionPolicy& policy)
+{
+    std::vector<WorkflowAction> out;
+    if (wf.state != WorkflowState::running) return out;
+    const Mine mine = jobsOf(wf, store);
+    bool anyActive = false;
+    for (const JobRecord* j : mine.all) if (!terminalJob(j)) anyActive = true;
+
+    if (wf.cancelRequested) {
+        for (const JobRecord* j : mine.all) if (!terminalJob(j) && j->state != JobState::cancelling) {
+            WorkflowAction a; a.kind = WorkflowAction::Kind::cancelJob; a.jobId = j->id; out.push_back(std::move(a));
+        }
+        if (!anyActive) out.push_back(finish(WorkflowState::cancelled, "cancelled by request"));
         return out;
     }
 
-    // 3. Integrator.
-    if (allAccepted && !anyOpenBlocking(wf)) {
-        const JobRecord* integ = nullptr;
-        for (const JobRecord* j : mine.all) if (j->spec.role == "integrator") integ = j;
-        if (!integ) {
-            const Harness* harness = findHarness(plan.harness);
-            const char* integrateCommand = harness ? harness->integrateCommand : "";
-            JobSpec s = baseJob(wf, st, "integrator", integrateCommand, "stub", 300);
-            s.argv = {st.exe, integrateCommand, "--workflow-dir", wf.spec.sandboxDir};
-            out.push_back(start(std::move(s)));
-        } else if (terminalJob(integ)) {
-            out.push_back(integ->state == JobState::succeeded ? finish(WorkflowState::succeeded, "all items accepted; integration passed")
-                                                              : finish(WorkflowState::failed, "integration failed: " + integ->note));
-        }
+    // The process: its stages in order, each derived from the record, each doing what its kind says. No stage, step or tool is named here.
+    std::vector<ItemView> views;
+    if (wf.plan) for (const auto& it : wf.plan->items) views.push_back(viewOf(it, mine, wf));
+    const Derived derived = derive(wf, mine, views);
+    bool allDone = true;
+    for (const StageView& sv : derived.stages) {
+        allDone = allDone && sv.done;
+        if (!sv.entered) continue;
+        if (sv.stage->kind == StageKind::job) { if (!sv.done && advanceJobStage(wf, mine, st, *sv.stage, derived.snapshot, out)) return out; }
+        else if (wf.plan && advanceItems(wf, views, st, policy, anyActive, out)) return out;
     }
+    if (allDone) out.push_back(finish(WorkflowState::succeeded, successNote(wf.spec.process)));
     return out;
+}
+
+std::vector<StageStatus> stageStatuses(const WorkflowRecord& wf, const JobStore& store)
+{
+    const Mine mine = jobsOf(wf, store);
+    std::vector<ItemView> views;
+    if (wf.plan) for (const auto& it : wf.plan->items) views.push_back(viewOf(it, mine, wf));
+    std::vector<StageStatus> r;
+    for (const StageView& sv : derive(wf, mine, views).stages)
+        r.push_back({sv.stage->name, sv.stage->kind == StageKind::job ? "job" : "items", sv.done ? "done" : sv.failed ? "failed" : sv.entered ? "active" : "waiting", sv.waitingOn});
+    return r;
 }
 
 std::vector<ItemStatus> itemStatuses(const WorkflowRecord& wf, const JobStore& store)
@@ -612,8 +814,7 @@ std::vector<ItemStatus> itemStatuses(const WorkflowRecord& wf, const JobStore& s
         ItemStatus s;
         s.id = it.id; s.title = it.title; s.attempts = v.maxAttempt; s.tier = v.latestTier;
         if (it.persona == "integrator") { for (const JobRecord* x : v.gates) s.attempts = std::max<int>(s.attempts, static_cast<int>(x->spec.attempt)); s.tier = v.gates.empty() ? "" : "local"; }
-        const DecisionRecord* d = s.attempts ? decisionFor(wf, it.id, s.attempts) : nullptr;
-        s.status = v.accepted ? "accepted" : v.active ? "running" : (d && d->action == "fail") ? "failed" : "pending";
+        s.status = stateOf(v, wf);
         r.push_back(std::move(s));
     }
     return r;

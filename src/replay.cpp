@@ -100,6 +100,9 @@ int runReplay(const ReplayOptions& o)
         std::vector<std::string> argv{o.exe.string()};
         const std::string profile = withSeed(o.engineProfile, seed, o.think);
         if (o.fork) argv.insert(argv.end(), {"llm-fork", "--workflow-dir", v.dir.string(), "--item", o.node, "--attempt", "1", "--engine", profile, "--max-tokens", std::to_string(o.maxTokens), "--timeout", "3600", "--repair-turns", std::to_string(o.repairTurns)});
+        if (o.fork && o.parallel > 0) argv.insert(argv.end(), {"--parallel", std::to_string(o.parallel)});
+        if (o.fork && !o.sequentialReason.empty()) argv.insert(argv.end(), {"--sequential-reason", o.sequentialReason});
+        if (o.fork) argv.insert(argv.end(), {"--fresh", "1"});   // a replay compares like with like: every variant starts from its own skeleton
         else if (o.decompose) argv.insert(argv.end(), {"llm-architect", "--mode", "decompose", "--workflow-dir", v.dir.string(), "--item", o.node, "--attempt", "9", "--engine", profile, "--timeout", "3600"});
         else argv.insert(argv.end(), {"llm-agent", "--workflow-dir", v.dir.string(), "--item", o.node, "--tier", "local", "--attempt", "1", "--engine", profile, "--max-tokens", std::to_string(o.think ? std::max(o.maxTokens, 6000) : o.maxTokens),
                                       "--timeout", "3600", "--treatment", o.treatment, "--repair-turns", std::to_string(o.repairTurns), "--size-budget", "0"});

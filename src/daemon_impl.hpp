@@ -13,6 +13,7 @@
 #include "sub0squad/ledger.hpp"
 #include "sub0squad/triage.hpp"
 #include "sub0squad/briefing.hpp"
+#include "sub0squad/build_id.hpp"
 #include "sub0squad/harness.hpp"
 #include "sub0squad/overseer.hpp"
 #include "sub0squad/recall.hpp"
@@ -74,6 +75,8 @@ struct Request
 {
     int version = 0;
     std::string cmd, id, specJson;
+    std::string build;                 ///< the build id of the program that sent the request (submits only); "" when it did not say
+    bool allowBuildMismatch = false;   ///< the sender knows its build differs from the daemon's and submits anyway
 };
 
 inline std::expected<Request, std::string> parseRequest(std::string_view text)
@@ -88,6 +91,8 @@ inline std::expected<Request, std::string> parseRequest(std::string_view text)
                 else if (k == "cmd") r.cmd = json::toString(v);
                 else if (k == "id") r.id = json::toString(v);
                 else if (k == "spec") { std::string_view raw = v.raw_json(); r.specJson.assign(raw); }
+                else if (k == "build") r.build = json::toString(v);
+                else if (k == "allowBuildMismatch") r.allowBuildMismatch = v.get_bool();
             }
         });
     } catch (const simdjson::simdjson_error& e) {

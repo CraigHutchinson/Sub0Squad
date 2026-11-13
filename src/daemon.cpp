@@ -68,8 +68,12 @@ void Daemon::Impl::handle(Client& c, const std::string& text)
     if (cmd == "ping") {
         json::Writer w;
         w.beginObject().kvBool("ok", true).kv("v", 1).kv("pid", static_cast<std::int64_t>(::getpid())).kv("maxJobs", opts.maxJobs)
-            .kvBool("journalOk", journalOk).endObject();
+            .kvBool("journalOk", journalOk).kv("build", buildId()).endObject();
         send(c, w.take());
+    } else if ((cmd == "submit" || cmd == "workflowSubmit") && !req->build.empty() && req->build != buildId() && !req->allowBuildMismatch) {
+        // Row 20: the daemon is still the binary it was started from. Work submitted by a newer (or older) command line would run on this one and be read as that one's.
+        send(c, errorReply("build mismatch: this command is build '" + req->build + "' and the running daemon is build '" + buildId() +
+                           "'. Restart the daemon so both are the same program (`sub0squad down`, then `sub0squad up`), or pass --allow-build-mismatch to submit anyway."));
     } else if (cmd == "submit") {
         if (!journalOk) { send(c, errorReply("journal is failing: not accepting new work")); return; }
         auto spec = JobSpec::fromJson(req->specJson);
@@ -248,6 +252,17 @@ std::expected<std::unique_ptr<Daemon>, std::string> Daemon::create(DaemonOptions
     impl->epollAdd(impl->wakeFd, EPOLLIN, tag(kPost, impl->wakeFd));
     impl->epollAdd(impl->sigFd, EPOLLIN, tag(kSignals, impl->sigFd));
     impl->reconcileAtStart();
+    {   // run-info.json: which program is serving this state directory, since when and with which limits (catalogue row 20). Rewritten at every start.
+        using namespace std::chrono;
+        json::Writer w;
+        w.beginObject().kv("schema", "run-info-1").kv("build", buildId()).kv("pid", static_cast<std::int64_t>(::getpid())).kv("exe", impl->opts.exe.string())
+            .kv("startedAt", duration<double>(system_clock::now().time_since_epoch()).count()).kv("maxJobs", impl->opts.maxJobs).kv("memShedMiB", impl->opts.memShedMiB)
+            .kv("frontier", impl->opts.frontier == FrontierMode::off ? "off" : "stub").endObject();
+        const std::filesystem::path file = impl->opts.paths.stateDir / "run-info.json", tmp = impl->opts.paths.stateDir / "run-info.json.tmp";
+        { std::ofstream o(tmp, std::ios::trunc); o << w.take() << "\n"; }
+        std::error_code ec;
+        std::filesystem::rename(tmp, file, ec);
+    }
     return std::unique_ptr<Daemon>(new Daemon(std::move(impl)));
 }
 

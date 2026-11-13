@@ -16,7 +16,8 @@ std::string workflowStatusJson(const RuntimePaths& paths, const WorkflowStore& w
     for (const auto& wf : workflows.workflows()) {
         if (!onlyId.empty() && wf.id != onlyId) continue;
         w.beginObject().kv("id", wf.id).kv("task", wf.spec.task).kv("taskText", wf.spec.taskText).kv("seed", "").kv("state", toString(wf.state)).kv("note", wf.note).kv("sandbox", wf.spec.sandboxDir)
-            .kv("submittedAt", wf.submittedAt).kv("finishedAt", wf.finishedAt);
+            .kv("firstCause", firstCause(wf))
+            .kv("process", wf.spec.process.name + "@" + std::to_string(wf.spec.process.version)).kv("submittedAt", wf.submittedAt).kv("finishedAt", wf.finishedAt);
         w.key("engines").beginArray();
         for (const auto& e : wf.spec.engines) w.str(e);
         w.endArray();
@@ -37,6 +38,9 @@ std::string workflowStatusJson(const RuntimePaths& paths, const WorkflowStore& w
         int jobsTotal = 0, jobsActive = 0;
         for (const auto& j : jobs.jobs()) if (j.spec.workflow == wf.id) { ++jobsTotal; if (!isTerminal(j.state)) ++jobsActive; }
         w.kv("jobs", jobsTotal).kv("jobsActive", jobsActive);
+        w.key("stages").beginArray();   // the process's stages as derived now: which is active, and the condition a waiting one waits on
+        for (const auto& st : stageStatuses(wf, jobs)) w.beginObject().kv("name", st.name).kv("kind", st.kind).kv("state", st.state).kv("waitingOn", st.waitingOn).endObject();
+        w.endArray();
         w.key("items").beginArray();
         for (const auto& it : itemStatuses(wf, jobs)) {
             const WorkItem* pi = wf.plan ? wf.plan->find(it.id) : nullptr;
@@ -45,6 +49,7 @@ std::string workflowStatusJson(const RuntimePaths& paths, const WorkflowStore& w
             for (const auto& r : ledger) if (r.workflow == wf.id && r.item == it.id) { tin += r.tokensIn; tout += r.tokensOut; dur += r.durationSec; if (!r.engine.empty()) engine = r.engine; }
             const auto dot = it.id.rfind('.');
             w.beginObject().kv("id", it.id).kv("title", it.title).kv("status", it.status).kv("attempts", it.attempts).kv("tier", it.tier)
+                .kv("builtBy", it.status != "accepted" ? std::string{} : it.tier == "frontier-stub" ? std::string{"stub"} : pi && pi->persona == "integrator" ? std::string{"parts"} : wf.spec.agent == "mock" ? std::string{"mock"} : std::string{"model"})
                 .kv("persona", pi ? pi->persona : std::string{}).kv("parent", dot == std::string::npos ? std::string{} : it.id.substr(0, dot))
                 .kv("tokensIn", tin).kv("tokensOut", tout).kv("durationSec", dur).kv("engine", engine);
             w.key("deps").beginArray();

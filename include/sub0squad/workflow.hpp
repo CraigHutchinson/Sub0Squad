@@ -1,13 +1,14 @@
 #pragma once
 /// @file workflow.hpp
 /// Workflows: a project-scope task delegated into work items (docs/SANDBOX.md). `WorkflowStore` is rebuilt from the journal;
-/// `advance()` is the level-triggered engine, a pure function from (workflow, its labelled jobs, settings, policy) to the next
-/// actions, so a restarted daemon derives exactly the same next steps and needs no special recovery. No I/O happens here.
+/// `advance()` is the level-triggered engine, a pure function from (workflow, which carries its process, its labelled jobs, settings, policy) to the next
+/// actions: it walks the STAGES of the workflow's process (process.hpp), deriving each one's state from the record, so a restarted daemon derives exactly the same next steps and needs no special recovery. No I/O happens here.
 
 #include "sub0squad/engine.hpp"
 #include "sub0squad/job_store.hpp"
 #include "sub0squad/plan.hpp"
 #include "sub0squad/policy.hpp"
+#include "sub0squad/process.hpp"
 
 #include <map>
 #include <optional>
@@ -30,7 +31,11 @@ struct WorkflowSpec
     std::map<std::string, std::string> route;     ///< persona -> engine name, e.g. tester=qwen3-6 (extensibility: engines are per persona)
     /// How an llm item is executed (docs/CANVAS.md): "session" one conversation that carries the files (the baseline); "canvas" replies are transactions on a
     /// revisioned document gated by the precheck; "fork" developers' items are written as forked sections on the canvas, side by side (testers use the canvas).
-    std::string executor = "session";
+    /// "" (the default): the process says (developer's and tester's executor). Otherwise this overrides it for every item: developers' items run it, testers'
+    /// run it too except that `fork` means the canvas for them (a test file has no sections).
+    std::string executor;
+    /// The process this workflow runs (docs/PROCESS_DESIGN.md): resolved when the workflow is submitted and kept in the spec, so the journal says what ran.
+    Process process = standardProcess();
     std::string treatment = "baseline";           ///< prompt treatment of llm agents: baseline | index | planfirst (see docs/OPTIMIZATION.md)
     int repairTurns = 2;                          ///< extra turns an llm agent takes to run the tests and fix failures before it says done
     int sizeBudget = 1800;                        ///< estimated completion tokens above which an item that has tests is divided BEFORE the first attempt (0 = never)
@@ -125,11 +130,20 @@ struct WorkflowAction
     std::string fromItem;                              ///< writeDispute: the item whose failure disputes `item`'s output (attempt is that item's attempt)
     WorkflowState finalState = WorkflowState::failed;  ///< finish
     std::string note;                                  ///< finish
+    /// The action as one JSON object: its kind and every field that kind uses. The golden action logs (tests/data/actions) are lists of these, and the
+    /// shadow comparison of two engines is a comparison of their serialised lists.
+    [[nodiscard]] std::string toJson() const;
 };
 
 /// Evaluate one running workflow. Idempotent: calling it again before its actions are applied returns the same actions.
 [[nodiscard]] std::vector<WorkflowAction> advance(const WorkflowRecord& wf, const JobStore& jobs, const WorkflowSettings& settings,
                                                   const IDecisionPolicy& policy);
+
+/// The FIRST cause of a failed workflow (catalogue row 14): the item whose ladder ended first, by journal order. Items that fail later may have failed because of
+/// it (a coordinator whose part failed, a dependant) or independently; blaming the last one reported a part that was never attempted. "" when no item failed.
+[[nodiscard]] std::string firstCause(const WorkflowRecord& wf);
+/// Items other than the first cause that also failed, in journal order.
+[[nodiscard]] std::vector<std::string> laterFailures(const WorkflowRecord& wf);
 
 /// Per-item view for status output.
 struct ItemStatus
@@ -139,5 +153,14 @@ struct ItemStatus
     std::string tier;               ///< tier of the latest attempt
 };
 [[nodiscard]] std::vector<ItemStatus> itemStatuses(const WorkflowRecord& wf, const JobStore& jobs);
+
+/// Per-stage view of the workflow's process, DERIVED from the record and its jobs on every call (nothing about a stage is journaled).
+struct StageStatus
+{
+    std::string name, kind;   ///< kind: job | items
+    std::string state;        ///< waiting (its entry does not hold) | active | done | failed (a job out of tries, or an item that failed)
+    std::string waitingOn;    ///< waiting: the first atom of its entry that is false; active: of its exit; "" when done
+};
+[[nodiscard]] std::vector<StageStatus> stageStatuses(const WorkflowRecord& wf, const JobStore& jobs);
 
 }  // namespace sub0squad

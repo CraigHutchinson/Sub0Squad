@@ -134,6 +134,38 @@ void copyTree(const fs::path& from, const fs::path& to)
     fs::copy(from, to, fs::copy_options::recursive | fs::copy_options::overwrite_existing, ec);
 }
 
+std::string builtBy(const fs::path& dir, const std::string& itemId)
+{
+    const std::string accepted = slurp(dir / "items" / itemId / "accepted.json");
+    if (accepted.empty()) return {};
+    const auto at = accepted.find("\"attempt\":");
+    const int attempt = at == std::string::npos ? 0 : std::atoi(accepted.c_str() + at + 10);
+    const std::string agent = slurp(dir / "items" / itemId / ("attempt-" + std::to_string(attempt)) / "agent.json");
+    if (agent.empty()) return fs::exists(dir / "items" / itemId / ("attempt-" + std::to_string(attempt)) / "fork.json") ? "model" : "parts";   // forked sections write fork.json; a coordinator has no agent step
+    if (agent.find("\"tier\":\"frontier-stub\"") != std::string::npos) return "stub";
+    if (agent.find("\"engine\":") != std::string::npos) return "model";
+    return "mock";
+}
+
+std::string provenanceMarkdown(const Plan& plan, const fs::path& dir)
+{
+    std::string md = "\n## How each item was built\n\n| item | built by | attempt |\n|---|---|---|\n";
+    int model = 0, stub = 0, mock = 0, leaves = 0;
+    for (const auto& it : plan.items) {
+        const std::string by = builtBy(dir, it.id);
+        const std::string accepted = slurp(dir / "items" / it.id / "accepted.json");
+        const auto at = accepted.find("\"attempt\":");
+        md += "| " + it.id + " | " + (by.empty() ? std::string{"(not accepted)"} : by) + " | " + (at == std::string::npos ? std::string{"-"} : std::to_string(std::atoi(accepted.c_str() + at + 10))) + " |\n";
+        if (by == "model") ++model; else if (by == "stub") ++stub; else if (by == "mock") ++mock;
+        if (by == "model" || by == "stub" || by == "mock") ++leaves;
+    }
+    if (leaves == 0) md += "\nNo item was built by an agent.\n";
+    else if (model == leaves) md += "\nEvery item was built by a model.\n";
+    else md += "\n**" + std::to_string(model) + " of " + std::to_string(leaves) + " items were built by a model.** " + (stub ? std::to_string(stub) + " were written by the frontier STUB tier, which supplies the reference implementation: those passes say nothing about the model. " : std::string{}) +
+               (mock ? std::to_string(mock) + " were written by the MOCK agent (reference templates, no model at all). " : std::string{}) + "\n";
+    return md;
+}
+
 std::set<std::string> closure(const Plan& plan, const std::string& id)
 {
     std::set<std::string> seen;

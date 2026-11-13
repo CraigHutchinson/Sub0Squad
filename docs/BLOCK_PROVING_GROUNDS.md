@@ -32,7 +32,7 @@ Each block names its concept, the isolated fixture, the trusted judge, the metri
 | 7 | **Section integration**: the coordinator merges sections and finds seams | sections with a planted seam defect (a signature mismatch between two sections) | the integrator names the seam in the first report on at least 9 of 10 seeded defects; a clean merge raises no false seam | 5, 6 | not built |
 | 8 | **Division**: the architect splits an item into testable parts | a set of items with known good divisions; the validator and the division-completion rules judge | every proposed division valid and covering at least 8 of 10; invalid ones are named, never merged | 2, 3 | validator partly built (`completeDivision`) |
 | 9 | **Decision policy and the ladder**: widen before retrying, early abort, bounds | recorded failure sequences replayed through the policy | each failure signature leads to its intended rung (golden decisions); no rung is entered twice | 1, 2 | policy unit tests built; golden logs not recorded |
-| 10 | **Process as data**: stages, executors, the standard process equal to the legacy engine | golden action logs of the legacy engine | the standard process reproduces the goldens exactly | 9 | designed (`PROCESS_DESIGN.md`) |
+| 10 | **Process as data**: stages, executors, the standard process equal to the legacy engine | golden action logs of the legacy engine | the standard process reproduces the goldens exactly | 9 | built as stages as data and proven by ctest (`test_predicate`, `test_process`, `test_workflow`; `PROCESS_DESIGN.md` section 13) |
 | 11 | **The whole on a platform**: the calculator end to end | the plan on a platform, frontier off, the 35B | zero manual mends over 3 runs in a row; per-item numbers recorded | 3 to 10 | first runs in progress (`w-000002`), not passing |
 | 12 | **The whole at scale**: the knowledge store | the slices of `KNOWLEDGE_STORE_SCOPE.md` | the slice gates and properties | 11 | designed |
 
@@ -96,11 +96,18 @@ Run one at a time, with the engine otherwise idle, and archive each `--out` dire
    ```sh
    sub0squad replay WORKFLOW dev-engine --fork --seeds 1,2,3 --engine ENGINE --max-tokens 1500 --repair-turns 2
    ```
-   `replay --fork` runs `llm-fork` per seed; each variant's `items/dev-engine/attempt-1/fork.json` holds `passed`, `width`, `widthReason`, `wallSec`,
-   `sectionWallSec`, `idleShare`, `conflicts`, `lostEdits` and the tokens per phase. For the sequential arm run `llm-fork` directly on a copy of the workflow
-   directory with `--sequential-reason "block 6 baseline"`; for a fixed width `--parallel 2`. Speed-up is sequential `wallSec` over parallel `wallSec` for the
-   variants that pass; parity is the pass rate of each arm over the seeds. **`replay` does not yet take `--parallel` or `--sequential-reason`; that is the one
-   piece of plumbing this measurement still needs.**
+   `replay --fork` runs `llm-fork` per seed, each from its own skeleton. The arms of the comparison:
+   ```sh
+   sub0squad replay WORKFLOW dev-engine --fork --sequential-reason "block 6 baseline" --seeds 1,2,3 --engine ENGINE --max-tokens 1500 --repair-turns 2
+   sub0squad replay WORKFLOW dev-engine --fork --parallel 2 --seeds 1,2,3 --engine ENGINE --max-tokens 1500 --repair-turns 2
+   sub0squad replay WORKFLOW dev-engine --fork --parallel 4 --seeds 1,2,3 --engine ENGINE --max-tokens 1500 --repair-turns 2
+   ```
+   Each variant's `items/dev-engine/attempt-1/fork.json` holds `passed`, `failure`, `width`, `wallSec`, `sectionWallSec`, `targeted`, `mechanicalMends`,
+   `conflicts`, `lostEdits`, the tokens per phase and each section's calls and refusals. Speed-up is sequential `wallSec` over parallel `wallSec` for the
+   variants that pass; parity is the pass rate of each arm over the seeds. **Read row 47 first:** before 2026-11-13 forked sessions were pinned to one slot,
+   so no earlier run measured parallel sections at all. In each section's conversation the per-call decode speed should now be BELOW the single-sequence
+   speed while the aggregate is above it; if every call still decodes at the single-sequence speed, the sessions are queueing again. (`idleShare` is
+   measured from client spans and cannot show this.)
 4. **The whole on a platform with sections** (block 11): `sub0squad up --frontier off`, then
    `sub0squad do "write a calculator in C++" --agent llm --engine ENGINE --executor fork --max-tokens 1500`.
 

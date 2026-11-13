@@ -85,6 +85,45 @@ std::string renderFolded(const std::vector<std::string>& lines, const std::vecto
 
 }  // namespace
 
+namespace {
+
+/// The parameter names of a C++ signature (`double f(const std::string& s, int n = 2)` -> s, n): the last identifier of each top-level parameter, with
+/// defaults dropped. A parameter with no name, `void`, or a declarator this cannot read contributes nothing.
+std::vector<std::string> parameterNames(const std::string& signature)
+{
+    std::vector<std::string> names;
+    const auto open = signature.find('(');
+    if (open == std::string::npos) return names;
+    int depth = 0;
+    std::string cur;
+    std::vector<std::string> params;
+    for (std::size_t i = open + 1; i < signature.size(); ++i) {
+        const char c = signature[i];
+        if (c == '(' || c == '<' || c == '[' || c == '{') ++depth;
+        else if (c == '>' || c == ']' || c == '}') --depth;
+        else if (c == ')') { if (depth == 0) break; --depth; }
+        if (c == ',' && depth == 0) { params.push_back(cur); cur.clear(); continue; }
+        cur.push_back(c);
+    }
+    params.push_back(cur);
+    for (std::string p : params) {
+        if (const auto eq = p.find('='); eq != std::string::npos) p.erase(eq);
+        while (!p.empty() && std::isspace(static_cast<unsigned char>(p.back()))) p.pop_back();
+        std::size_t e = p.size(), b = e;
+        while (b > 0 && (std::isalnum(static_cast<unsigned char>(p[b - 1])) || p[b - 1] == '_')) --b;
+        const std::string name = p.substr(b, e - b);
+        // a name is preceded by a type: something must come before it, and it must not itself be a type keyword standing alone
+        const bool hasType = p.find_first_not_of(" \t") < b;
+        static const char* const notNames[] = {"void", "int", "double", "float", "bool", "char", "long", "short", "unsigned", "auto", "const", "size_t"};
+        bool keyword = false;
+        for (const char* k : notNames) if (name == k) keyword = true;
+        if (!name.empty() && hasType && !keyword && !std::isdigit(static_cast<unsigned char>(name[0]))) names.push_back(name);
+    }
+    return names;
+}
+
+}  // namespace
+
 Skeleton expandSkeleton(const std::string& declared, const std::string& path)
 {
     Skeleton out;
@@ -130,7 +169,12 @@ Skeleton expandSkeleton(const std::string& declared, const std::string& path)
             const Decl& d = decls[next++];
             if (python) out.text += d.indent + d.signature + ":\n" + d.indent + "    raise NotImplementedError(\"not implemented: " + d.name + "\")\n";
             else if (script) out.text += d.indent + d.signature + " {\n" + d.indent + "    throw new Error('not implemented: " + d.name + "');\n" + d.indent + "}\n";
-            else out.text += d.indent + d.signature + "\n" + d.indent + "{\n" + d.indent + "    throw std::logic_error(\"not implemented: " + d.name + "\");\n" + d.indent + "}\n";
+            else {
+                // The placeholder is clean under the strictest warnings: every named parameter is used once, and it leaves by throwing on every path.
+                out.text += d.indent + d.signature + "\n" + d.indent + "{\n";
+                for (const auto& p : parameterNames(d.signature)) out.text += d.indent + "    (void)" + p + ";\n";
+                out.text += d.indent + "    throw std::logic_error(\"not implemented: " + d.name + "\");\n" + d.indent + "}\n";
+            }
             out.sections.push_back({d.name, d.signature});
             continue;
         }

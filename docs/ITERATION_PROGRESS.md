@@ -3,7 +3,67 @@
 Branch `worktree-agent-a507f5df083b20ce3`, from tag `parked-v1`. Newest state first. Every "passes" below was observed in `out/build/fable`, run sequentially under a
 process cap; nothing here has run on a real model.
 
-## Second pass (2026-11-13), newest first
+## WHERE IT STANDS (2026-11-13, fourth pass: review of the process-as-data work, by Fable 5.2)
+
+**Review verdict on commits dfce443 to 1ba50c4 (made on Sonnet 5.5): the process-as-data slice was a thin parameter table, not the design.** The code was clean
+and well tested, and the goldens were recorded first as asked. But `Process` was 16 numbers and flags over three stages that `advance()` still hard-coded
+(planner, items, integrator), so no workflow with other stages could be added without editing the engine, and the README's "workflow of your own" changed one
+number. Kept: the goldens, the process stored in the workflow's spec, the one-table file format with unknown keys refused, rungs skipped by the policy,
+executors as parameters, `test_executors`, rows 31 and 14, the `coordinators` removal. Redone: **a process is a list of stages**; two stage kinds (`job`: one
+registered tool; `items`: the plan's items by role); entry and exit are predicates in a closed language checked at load; stage state is derived every pass and
+never journaled; the engine names no stage, step or tool. Design and limits: `docs/PROCESS_DESIGN.md` section 13. Findings: catalogue rows 53 to 57.
+
+**Proof:** the 14 goldens recorded before any refactor are reproduced byte for byte by the standard process written as three stages. Three goldens recorded
+after the first slice were re-recorded for two stated reasons (rows 54, 55). New: `test_predicate`; `test_process` rewritten; seven `stages-*` scenarios in
+`test_workflow` (a stage more, a stage fewer, job stages only, a visible stall, derived state after a dispute); `test_readme` runs a process with a `review`
+stage through a real daemon (mock agent).
+
+**Full suite:** `ctest -j1` under a process cap at `6f6346f`: **26 of 26 pass** (observed; `test_readme` run again after the README's last edit: passes). At `4523786`: 25 of 25. Before the review, at `40444af`: 24 of 24.
+
+**Also done in this pass** (each with tests, committed): **row 20** (`build_id`: version plus a fingerprint of the program file; `ping` and `run-info.json`; a
+submit from another build is refused, `--allow-build-mismatch`; `sub0squad archive [--label]`); **`scenario compare A.json B.json`** (a difference counts only
+when the 95 % intervals do not overlap; exit 1 on a regression); a plan-less process through a real daemon (`test_archive`).
+**The `test_shim` flake was NOT reproduced** (8 runs under 64 busy loops, all passed) and nothing in the shim was changed; the check now prints its evidence
+if it fails again (row 58, open).
+
+**Next steps, in order**
+1. Rows 19 (a lease class so structural jobs are not queued behind workers), 22 (a deterministic clock for the shed watcher), 25/26.
+2. The remaining scenarios of `docs/SCENARIOS.md` (interface gap, decompose, reviseTests, read-then-edit, integrate, length continuation).
+3. Components cleanup: split `test_workflow.cpp` (now about 1,100 lines), `client.cpp`, `portal.cpp`; one CMake library per layer.
+4. Stale documents: `DESIGN.md`, `M1_PLAN.md`, `WORK_GRAPH.md` section 23; `HANDOFF.md` and `NEXT_SESSION_PROMPT.md` do not yet mention stages as data.
+5. Process design, next slice (`PROCESS_DESIGN.md` section 13, limits): `WorkItem::stage` and `Plan::extended` so a stage can create items (the CONTRACT
+   stage, spike-first); then the wizard of `docs/BACKLOG.md`.
+
+**Resume** (from the worktree; the shell's old `CPM_*` variables are stale, so use the script below, which derives them from the main checkout):
+```sh
+cd /mnt/development/GitHub/Sub0Squad/.claude/worktrees/agent-a507f5df083b20ce3
+. scripts/dev-env.sh                           # before EVERY configure or build: the shell may carry stale paths
+rm -rf out/build/fable                        # only if the directory is stale
+cmake -S . -B out/build/fable -G Ninja -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_BUILD_TYPE=Release
+nice cmake --build out/build/fable -j2
+ulimit -u $(( $(ps -u $USER -L --no-headers | wc -l) + 600 ))     # a process cap, always
+timeout 1700 nice ctest --test-dir out/build/fable --output-on-failure -j1
+```
+Golden logs: `SUB0SQUAD_WRITE_GOLDENS=1 out/build/fable/test_workflow out/build/fable/sub0squad` rewrites them (review `git diff tests/data/actions`: the 14
+pre-refactor goldens must not change; the `process-*` and `stages-*` ones were recorded later and change only for a stated reason). Known flake: `test_shim`'s wall-timeout check failed once on the slower file system and passed on rerun.
+
+## Third pass (2026-11-13): assembly convergence, from run-v9
+
+run-v9 was the first real run in which the fork mechanism worked, and no attempt converged. What its logs showed and what was changed is in
+`docs/CANVAS.md`, "Assembly convergence", and catalogue rows 47 to 52. In short:
+
+* **The sections had not run in parallel**: every request was pinned to the job's one lease slot. Fixed (`EngineProfile::kAnySlot`). This alone changes what
+  the next run measures.
+* The C++ check is a real compile; a commit is judged on its own function; a refusal shows the section its own text; the declaration is the harness's.
+* Assembly routes findings to their owners (a never-accepted section alone; an uncalled helper removed by the harness; a compile error to the owner of its
+  function; tests only on a file that compiles strictly). Accepted sections are never re-run.
+* The wall budget grows with the sections; `budget` is a failure reason; the next attempt resumes the canvas.
+* Tested without a model: `test_fork` (9 scenarios; the C++ one reproduces an uncalled helper, a section refused three times and a missing return that
+  surfaces late), `test_blocks`. Last full run: 22 of 22.
+* Not built: `idleShare` from the engine's `/slots`; lease accounting for a job that uses several slots; the daemon end-to-end test of the executors.
+* **Not started in this pass: process as data** (the next item), scenarios, the open catalogue rows, components cleanup, the stale documents.
+
+## Second pass (2026-11-13)
 
 * **Rows 44, 45, 46 from run-v8 (the first real use of the fork executor) are built and tested without a model.** 44: only a developer's item is divided
   (`RulePolicy`, `Plan::amended`). 46: the primer declares, the harness completes the skeleton (`expandSkeleton`), checked as a partial file; bounded at the
