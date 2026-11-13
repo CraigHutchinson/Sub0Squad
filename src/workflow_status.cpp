@@ -38,6 +38,9 @@ std::string workflowStatusJson(const RuntimePaths& paths, const WorkflowStore& w
         int jobsTotal = 0, jobsActive = 0;
         for (const auto& j : jobs.jobs()) if (j.spec.workflow == wf.id) { ++jobsTotal; if (!isTerminal(j.state)) ++jobsActive; }
         w.kv("jobs", jobsTotal).kv("jobsActive", jobsActive);
+        w.key("stages").beginArray();   // the process's stages as derived now: which is active, and the condition a waiting one waits on
+        for (const auto& st : stageStatuses(wf, jobs)) w.beginObject().kv("name", st.name).kv("kind", st.kind).kv("state", st.state).kv("waitingOn", st.waitingOn).endObject();
+        w.endArray();
         w.key("items").beginArray();
         for (const auto& it : itemStatuses(wf, jobs)) {
             const WorkItem* pi = wf.plan ? wf.plan->find(it.id) : nullptr;

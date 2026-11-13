@@ -2,7 +2,7 @@
 /// @file workflow.hpp
 /// Workflows: a project-scope task delegated into work items (docs/SANDBOX.md). `WorkflowStore` is rebuilt from the journal;
 /// `advance()` is the level-triggered engine, a pure function from (workflow, which carries its process, its labelled jobs, settings, policy) to the next
-/// actions, so a restarted daemon derives exactly the same next steps and needs no special recovery. No I/O happens here.
+/// actions: it walks the STAGES of the workflow's process (process.hpp), deriving each one's state from the record, so a restarted daemon derives exactly the same next steps and needs no special recovery. No I/O happens here.
 
 #include "sub0squad/engine.hpp"
 #include "sub0squad/job_store.hpp"
@@ -153,5 +153,14 @@ struct ItemStatus
     std::string tier;               ///< tier of the latest attempt
 };
 [[nodiscard]] std::vector<ItemStatus> itemStatuses(const WorkflowRecord& wf, const JobStore& jobs);
+
+/// Per-stage view of the workflow's process, DERIVED from the record and its jobs on every call (nothing about a stage is journaled).
+struct StageStatus
+{
+    std::string name, kind;   ///< kind: job | items
+    std::string state;        ///< waiting (its entry does not hold) | active | done | failed (a job out of tries, or an item that failed)
+    std::string waitingOn;    ///< waiting: the first atom of its entry that is false; active: of its exit; "" when done
+};
+[[nodiscard]] std::vector<StageStatus> stageStatuses(const WorkflowRecord& wf, const JobStore& jobs);
 
 }  // namespace sub0squad

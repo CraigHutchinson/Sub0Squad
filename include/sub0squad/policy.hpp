@@ -41,8 +41,8 @@ struct DecisionContext
     int maxDepth = 2;
     /// Whose work it is. Only a DEVELOPER's item is ever divided: a tester writes one test file, and an architect asked to divide it invents
     /// implementation work (docs/INTERVENTIONS.md row 44).
-    /// The rungs of the ladder this workflow's PROCESS has (docs/PROCESS_DESIGN.md): a rung it lacks is skipped, and the ladder goes on to the next one. They
-    /// configure the policy and are not failure evidence, so they are not part of the recorded decision.
+    /// The rungs of the ladder this workflow's PROCESS has (docs/PROCESS_DESIGN.md): a rung it lacks is skipped, and the ladder goes on to the next one. The
+    /// recorded decision lists the rungs the process lacks (`processLacks`, only when there are any), so it can be explained from its own inputs.
     bool allowDecompose = true, allowSections = true, allowReviseTests = true, allowRearchitect = true, allowEscalate = true;
     std::string persona = "developer";
     /// The project's harness divides work by SECTIONS of a file, never into new modules (row 45: in a compiled language a new module needs a header that

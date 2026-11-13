@@ -678,8 +678,8 @@ int main()
             SCENARIO("process-custom-parameters");
             Process mine = standardProcess();
             mine.name = "mine";
-            CHECK(mine.set("leaf.allow.escalate", "false").has_value() && mine.set("leaf.allow.rearchitect", "false").has_value());
-            CHECK(mine.set("leaf.wallSeconds.gate", "45").has_value() && mine.set("integrate.wallSeconds", "77").has_value() && mine.set("planner.wallSeconds", "33").has_value());
+            CHECK(mine.set("build.leaf.allow.escalate", "false").has_value() && mine.set("build.leaf.allow.rearchitect", "false").has_value());
+            CHECK(mine.set("build.leaf.wallSeconds.gate", "45").has_value() && mine.set("integrate.job.wallSeconds", "77").has_value() && mine.set("plan.job.wallSeconds", "33").has_value());
             Sim s = startSim(2, FrontierMode::stub, false, mine);
             s.feed("workflowPlanned", wfbody::planned("w-000001", onePlan()));
             int gateWall = 0;
@@ -706,7 +706,7 @@ int main()
             SCENARIO("process-planner-and-integration");
             Process fast = standardProcess();
             fast.name = "fast";
-            CHECK(fast.set("planner.wallSeconds", "33").has_value() && fast.set("planner.retries", "0").has_value() && fast.set("integrate.wallSeconds", "77").has_value());
+            CHECK(fast.set("plan.job.wallSeconds", "33").has_value() && fast.set("plan.job.retries", "0").has_value() && fast.set("integrate.job.wallSeconds", "77").has_value());
             Sim s = startSim(2, FrontierMode::off, false, fast);
             auto acts = s.step();
             CHECK(acts.size() == 1 && acts[0].job.role == "planner" && acts[0].job.wallSeconds == 33);

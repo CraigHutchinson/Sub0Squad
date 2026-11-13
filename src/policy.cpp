@@ -21,7 +21,13 @@ std::string toJson(const DecisionContext& c, const Decision& d)
         .kv("failure", c.failure).kv("complexity", c.complexity).kv("frontier", c.frontier == FrontierMode::stub ? "stub" : "off")
         .kv("maxLocalAttempts", c.maxLocalAttempts).kv("maxFrontierAttempts", c.maxFrontierAttempts).kv("depth", c.depth).kv("totalAttempts", c.totalAttempts)
         .kv("persona", c.persona).kvBool("divideBySections", c.divideBySections).kvBool("sectionsTried", c.sectionsTried).kvBool("splittable", c.splittable).kvBool("hasTesterDep", c.hasTesterDep).kvBool("decomposeTried", c.decomposeTried).kvBool("reviseTried", c.reviseTried)
-        .kvBool("rearchitectTried", c.rearchitectTried).endObject().endObject();
+        .kvBool("rearchitectTried", c.rearchitectTried);
+    // The rungs this workflow's process does not have: written only when there are any, so a decision says why the ladder skipped a rung.
+    const std::pair<const char*, bool> rungs[] = {{"decompose", c.allowDecompose}, {"sections", c.allowSections}, {"reviseTests", c.allowReviseTests}, {"rearchitect", c.allowRearchitect}, {"escalate", c.allowEscalate}};
+    bool lacks = false;
+    for (const auto& [name, allowed] : rungs) lacks = lacks || !allowed;
+    if (lacks) { w.key("processLacks").beginArray(); for (const auto& [name, allowed] : rungs) if (!allowed) w.str(name); w.endArray(); }
+    w.endObject().endObject();
     return w.take();
 }
 
