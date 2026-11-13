@@ -18,16 +18,21 @@ after the first slice were re-recorded for two stated reasons (rows 54, 55). New
 `test_workflow` (a stage more, a stage fewer, job stages only, a visible stall, derived state after a dispute); `test_readme` runs a process with a `review`
 stage through a real daemon (mock agent).
 
-**Full suite:** `ctest -j1` under a process cap at `4523786`: **25 of 25 pass** (observed). Before the review, at `40444af`: 24 of 24.
+**Full suite:** `ctest -j1` under a process cap at `6f6346f`: **26 of 26 pass** (observed; `test_readme` run again after the README's last edit: passes). At `4523786`: 25 of 25. Before the review, at `40444af`: 24 of 24.
+
+**Also done in this pass** (each with tests, committed): **row 20** (`build_id`: version plus a fingerprint of the program file; `ping` and `run-info.json`; a
+submit from another build is refused, `--allow-build-mismatch`; `sub0squad archive [--label]`); **`scenario compare A.json B.json`** (a difference counts only
+when the 95 % intervals do not overlap; exit 1 on a regression); a plan-less process through a real daemon (`test_archive`).
+**The `test_shim` flake was NOT reproduced** (8 runs under 64 busy loops, all passed) and nothing in the shim was changed; the check now prints its evidence
+if it fails again (row 58, open).
 
 **Next steps, in order**
-1. The `test_shim` wall-timeout flake: reproduce under load and fix the cause (not yet reproduced: see the notes below).
-2. Row 20: a build id in the daemon (`ping`, `run-info.json`), refused at submit when it differs from the CLI's (an `--allow-build-mismatch` override), and an
-   `archive` command (needs the daemon stopped; moves the state aside, leaves a fresh home). Test with `SUB0SQUAD_BUILD_ID` as a test-only override.
-3. A plan-less process through the daemon (row 56 has no daemon test).
-4. `scenario compare A.json B.json`, then rows 19, 22, 25/26; the components cleanup (split `test_workflow.cpp`, `client.cpp`, `portal.cpp`; one library per layer);
-   the stale documents (`DESIGN.md`, `M1_PLAN.md`, `SCENARIOS.md`, `WORK_GRAPH.md` section 23).
-5. Process design, next slice (section 13, limits): `WorkItem::stage` and `Plan::extended` so a stage can create items (the CONTRACT stage, spike-first).
+1. Rows 19 (a lease class so structural jobs are not queued behind workers), 22 (a deterministic clock for the shed watcher), 25/26.
+2. The remaining scenarios of `docs/SCENARIOS.md` (interface gap, decompose, reviseTests, read-then-edit, integrate, length continuation).
+3. Components cleanup: split `test_workflow.cpp` (now about 1,100 lines), `client.cpp`, `portal.cpp`; one CMake library per layer.
+4. Stale documents: `DESIGN.md`, `M1_PLAN.md`, `WORK_GRAPH.md` section 23; `HANDOFF.md` and `NEXT_SESSION_PROMPT.md` do not yet mention stages as data.
+5. Process design, next slice (`PROCESS_DESIGN.md` section 13, limits): `WorkItem::stage` and `Plan::extended` so a stage can create items (the CONTRACT
+   stage, spike-first); then the wizard of `docs/BACKLOG.md`.
 
 **Resume** (from the worktree; the shell's old `CPM_*` variables are stale, so use the script below, which derives them from the main checkout):
 ```sh

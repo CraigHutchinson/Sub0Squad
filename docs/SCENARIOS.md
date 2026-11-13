@@ -37,6 +37,10 @@ Each runs on **every platform** (C++, Python, web): a prompt that only works on 
   scenario that passes with no agent, or that the reference fails, is a bad scenario and is rejected before a token is spent.
 * **Same seeds across treatments**: comparing two prompts uses the same trial seeds, so the difference is the prompt.
 * **Results are archived** (`scenario-results.json` with the build and engine) so the numbers belong to a commit.
+* **Two results are compared with `sub0squad scenario compare A.json B.json`** (built): scenario by scenario, both pass counts with their 95 % Wilson intervals, the change
+  in mean seconds and tokens, and a verdict. A difference is a `regression` or an `improvement` only when the two intervals do not overlap (9 of 10 against 8 of 10
+  is "no evidence of change"); the command exits 1 on a regression, so a script can gate a change on it. With 10 trials only large changes are visible: that is
+  the honest reading of 10 trials, and the reason to raise `--trials` before concluding a small one.
 
 ## Using it
 

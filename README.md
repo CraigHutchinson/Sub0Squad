@@ -76,6 +76,8 @@ sub0squad project status                      # the workflow and each item
   workflow keeps a copy of its process, so editing the file later changes nothing that is already running. With the mock agent the executors are not used (the
   mock writes reference files); the stages, the ladder's rungs and the wall times are.
 * **If something is wrong:** `sub0squad doctor` again; `sub0squad status` and `sub0squad logs ID` show the jobs; the daemon's log is under `state/up/`.
+  After a rebuild restart the daemon (`down`, `up`): a submit from a different build than the running daemon is refused and says so. `sub0squad archive --label NAME`
+  (daemon stopped) sets the finished runs aside under `$SUB0SQUAD_HOME/archive/` and leaves a fresh, empty state.
 
 ```sh
 sub0squad down                                # stops the daemon and the portal
