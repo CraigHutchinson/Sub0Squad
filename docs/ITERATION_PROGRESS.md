@@ -26,9 +26,9 @@ table and report); row 14 (a failed workflow names the item that failed first).
 **Resume** (from the worktree; the shell's old `CPM_*` variables are stale, so use the script below, which derives them from the main checkout):
 ```sh
 cd /mnt/development/GitHub/Sub0Squad/.claude/worktrees/agent-a507f5df083b20ce3
-. scripts/dev-env.sh 2>/dev/null || true      # main's script derives SUB0_GITHUB_DIR from the repository's parent; in a worktree that is wrong, so also:
+# (main's scripts/dev-env.sh derives SUB0_GITHUB_DIR from the repository's parent, which is wrong inside a worktree, so it is derived from the main checkout:)
 export SUB0_GITHUB_DIR=$(dirname "$(cd "$(git rev-parse --git-common-dir)/.." && pwd)")
-for n in Sub0Pipeline Sub0Pub Sub0Log Sub0ECS Sub0Math Sub0MemPage Sub0TieredCache Sub0HexGrid Sub0Physics; do export CPM__SOURCE=$SUB0_GITHUB_DIR/$n; done
+for n in Sub0Pipeline Sub0Pub Sub0Log Sub0ECS Sub0Math Sub0MemPage Sub0TieredCache Sub0HexGrid Sub0Physics; do export "CPM_$n"_SOURCE="$SUB0_GITHUB_DIR/$n"; done
 rm -rf out/build/fable                        # only if the directory is stale
 cmake -S . -B out/build/fable -G Ninja -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_BUILD_TYPE=Release
 nice cmake --build out/build/fable -j2
