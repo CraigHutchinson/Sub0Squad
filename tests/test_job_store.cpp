@@ -47,6 +47,6 @@ int main()
     replayed.apply(sub);
     replayed.apply(JournalRecord{101, 2.0, "jobCancelRequested", journalbody::cancelRequested(id2, 1)});
     CHECK(replayed.find(id2)->state == JobState::cancelled);
-    std::filesystem::remove_all(dir);
+    removeTree(dir);
     return finish();
 }

@@ -22,6 +22,6 @@ int main()
     if (!full) CHECK(full.error().find("not enough free disk space") != std::string::npos);
     CHECK_EQ(runGuard({"--memory-mib", "1", "--reserve-mib", "0"}), 0);
     CHECK_EQ(runGuard({"--memory-mib", std::to_string(m.totalMiB * 2)}), 1);  // exit status 1 when a guard refuses
-    std::filesystem::remove_all(dir);
+    removeTree(dir);
     return finish();
 }

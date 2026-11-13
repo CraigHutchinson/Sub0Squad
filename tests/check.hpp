@@ -1,9 +1,11 @@
 #pragma once
 // Tiny test helpers: no framework dependency.
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
 #include <string>
+#include <thread>
 #include <unistd.h>
 
 inline int gFailures = 0;
@@ -22,5 +24,16 @@ inline std::filesystem::path makeTempDir(const char* tag)
     char* made = ::mkdtemp(pattern.data());
     if (!made) { std::perror("mkdtemp"); std::exit(2); }
     return made;
+}
+/// Remove a test's directory tree and never throw: cleanup must not fail a test that passed. A process that is still shutting down can write into the tree
+/// for a moment ("Directory not empty" on slower file systems), so it is retried a few times, then left (the build directory's test-tmp is disposable).
+inline void removeTree(const std::filesystem::path& p)
+{
+    for (int i = 0; i < 20; ++i) {
+        std::error_code ec;
+        std::filesystem::remove_all(p, ec);
+        if (!ec || !std::filesystem::exists(p, ec)) return;
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
 }
 inline int finish() { if (gFailures) std::fprintf(stderr, "%d check(s) failed\n", gFailures); return gFailures ? 1 : 0; }
