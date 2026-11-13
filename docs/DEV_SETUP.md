@@ -17,7 +17,7 @@ On the Sub0 dev machine this is set for the nine libraries by `~/.config/sub0/cp
 | `CPM_Sub0Pipeline_SOURCE` `CPM_Sub0Pub_SOURCE` `CPM_Sub0Log_SOURCE` `CPM_Sub0ECS_SOURCE` `CPM_Sub0Math_SOURCE` | `$SUB0_GITHUB_DIR/<Name>` |
 | `CPM_Sub0MemPage_SOURCE` `CPM_Sub0TieredCache_SOURCE` `CPM_Sub0HexGrid_SOURCE` `CPM_Sub0Physics_SOURCE` | `$SUB0_GITHUB_DIR/<Name>` |
 
-`SUB0_GITHUB_DIR` defaults to `/run/media/craig-hutchinson/54D4C5011B8AF586/GitHub`. A configure with the overrides active logs
+`SUB0_GITHUB_DIR` is the directory that holds the sibling checkouts; `. scripts/dev-env.sh` sets it to this repository's parent and exports every `CPM_<Name>_SOURCE`, so no machine-specific path is written anywhere (set `SUB0_GITHUB_DIR_OVERRIDE` to use another directory). A configure with the overrides active logs
 `CPM: 'Sub0Pipeline' version overridden by environment variable`. To build the pinned revisions instead, unset the variables
 (`env -u CPM_Sub0Pipeline_SOURCE ...`) or remove the sourcing lines from the shell startup files.
 
