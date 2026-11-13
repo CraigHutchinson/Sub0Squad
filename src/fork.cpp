@@ -1,12 +1,16 @@
 // Forked sections on the canvas (include/sub0squad/fork.hpp). The design in one place:
-//   primer  -> the skeleton (every function declared, each body one statement that raises `not implemented: <name>`), checked by the harness precheck,
-//              becomes REVISION 1 of the canvas;
-//   section -> one stubbed function, owned by one session. Every session gets the same prefix (system block, card, the numbered skeleton), so a server
-//              that keeps a prompt cache prefills it once, and replies with ONE transaction: its own function, whole;
-//   commit  -> the coordinator (this function) applies each transaction against revision 1; the canvas rebases it through the commits of the other
-//              sections (line numbers shift), refuses an edit outside the section's own function, and commits only what passes the precheck;
-//   merge   -> the item's gate judges the merged file; a failure goes back to the sections it names, each in a fresh small session that sees the current
-//              revision with its own function open and the others folded.
+//   declare  -> a primer session declares the structure (`@@ signature` lines, no bodies); the harness completes it into the skeleton (expandSkeleton),
+//               which must pass the partial compile check to become REVISION 1 of the canvas. A later attempt RESUMES the earlier attempt's canvas
+//               instead (accepted sections kept), unless that attempt had its full chance.
+//   write    -> one stubbed function is a section, owned by one session. Sessions share a prefix (system block, card, the numbered skeleton) and run side
+//               by side up to the idle slots, never pinned to the job's one lease slot. A reply supplies a body; the SIGNATURE is the skeleton's, put back
+//               by the harness. The coordinator commits it against the revision shown (the canvas rebases), after the partial compile check; a refusal
+//               shows the section its own text with the located error.
+//   assemble -> findings are ROUTED, never a whole-file round: a section never accepted is retried alone; a function nobody calls is removed by the
+//               harness (no model call); a compile error goes to the owner of the function it is in; only a file that compiles strictly is judged by the
+//               item's tests, and a test failure goes to the sections it names.
+//   budget   -> a wall budget that grows with the number of sections; when it is spent no session starts, the failure reason says so, and the next
+//               attempt carries on from this canvas.
 // Throughput by default: sections run side by side up to the idle slots (planParallel); one at a time needs a stated reason; memory pressure sheds forks.
 #include "sub0squad/fork.hpp"
 
@@ -26,7 +30,9 @@
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
+#include <map>
 #include <mutex>
+#include <set>
 #include <sstream>
 #include <thread>
 
@@ -40,6 +46,14 @@ namespace {
 using Clock = std::chrono::steady_clock;
 double since(Clock::time_point t0) { return std::chrono::duration<double>(Clock::now() - t0).count(); }
 
+std::vector<std::string> linesOf(const std::string& text)
+{
+    std::vector<std::string> v;
+    std::istringstream in(text);
+    for (std::string l; std::getline(in, l);) { if (!l.empty() && l.back() == '\r') l.pop_back(); v.push_back(l); }
+    return v;
+}
+
 /// Whether `text` holds `word` as a whole identifier (a test failure that names a function).
 bool namesWord(const std::string& text, const std::string& word)
 {
@@ -50,14 +64,18 @@ bool namesWord(const std::string& text, const std::string& word)
 }
 
 std::string leaf(const std::string& name) { const auto c = name.find_last_of(":."); return c == std::string::npos ? name : name.substr(c + 1); }
+std::string trimmed(const std::string& l) { const auto a = l.find_first_not_of(" \t"); return a == std::string::npos ? std::string{} : l.substr(a, l.find_last_not_of(" \t") - a + 1); }
 
 std::string forkSystemBlock(const std::string& persona, const std::string& brief)
 {
-    std::string s = "You write ONE function of a file that several workers are writing at the same time. You are shown the file's skeleton with line numbers (`N| text`; the numbers are not "
+    std::string s = "You write ONE function of a file that several workers are writing at the same time. You are shown the file with line numbers (`N| text`; the numbers are not "
                     "part of the file): every function is declared, and a function that is not written yet has a body that only raises `not implemented: <name>`. "
                     "Reply with exactly one block and nothing else (no explanations, no markdown fences):\n"
-                    "=== EDIT: <path> SYMBOL <function name> ===\n<your whole function: its signature line exactly as in the skeleton, then its body, with the skeleton's indentation>\n=== END EDIT ===\n"
-                    "Write only your own function. Use the other functions only through the signatures in the skeleton; do not write, change or repeat them.\n";
+                    "=== EDIT: <path> SYMBOL <function name> ===\n<your function: its declaration, then its body>\n=== END EDIT ===\n"
+                    "Rules. The declaration is fixed: the harness keeps the one in the file whatever you write, so do not change the name, the parameters or the return type. "
+                    "Write only your own function, complete, returning a value on every path. Call only what the file declares (the other functions, by their signatures) and the "
+                    "standard library; if you need a helper of your own, write it INSIDE your function (a lambda or a nested function), never as another function. "
+                    "Do not write, change or repeat any other function.\n";
     if (!brief.empty()) s += brief + "\n";
     s += "You are the " + persona + " on a small software squad.\n";
     return s;
@@ -70,8 +88,8 @@ const char* const kPrimerAsk =
     "@@ <the signature of ONE function or method, on one line, with NO body>\n"
     "=== END SKELETON ===\n"
     "Put one `@@` line where each function or method belongs (a method: inside its class, indented like the class's other members). Write NO function bodies at all: the harness "
-    "gives every `@@` line a placeholder body and compiles the result. Split the work into functions of at most about 40 lines each. Keep each file's skeleton under 80 lines. "
-    "Nothing else in the reply (no explanations, no markdown fences).\n"
+    "gives every `@@` line a placeholder body and compiles the result. Declare only functions that will be CALLED: every one must be used by another or be part of the file's contract. "
+    "Split the work into functions of at most about 40 lines each. Keep each file's skeleton under 80 lines. Nothing else in the reply (no explanations, no markdown fences).\n"
     "Example (C++):\n=== SKELETON: src/shapes.cpp ===\n#include \"shapes.hpp\"\n#include <cmath>\n\nnamespace shapes {\n\n@@ static double square(double x)\n@@ double circleArea(double radius)\n@@ double hypotenuse(double a, double b)\n\n}  // namespace shapes\n=== END SKELETON ===\n"
     "Example (Python):\n=== SKELETON: shapes/core.py ===\nimport math\n\n\nclass Circle:\n    def __init__(self, radius):\n        self.radius = radius\n\n    @@ def area(self)\n    @@ def scaled(self, factor)\n\n\n@@ def hypotenuse(a, b)\n=== END SKELETON ===\n";
 
@@ -89,8 +107,7 @@ std::map<std::string, std::string> parseSkeletonReply(const std::string& reply, 
             close();
             path = line.substr(line.find(':') + 1);
             if (const auto e = path.rfind("==="); e != std::string::npos) path.erase(e);
-            path.erase(0, path.find_first_not_of(" \t"));
-            path.erase(path.find_last_not_of(" \t") + 1);
+            path = trimmed(path);
             continue;
         }
         if (line.rfind("=== END", 0) == 0) { close(); continue; }
@@ -101,32 +118,144 @@ std::map<std::string, std::string> parseSkeletonReply(const std::string& reply, 
     return files;
 }
 
+/// The lines `from..to` (1-based, inclusive) of `text`, numbered as the views are.
+std::string numbered(const std::string& text, int from, int to)
+{
+    const auto v = linesOf(text);
+    std::string out;
+    for (int k = std::max(1, from); k <= to && k <= static_cast<int>(v.size()); ++k) { char n[16]; std::snprintf(n, sizeof n, "%4d| ", k); out += std::string(n) + v[static_cast<std::size_t>(k) - 1] + "\n"; }
+    return out;
+}
+
 }  // namespace
+
+// ---- pure helpers, exported for their tests ---------------------------------------------------------------------------------------------------------
+std::string applySectionSignature(const std::string& textIn, const std::string& signature, const std::string& indent, const std::string& path)
+{
+    std::string text = textIn;
+    while (!text.empty() && (text.back() == '\n' || text.back() == '\r' || text.back() == ' ')) text.pop_back();
+    if (isPythonPath(path)) {
+        const auto v = linesOf(text);
+        // The model's own `def` line, when it wrote one: everything up to the line that ends it is replaced by the skeleton's declaration, and the body
+        // is moved to the skeleton's indentation.
+        std::size_t def = v.size(), bodyFrom = 0;
+        for (std::size_t i = 0; i < v.size(); ++i) { const std::string t = trimmed(v[i]); if (t.rfind("def ", 0) == 0 || t.rfind("async def ", 0) == 0) { def = i; break; } if (!t.empty() && t[0] != '@' && t[0] != '#') break; }
+        std::string modelIndent;
+        if (def < v.size()) {
+            modelIndent = v[def].substr(0, v[def].find_first_not_of(" \t"));
+            bodyFrom = def + 1;
+            for (std::size_t j = def; j < v.size(); ++j) { const std::string t = trimmed(v[j]); if (!t.empty() && t.back() == ':') { bodyFrom = j + 1; break; } }
+        } else {   // a body alone: its least indentation stands for the function's own, one level in
+            std::size_t least = std::string::npos;
+            for (const auto& l : v) { const auto a = l.find_first_not_of(" \t"); if (a != std::string::npos) least = std::min(least, a); }
+            if (least == std::string::npos) least = 0;
+            modelIndent = least >= 4 ? std::string(least - 4, ' ') : std::string{};
+            if (least < 4) { std::string out = indent + signature + ":\n"; for (const auto& l : v) out += (trimmed(l).empty() ? std::string{} : indent + "    " + l.substr(std::min(least, l.size()))) + "\n"; return out; }
+        }
+        std::string out = indent + signature + ":\n";
+        for (std::size_t i = bodyFrom; i < v.size(); ++i) {
+            if (trimmed(v[i]).empty()) { out += "\n"; continue; }
+            out += (v[i].rfind(modelIndent, 0) == 0 ? indent + v[i].substr(modelIndent.size()) : indent + "    " + trimmed(v[i])) + "\n";
+        }
+        return out;
+    }
+    const bool script = path.size() > 3 && (path.compare(path.size() - 3, 3, ".js") == 0 || path.compare(path.size() - 4, 4, ".mjs") == 0);
+    const auto brace = text.find('{');
+    // Whether what precedes the first brace is the model's own declaration (it holds a parameter list); if not, the reply is a body alone.
+    const bool declared = brace != std::string::npos && text.substr(0, brace).find('(') != std::string::npos;
+    std::string body = declared ? text.substr(brace) : (brace != std::string::npos && trimmed(text.substr(0, brace)).empty() ? text.substr(brace) : "{\n" + text + "\n" + indent + "}");
+    return script ? indent + signature + " " + body + "\n" : indent + signature + "\n" + indent + body + "\n";
+}
+
+std::vector<CompileFinding> compileFindings(const std::string& output, const std::string& path)
+{
+    std::vector<CompileFinding> found;
+    const auto v = linesOf(output);
+    const auto located = [&](const std::string& l) -> int {
+        const auto at = l.find(path + ":");
+        if (at == std::string::npos) return 0;
+        const std::size_t d = at + path.size() + 1;
+        return d < l.size() && std::isdigit(static_cast<unsigned char>(l[d])) ? std::atoi(l.c_str() + d) : 0;
+    };
+    for (std::size_t i = 0; i < v.size(); ++i) {
+        const int line = located(v[i]);
+        if (line <= 0 || v[i].find("note:") != std::string::npos) continue;
+        CompileFinding f;
+        f.line = line;
+        std::string msg = v[i].substr(v[i].find(path + ":"));
+        f.text = msg + "\n";
+        for (std::size_t j = i + 1; j < v.size() && j <= i + 2 && located(v[j]) == 0; ++j) f.text += v[j] + "\n";
+        f.unusedFunction = msg.find("defined but not used") != std::string::npos || msg.find("unused function") != std::string::npos;
+        found.push_back(std::move(f));
+    }
+    return found;
+}
 
 std::string ForkResult::toJson() const
 {
     json::Writer w;
-    w.beginObject().kvBool("passed", passed).kv("exitCode", exitCode).kv("width", width).kv("widthReason", widthReason).kvBool("shed", shed).kvBool("budgetSpent", budgetSpent).kv("skeletonTries", skeletonTries).kv("rounds", rounds)
+    w.beginObject().kvBool("passed", passed).kv("exitCode", exitCode).kv("failure", failure).kv("resumedFrom", resumedFrom).kv("width", width).kv("widthReason", widthReason).kvBool("shed", shed)
+        .kvBool("budgetSpent", budgetSpent).kv("budgetSec", budgetSec).kv("skeletonTries", skeletonTries).kv("rounds", rounds).kv("targeted", targeted).kv("mechanicalMends", mechanicalMends)
         .kv("conflicts", conflicts).kv("lostEdits", lostEdits).kv("refused", refused)
         .kv("skeletonTokens", static_cast<std::int64_t>(skeletonTokens)).kv("sectionTokens", static_cast<std::int64_t>(sectionTokens)).kv("integrationTokens", static_cast<std::int64_t>(integrationTokens))
         .kv("wallSec", wallSec).kv("sectionWallSec", sectionWallSec).kv("idleShare", idleShare).kv("error", error).key("sections").beginArray();
     for (const auto& s : sections)
-        w.beginObject().kv("name", s.name).kv("file", s.file).kv("symbol", s.symbol).kv("startSec", s.startSec).kv("endSec", s.endSec)
-            .kv("promptTokens", static_cast<std::int64_t>(s.promptTokens)).kv("completionTokens", static_cast<std::int64_t>(s.completionTokens)).kv("calls", s.calls).kv("refused", s.refused).kvBool("committed", s.committed).endObject();
+        w.beginObject().kv("name", s.name).kv("file", s.file).kv("symbol", s.symbol).kv("signature", s.signature).kv("indent", s.indent).kv("startSec", s.startSec).kv("endSec", s.endSec)
+            .kv("promptTokens", static_cast<std::int64_t>(s.promptTokens)).kv("completionTokens", static_cast<std::int64_t>(s.completionTokens)).kv("calls", s.calls).kv("refused", s.refused)
+            .kvBool("committed", s.committed).kvBool("removed", s.removed).kv("lastRefusal", s.lastRefusal.substr(0, 400)).endObject();
     w.endArray().endObject();
     return w.take();
 }
+
+namespace {
+
+/// What an earlier attempt left for this one to continue: its sections and why it stopped ("" when there is nothing to resume).
+struct Earlier { std::string failure; std::vector<ForkSection> sections; };
+Earlier readEarlier(const fs::path& forkJson)
+{
+    Earlier e;
+    const std::string text = slurp(forkJson);
+    if (text.empty()) return e;
+    try {
+        json::withObject(text, [&](simdjson::ondemand::object& obj) {
+            for (auto f : obj) {
+                const std::string_view k = f.unescaped_key();
+                auto v = f.value();
+                if (k == "failure") e.failure = json::toString(v);
+                else if (k == "sections") {
+                    for (auto sv : v.get_array()) {
+                        ForkSection s;
+                        for (auto sf : sv.get_object()) {
+                            const std::string_view sk = sf.unescaped_key();
+                            auto val = sf.value();
+                            if (sk == "name") s.name = json::toString(val);
+                            else if (sk == "file") s.file = json::toString(val);
+                            else if (sk == "symbol") s.symbol = json::toString(val);
+                            else if (sk == "signature") s.signature = json::toString(val);
+                            else if (sk == "indent") s.indent = json::toString(val);
+                            else if (sk == "removed") s.removed = val.get_bool();
+                        }
+                        e.sections.push_back(std::move(s));
+                    }
+                }
+            }
+        });
+    } catch (const simdjson::simdjson_error&) { return {}; }
+    return e;
+}
+
+}  // namespace
 
 ForkResult runCanvasFork(const ForkOptions& o)
 {
     ForkResult res;
     const auto t0 = Clock::now();
     auto plan = Plan::fromJson(slurp(o.dir / "plan.json"));
-    if (!plan || !plan->find(o.itemId)) { res.exitCode = 2; res.error = "cannot load the plan or the item"; return res; }
+    if (!plan || !plan->find(o.itemId)) { res.exitCode = 2; res.failure = "skeleton"; res.error = "cannot load the plan or the item"; return res; }
     WorkItem item = *plan->find(o.itemId);
     (void)readCardOverride(o.dir / "items" / o.itemId / "card-override.json", item.card);
     const Harness* harness = findHarness(plan->harness);
-    const fs::path attemptDir = o.dir / "items" / o.itemId / ("attempt-" + std::to_string(o.attempt)), out = attemptDir / "out";
+    const fs::path itemDir = o.dir / "items" / o.itemId, attemptDir = itemDir / ("attempt-" + std::to_string(o.attempt)), out = attemptDir / "out";
     std::error_code ec;
     fs::remove_all(out, ec);
     fs::create_directories(out, ec);
@@ -134,83 +263,110 @@ ForkResult runCanvasFork(const ForkOptions& o)
     long testCount = 0;
     const std::string card = buildCard(o.dir, *plan, item, o.itemId, "baseline", testCount);
     const ChatFn chat = o.chat ? o.chat : ChatFn{[](const EngineProfile& e, const std::vector<ChatMessage>& m, int maxTokens, int timeoutSec, const StreamGuard& guard) { return chatCompleteMessages(e, m, maxTokens, timeoutSec, {}, guard); }};
-    // The attempt's wall budget (row 46: one attempt spent 54 minutes on two skeletons): every call is bounded by what is left, and none starts after it is spent.
-    const auto remainingSec = [&]() -> int { return o.wallBudgetSec <= 0 ? o.timeoutSec : std::max(0, std::min(o.timeoutSec, o.wallBudgetSec - static_cast<int>(since(t0)))); };
-    const auto seeded = [&](const std::string& label) { EngineProfile e = o.engine; e.seed = turnSeed(o.engine.seed, o.itemId + "#" + std::to_string(o.attempt) + "#" + label); return e; };
-    const auto finish = [&](int code) {
+    // Several requests run at once, so none is pinned to the job's one lease slot: pinned, they queue behind each other (docs/INTERVENTIONS.md row 47).
+    const auto seeded = [&](const std::string& label) { EngineProfile e = o.engine; e.slot = EngineProfile::kAnySlot; e.seed = turnSeed(o.engine.seed, o.itemId + "#" + std::to_string(o.attempt) + "#" + label); return e; };
+
+    Canvas canvas;
+    std::mutex mu;                                   // guards the canvas and the result counters
+    // The wall budget: a base plus an allowance per section (known once the skeleton is). Every call is bounded by what is left; none starts after it is spent.
+    std::atomic<int> budget{o.wallBudgetSec};
+    const auto remainingSec = [&]() -> int { return o.wallBudgetSec <= 0 ? o.timeoutSec : std::max(0, std::min(o.timeoutSec, budget.load() - static_cast<int>(since(t0)))); };
+    const auto finish = [&](int code, const std::string& failure) {
         res.exitCode = code;
         res.passed = code == 0;
+        res.failure = failure;
+        res.budgetSec = budget.load();
         res.wallSec = since(t0);
+        for (const auto& [path, text] : canvas.files()) (void)writeFile(out / path, text);   // what stands, always: the next attempt continues from it
         (void)writeFile(attemptDir / "fork.json", res.toJson() + "\n");
         return res;
     };
 
-    // ---- 1. the primer DECLARES the structure; the harness completes it into the skeleton, which must pass the compile check to become revision 1 ----
-    Canvas canvas;
-    const std::string primerSystem = "You plan the structure of source files for a small software squad. " + harnessBrief(plan->harness) + "\n";
-    std::vector<ChatMessage> primer = {{"system", primerSystem}, {"user", card + kPrimerAsk}};
-    const fs::path primerTrace = attemptDir / "conversation-skeleton.md";
-    traceBegin(primerTrace, "Skeleton session of " + o.itemId, o.engine, std::min(o.maxTokens, o.skeletonMaxTokens));
-    for (int tryNo = 0; tryNo < 2; ++tryNo) {
-        if (remainingSec() <= 0) { res.budgetSpent = true; res.error = "the attempt's wall budget (" + std::to_string(o.wallBudgetSec) + " s) was spent before a skeleton was accepted"; return finish(2); }
-        ++res.skeletonTries;
-        traceSent(primerTrace, tryNo, primer, tryNo == 0 ? 0 : primer.size() - 2, -1);
-        // A skeleton is short by definition: the reply is bounded at the server, and cancelled while it streams if it runs on (a model writing the
-        // implementation it was asked to leave out).
-        const StreamGuard tooLong = [&](const std::string& soFar) { return o.skeletonMaxLines > 0 && std::count(soFar.begin(), soFar.end(), '\n') > o.skeletonMaxLines; };
-        auto r = chat(seeded("skeleton" + std::to_string(tryNo)), primer, std::min(o.maxTokens, o.skeletonMaxTokens), remainingSec(), tooLong);
-        if (!r) { res.error = "the skeleton call failed: " + r.error(); return finish(2); }
-        traceReply(primerTrace, tryNo, *r);
-        res.skeletonTokens += r->promptTokens + r->completionTokens;
-        std::string bad;
-        Canvas candidate;
-        if (r->finishReason == "aborted") bad = "it ran past " + std::to_string(o.skeletonMaxLines) + " lines and was stopped: a skeleton holds declarations and `@@` signature lines only, with NO function bodies";
-        else if (r->finishReason == "length") bad = "it was cut off at the token limit: a skeleton holds declarations and `@@` signature lines only, with NO function bodies";
-        else {
-            const auto declared = parseSkeletonReply(r->content, allowed);
-            if (declared.empty()) bad = "the reply held no === SKELETON: <path> === block for the files to write";
-            for (const auto& [path, text] : declared) {
-                if (!bad.empty()) break;
-                if (text.find("@@") == std::string::npos) { candidate.addFile(path, text); continue; }   // a file with no function to delegate is taken as written
-                const Skeleton sk = expandSkeleton(text, path);
-                if (!sk.error.empty()) bad = path + ": " + sk.error;
-                else candidate.addFile(path, sk.text);
+    // ---- 1. the document: the earlier attempt's canvas when it stopped short, else a declared skeleton completed by the harness ----
+    if (!o.fresh && o.attempt > 1) {
+        const fs::path before = itemDir / ("attempt-" + std::to_string(o.attempt - 1));
+        const Earlier e = readEarlier(before / "fork.json");
+        // "tests" is not resumed: every section was written and the rounds were used, so the structure itself had its chance.
+        if (!e.sections.empty() && (e.failure == "budget" || e.failure == "sections-missing" || e.failure == "compile")) {
+            Canvas candidate;
+            for (const auto& f : item.files) if (const std::string text = slurp(before / "out" / f); !text.empty()) candidate.addFile(f, text);
+            if (!candidate.paths().empty() && precheckCanvas(candidate, harness, o.dir, o.itemId, o.attempt, attemptDir, true).empty()) {
+                canvas = std::move(candidate);
+                res.sections = e.sections;
+                res.resumedFrom = o.attempt - 1;
+                std::printf("fork: resuming the canvas of attempt %d (%s): %zu section(s)\n", o.attempt - 1, e.failure.c_str(), res.sections.size());
+                events::note("fork resumes attempt " + std::to_string(o.attempt - 1) + " (" + e.failure + ")");
             }
-            if (bad.empty()) bad = precheckCanvas(candidate, harness, o.dir, o.itemId, o.attempt, attemptDir, true);
         }
-        if (bad.empty()) { canvas = std::move(candidate); break; }
-        traceVerdict(primerTrace, tryNo, "the skeleton was refused: " + bad);
-        std::printf("fork skeleton refused: %s\n", bad.substr(0, 200).c_str());
-        events::note("skeleton refused: " + bad.substr(0, 120));
-        if (tryNo == 1) { res.error = "no usable skeleton: " + bad; return finish(2); }
-        primer.push_back({"assistant", "[your previous reply is not repeated here]"});
-        primer.push_back({"user", "That reply cannot be used: " + clip(bad, 1200) + "\nReply again with the structure only." + kPrimerAsk});
+    }
+    if (canvas.paths().empty()) {
+        const std::string primerSystem = "You plan the structure of source files for a small software squad. " + harnessBrief(plan->harness) + "\n";
+        std::vector<ChatMessage> primer = {{"system", primerSystem}, {"user", card + kPrimerAsk}};
+        const fs::path primerTrace = attemptDir / "conversation-skeleton.md";
+        traceBegin(primerTrace, "Skeleton session of " + o.itemId, o.engine, std::min(o.maxTokens, o.skeletonMaxTokens));
+        for (int tryNo = 0; tryNo < 2; ++tryNo) {
+            if (remainingSec() <= 0) { res.budgetSpent = true; res.error = "the attempt's wall budget (" + std::to_string(budget.load()) + " s) was spent before a skeleton was accepted"; return finish(2, "budget"); }
+            ++res.skeletonTries;
+            traceSent(primerTrace, tryNo, primer, tryNo == 0 ? 0 : primer.size() - 2, -1);
+            // A skeleton is short by definition: the reply is bounded at the server, and cancelled while it streams if it runs on.
+            const StreamGuard tooLong = [&](const std::string& soFar) { return o.skeletonMaxLines > 0 && std::count(soFar.begin(), soFar.end(), '\n') > o.skeletonMaxLines; };
+            auto r = chat(seeded("skeleton" + std::to_string(tryNo)), primer, std::min(o.maxTokens, o.skeletonMaxTokens), remainingSec(), tooLong);
+            if (!r) { res.error = "the skeleton call failed: " + r.error(); return finish(2, remainingSec() <= 0 ? "budget" : "skeleton"); }
+            traceReply(primerTrace, tryNo, *r);
+            res.skeletonTokens += r->promptTokens + r->completionTokens;
+            std::string bad;
+            Canvas candidate;
+            if (r->finishReason == "aborted") bad = "it ran past " + std::to_string(o.skeletonMaxLines) + " lines and was stopped: a skeleton holds declarations and `@@` signature lines only, with NO function bodies";
+            else if (r->finishReason == "length") bad = "it was cut off at the token limit: a skeleton holds declarations and `@@` signature lines only, with NO function bodies";
+            else {
+                const auto declared = parseSkeletonReply(r->content, allowed);
+                if (declared.empty()) bad = "the reply held no === SKELETON: <path> === block for the files to write";
+                for (const auto& [path, text] : declared) {
+                    if (!bad.empty()) break;
+                    if (text.find("@@") == std::string::npos) { candidate.addFile(path, text); continue; }   // a file with no function to delegate is taken as written
+                    const Skeleton sk = expandSkeleton(text, path);
+                    if (!sk.error.empty()) bad = path + ": " + sk.error;
+                    else candidate.addFile(path, sk.text);
+                }
+                if (bad.empty()) bad = precheckCanvas(candidate, harness, o.dir, o.itemId, o.attempt, attemptDir, true);
+            }
+            if (bad.empty()) { canvas = std::move(candidate); break; }
+            traceVerdict(primerTrace, tryNo, "the skeleton was refused: " + bad);
+            std::printf("fork skeleton refused: %s\n", bad.substr(0, 200).c_str());
+            events::note("skeleton refused: " + bad.substr(0, 120));
+            if (tryNo == 1) { res.error = "no usable skeleton: " + bad; return finish(2, "skeleton"); }
+            primer.push_back({"assistant", "[your previous reply is not repeated here]"});
+            primer.push_back({"user", "That reply cannot be used: " + clip(bad, 1200) + "\nReply again with the structure only." + kPrimerAsk});
+        }
+        // The sections: every stub marker inside a named function, with the declaration the skeleton gives it.
+        for (const auto& path : canvas.paths()) {
+            const std::string& text = canvas.text(path);
+            const auto v = linesOf(text);
+            const auto regions = foldRegions(text, isPythonPath(path), true);
+            for (std::size_t i = 0; i < v.size(); ++i) {
+                const auto m = v[i].find("not implemented:");
+                if (m == std::string::npos) continue;
+                std::string name = v[i].substr(m + 16);
+                name.erase(0, name.find_first_not_of(" \t"));
+                name = name.substr(0, name.find_first_of("'\"` )"));
+                const FoldRegion* reg = nullptr;
+                for (const auto& r : regions) if (static_cast<int>(i) + 1 >= r.first && static_cast<int>(i) + 1 <= r.bodyTo) reg = &r;
+                if (name.empty() || !reg || reg->name.empty()) { std::printf("note: the stub at %s:%zu is not inside a named function; it stays as written\n", path.c_str(), i + 1); continue; }
+                if (std::any_of(res.sections.begin(), res.sections.end(), [&](const ForkSection& s) { return s.file == path && s.symbol == leaf(reg->name); })) continue;
+                ForkSection s;
+                s.name = name; s.file = path; s.symbol = leaf(reg->name);
+                const std::string& decl = v[static_cast<std::size_t>(reg->first) - 1];
+                s.indent = decl.substr(0, decl.find_first_not_of(" \t"));
+                s.signature = trimmed(decl);
+                while (!s.signature.empty() && (s.signature.back() == '{' || s.signature.back() == ':' || s.signature.back() == ' ')) s.signature.pop_back();
+                res.sections.push_back(std::move(s));
+            }
+        }
     }
     persistCanvas(canvas, attemptDir);
+    if (o.wallBudgetSec > 0) budget = o.wallBudgetSec + o.wallPerSectionSec * static_cast<int>(res.sections.size());
+    std::printf("fork document: %zu file(s), %zu section(s), wall budget %d s%s\n", canvas.paths().size(), res.sections.size(), budget.load(), res.resumedFrom ? " (resumed)" : "");
 
-    // ---- 2. the sections: every stub marker inside a function ----
-    for (const auto& path : canvas.paths()) {
-        const std::string& text = canvas.text(path);
-        const auto regions = foldRegions(text, isPythonPath(path), true);
-        std::istringstream in(text);
-        int ln = 0;
-        for (std::string line; std::getline(in, line);) {
-            ++ln;
-            const auto m = line.find("not implemented:");
-            if (m == std::string::npos) continue;
-            std::string name = line.substr(m + 16);
-            name.erase(0, name.find_first_not_of(" \t"));
-            name = name.substr(0, name.find_first_of("'\"` )"));
-            const FoldRegion* reg = nullptr;
-            for (const auto& r : regions) if (ln >= r.first && ln <= r.bodyTo) reg = &r;
-            if (name.empty() || !reg || reg->name.empty()) { std::printf("note: the stub at %s:%d is not inside a named function; it stays as written\n", path.c_str(), ln); continue; }
-            if (std::any_of(res.sections.begin(), res.sections.end(), [&](const ForkSection& s) { return s.file == path && s.symbol == leaf(reg->name); })) continue;
-            ForkSection s;
-            s.name = name; s.file = path; s.symbol = leaf(reg->name);
-            res.sections.push_back(std::move(s));
-        }
-    }
-    std::printf("fork skeleton: %zu file(s), %zu section(s)\n", canvas.paths().size(), res.sections.size());
     const auto gate = [&](std::string& gateText) {
         fs::remove_all(out, ec);
         fs::create_directories(out, ec);
@@ -220,9 +376,9 @@ ForkResult runCanvasFork(const ForkOptions& o)
         return rc == 0;
     };
     std::string gateText;
-    if (res.sections.empty()) { std::printf("no stubs in the skeleton: nothing to delegate\n"); return finish(gate(gateText) ? 0 : 1); }
+    if (res.sections.empty()) { std::printf("no stubs in the skeleton: nothing to delegate\n"); const bool ok = gate(gateText); return finish(ok ? 0 : 1, ok ? "" : "tests"); }
 
-    // ---- 3. one session per section, side by side up to the idle slots ----
+    // ---- 2. the width: side by side up to the idle slots ----
     const auto idleSlots = [&]() -> int {
         if (o.idleSlots) return o.idleSlots();
         if (const auto sc = engineSlots(o.engine)) return sc->idle;
@@ -236,84 +392,113 @@ ForkResult runCanvasFork(const ForkOptions& o)
     std::printf("fork width: %d of %zu section(s) at once (%s)\n", res.width, res.sections.size(), width.reason.c_str());
     events::note("forked sections: " + std::to_string(res.sections.size()) + ", " + std::to_string(res.width) + " at once (" + width.reason + ")");
 
-    std::mutex mu;                                   // guards the canvas and the result counters
     const std::string system = forkSystemBlock(item.persona, harnessBrief(plan->harness));
-    std::string sectionList;
-    for (const auto& s : res.sections) sectionList += "- " + s.name + " (" + s.file + ")\n";
-    // The shared prefix: identical for every section, so it is prefilled once by a server that reuses its prompt cache.
-    std::string skeletonView = card + "\nThe skeleton:\n";
-    for (const auto& path : canvas.paths()) skeletonView += "=== CANVAS: " + path + " (revision 1) ===\n" + foldedView(canvas.text(path), isPythonPath(path), {}, 1u << 30) + "=== END CANVAS ===\n";
-    skeletonView += "The functions being written, each by one worker:\n" + sectionList;
     std::map<std::string, std::string> committedText;   // section name -> the function text it committed
+    /// A stub's marker is still in the file: the section was never written.
+    const auto unwritten = [&](const ForkSection& s) { return !s.removed && canvas.has(s.file) && canvas.text(s.file).find("not implemented: " + s.name) != std::string::npos; };
+    const auto sectionAt = [&](const std::string& file, int line) -> ForkSection* {
+        const auto regions = foldRegions(canvas.text(file), isPythonPath(file), true);
+        for (const auto& r : regions) {
+            if (line < r.first || line > r.bodyTo) continue;
+            for (auto& s : res.sections) if (s.file == file && !s.removed && s.symbol == leaf(r.name)) return &s;
+        }
+        return nullptr;
+    };
 
-    // One section's session: ask, read the reply as a transaction on its own function, commit through the coordinator. `base` is the revision it was shown.
+    // One section's session: ask, read the reply as its function, put the skeleton's declaration back, commit through the coordinator. `shown` is the
+    // revision of each file the prompt showed.
     const auto runSection = [&](ForkSection& s, std::vector<ChatMessage> convo, int base, const std::string& tag, long& phaseTokens) {
         std::string flat = s.name;
         for (char& c : flat) if (c == '.' || c == '/' || c == ':') c = '_';
         const fs::path trace = attemptDir / ("conversation-" + flat + ".md");
-        if (tag == "section") traceBegin(trace, "Section " + s.name + " of " + o.itemId, o.engine, o.maxTokens);
+        if (!fs::exists(trace)) traceBegin(trace, "Section " + s.name + " of " + o.itemId, o.engine, o.maxTokens);
         for (int tryNo = 0; tryNo < 3; ++tryNo) {
-            traceSent(trace, tryNo, convo, tryNo == 0 ? 0 : convo.size() - 2, -1);
             if (remainingSec() <= 0) { std::lock_guard<std::mutex> l(mu); res.budgetSpent = true; return; }
+            traceSent(trace, tryNo, convo, tryNo == 0 ? 0 : convo.size() - 2, -1);
             auto r = chat(seeded(tag + ":" + s.name + ":" + std::to_string(tryNo)), convo, o.maxTokens, remainingSec(), {});
             ++s.calls;
-            if (!r) { traceVerdict(trace, tryNo, "the engine call failed: " + r.error()); return; }
+            if (!r) { traceVerdict(trace, tryNo, "the engine call failed: " + r.error()); if (remainingSec() <= 0) { std::lock_guard<std::mutex> l(mu); res.budgetSpent = true; } return; }
             traceReply(trace, tryNo, *r);
             s.promptTokens += r->promptTokens; s.completionTokens += r->completionTokens;
             { std::lock_guard<std::mutex> l(mu); phaseTokens += r->promptTokens + r->completionTokens; }
-            // The reply as a transaction: one replaceSymbol on the section's own function. A bare function (no block) is accepted when it starts with the name.
+            // The reply as ONE function: a replaceSymbol block on the section's own function, or the function alone. Its declaration is then replaced by
+            // the skeleton's (run-v9: sections dropped a `Class::` qualifier or changed parameters, and each such slip broke the file for all).
             CanvasReply cr = parseCanvasReply(r->content);
-            std::string refusal = cr.error;
-            Transaction tx{s.file, base, s.name, {}};
+            std::string refusal = cr.error, written;
             if (refusal.empty() && !cr.hasEdits()) {
-                std::string body = r->content;
-                if (body.rfind("```", 0) == 0) { const auto nl = body.find('\n'); body = nl == std::string::npos ? "" : body.substr(nl + 1); }
-                if (const auto fence = body.rfind("```"); fence != std::string::npos && body.find_first_not_of(" \t\r\n", fence + 3) == std::string::npos) body.erase(fence);
-                const auto firstLine = body.substr(0, body.find('\n'));
-                if (firstLine.find(s.symbol) != std::string::npos && firstLine.find('(') != std::string::npos) tx.ops.push_back({CanvasOp::Kind::replaceSymbol, 0, 0, s.symbol, body});
-                else refusal = "the reply held no === EDIT: " + s.file + " SYMBOL " + s.symbol + " === block";
+                written = r->content;
+                if (written.rfind("```", 0) == 0) { const auto nl = written.find('\n'); written = nl == std::string::npos ? "" : written.substr(nl + 1); }
+                if (const auto fence = written.rfind("```"); fence != std::string::npos && written.find_first_not_of(" \t\r\n", fence + 3) == std::string::npos) written.erase(fence);
+                if (trimmed(written).empty() || written.find("=== READ:") != std::string::npos) refusal = "the reply held no === EDIT: " + s.file + " SYMBOL " + s.symbol + " === block";
             } else if (refusal.empty()) {
                 if (!cr.wholeFiles.empty() || !cr.searchEdits.empty()) refusal = "you own only `" + s.symbol + "`: reply with one === EDIT: " + s.file + " SYMBOL " + s.symbol + " === block, not a file or a search edit";
+                int ops = 0;
                 for (const auto& t : cr.transactions) for (const auto& op : t.ops) {
                     if (!refusal.empty()) break;
+                    ++ops;
                     if (t.path != s.file || op.kind != CanvasOp::Kind::replaceSymbol || leaf(op.symbol) != s.symbol) {
                         std::string holder;
                         for (const auto& other : res.sections) if (other.file == t.path && op.kind == CanvasOp::Kind::replaceSymbol && other.symbol == leaf(op.symbol)) holder = other.name;
                         refusal = "you own only `" + s.symbol + "` in " + s.file + (holder.empty() ? std::string{": that edit is outside it"} : ": `" + leaf(op.symbol) + "` is held by the worker writing " + holder) + ". Reply with your own function only";
-                    } else tx.ops.push_back(op);
+                    } else written = op.text;
                 }
-                if (refusal.empty() && tx.ops.size() != 1) refusal = "reply with exactly one block for `" + s.symbol + "`";
+                if (refusal.empty() && ops != 1) refusal = "reply with exactly one block for `" + s.symbol + "`";
             }
+            std::string shownBack;
             if (refusal.empty()) {
+                const std::string function = applySectionSignature(written, s.signature, s.indent, s.file);
+                Transaction tx{s.file, base, s.name, {{CanvasOp::Kind::replaceSymbol, 0, 0, s.symbol, function}}};
                 std::lock_guard<std::mutex> l(mu);
+                if (base > canvas.revision(s.file)) tx.baseRevision = canvas.revision(s.file);
                 Canvas scratch = canvas;
                 const TxResult applied = scratch.apply(tx);
                 if (!applied.ok) { refusal = applied.error; if (applied.error.find("were changed by") != std::string::npos) ++res.conflicts; }
-                else if (const std::string bad = precheckCanvas(scratch, harness, o.dir, o.itemId, o.attempt, attemptDir, true); !bad.empty()) refusal = "your function does not pass the check, so it was not kept:\n" + clip(bad, 1000);
                 else {
-                    canvas = std::move(scratch);
-                    persistCanvas(canvas, attemptDir);
-                    committedText[s.name] = tx.ops[0].text;
-                    s.committed = true;
-                    traceVerdict(trace, tryNo, "committed as revision " + std::to_string(applied.revision) + " of " + s.file);
-                    return;
+                    // A commit is refused only for errors INSIDE the section's own function. An error elsewhere in the file is somebody else's (it can
+                    // even surface late: a function whose callee was still a stub looked complete to the compiler until the callee was written), and
+                    // blocking this section for it would spend its retries on a defect it cannot touch (run-v9: `evaluate`, refused six times). Such
+                    // findings are routed to their owners in assembly.
+                    const std::string bad = precheckCanvas(scratch, harness, o.dir, o.itemId, o.attempt, attemptDir, true);
+                    const auto found = compileFindings(bad, s.file);
+                    std::string mine;
+                    int from = 0, to = 0;
+                    for (const auto& reg : foldRegions(scratch.text(s.file), isPythonPath(s.file), true)) if (leaf(reg.name) == s.symbol) { from = reg.first; to = reg.bodyTo; }
+                    for (const auto& f : found) if (f.line >= from && f.line <= to) mine += f.text;
+                    const bool blocked = !bad.empty() && (found.empty() || !mine.empty() || from == 0);
+                    if (blocked) {
+                        // The section sees what it wrote, as it would stand in the file, with the file's line numbers the errors use (run-v9: a section
+                        // told only "your reply is not repeated" could not see what to change).
+                        refusal = "your function does not pass the check, so it was not kept:\n" + clip(mine.empty() ? bad : mine, 1200);
+                        if (from > 0) shownBack = "Your function as you wrote it, with the line numbers the errors use:\n" + numbered(scratch.text(s.file), from, std::min(to, from + 150));
+                    } else {
+                        canvas = std::move(scratch);
+                        persistCanvas(canvas, attemptDir);
+                        committedText[s.name] = function;
+                        s.committed = true;
+                        s.lastRefusal.clear();
+                        traceVerdict(trace, tryNo, "committed as revision " + std::to_string(applied.revision) + " of " + s.file + (bad.empty() ? std::string{} : " (errors elsewhere in the file are for their owners)"));
+                        return;
+                    }
                 }
             }
             ++s.refused;
+            s.lastRefusal = refusal;
             { std::lock_guard<std::mutex> l(mu); ++res.refused; }
             traceVerdict(trace, tryNo, "refused: " + refusal);
             std::printf("section %s: refused: %s\n", s.name.c_str(), refusal.substr(0, 160).c_str());
-            convo.push_back({"assistant", "[your previous reply is not repeated]"});
-            convo.push_back({"user", "Your reply was REFUSED and nothing changed: " + refusal + ".\nReply again with exactly:\n=== EDIT: " + s.file + " SYMBOL " + s.symbol + " ===\n<your whole function>\n=== END EDIT ==="});
+            convo.push_back({"assistant", "[your previous reply is shown below where it matters]"});
+            convo.push_back({"user", "Your reply was REFUSED and nothing changed: " + refusal + "\n" + shownBack + "Reply again with the corrected function:\n=== EDIT: " + s.file + " SYMBOL " + s.symbol + " ===\n<your function>\n=== END EDIT ==="});
         }
     };
-
-    const auto tSections = Clock::now();
-    {
+    /// Run sessions for `who`, each with the conversation `make` builds for it, at the attempt's width (shed to one under memory pressure).
+    const auto runPool = [&](const std::vector<ForkSection*>& who, const std::function<std::vector<ChatMessage>(ForkSection&)>& make, const std::string& tag, long& phaseTokens, bool timeSpans) {
+        std::map<std::string, int> shown;
+        for (const auto& path : canvas.paths()) shown[path] = canvas.revision(path);
+        const auto tPool = Clock::now();
         std::atomic<std::size_t> next{0};
-        std::atomic<int> limit{res.width};
+        std::atomic<int> limit{std::min<int>(res.width, static_cast<int>(who.size()))};
         std::vector<std::thread> pool;
-        for (int wkr = 0; wkr < res.width; ++wkr) {
+        for (int wkr = 0; wkr < limit.load(); ++wkr) {
             pool.emplace_back([&, wkr] {
                 for (;;) {
                     if (wkr >= limit.load()) return;   // shed: this worker stops taking sections; the first one carries on alone
@@ -322,68 +507,144 @@ ForkResult runCanvasFork(const ForkOptions& o)
                         if (limit.load() > 1) { limit = 1; res.shed = true; res.widthReason += "; shed to one at a time under memory pressure"; events::note("forks shed: memory pressure"); }
                         return;
                     }
+                    if (remainingSec() <= 0) { std::lock_guard<std::mutex> l(mu); res.budgetSpent = true; return; }
                     const std::size_t i = next.fetch_add(1);
-                    if (i >= res.sections.size()) return;
-                    ForkSection& s = res.sections[i];
-                    s.startSec = since(tSections);
-                    runSection(s, {{"system", system}, {"user", skeletonView + "\nYou own `" + s.symbol + "` in " + s.file + ". Reply with:\n=== EDIT: " + s.file + " SYMBOL " + s.symbol + " ===\n<your whole function>\n=== END EDIT ==="}}, 1, "section", res.sectionTokens);
-                    s.endSec = since(tSections);
+                    if (i >= who.size()) return;
+                    ForkSection& s = *who[i];
+                    std::vector<ChatMessage> convo;
+                    { std::lock_guard<std::mutex> l(mu); convo = make(s); }
+                    if (timeSpans) s.startSec = since(tPool);
+                    runSection(s, std::move(convo), shown[s.file], tag, phaseTokens);
+                    if (timeSpans) s.endSec = since(tPool);
                 }
             });
         }
         for (auto& t : pool) t.join();
-    }
-    res.sectionWallSec = since(tSections);
-    {
-        std::vector<JobSpan> spans;
-        long tokens = 0;
-        for (const auto& s : res.sections) { spans.push_back({s.name, s.startSec, s.endSec}); tokens += s.completionTokens; }
-        res.idleShare = accountSpans(spans, res.width, tokens).idleShare;
-    }
-    // No edit may be lost in the merge: every committed function is in the merged text, and no committed section still holds its stub.
-    for (const auto& s : res.sections) {
-        if (!s.committed) continue;
-        const std::string& merged = canvas.text(s.file);
-        std::string want = committedText[s.name];
-        while (!want.empty() && (want.back() == '\n' || want.back() == '\r')) want.pop_back();
-        if (merged.find(want) == std::string::npos) ++res.lostEdits;
-    }
-    for (const auto& s : res.sections) std::printf("section %s: %ld prompt, %ld completion tokens, %d call(s), %s\n", s.name.c_str(), s.promptTokens, s.completionTokens, s.calls, s.committed ? "committed" : "NOT committed");
+    };
 
-    // ---- 4. the merged file under the item's gate; a failure goes back to the sections it names ----
-    bool ok = gate(gateText);
-    while (!ok && res.rounds < o.rounds && remainingSec() > 0) {
-        ++res.rounds;
-        std::vector<ForkSection*> implicated;
-        // The first round goes to the sections the failure names (and any that never committed); when it names none, or naming them did not help, to all.
-        if (res.rounds == 1) for (auto& s : res.sections) if (!s.committed || namesWord(gateText, s.symbol)) implicated.push_back(&s);
-        if (implicated.empty()) for (auto& s : res.sections) implicated.push_back(&s);
-        std::printf("round %d: the merged file failed; %zu section(s) go back\n", res.rounds, implicated.size());
-        // Each goes back in a fresh small session: the card, the failure, and the current revision with its own function open and the others folded.
-        std::map<std::string, int> shown;
-        std::map<std::string, std::string> shownText;
-        for (const auto& path : canvas.paths()) { shown[path] = canvas.revision(path); shownText[path] = canvas.text(path); }
-        std::atomic<std::size_t> next{0};
-        std::vector<std::thread> pool;
-        const int w = std::min<int>(res.width, static_cast<int>(implicated.size()));
-        for (int wkr = 0; wkr < w; ++wkr) {
-            pool.emplace_back([&] {
-                for (;;) {
-                    const std::size_t i = next.fetch_add(1);
-                    if (i >= implicated.size()) return;
-                    ForkSection& s = *implicated[i];
-                    const std::string view = "=== CANVAS: " + s.file + " (revision " + std::to_string(shown[s.file]) + ") ===\n" + sectionView(shownText[s.file], isPythonPath(s.file), {s.symbol}) + "=== END CANVAS ===\n";
-                    runSection(s, {{"system", system}, {"user", card + "\nThe functions were written separately and merged. The merged file was checked by running the tests and failed:\n" + clip(gateText, 1500) + "\n" + view +
-                                                                    "You own `" + s.symbol + "` in " + s.file + " (shown open; the others are folded). It may be at fault. Reply with the corrected function:\n=== EDIT: " + s.file + " SYMBOL " + s.symbol + " ===\n<your whole function>\n=== END EDIT ==="}},
-                               shown[s.file], "round" + std::to_string(res.rounds), res.integrationTokens);
-                }
-            });
+    // The shared prefix of a writing phase: the card and the file as it stood when the phase began, IDENTICAL for every section of the phase (a section
+    // is written against the declarations, not against whichever neighbours happened to finish first), so a server that keeps a prompt cache prefills
+    // it once per slot.
+    const auto writePrefix = [&] {
+        std::string list;
+        for (const auto& x : res.sections) if (!x.removed) list += "- " + x.name + " (" + x.file + ")\n";
+        std::string view = card + "\nThe file as it stands:\n";
+        for (const auto& path : canvas.paths()) view += "=== CANVAS: " + path + " (revision " + std::to_string(canvas.revision(path)) + ") ===\n" + foldedView(canvas.text(path), isPythonPath(path), {}, 1u << 30) + "=== END CANVAS ===\n";
+        return view + "The functions being written, each by one worker:\n" + list;
+    };
+
+    // ---- 3. assembly: write what is unwritten, then converge by routed findings ----
+    const auto tSections = Clock::now();
+    bool firstPhase = true;
+    for (int round = 0;; ++round) {
+        res.rounds = round;
+        // (a) sections that were never written: only they get a session (accepted ones are never re-run).
+        std::vector<ForkSection*> missing;
+        for (auto& s : res.sections) if (unwritten(s)) missing.push_back(&s);
+        if (!missing.empty()) {
+            if (!firstPhase) res.targeted += static_cast<int>(missing.size());
+            const std::string prefix = writePrefix();
+            const auto writePrompt = [&](ForkSection& s) -> std::vector<ChatMessage> {
+                return {{"system", system}, {"user", prefix + "\nYou own `" + s.symbol + "` in " + s.file + "." + (s.lastRefusal.empty() ? std::string{} : " Your earlier reply was refused: " + clip(s.lastRefusal, 500)) +
+                                                         " Reply with:\n=== EDIT: " + s.file + " SYMBOL " + s.symbol + " ===\n<your function>\n=== END EDIT ==="}};
+            };
+            runPool(missing, writePrompt, firstPhase ? "section" : "rewrite" + std::to_string(round), firstPhase ? res.sectionTokens : res.integrationTokens, firstPhase);
         }
-        for (auto& t : pool) t.join();
-        ok = gate(gateText);
+        if (firstPhase) {
+            firstPhase = false;
+            res.sectionWallSec = since(tSections);
+            std::vector<JobSpan> spans;
+            long tokens = 0;
+            for (const auto* s : missing) { spans.push_back({s->name, s->startSec, s->endSec}); tokens += s->completionTokens; }
+            res.idleShare = accountSpans(spans, res.width, tokens).idleShare;
+            // No edit may be lost in the merge: every committed function is in the merged text.
+            for (const auto& s : res.sections) {
+                if (!s.committed || s.removed) continue;
+                std::string want = committedText[s.name];
+                while (!want.empty() && (want.back() == '\n' || want.back() == '\r')) want.pop_back();
+                if (canvas.text(s.file).find(want) == std::string::npos) ++res.lostEdits;
+            }
+            for (const auto& s : res.sections) std::printf("section %s: %ld prompt, %ld completion tokens, %d call(s), %s\n", s.name.c_str(), s.promptTokens, s.completionTokens, s.calls, unwritten(s) ? "NOT written" : "committed");
+        }
+        std::string still;
+        for (const auto& s : res.sections) if (unwritten(s)) still += (still.empty() ? "" : ", ") + s.name;
+        if (!still.empty()) {
+            if (res.budgetSpent || remainingSec() <= 0) { res.budgetSpent = true; res.error = "the wall budget (" + std::to_string(budget.load()) + " s) was spent with sections unwritten: " + still; return finish(1, "budget"); }
+            if (round >= o.rounds) { res.error = "sections never accepted: " + still; return finish(1, "sections-missing"); }
+            continue;
+        }
+        // (b) the whole file under the STRICT check. A function nobody calls is removed by the harness, with its prototype: the section that wrote it
+        // could only delete it, so no session is spent on it; if it WAS needed, the tests say so next.
+        std::string strict = precheckCanvas(canvas, harness, o.dir, o.itemId, o.attempt, attemptDir, false);
+        for (int mend = 0; mend < 16 && !strict.empty(); ++mend) {
+            bool removedOne = false;
+            for (const auto& path : canvas.paths()) {
+                if (removedOne) break;
+                for (const auto& f : compileFindings(strict, path)) {
+                    if (!f.unusedFunction) continue;
+                    const std::string& text = canvas.text(path);
+                    const FoldRegion* reg = nullptr;
+                    const auto regions = foldRegions(text, isPythonPath(path), true);
+                    for (const auto& r : regions) if (f.line >= r.first && f.line <= r.bodyTo) reg = &r;
+                    if (!reg) continue;
+                    Transaction tx{path, canvas.revision(path), "harness", {{CanvasOp::Kind::replaceLines, reg->first, reg->bodyTo, {}, {}}}};
+                    ForkSection* owner = sectionAt(path, f.line);
+                    if (owner) {   // the prototype the harness wrote for it goes too
+                        const auto v = linesOf(text);
+                        for (std::size_t i = 0; i < v.size(); ++i) if (trimmed(v[i]) == owner->signature + ";" && (static_cast<int>(i) + 1 < reg->first || static_cast<int>(i) + 1 > reg->bodyTo)) { tx.ops.push_back({CanvasOp::Kind::replaceLines, static_cast<int>(i) + 1, static_cast<int>(i) + 1, {}, {}}); break; }
+                    }
+                    if (!canvas.apply(tx).ok) continue;
+                    if (owner) owner->removed = true;
+                    ++res.mechanicalMends;
+                    removedOne = true;
+                    std::printf("assembly: `%s` is called by nobody: removed by the harness\n", reg->name.c_str());
+                    events::note("assembly: removed the uncalled function " + reg->name);
+                    break;
+                }
+            }
+            if (!removedOne) break;
+            persistCanvas(canvas, attemptDir);
+            strict = precheckCanvas(canvas, harness, o.dir, o.itemId, o.attempt, attemptDir, false);
+        }
+        if (!strict.empty()) {
+            // A compile error goes to the owner of the function it is in, with only its own errors and its own function open.
+            std::map<ForkSection*, std::string> findings;
+            std::string outside;
+            for (const auto& path : canvas.paths())
+                for (const auto& f : compileFindings(strict, path)) { if (ForkSection* s = sectionAt(path, f.line)) findings[s] += f.text; else outside += f.text; }
+            (void)writeFile(attemptDir / "gate.txt", "GATE FAIL: the assembled file does not compile:\n" + strict + "\n");
+            if (round >= o.rounds || remainingSec() <= 0) {
+                res.budgetSpent = res.budgetSpent || remainingSec() <= 0;
+                res.error = "the assembled file does not compile: " + clip(strict, 600);
+                return finish(1, remainingSec() <= 0 ? "budget" : findings.empty() ? "compile-outside-sections" : "compile");
+            }
+            if (findings.empty()) { res.error = "the assembled file does not compile, and the errors are outside every section (in the declared structure): " + clip(outside.empty() ? strict : outside, 600); return finish(1, "compile-outside-sections"); }
+            std::vector<ForkSection*> owners;
+            for (auto& [s, text] : findings) owners.push_back(s);
+            res.targeted += static_cast<int>(owners.size());
+            std::printf("assembly round %d: %zu function(s) hold compile errors; each goes to its owner\n", round + 1, owners.size());
+            runPool(owners, [&](ForkSection& s) -> std::vector<ChatMessage> {
+                const std::string view = "=== CANVAS: " + s.file + " (revision " + std::to_string(canvas.revision(s.file)) + ") ===\n" + sectionView(canvas.text(s.file), isPythonPath(s.file), {s.symbol}) + "=== END CANVAS ===\n";
+                return {{"system", system}, {"user", "The file was assembled from functions written separately. It does not compile yet, and these errors are inside YOUR function `" + s.symbol + "`:\n" + clip(findings[&s], 1500) + "\n" + view +
+                                                         "Your function is shown open; the others are folded to their declarations. Fix exactly these errors. Reply with:\n=== EDIT: " + s.file + " SYMBOL " + s.symbol + " ===\n<your function>\n=== END EDIT ==="}};
+            }, "compile" + std::to_string(round), res.integrationTokens, false);
+            continue;
+        }
+        // (c) it compiles strictly: the item's tests judge it.
+        if (gate(gateText)) { std::printf("RESULT: PASS after %d assembly round(s); width %d, %d refused, %d removed by the harness\n", round, res.width, res.refused, res.mechanicalMends); return finish(0, ""); }
+        if (round >= o.rounds || remainingSec() <= 0) { res.budgetSpent = res.budgetSpent || remainingSec() <= 0; res.error = "the assembled file compiles but its tests fail"; return finish(1, remainingSec() <= 0 ? "budget" : "tests"); }
+        // A failing test goes to the sections it names; when it names none (or naming them did not help), to all.
+        std::vector<ForkSection*> implicated;
+        if (round == 0) for (auto& s : res.sections) if (!s.removed && namesWord(gateText, s.symbol)) implicated.push_back(&s);
+        if (implicated.empty()) for (auto& s : res.sections) if (!s.removed) implicated.push_back(&s);
+        res.targeted += static_cast<int>(implicated.size());
+        std::printf("assembly round %d: the tests failed; %zu section(s) go back\n", round + 1, implicated.size());
+        runPool(implicated, [&](ForkSection& s) -> std::vector<ChatMessage> {
+            const std::string view = "=== CANVAS: " + s.file + " (revision " + std::to_string(canvas.revision(s.file)) + ") ===\n" + sectionView(canvas.text(s.file), isPythonPath(s.file), {s.symbol}) + "=== END CANVAS ===\n";
+            return {{"system", system}, {"user", card + "\nThe functions were written separately and merged. The merged file was checked by running the tests and failed:\n" + clip(gateText, 1500) + "\n" + view +
+                                                     "You own `" + s.symbol + "` in " + s.file + " (shown open; the others are folded). It may be at fault. Reply with the corrected function:\n=== EDIT: " + s.file + " SYMBOL " + s.symbol + " ===\n<your function>\n=== END EDIT ==="}};
+        }, "tests" + std::to_string(round), res.integrationTokens, false);
     }
-    std::printf("RESULT: %s after %d round(s); width %d, %d refused, %d conflict(s), %d lost edit(s)\n", ok ? "PASS" : "FAIL", res.rounds, res.width, res.refused, res.conflicts, res.lostEdits);
-    return finish(ok ? 0 : 1);
 }
 
 int runLlmFork(const std::vector<std::string>& args)
@@ -399,12 +660,14 @@ int runLlmFork(const std::vector<std::string>& args)
     o.parallel = std::atoi(arg(args, "parallel", "0").c_str());
     o.sequentialReason = arg(args, "sequential-reason");
     o.memFloorMiB = std::atol(arg(args, "mem-floor-mib", "0").c_str());
-    o.wallBudgetSec = std::atoi(arg(args, "attempt-wall", "1500").c_str());
+    o.wallBudgetSec = std::atoi(arg(args, "attempt-wall", "900").c_str());
+    o.wallPerSectionSec = std::atoi(arg(args, "section-wall", "150").c_str());
+    o.fresh = arg(args, "fresh", "0") == "1";
     auto profile = EngineProfile::parse(arg(args, "engine"));
     if (!profile) { std::fprintf(stderr, "llm-fork: %s\n", profile.error().c_str()); return 64; }
     o.engine = *profile;
     const ForkResult r = runCanvasFork(o);
-    if (!r.error.empty()) std::fprintf(stderr, "llm-fork: %s\n", r.error.c_str());
+    if (!r.error.empty()) std::fprintf(stderr, "llm-fork: %s (%s)\n", r.error.c_str(), r.failure.c_str());
     // As a workflow's agent job the attempt succeeds when it wrote its files: the gate job is the judge, as for every executor.
     if (arg(args, "agent-exit", "0") == "1") return r.exitCode == 2 ? 2 : 0;
     return r.exitCode;

@@ -386,7 +386,9 @@ std::expected<ChatResult, std::string> chatCompleteMessages(const EngineProfile&
     if (!e.reasoningEffort.empty()) w.kv("reasoning_effort", e.reasoningEffort);
     w.endObject();
     if (e.seed >= 0) w.kv("seed", static_cast<std::int64_t>(e.seed));
-    if (const char* slot = std::getenv("SUB0SQUAD_LEASE_INDEX"); slot && *slot && std::atoi(slot) < e.maxConcurrent) w.kv("id_slot", std::atoi(slot));  // pin the request to the lease's slot so the portal can attribute live slot activity to this job
+    if (e.slot >= 0) w.kv("id_slot", e.slot);
+    else if (const char* slot = std::getenv("SUB0SQUAD_LEASE_INDEX"); e.slot == EngineProfile::kLeaseSlot && slot && *slot && std::atoi(slot) < e.maxConcurrent) w.kv("id_slot", std::atoi(slot));
+    if (sink || guard) w.key("stream_options").beginObject().kvBool("include_usage", true).endObject();   // a stream reports its token counts only when asked (run-v9: a streamed skeleton counted 0 tokens)  // pin the request to the lease's slot so the portal can attribute live slot activity to this job
     w.endObject();
     if (sink || guard) return streamChat(e, w.take(), timeoutSec, sink, guard);
     auto resp = httpRequest("POST", e.endpoint + "/chat/completions", w.take(), timeoutSec);

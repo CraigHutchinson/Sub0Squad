@@ -30,6 +30,7 @@ struct Reply
     std::string finish = "stop";
     int pieceChars = 48;   ///< characters per streamed event
     int pauseMs = 0;       ///< pause between events (an abort test needs the stream to be slow enough to cancel)
+    int delayMs = 0;       ///< wait this long before answering at all (streamed or not): a slow engine
     int status = 200;      ///< another status is sent as an error body
 };
 
@@ -39,6 +40,7 @@ struct Request
     std::vector<std::pair<std::string, std::string>> messages;   ///< role, content
     long maxTokens = 0;
     bool stream = false;
+    long idSlot = -1;      ///< the `id_slot` the request pinned itself to (-1: none, the server chooses)
     /// The content of the last message (the newest user text).
     [[nodiscard]] const std::string& last() const { static const std::string none; return messages.empty() ? none : messages.back().second; }
     /// Every message's content, joined: what the model would have in its window.
@@ -170,6 +172,7 @@ private:
             for (auto m : doc["messages"].get_array()) r.messages.emplace_back(std::string(m["role"].get_string().value()), std::string(m["content"].get_string().value()));
             if (auto mt = doc["max_tokens"].get_int64(); !mt.error()) r.maxTokens = mt.value();
             if (auto st = doc["stream"].get_bool(); !st.error()) r.stream = st.value();
+            if (auto sl = doc["id_slot"].get_int64(); !sl.error()) r.idSlot = sl.value();
         } catch (const simdjson::simdjson_error&) {}
         Reply reply;
         std::size_t index = 0;
@@ -180,6 +183,7 @@ private:
             aborted_.push_back(-1);
         }
         reply = script_(r, static_cast<int>(index));
+        if (reply.delayMs > 0) std::this_thread::sleep_for(std::chrono::milliseconds(reply.delayMs));
         if (reply.status != 200) {
             const std::string body = "{\"error\":\"" + jsonEscape(reply.content) + "\"}";
             sendAll(fd, "HTTP/1.1 " + std::to_string(reply.status) + " Error\r\nContent-Length: " + std::to_string(body.size()) + "\r\nConnection: close\r\n\r\n" + body);

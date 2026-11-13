@@ -8,6 +8,7 @@
 #include "sub0squad/harness_cpp.hpp"
 #include "sub0squad/outline.hpp"
 
+#include <cstdlib>
 #include <map>
 #include <mutex>
 
@@ -69,7 +70,10 @@ int main()
     {   // Throughput by default: five sections, four slots, so four at once; every function lands, nothing is lost, the merged file is the reference.
         const fs::path d = workflow("fork-parallel");
         fake::Engine engine([&](const fake::Request& rq, int) { return primerOr(rq, [&](const std::string& name) { fake::Reply r{edit(name, fn[name])}; r.pauseMs = 5; return r; }); });
+        ::setenv("SUB0SQUAD_LEASE_INDEX", "1", 1);   // as inside a daemon job that holds lease slot 1
         CHECK_EQ(runLlmFork(forkArgs(d, engine)), 0);
+        ::unsetenv("SUB0SQUAD_LEASE_INDEX");
+        for (const auto& r : engine.requests()) CHECK_EQ(r.idSlot, -1L);   // several requests at once are never pinned to the job's one slot (row 47)
         CHECK_EQ(slurp(attemptDir(d, 1) / "out" / kFile), ref);
         CHECK_EQ(engine.requestCount(), static_cast<std::size_t>(6));               // the primer and one session per section
         const std::string stats = slurp(attemptDir(d, 1) / "fork.json");
@@ -123,7 +127,7 @@ int main()
         bool sawHolder = false, sawSyntax = false;
         for (const auto& r : engine.requests()) {
             if (r.last().find("`unary` is held by the worker writing unary") != std::string::npos) sawHolder = true;
-            if (r.last().find("does not pass the check") != std::string::npos && r.last().find("syntax error") != std::string::npos) sawSyntax = true;
+            if (r.last().find("does not pass the check") != std::string::npos && r.last().find("was never closed") != std::string::npos) sawSyntax = true;
         }
         CHECK(sawHolder);
         CHECK(sawSyntax);
@@ -196,6 +200,28 @@ int main()
         CHECK_EQ(engine.requestCount(), static_cast<std::size_t>(2));
         CHECK(slurp(attemptDir(d, 1) / "fork.json").find("no usable skeleton") != std::string::npos);
     }
+    {   // Rows 49 and 50: the wall budget stops an attempt between sections, says so, and the NEXT attempt carries on from that canvas: no new skeleton,
+        // only the sections that were never written get a session, and the file is finished.
+        const fs::path d = workflow("fork-resume");
+        fake::Engine slowEngine([&](const fake::Request& rq, int) { return primerOr(rq, [&](const std::string& name) { fake::Reply r{edit(name, fn[name])}; r.delayMs = 700; return r; }); });
+        CHECK_EQ(runLlmFork(forkArgs(d, slowEngine, {"--attempt-wall", "2", "--section-wall", "0", "--sequential-reason", "one at a time, so the budget ends between sections"})), 1);
+        const std::string first = slurp(attemptDir(d, 1) / "fork.json");
+        CHECK(first.find("\"failure\":\"budget\"") != std::string::npos && first.find("\"budgetSpent\":true") != std::string::npos && first.find("\"budgetSec\":2") != std::string::npos);
+        const std::size_t written = slowEngine.requestCount() - 1;                           // sessions that ran before the budget ended (the primer is one request)
+        CHECK(written >= 1 && written < names.size());
+        CHECK(slurp(attemptDir(d, 1) / "out" / kFile).find("not implemented:") != std::string::npos);   // what stands is kept, stubs and all
+        fake::Engine engine([&](const fake::Request& rq, int) { return primerOr(rq, [&](const std::string& name) { return fake::Reply{edit(name, fn[name])}; }); });
+        std::vector<std::string> second = forkArgs(d, engine);
+        second[5] = "2";                                                                    // --attempt 2
+        CHECK_EQ(runLlmFork(second), 0);
+        CHECK_EQ(slurp(attemptDir(d, 2) / "out" / kFile), ref);
+        for (const auto& r : engine.requests()) CHECK(r.last().find("Declare the STRUCTURE") == std::string::npos);   // no new skeleton
+        CHECK(engine.requestCount() >= 1 && engine.requestCount() <= names.size() - written + 1);        // only what was missing (a session cut off mid-reply is asked again)
+        const std::string stats = slurp(attemptDir(d, 2) / "fork.json");
+        CHECK(stats.find("\"resumedFrom\":1") != std::string::npos && stats.find("\"passed\":true") != std::string::npos && stats.find("\"skeletonTries\":0") != std::string::npos);
+        // The budget grows with the number of sections: 900 s and 150 s for each of the five.
+        CHECK(stats.find("\"budgetSec\":1650") != std::string::npos);
+    }
     {   // Rows 45 and 46 on the platform where they happened: the C++ calculator blueprint. The engine is ONE file; it is divided by SECTIONS under a
         // skeleton the harness completes (no new header, so no part can call a class nobody declared). The declared skeleton holds the class with one
         // `@@` line per method; the stubs leave methods uncalled and parameters unused, which the partial compile check allows; every section commits
@@ -211,19 +237,68 @@ int main()
         CHECK_EQ(runMockPlanner({"--task", "calculator-cpp", "--out", (d / "plan.json").string()}), 0);
         CHECK_EQ(runMockAgent({"--workflow-dir", d.string(), "--item", "test-engine", "--tier", "local", "--attempt", "1", "--delay-ms", "0"}), 0);
         CHECK_EQ(cpp->gate({"--workflow-dir", d.string(), "--item", "test-engine", "--attempt", "1"}), 0);
+        // Assembly convergence (run-v9, rows 47 to 51), with replies shaped like that run's failures, all in one attempt:
+        //   `spare` is a helper the skeleton declares and nobody calls: the strict check says "defined but not used"; the harness removes it and its
+        //           prototype itself (no session is spent on it);
+        //   `term`  is refused three times in the writing phase (it does not compile), so its stub is left: in assembly ONLY `term` gets another session;
+        //   `unary` comes back with a path that returns nothing. The compiler cannot see it while `postfix`, which it calls, is still a stub that always
+        //           throws, so it is committed; when `postfix` is written the error SURFACES IN ANOTHER SECTION'S COMMIT. That commit is not blocked
+        //           (the error is not in its function), and in assembly the finding goes to `unary` alone, with only that error.
+        std::string declared = cskel;
+        declared.insert(declared.find("class Parser"), "@@ static double spare(double x)\n\n");
+        std::string noReturn = cfn["unary"];
+        noReturn.erase(noReturn.rfind("        return base;"), std::string("        return base;\n").size());
+        std::mutex mu;
+        std::map<std::string, int> calls;
         fake::Engine engine([&](const fake::Request& rq, int) {
-            if (rq.last().find("Declare the STRUCTURE") != std::string::npos) return fake::Reply{skeletonBlock(file, cskel)};
+            if (rq.last().find("Declare the STRUCTURE") != std::string::npos) return fake::Reply{skeletonBlock(file, declared)};
             const std::string name = ownerOf(rq);
-            return fake::Reply{"=== EDIT: " + file + " SYMBOL " + name + " ===\n" + cfn[name] + "=== END EDIT ===\n"};
+            std::lock_guard<std::mutex> l(mu);
+            const int n = calls[name]++;
+            const auto reply = [&](const std::string& text) { return fake::Reply{"=== EDIT: " + file + " SYMBOL " + name + " ===\n" + text + "=== END EDIT ===\n"}; };
+            if (name == "spare") return reply("static double spare(double x)\n{\n    return x * 2;\n}\n");
+            if (name == "term" && n < 3) return reply("    double term()\n    {\n        return nothing_declared_anywhere;\n    }\n");
+            if (name == "unary" && n == 0) return reply(noReturn);
+            // The declaration is the harness's: a section that drops the indentation or renames a parameter still lands with the skeleton's declaration.
+            if (name == "call") { std::string body = cfn[name]; return reply("double call(const std::string& fn, const std::vector<double>& args)" + body.substr(body.find("\n    {"))); }
+            return reply(cfn[name]);
         });
-        CHECK_EQ(runLlmFork({"--workflow-dir", d.string(), "--item", "dev-engine", "--attempt", "1", "--engine", engine.profile() + ",slots=4", "--max-tokens", "3000", "--timeout", "60", "--repair-turns", "1"}), 0);
+        CHECK_EQ(runLlmFork({"--workflow-dir", d.string(), "--item", "dev-engine", "--attempt", "1", "--engine", engine.profile() + ",slots=4", "--max-tokens", "3000", "--timeout", "60", "--repair-turns", "2"}), 0);
         const fs::path attempt = d / "items" / "dev-engine" / "attempt-1";
-        CHECK_EQ(slurp(attempt / "out" / file), cref);
-        CHECK_EQ(slurp(attempt / "canvas" / "src_calc.cpp.r1").find("@@"), std::string::npos);                       // revision 1 is the completed skeleton
-        CHECK(slurp(attempt / "canvas" / "src_calc.cpp.r1").find("throw std::logic_error(\"not implemented: term\");") != std::string::npos);
+        const auto squeeze = [](const std::string& s) { std::string o; for (const auto& l : lines(s)) if (l.find_first_not_of(" \t") != std::string::npos) o += l + "\n"; return o; };
+        const std::string merged = slurp(attempt / "out" / file);
+        CHECK_EQ(squeeze(merged), squeeze(cref));                                                                    // the reference, but for blank lines
+        CHECK(merged.find("spare") == std::string::npos);                                                            // the uncalled helper and its prototype are gone
+        const std::string r1 = slurp(attempt / "canvas" / "src_calc.cpp.r1");
+        CHECK(r1.find("@@") == std::string::npos && r1.find("static double spare(double x);\n") != std::string::npos);  // revision 1 is the completed skeleton, prototype included
+        CHECK(r1.find("    double call(const std::string& f, const std::vector<double>& a)\n    {\n        (void)f;\n        (void)a;\n        throw std::logic_error(\"not implemented: call\");\n    }\n") != std::string::npos);   // a warning-clean placeholder
         const std::string stats = slurp(attempt / "fork.json");
-        CHECK(stats.find("\"passed\":true") != std::string::npos && stats.find("\"skeletonTries\":1") != std::string::npos && stats.find("\"refused\":0") != std::string::npos);
-        CHECK_EQ(engine.requestCount(), static_cast<std::size_t>(9));                                                // the primer and eight sections
+        CHECK(stats.find("\"passed\":true") != std::string::npos && stats.find("\"failure\":\"\"") != std::string::npos && stats.find("\"mechanicalMends\":1") != std::string::npos);
+        CHECK(slurp(attempt / "canvas.json").find("\"by\":\"harness\"") != std::string::npos);                    // the log says the harness removed it
+        // Accepted sections are never re-run: every section had ONE session, except the two that had to answer for their own defects.
+        for (const auto& [name, n] : calls) {
+            if (name == "term") CHECK_EQ(n, 4);            // three refusals, then its one session in assembly
+            else if (name == "unary") CHECK_EQ(n, 2);      // written once, then one session for the finding that is its own
+            else CHECK_EQ(n, 1);
+        }
+        CHECK_EQ(calls.size(), static_cast<std::size_t>(9));
+        bool sawOwnText = false, sawRewrite = false, sawRouted = false;
+        for (const auto& r : engine.requests()) {
+            // a refusal shows the section its own text with the located error
+            if (r.last().find("nothing_declared_anywhere") != std::string::npos && r.last().find("Your function as you wrote it, with the line numbers the errors use:") != std::string::npos && r.last().find("|         return nothing_declared_anywhere;") != std::string::npos) sawOwnText = true;
+            if (r.last().find("You own `term`") != std::string::npos && r.last().find("Your earlier reply was refused") != std::string::npos) sawRewrite = true;
+            // the late finding goes to its owner, and only to its owner, with only its own error
+            if (r.last().find("these errors are inside YOUR function `unary`") != std::string::npos) {
+                sawRouted = true;
+                CHECK(r.last().find("control reaches end of non-void function") != std::string::npos || r.last().find("does not return a value") != std::string::npos);
+                CHECK(r.last().find("defined but not used") == std::string::npos);                                  // the uncalled helper is not its business
+                CHECK(r.last().find("lines folded") != std::string::npos);                                         // the others are folded
+            }
+        }
+        CHECK(sawOwnText);
+        CHECK(sawRewrite);
+        CHECK(sawRouted);
+        CHECK(stats.find("\"targeted\":2") != std::string::npos && stats.find("\"rounds\":2") != std::string::npos);   // two targeted sessions in assembly: term, unary
     }
     return finish();
 }

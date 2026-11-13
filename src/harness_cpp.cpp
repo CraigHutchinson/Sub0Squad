@@ -84,8 +84,11 @@ std::string cppCheck(const fs::path& out, const fs::path& ws, bool partial)
     for (auto& e : fs::recursive_directory_iterator(out)) {
         if (!e.is_regular_file() || e.path().extension() != ".cpp") continue;
         const std::string rel = fs::relative(e.path(), out).generic_string();
-        std::vector<std::string> argv = {compiler(), "-std=c++20", "-fsyntax-only", "-Wall", "-Wextra", "-Werror", "-Iinclude", "-Isrc", "-Itests", "-DCALC_CLI_PATH=\"x\""};
-        if (partial) argv.insert(argv.end(), {"-Wno-unused-function", "-Wno-unused-parameter", "-Wno-unused-variable"});   // sections are still stubs
+        // A real compile to nowhere, not -fsyntax-only: the checks that judge a whole function or a whole file (a path with no return, a function nobody
+        // calls) run after parsing, and the build would otherwise be the first to report them (run-v9: every merged file failed on exactly those).
+        std::vector<std::string> argv = {compiler(), "-std=c++20", "-c", "-o", "/dev/null", "-Wall", "-Wextra", "-Werror", "-Iinclude", "-Isrc", "-Itests", "-DCALC_CLI_PATH=\"x\""};
+        // A file still being written in sections: what is unused is expected (a stub calls nothing), so it is not an error until the file is whole.
+        if (partial) argv.insert(argv.end(), {"-Wno-unused-function", "-Wno-unused-parameter", "-Wno-unused-variable", "-Wno-unused-but-set-variable"});
         argv.push_back(rel);
         const Cmd c = run(argv, ws, 60);
         if (c.exitCode != 0) syntax += "does not compile: " + rel + "\n" + diagnostics(c.output, 4);

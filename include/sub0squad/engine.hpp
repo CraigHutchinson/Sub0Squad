@@ -30,6 +30,12 @@ struct EngineProfile
     int topK = -1;
     double minP = 0.0, presencePenalty = 0.0;  ///< card: min_p 0.0 for every mode; presence_penalty 1.5 is suggested for general non-thinking use but 0 for precise coding
     long long seed = -1;                       ///< >= 0: a base seed; the agent derives one per (item, attempt, turn) so a run replays. -1: random (the server default)
+    /// Which server slot a request is pinned to. `kLeaseSlot` (the default): the slot of the job's lease (`SUB0SQUAD_LEASE_INDEX`), so the portal can
+    /// attribute slot activity to a job. `kAnySlot`: not pinned; the server picks an idle slot (llama.cpp prefers the one whose cached prompt is most
+    /// similar). A job that runs SEVERAL requests at once must use `kAnySlot`: pinned to its one lease slot they queue behind each other (run-v9: the
+    /// forked sections of one job all ran on one slot; docs/INTERVENTIONS.md row 47). A value >= 0 pins to that slot.
+    static constexpr int kLeaseSlot = -1, kAnySlot = -2;
+    int slot = kLeaseSlot;
     bool cachePrompt = true;                   ///< false in deterministic runs: a cached prefix and a fresh computation can differ in the last digits
     std::string reasoningEffort;               ///< Qwen3.8 only (xhigh | medium | low): the Qwen3.6 template has no such control; empty = not sent
     /// Qwen's published recommendation: non-thinking 0.7 / top_p 0.8 / top_k 20, thinking 0.6 / 0.95 / 20. Greedy-like settings (0.2) make a retry
