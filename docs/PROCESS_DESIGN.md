@@ -1,6 +1,6 @@
 # Process design: processes as data over the V, delegation and parallelism; the process controller
 
-Status: DESIGN, revision 2, 2026-11-11; **the first slice is BUILT (2026-11-13), in a smaller and in some respects different form: read section 12 first.** Owner of the design: this document. It supersedes the first draft after an audit of that draft against
+Status: DESIGN, revision 2, 2026-11-11; **BUILT (2026-11-13) as stages as data: read section 13 first (section 12 describes the first slice, which a review replaced).** Owner of the design: this document. It supersedes the first draft after an audit of that draft against
 `src/workflow.cpp` (section 1). Builds on DESIGN_AUDIT.md section 3 (four registries), BUILDING_BLOCKS.md (co-evolving structure and leaves, up-transfer,
 versioned contracts, the three ideals), FEEDBACK_LOOPS.md section 4 (the bar), INTERVENTIONS.md (the ledger) and WORK_GRAPH.md sections 7, 13, 14 (the V,
 requests). Nothing here is built except the harness registry (`harness.hpp`, `harness_registry.cpp`). Every new capability is off by default; the owner
@@ -482,7 +482,7 @@ loops), `test_process` green, and the goldens equal under the refactored engine 
 **What it buys**: every later step (predicates, stage derivation, `Plan::extended`, bars, drafts) is compared against goldens recorded from the engine as it is
 today, which is the one thing that cannot be done after the fact.
 
-## 12. As built (2026-11-13): what the first slice is, what changed from section 9, and why
+## 12. The first slice as built (2026-11-13), kept for the record: superseded by section 13 where they differ
 
 Built: `include/sub0squad/process.hpp`, `src/process.cpp`, `registry/processes/{standard,sections}@1.json`, the engine reading its parameters from the workflow's process,
 `WorkflowAction::toJson()`, `process list|show|add`, `--process NAME`, `tests/test_process.cpp`, `tests/data/actions/*.ndjson` (the goldens) and the scenarios in
@@ -518,6 +518,69 @@ Proven by the second built process: `sections` and the custom `--set` process dr
 `process-custom-parameters`, `process-planner-and-integration`, `process-executor-override`; each with its contrast against `standard`), and through the daemon
 with a fake engine (`test_executors`). Not proven: that a process other than these two does what its author means beyond what a scenario drives; the spike-first
 preset of section 6 needs stages as data and is still a design.
+
+## 13. As built, second slice (2026-11-13): stages as data. Read this first; it supersedes section 12 where they differ
+
+**Why the first slice was redone.** A review of section 12's code found a clean, well-tested parameter table, and not the design: `advance()` still read "if there is
+no plan run the planner; then the items; then the integrator", and `Process` held 16 numbers and flags for those three fixed stages. Section 12 point 1 argued
+that a stage list "would be a field no process could legally change". That is true only while the engine can do nothing but those three things in that order,
+which is the rigidity the design set out to remove. The owner's direction is that any workflow is a registered process that plugs in "rather than forking the
+engine"; with the first slice, a review step after integration, a workflow without integration, or a job before the plan each meant editing `advance()`.
+What the first slice got right is kept: the goldens recorded first, the process stored in the workflow's spec (point 5), one table for the file format and
+unknown keys refused (point 6), rungs skipped by the policy (point 4), executors as parameters (point 3).
+
+**What a process is now** (`include/sub0squad/process.hpp`, `src/process.cpp`): `name, version, description, stages[]`. A stage is `name, kind, entry, exit` and
+the parameters of its kind. There are two kinds because the engine can do two things:
+
+| Kind | What the engine does while the stage is entered and not done | Parameters |
+|---|---|---|
+| `job` | runs ONE item-less job and retries it; with `accept: "plan"` the daemon loads `<sandbox>/plan.json` on success | `step` (the job's role in the journal), `label`, `tool`, `args`, `tier` (stub or local), `wallSeconds`, `retries`, `accept` |
+| `items` | runs the plan's items; the item's ROLE picks the executor (a coordinator ascends, anything else is a leaf), as section 1.1 found | `leaf` (executors, the five rungs, wall times), `ascent` (round trips) |
+
+The planner and the final integration are both `job` stages: section 1.1's "producer" and "root ascent" turned out to be one thing with different data
+(`accept: plan`, a tool resolved from the plan's harness). The standard process is three stages; `registry/processes/standard@1.json` is the worked example.
+
+**Tools are a closed registry** (`stageTools()`, `sub0squad process tools`): `mock-planner`, `harness:integrate`, `qa`, `plan-lint`. A process file names a tool
+and its arguments, never a program; `${task}`, `${sandbox}` and `${workflow}` are the only placeholders. A new tool is one line of the table plus a sub-command.
+`tier` cannot be a frontier tier: a process cannot switch one on.
+
+**Predicates** (`include/sub0squad/predicate.hpp`, section 3 reduced to what is observable today): `always`, `plan.present`, `stage.NAME.done|active|failed`,
+`items.all|any|count(STATE)`, `job(STEP).succeeded|failed|active|tries`, `requests.openBlocking`, with `! && || == != < <= > >=` and integer literals. Parsed and
+type-checked when the process is LOADED, with the column of the error; evaluation is total. Two rules carry the safety argument of section 2.2:
+* a stage may read only the stages BEFORE it in the list (so a process cannot describe a cycle, and one ordered pass derives every stage);
+* `all` over no items is false (section 1.4).
+Not built from section 3.2, each because nothing journaled exists to read yet: item filters (`[stage=,role=]`: items carry no stage), `stage.X.elapsed` and
+timeboxes (no `now` in the snapshot), `gate(item).code`, `checks(...)`, `contracts.*`, `controller.*`, `settings.*`.
+
+**Stage state is derived, never stored** (section 2.2, as designed): `entered = eval(entry)`, `done = entered && eval(exit)`, `active = entered && !done`,
+`failed` = a job out of tries, or an item that failed. `derive()` in `src/workflow.cpp` computes all of it from the workflow record and its jobs on every pass;
+no journal record type was added. Scenario `stages-derived-state` shows why: a dispute that voids an accepted item re-opens `build` and takes `integrate`
+back to waiting with no bookkeeping, and an integration that had already started does not finish the workflow. `stageStatuses()` gives the same derivation
+to `project status --json` (`stages: [{name, kind, state, waitingOn}]`), where `waitingOn` is the first false atom (`Predicate::firstFalse`): a stage whose
+condition never holds is a visible stall, not a silent one (`stages-jobs-only`). This is the `process explain` of section 3.3 in its first form.
+
+**The engine** (`advance()`): cancel handling; then for each stage in order, if entered: a `job` stage that is not done starts, waits for, accepts, retries or
+fails its job; the `items` stage runs the item loop, which is the old loop unchanged. When every stage is done the workflow succeeds, with a note built from the
+stages ("all items accepted; integration passed"). The global fail rule of section 1.1 keeps its exact form. The engine names no stage, step or tool.
+
+**Equivalence.** The 14 golden logs recorded before any refactor are reproduced byte for byte by the standard process expressed as three stages with
+predicates. Three goldens recorded AFTER the first slice were re-recorded, each for a stated reason (catalogue rows 54 and 55): "planner failed twice" was
+said after one try; a decision now lists the rungs its process lacks. Seven `stages-*` goldens pin the new behaviour and prove nothing about equivalence.
+
+**A new workflow without touching the engine**, shown three ways: `reviewed` (built in: one stage more; its `qa` job runs through a real daemon in
+`test_readme`), `--without integrate` (one stage fewer: `stages-no-integration`), and a process of two job stages with no plan and no items
+(`stages-jobs-only`). `process add NAME --from BASE --without STAGE --set STAGE.PARAMETER=VALUE`, `process add NAME --file FILE`, `process check FILE`.
+
+**Limits, stated** (each is the next step, not hidden):
+1. At most ONE `items` stage: a plan's items do not say which stage they belong to. Lifting it is `WorkItem::stage` plus `Plan::extended` (section 2.3, step 7
+   of section 10): template items a stage creates. Spike-first (section 6) and the CONTRACT stage of `docs/CANVAS.md` need it.
+2. No stage creates items, no revisit, no timebox, no drafts, no controller, no role or bar registries (sections 2.3, 2.4, 4.2, 4.3, 7, 8). `persona` is still
+   the closed set of three in `Plan::validate`.
+3. The predicate parser runs on every pass (two short strings per stage). Unmeasured; caching the parsed form in the record is the obvious step if it shows.
+4. A plan-less process through the DAEMON is untested (the rule is `Process::producesPlan()` in `doWorkflowSubmit`; the engine side is `stages-jobs-only`).
+5. Equivalence parts 3 and 4 of section 5 (recorded journals of real runs, a shadow run) are still not built; there is one engine, so the goldens are the oracle.
+6. The interactive wizard of `docs/BACKLOG.md` is a client-side flow (it runs before a daemon exists), so it is not a workflow process; what it can share is
+   the shape (named stages, entry and exit conditions, `waitingOn` as the checklist's "next step") and the predicate code. Not built.
 
 ## 10. Migration after the slice
 
