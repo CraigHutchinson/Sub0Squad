@@ -19,6 +19,13 @@
 
 using namespace sub0squad;
 
+// Golden action logs (docs/PROCESS_DESIGN.md section 5): every pass of the engine in a scenario is traced as one JSON line (the actions it returned and the
+// state of every item), and the trace of each scenario is compared with tests/data/actions/<scenario>.ndjson. The goldens were recorded from the engine as it
+// was BEFORE the process-as-data refactor; the refactor must reproduce them byte for byte. SUB0SQUAD_WRITE_GOLDENS=1 rewrites them (a deliberate act: review the diff).
+static std::string gScenario = "unnamed";
+static std::map<std::string, std::vector<std::string>> gTrace;
+#define SCENARIO(name) do { gScenario = (name); } while (0)
+
 struct Sim
 {
     JobStore jobs;
@@ -34,7 +41,19 @@ struct Sim
         wfs.apply(r);
     }
     Plan fragment;   // what the next decompose job "wrote"
-    std::vector<WorkflowAction> step() { return advance(*wfs.find("w-000001"), jobs, settings, policy); }
+    std::vector<WorkflowAction> step()
+    {
+        const WorkflowRecord& wf = *wfs.find("w-000001");
+        auto acts = advance(wf, jobs, settings, policy);
+        std::string line = "{\"scenario\":\"" + gScenario + "\",\"pass\":" + std::to_string(gTrace[gScenario].size() + 1) + ",\"actions\":[";
+        for (std::size_t i = 0; i < acts.size(); ++i) line += (i ? "," : "") + acts[i].toJson();
+        line += "],\"items\":[";
+        const auto items = itemStatuses(wf, jobs);
+        for (std::size_t i = 0; i < items.size(); ++i) line += std::string{i ? "," : ""} + "{\"id\":\"" + items[i].id + "\",\"status\":\"" + items[i].status + "\",\"attempts\":" + std::to_string(items[i].attempts) + ",\"tier\":\"" + items[i].tier + "\"}";
+        line += "],\"state\":\"" + std::string{toString(wf.state)} + "\"}";
+        gTrace[gScenario].push_back(std::move(line));
+        return acts;
+    }
     // Apply actions the way the daemon does; returns ids of jobs started.
     std::vector<std::string> run(const std::vector<WorkflowAction>& acts)
     {
@@ -60,7 +79,7 @@ struct Sim
         }
         return started;
     }
-    void finishJob(const std::string& id, JobState s) { feed("jobFinished", journalbody::finished(id, jobs.find(id)->run, s, "", "")); }
+    void finishJob(const std::string& id, JobState s, const std::string& exitJson = "") { feed("jobFinished", journalbody::finished(id, jobs.find(id)->run, s, exitJson, "")); }
     const JobRecord* job(const std::string& id) { return jobs.find(id); }
 };
 
@@ -155,6 +174,7 @@ int main()
         CHECK(again && again->seed == 42 && !again->cachePrompt);
     }
     { // happy path: planner, dependency order, gates, integrator
+        SCENARIO("happy-path");
         Sim s = startSim();
         auto a1 = s.step();
         CHECK(a1.size() == 1 && a1[0].kind == WorkflowAction::Kind::startJob && a1[0].job.role == "planner");
@@ -188,6 +208,7 @@ int main()
         CHECK(a7.size() == 1 && a7[0].kind == WorkflowAction::Kind::finish && a7[0].finalState == WorkflowState::succeeded);
     }
     { // the ladder for a small item (one file, complexity 1, no tester): retry, rearchitect (a dedicated job), then escalate once
+        SCENARIO("ladder-small-item");
         Sim s = startSim(2, FrontierMode::stub);
         s.feed("workflowPlanned", wfbody::planned("w-000001", onePlan()));
         auto ids = s.run(s.step());                                              // agent a attempt 1 local
@@ -218,6 +239,7 @@ int main()
         CHECK(st.size() == 1 && st[0].status == "accepted" && st[0].attempts == 5 && st[0].tier == "frontier-stub");
     }
     { // frontier off: the ladder still runs locally, then fails; no frontier job is ever created
+        SCENARIO("frontier-off");
         Sim s = startSim(2, FrontierMode::off);
         s.feed("workflowPlanned", wfbody::planned("w-000001", onePlan()));
         bool sawFrontier = false, sawFail = false;
@@ -233,6 +255,7 @@ int main()
         CHECK(s.wfs.find("w-000001")->state == WorkflowState::failed);
     }
     { // divide and conquer: after the local attempts the model decides the division; the parts join the plan and the item stays as their coordinator
+        SCENARIO("divide-and-conquer");
         const auto gate = [](const char* t, bool stub) { GateSpec g; g.kind = "node-test"; g.tests = {t}; g.minTests = 1; g.mustFailOnStub = stub; return g; };
         Plan base;
         base.task = "t";
@@ -304,6 +327,7 @@ int main()
         CHECK(acts.size() == 1 && acts[0].job.item == "a" && acts[0].job.role == "agent" && acts[0].job.attempt == 4 && acts[0].job.tier == "local");
     }
     { // cancel: active jobs are cancelled, then the workflow finishes cancelled
+        SCENARIO("cancel");
         Sim s = startSim();
         s.feed("workflowPlanned", wfbody::planned("w-000001", makePlan()));
         s.run(s.step());
@@ -353,6 +377,7 @@ int main()
         CHECK(std::string(toString(Action::sections)) == "sections");
     }
     { // Row 45 through the engine: on the C++ platform a spent developer item gets a `sections` decision and its next attempt IS the fork executor.
+        SCENARIO("sections-on-cpp");
         Sim s;
         s.settings.frontier = FrontierMode::off;
         WorkflowSpec spec;
@@ -408,6 +433,7 @@ int main()
         CHECK(policy.decide(r).action == Action::decompose);
     }
     { // The V's ascent: a coordinator integrates its parts, a failed round is sent down to a part, the part is redone, the coordinator integrates again.
+        SCENARIO("v-ascent");
         Plan p; p.task = "v"; p.harness = "web-static";
         auto gate = [](const char* t, bool stub) { GateSpec g; g.kind = "node-test"; g.tests = {t}; g.minTests = 1; g.mustFailOnStub = stub; return g; };
         WorkItem t; t.id = "t"; t.persona = "tester"; t.files = {"tests/t.test.mjs"}; t.gate = gate("tests/t.test.mjs", true);
@@ -469,6 +495,7 @@ int main()
         CHECK(dependent && std::find(dependent->deps.begin(), dependent->deps.end(), std::string{"eng"}) != dependent->deps.end());   // dependents still wait for it
     }
     { // Requests: a blocking request holds only the nodes in its scope; answering releases them.
+        SCENARIO("requests");
         Sim s = startSim();
         s.feed("workflowPlanned", wfbody::planned("w-000001", makePlan()));
         RequestRecord r; r.id = "r-1"; r.kind = "question"; r.from = "a"; r.title = "which rounding?"; r.blocking = true; r.scope = {"a"};
@@ -484,6 +511,7 @@ int main()
         CHECK(s.wfs.find("w-000001")->requests.size() == 1 && s.wfs.find("w-000001")->requests[0].status == "answered");
     }
     { // Governance on: an item the ladder cannot finish is deferred to the owner (a blocking request), not failed; the owner decides.
+        SCENARIO("governance-defer");
         for (const char* resolution : {"retry", "stop"}) {
             Sim s = startSim(2, FrontierMode::off, true);
             s.feed("workflowPlanned", wfbody::planned("w-000001", onePlan()));
@@ -507,6 +535,72 @@ int main()
             else { bool failed = false; for (const auto& a : acts) if (a.kind == WorkflowAction::Kind::finish && a.finalState == WorkflowState::failed) failed = true; CHECK(failed); }
         }
     }
+    {   // Scenarios driven to their end by EXIT CODES, which the hand-driven ones above never produced (docs/PROCESS_DESIGN.md 1.5: a near pass, a repeated
+        // failure, an oversize verdict, an interface gap): each ladder rung is reached the way the gate and the agent reach it, and every pass is traced.
+        using Outcome = std::pair<JobState, std::string>;
+        const auto drive = [](Sim& s, const std::function<Outcome(const JobRecord&)>& outcome) {
+            for (int guard = 0; guard < 80 && s.wfs.find("w-000001")->state == WorkflowState::running; ++guard) {
+                const auto acts = s.step();
+                for (const auto& id : s.run(acts)) { const Outcome o = outcome(*s.job(id)); s.finishJob(id, o.first, o.second); }
+            }
+        };
+        const auto count = [](Sim& s, const char* action) { int n = 0; for (const auto& d : s.wfs.find("w-000001")->decisions) if (d.action == action) ++n; return n; };
+        const auto gate = [](const char* tests, bool stub) { GateSpec g; g.kind = "node-test"; g.tests = {tests}; g.minTests = 1; g.mustFailOnStub = stub; return g; };
+        const auto ok = Outcome{JobState::succeeded, ""};
+        {   // gate exit 3 (at least 10 tests, at most 15 % failing): repaired by extra local attempts, never divided
+            SCENARIO("near-pass-repairs");
+            Sim s = startSim(1, FrontierMode::off);
+            s.feed("workflowPlanned", wfbody::planned("w-000001", onePlan()));
+            drive(s, [&](const JobRecord& j) { return j.spec.role == "gate" && j.spec.attempt < 3 ? Outcome{JobState::failed, "{\"code\":3}"} : ok; });
+            CHECK(s.wfs.find("w-000001")->state == WorkflowState::succeeded);
+            CHECK_EQ(count(s, "retry"), 2);
+            CHECK_EQ(count(s, "decompose") + count(s, "escalate") + count(s, "fail"), 0);
+        }
+        {   // gate exit 5 (the same tests failed the same way twice) on an item graded by a tester's tests: the tests are sent back, once
+            SCENARIO("repeated-failure-sends-tests-back");
+            Plan p;
+            p.task = "t"; p.harness = "web-static";
+            WorkItem t; t.id = "t"; t.title = "Tests"; t.goal = "g"; t.persona = "tester"; t.files = {"tests/e.test.mjs"}; t.gate = gate("tests/e.test.mjs", true);
+            WorkItem a; a.id = "a"; a.title = "Work"; a.goal = "g"; a.files = {"src/e.js"}; a.deps = {"t"}; a.gate = gate("tests/e.test.mjs", false);
+            p.items = {t, a};
+            Sim s = startSim(2, FrontierMode::off);
+            s.feed("workflowPlanned", wfbody::planned("w-000001", p));
+            drive(s, [&](const JobRecord& j) { return j.spec.role == "gate" && j.spec.item == "a" && j.spec.attempt == 1 ? Outcome{JobState::failed, "{\"code\":5}"} : ok; });
+            CHECK(s.wfs.find("w-000001")->state == WorkflowState::succeeded);
+            CHECK_EQ(count(s, "reviseTests"), 1);
+            CHECK_EQ(count(s, "disputed"), 1);
+        }
+        {   // agent exit 4 (the item is too big for one attempt): divided at once, and the whole division runs to the integration
+            SCENARIO("oversize-divides");
+            Plan base;
+            base.task = "t"; base.harness = "web-static";
+            WorkItem t; t.id = "t"; t.title = "Tests"; t.goal = "g"; t.persona = "tester"; t.files = {"tests/e.test.mjs"}; t.gate = gate("tests/e.test.mjs", true);
+            WorkItem a; a.id = "a"; a.title = "Work"; a.goal = "g"; a.files = {"src/e.js", "src/f.js"}; a.deps = {"t"}; a.complexity = 3; a.gate = gate("tests/e.test.mjs", false);
+            base.items = {t, a};
+            const auto part = [&](const char* id, const char* persona, const char* file, std::vector<std::string> deps, bool stub) {
+                WorkItem w; w.id = id; w.title = id; w.goal = "g"; w.persona = persona; w.files = {file}; w.deps = std::move(deps); w.gate = gate("tests/f.test.mjs", stub);
+                return w;
+            };
+            Sim s = startSim(2, FrontierMode::off);
+            s.feed("workflowPlanned", wfbody::planned("w-000001", base));
+            s.fragment.task = "frag";
+            s.fragment.harness = "web-static";
+            s.fragment.items = {part("tf", "tester", "tests/f.test.mjs", {}, true), part("x", "developer", "src/e.js", {"tf"}, false), part("y", "developer", "src/f.js", {"x"}, false)};
+            drive(s, [&](const JobRecord& j) { return j.spec.role == "agent" && j.spec.item == "a" && j.spec.attempt == 1 ? Outcome{JobState::failed, "{\"code\":4}"} : ok; });
+            CHECK(s.wfs.find("w-000001")->state == WorkflowState::succeeded);
+            CHECK_EQ(count(s, "decompose"), 1);
+            CHECK(s.wfs.find("w-000001")->plan->find("a.x") != nullptr);
+        }
+        {   // gate exit 6 (an interface gap): the next scope up at once, the card is rewritten, then the attempt passes
+            SCENARIO("interface-gap-rearchitects");
+            Sim s = startSim(2, FrontierMode::off);
+            s.feed("workflowPlanned", wfbody::planned("w-000001", onePlan()));
+            drive(s, [&](const JobRecord& j) { return j.spec.role == "gate" && j.spec.attempt == 1 ? Outcome{JobState::failed, "{\"code\":6}"} : ok; });
+            CHECK(s.wfs.find("w-000001")->state == WorkflowState::succeeded);
+            CHECK_EQ(count(s, "rearchitect"), 1);
+            CHECK_EQ(count(s, "retry"), 0);
+        }
+    }
     { // Divide only when it pays: over the ceiling always, under the soft budget never, in between only when the saving beats the division's cost.
         CHECK(shouldDivide(3000, 1800, 2800, 7, 8));                 // cannot fit one attempt: divide whatever it costs
         CHECK(!shouldDivide(1500, 1800, 2800, 7, 8));                // under the soft budget: never
@@ -524,6 +618,7 @@ int main()
         CHECK_EQ(chooseLeaseSlot(4, {0}, 9), 1);         // preferred beyond the cap is ignored
     }
     { // The manager solves before anyone is asked: a spent ladder applies strategies in order (think, then a stronger engine when configured), each once;
+        SCENARIO("manager-strategies");
       // only then does the item fail (or, with --ask, go to the owner). The stronger engine is what the next attempt's job is built with.
         for (const bool withFallback : {false, true}) {
             Sim s;
@@ -708,6 +803,25 @@ int main()
         CHECK(loose.has_value() && loose->items[0].card.notes.size() == 1 && loose->items[0].files.size() == 1 && loose->items[0].complexity == 2 && loose->items[0].gate.minTests == 3);
         const auto bad = Plan::fromJson(make("{\"x\":1}", "2", "[\"n\"]", "[\"t\"]", "3", "false"));                                      // an object where a list is wanted: not repairable, but it names the field
         CHECK(!bad.has_value() && bad.error().find("item #1") != std::string::npos && bad.error().find("files") != std::string::npos);
+    }
+    {   // The goldens: every traced scenario equals its recorded log line by line; none is stale.
+        const std::filesystem::path dir = std::filesystem::path{SUB0SQUAD_TEST_DATA} / "actions";
+        const bool write = std::getenv("SUB0SQUAD_WRITE_GOLDENS") != nullptr;
+        if (write) std::filesystem::create_directories(dir);
+        for (const auto& [name, lines] : gTrace) {
+            const std::filesystem::path file = dir / (name + ".ndjson");
+            if (write) { std::ofstream o(file, std::ios::trunc); for (const auto& l : lines) o << l << "\n"; continue; }
+            std::ifstream in(file);
+            CHECK(in.good());
+            std::string line;
+            std::size_t n = 0;
+            for (; std::getline(in, line); ++n) {
+                if (n >= lines.size() || line != lines[n]) { std::fprintf(stderr, "golden %s differs at pass %zu:\n  recorded: %s\n  now:      %s\n", name.c_str(), n + 1, line.c_str(), n < lines.size() ? lines[n].c_str() : "(no such pass)"); CHECK(false); break; }
+            }
+            if (in.eof() && n != lines.size()) { std::fprintf(stderr, "golden %s has %zu pass(es), the scenario now has %zu\n", name.c_str(), n, lines.size()); CHECK(false); }
+        }
+        if (!write && std::filesystem::exists(dir))
+            for (const auto& e : std::filesystem::directory_iterator(dir)) if (!gTrace.count(e.path().stem().string())) { std::fprintf(stderr, "stale golden %s\n", e.path().filename().c_str()); CHECK(false); }
     }
     return finish();
 }

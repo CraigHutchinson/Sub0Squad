@@ -125,6 +125,9 @@ struct WorkflowAction
     std::string fromItem;                              ///< writeDispute: the item whose failure disputes `item`'s output (attempt is that item's attempt)
     WorkflowState finalState = WorkflowState::failed;  ///< finish
     std::string note;                                  ///< finish
+    /// The action as one JSON object: its kind and every field that kind uses. The golden action logs (tests/data/actions) are lists of these, and the
+    /// shadow comparison of two engines is a comparison of their serialised lists.
+    [[nodiscard]] std::string toJson() const;
 };
 
 /// Evaluate one running workflow. Idempotent: calling it again before its actions are applied returns the same actions.

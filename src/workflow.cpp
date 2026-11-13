@@ -201,6 +201,52 @@ void WorkflowStore::apply(const JournalRecord& rec)
     }
 }
 
+const char* kindName(WorkflowAction::Kind k)
+{
+    switch (k) {
+        case WorkflowAction::Kind::startJob: return "startJob";
+        case WorkflowAction::Kind::loadPlan: return "loadPlan";
+        case WorkflowAction::Kind::recordDecision: return "recordDecision";
+        case WorkflowAction::Kind::cancelJob: return "cancelJob";
+        case WorkflowAction::Kind::finish: return "finish";
+        case WorkflowAction::Kind::amendPlan: return "amendPlan";
+        case WorkflowAction::Kind::writeDispute: return "writeDispute";
+        case WorkflowAction::Kind::sendDown: return "sendDown";
+        case WorkflowAction::Kind::raiseRequest: return "raiseRequest";
+        case WorkflowAction::Kind::setStrategy: return "setStrategy";
+    }
+    return "?";
+}
+
+std::string WorkflowAction::toJson() const
+{
+    json::Writer w;
+    w.beginObject().kv("kind", kindName(kind));
+    switch (kind) {
+        case Kind::startJob: w.kvRaw("job", job.toJson()); break;
+        case Kind::loadPlan: break;
+        case Kind::recordDecision:
+            w.kv("item", item).kv("attempt", attempt).kv("action", decisionAction).kv("tier", decisionTier);
+            if (!decisionJson.empty()) w.kvRaw("decision", decisionJson);
+            break;
+        case Kind::cancelJob: w.kv("jobId", jobId); break;
+        case Kind::finish: w.kv("state", toString(finalState)).kv("note", note); break;
+        case Kind::amendPlan: w.kv("item", item).kv("attempt", attempt); break;
+        case Kind::writeDispute: w.kv("item", item).kv("from", fromItem).kv("attempt", attempt); break;
+        case Kind::sendDown: w.kv("item", item).kv("attempt", attempt); break;
+        case Kind::raiseRequest:
+            w.kv("requestKind", request.kind).kv("from", request.from).kv("title", request.title).kv("detail", request.detail).kv("attempt", request.attempt).kvBool("blocking", request.blocking).key("scope").beginArray();
+            for (const auto& s : request.scope) w.str(s);
+            w.endArray().key("options").beginArray();
+            for (const auto& o : request.options) w.str(o);
+            w.endArray();
+            break;
+        case Kind::setStrategy: w.kv("item", item).kv("strategy", note); break;
+    }
+    w.endObject();
+    return w.take();
+}
+
 // ---- engine ---------------------------------------------------------------------------------------------------------
 
 namespace {
