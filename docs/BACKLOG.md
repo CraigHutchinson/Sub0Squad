@@ -112,4 +112,25 @@ hand-written Sugiyama pass; how it works with the retained-mode patching in `por
 
 - **An end-to-end first-use sample on the root README with minimal setup.** Today the README has Build and Licence but no first use, and the commands live scattered across `docs/RUNNING_PROJECTS.md`, `docs/HANDOFF.md` and the CLI help; the owner could not find how to start a job by hand. Wanted: one short path from a clean checkout to a finished project, copy-pasteable, each step verified by CI or a test so it cannot rot: (1) build; (2) one command that starts everything needed (daemon, portal, and an engine: either the mock agent or a local model, with the memory guard); (3) `sub0squad do "write a calculator in C++"` (triage picks the blueprint, the plan loads itself, no `project plan` step); (4) open the portal and watch a node's transcript live; (5) where the finished project and the report are; (6) how to stop. Plus a mock-agent variant that runs in a minute with no model at all, and a second sample that adds a new workflow (a registered process) to show the toolbox. Acceptance: a test runs the mock sample from a temporary checkout; the README commands are the commands the test runs.
 - **Blueprint tasks should start without a hand-supplied plan.** `project submit --task calculator-cpp` ends at `needs a plan` because only triage on task text loads a known blueprint; submit should consult the harness registry (`harnessWithBlueprint`) so any registered blueprint starts at once.
+- **`sub0squad wizard`: streamlined, guided onboarding (owner request, 2026-11-13).** From a clean checkout to a first finished project with the fewest decisions, in one
+  interactive console, driven by the harness rather than by prose instructions. Wanted:
+  1. **Build includes the engine.** llama.cpp is built by default as part of the build (a pinned revision, fetched through the same dependency mechanism as the Sub0 libraries, an
+     option to use an existing build or system install), so `llama-server` exists after one build. Any download or install still needs the owner's explicit approval; say what
+     will be fetched and its size first.
+  2. **Engine management.** The wizard starts and supervises a `llama-server` for the chosen model: contained (a memory cap and no swap, run as a user service so an out-of-memory
+     kill takes the engine and not the session), with context, slots and threads chosen from the host (`doctor` figures), stopped by `down`. It offers models that fit the host, names the
+     minimum bar (the 35B, `docs/PROVING_GROUND.md`) and says plainly when the host cannot run it; model files are fetched only with approval (`fetch-model`: guarded, resumable, verified).
+  3. **A guided flow shown as a checklist.** What is needed (binary, engine, daemon, portal, memory, ports, a model, a project) with each item's state, the next step highlighted,
+     and a choice at each: start the portal (and open or print its link), pick a project (a blueprint from the registry, or free text that triage turns into a plan, with the plan shown and editable
+     before it runs), pick the executor and frontier mode (off by default), start, watch, show where the results are, stop.
+  4. **The model helps, within bounds.** Once the engine is up, the wizard can use it to make the flow interactive and flexible: turn a vague request into a plan the owner reviews, explain
+     a `doctor` finding, propose the fix, and apply it **only after the owner confirms** (a command to run, a limit to change, a file to write: shown, then approved, never silent);
+     it never downloads, installs, changes system or security settings, or sends anything off the machine on its own. The wizard works with no model at all (a fixed script of the same steps, the mock agent for a first run).
+  5. **Harness driven, not a special case.** The wizard is a registered process (stages, checks and prompts as data, `docs/PROCESS_DESIGN.md`) like any other workflow, so adding a step or
+     an experiment extends the toolbox instead of the code: each check is a `doctor` check, each action an existing command (`up`, `do`, `portal`, `fetch-model`). `--yes` and `--script FILE`
+     give a non-interactive path, which is also how it is tested.
+  6. **Testable.** A test drives the wizard end to end from recorded keystrokes against the fake engine and a temporary home (no model, no network, no real service), checking the checklist
+     states, the confirmations, that nothing is changed without approval, and that the project it starts finishes with the mock agent. The README's first-use section points at the wizard as the
+     shortest path and keeps the plain commands for scripting.
+  Depends on: process-as-data, `doctor`, `up` and `down` (built), engine service management, the fake-engine test harness (built). Out of scope for a first slice: a graphical front end, remote hosts.
 - **A `doctor` command** that checks the first-use prerequisites (binary version, engine reachable, memory guard, ports, cgroup limits) and says what to fix.
