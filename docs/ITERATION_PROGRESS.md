@@ -3,7 +3,23 @@
 Branch `worktree-agent-a507f5df083b20ce3`, from tag `parked-v1`. Newest state first. Every "passes" below was observed in `out/build/fable`, run sequentially under a
 process cap; nothing here has run on a real model.
 
-## Second pass (2026-11-13), newest first
+## Third pass (2026-11-13): assembly convergence, from run-v9
+
+run-v9 was the first real run in which the fork mechanism worked, and no attempt converged. What its logs showed and what was changed is in
+`docs/CANVAS.md`, "Assembly convergence", and catalogue rows 47 to 52. In short:
+
+* **The sections had not run in parallel**: every request was pinned to the job's one lease slot. Fixed (`EngineProfile::kAnySlot`). This alone changes what
+  the next run measures.
+* The C++ check is a real compile; a commit is judged on its own function; a refusal shows the section its own text; the declaration is the harness's.
+* Assembly routes findings to their owners (a never-accepted section alone; an uncalled helper removed by the harness; a compile error to the owner of its
+  function; tests only on a file that compiles strictly). Accepted sections are never re-run.
+* The wall budget grows with the sections; `budget` is a failure reason; the next attempt resumes the canvas.
+* Tested without a model: `test_fork` (9 scenarios; the C++ one reproduces an uncalled helper, a section refused three times and a missing return that
+  surfaces late), `test_blocks`. Last full run: 22 of 22.
+* Not built: `idleShare` from the engine's `/slots`; lease accounting for a job that uses several slots; the daemon end-to-end test of the executors.
+* **Not started in this pass: process as data** (the next item), scenarios, the open catalogue rows, components cleanup, the stale documents.
+
+## Second pass (2026-11-13)
 
 * **Rows 44, 45, 46 from run-v8 (the first real use of the fork executor) are built and tested without a model.** 44: only a developer's item is divided
   (`RulePolicy`, `Plan::amended`). 46: the primer declares, the harness completes the skeleton (`expandSkeleton`), checked as a partial file; bounded at the

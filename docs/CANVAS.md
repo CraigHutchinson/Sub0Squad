@@ -126,10 +126,11 @@ Three **executors** run an item (`WorkflowSpec.executor`, `--executor session|ca
 4. **Commit:** each section's reply must be ONE `replaceSymbol` on its own function. The coordinator applies it against revision 1; the canvas rebases it
    through the other sections' commits (line numbers shift; a real overlap is a conflict and is counted). An edit to another section is refused with the holder
    named. The precheck gates each commit, so a section that does not compile never reaches the merged file; the section gets the error back (two retries).
-5. **Merge and integration:** the item's gate judges the merged file. A failure goes back first to the sections it names (whole-word match) and to any that
-   never committed, then to all; each in a fresh small session that shows the current revision with its own function open and the others folded.
-6. `fork.json` records the width and its reason, conflicts, lost edits (must be 0: every committed function is in the merged text), refusals, tokens per phase
-   (skeleton, sections, integration) and the idle-slot share.
+5. **Assembly:** findings are routed to their owners, never sent to every section (see "Assembly convergence" below): a section never accepted is retried
+   alone, an uncalled helper is removed by the harness, a compile error goes to the owner of its function, and only a file that compiles strictly is judged by
+   the item's tests. Each targeted session is fresh and small: the current revision with its own function open and the others folded.
+6. `fork.json` records the failure reason, the attempt it resumed, the budget, the width and its reason, conflicts, lost edits (must be 0), refusals,
+   targeted sessions, functions the harness removed, tokens per phase and, per section, its declaration, calls, refusals and last refusal.
 
 ### After the first real run (run-v8, 35B, `--executor fork`; catalogue rows 44 to 46)
 
@@ -175,6 +176,73 @@ developer part when the fragment holds one. ("Send the contract back" as a rung 
 All of this is tested without a model (`test_fork`: the C++ calculator blueprint forked into eight sections through the real C++ gate; a model that ignores
 the instruction; a bad `@@` line; a spent budget. `test_blocks`: `expandSkeleton` per language. `test_workflow`: the policy and the engine's `sections` rung).
 None of it has been seen on the real model yet.
+
+### Assembly convergence (run-v9, 35B, the first run in which the mechanism worked; catalogue rows 47 to 52)
+
+run-v9 built its skeletons, wrote 8 to 16 sections per attempt with no conflict and no lost edit, and **no attempt converged**: five attempts each
+ended with a merged file that did not compile, at the 1,500 s wall budget. Reading `fork.json`, `gate.txt` and the per-section conversations of
+`dev-engine` (attempts 1, 2, 3, 6, 7) gave six findings. Each is now fixed at its source and fixture-tested without a model (`test_fork`, `test_blocks`).
+
+**1. The sections did not run in parallel at all (row 47).** Every request of a daemon job was pinned to the job's one lease slot (`id_slot` from
+`SUB0SQUAD_LEASE_INDEX`), and a fork job sends several requests at once, so they queued on one slot. The evidence is in the conversations: every call
+decoded at the single-sequence speed (7.6 to 8.0 tok/s), every prompt reported the prefix "already cached on the slot" (one slot, the same one), and a
+35-token reply took 52 s of wall time (11 s of work, the rest waiting for the three sessions ahead of it). `idleShare` was about 1e-7 because it
+measured the client's threads, which were all busy waiting. So run-v9 measured the cost of coordination with none of its benefit. **Fix:**
+`EngineProfile::slot`; a job that runs several requests uses `kAnySlot` (the server picks an idle slot, preferring the one whose cached prompt is most
+similar, which keeps the shared prefix cached per slot). **Still to do:** `idleShare` should come from the engine's `/slots`, not from client spans; and the
+daemon's lease accounts one slot for a job that now uses up to the idle ones.
+
+**2. The compile check was weaker than the build (row 48).** `-fsyntax-only` stops before the passes that report a path with no return and a function
+nobody calls, so a section passed its commit check and the BUILD was the first to object, for the whole file, with no owner. **Fix:** the C++ check is a
+real compile to nowhere (`-c -o /dev/null`), strict for a finished file and without the unused-* warnings for a file still being written.
+
+**3. A finding has an owner, and assembly routes it (rows 49, 50).** The old integration round sent the whole failure to every section ("the failure names
+no function, so all go back"), which is why integration cost as many tokens as writing. Now:
+
+| finding in the assembled file | who gets it | cost |
+|---|---|---|
+| a stub is still there (the section was never accepted) | that section alone, with why it was refused | one session |
+| `defined but not used` (a helper nobody calls) | nobody: the harness removes the function and the prototype it wrote for it | no model call |
+| any other compile error at `file:line` | the owner of the function that line is in, with only that error and that function open | one session |
+| a compile error outside every function (in the declared structure) | no section can fix it: the attempt ends as `compile-outside-sections` and the next one starts a new skeleton | none |
+| it compiles strictly and a test fails | the sections the failure names; all of them only when it names none | one session each |
+
+Accepted sections are never re-run. **Two points differ from what was asked, on purpose.** (a) *An uncalled helper is removed, not sent to its
+section.* The section that wrote it cannot make another section call it; deleting it is the only thing in its power, and the harness can do that
+without a model. If the helper WAS needed, the tests fail and say so. (b) *A missing return stays an error at the section's own commit* rather than
+being relaxed during assembly: it is a defect of one function, and its own commit is the cheapest moment to hand it back. What is relaxed during
+assembly is only what an incomplete file implies (unused functions, parameters, variables).
+
+**4. A commit is judged on its own function only (row 49).** A section was refused for errors in other functions (run-v9: `evaluate`, six times, for a
+call whose other end it did not own). And an error can surface late: a function whose callee is still a stub that always throws looks complete to the
+compiler until the callee is written, so the missing return appears during ANOTHER section's commit. A commit is now refused only for findings inside
+its own function; findings elsewhere are left for assembly to route. The fixture reproduces the late case exactly.
+
+**5. Why sections were refused, and the fix at the source (row 51).** Sixteen refusals in the five attempts:
+
+| cause | count | fix |
+|---|---|---|
+| the same error repeated by a section that could not see its own reply ("your previous reply is not repeated") | 6 (one section) | a refusal shows the section its function as it would stand in the file, with the line numbers the errors use |
+| the declaration drifted: a `Class::` qualifier dropped, so members were "not declared in this scope"; a qualified name written inside the class; a free function where a method was declared (also the cause of attempt 1's "used but never defined") | 5, and one whole attempt | **the declaration is the harness's**: `applySectionSignature` puts the skeleton's signature and indentation back on every reply, whatever the model wrote; a section supplies a body |
+| helpers that do not exist (`parseNumberToken`) | 2 | the system block: call only what the file declares; a helper of your own goes INSIDE your function |
+| ordinary slips (a `break` outside a loop, a redeclared variable, `&&` within `||` under `-Werror=parentheses`) | 3 | none needed beyond showing the section its own text |
+
+**6. The budget, and what an attempt leaves behind (row 52).** Every attempt ran to 1,500 s whatever its size, and the next began from nothing. Now the
+budget is a base plus an allowance per section (`--attempt-wall` 900 s, `--section-wall` 150 s: 16 sections get 55 minutes, 4 get 25); it is spent
+only on sessions that are still needed; running out is the failure reason `budget` in `fork.json`, not a compile error; and **the next attempt resumes
+this attempt's canvas** (`resumedFrom`) when it stopped short (`budget`, `sections-missing`, `compile`), with every accepted section kept and no new
+skeleton. An attempt that had everything written and still failed its tests is not resumed: that structure had its chance.
+
+Also from the logs: a streamed reply counted 0 tokens because a stream reports usage only when asked (`stream_options.include_usage`, now sent); the
+harness's placeholder bodies now use every named parameter, so a stub is clean under the strictest warnings; and the writing phase's prompt prefix is one
+snapshot for all its sections (a section is written against the declarations, not against whichever neighbours finished first).
+
+**Not explained:** in the integration rounds of run-v9 only 306 prompt tokens were "already cached" (the system block) although the card follows it
+unchanged; the cause was not found. With no slot pin and routed findings it matters less, but it is worth one look at the next run's conversations.
+
+**What to look for in the next real run** (`fork.json` of the failing item): `width` requests really concurrent (per-call decode below the
+single-sequence speed, aggregate above it); `failure` and `resumedFrom`; `targeted` far below sections times rounds; `mechanicalMends`; `refused` per
+section and whether a section's second reply differs from its first.
 
 ### Decisions taken while building, and why
 
