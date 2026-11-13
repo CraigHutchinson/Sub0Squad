@@ -55,9 +55,6 @@ struct Plan
     /// Parse and validate: unique ids, known deps, acyclic, disjoint relative files, 1..32 items, personas write only their own kind
     /// of file, cards within `cardBudgetTokens`. Accepts plan-1 and plan-2.
     [[nodiscard]] static std::expected<Plan, std::string> fromJson(std::string_view text, int cardBudgetTokens = 1500);
-    /// Why this plan cannot be RUN ("" when it can): it must name a registered project harness, which supplies the gate and the integrator. The parser
-    /// still reads a plan without one (the rule engine's unit tests build such plans in memory), but nothing executes it.
-    [[nodiscard]] std::string notRunnable() const;
     [[nodiscard]] const WorkItem* find(std::string_view id) const;
     /// All structural checks (ids, dependencies, cycles, disjoint files, personas, cards, gates). `fromJson` runs this after parsing.
     [[nodiscard]] std::expected<void, std::string> validate(int cardBudgetTokens = 1500) const;

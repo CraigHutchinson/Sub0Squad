@@ -63,13 +63,19 @@ struct Sim
     const JobRecord* job(const std::string& id) { return jobs.find(id); }
 };
 
-static Plan makePlan()
+/// A plan for the rule engine's scenarios on a registered harness (web-static): developers' items over files the harness has references for, each
+/// judged by the engine tests. Which harness it is does not matter to the rules; that every plan names one does.
+static Plan simPlan(std::vector<WorkItem> items)
 {
     Plan p;
     p.task = "t";
-    p.items = {{"a", "A", "goal a", {"a.hpp"}, {}, 1}, {"b", "B", "goal b", {"b.hpp"}, {"a"}, 2}, {"c", "C", "goal c", {"c.hpp"}, {}, 1}};
+    p.harness = "web-static";
+    p.items = std::move(items);
+    for (auto& it : p.items) { it.gate.kind = "node-test"; it.gate.tests = {"tests/eval.test.mjs"}; }
     return p;
 }
+static Plan makePlan() { return simPlan({{"a", "A", "goal a", {"src/calc.js"}, {}, 1}, {"b", "B", "goal b", {"src/ui.js"}, {"a"}, 2}, {"c", "C", "goal c", {"style.css"}, {}, 1}}); }
+static Plan onePlan() { return simPlan({{"a", "A", "g", {"src/calc.js"}, {}, 1}}); }
 
 static Sim startSim(int maxLocal = 2, FrontierMode fm = FrontierMode::stub, bool ask = false)
 {
@@ -86,13 +92,14 @@ static Sim startSim(int maxLocal = 2, FrontierMode fm = FrontierMode::stub, bool
 
 int main()
 {
-    {   // A plan that is to run names a registered harness; the parser alone still reads one without (these rule tests build such plans in memory).
-        CHECK(makePlan().notRunnable().find("names no project harness") != std::string::npos);
-        Plan p = makePlan();
-        p.harness = "web-static";
-        CHECK(p.notRunnable().empty());
-        p.harness = "mystery";
-        CHECK(p.notRunnable().find("unknown project harness 'mystery'") != std::string::npos);
+    {   // Every plan names a registered harness: one that names none, or an unknown one, is not a plan.
+        Plan none = makePlan();
+        none.harness.clear();
+        CHECK(!Plan::fromJson(none.toJson()).has_value());
+        Plan odd = makePlan();
+        odd.harness = "mystery";
+        CHECK(!Plan::fromJson(odd.toJson()).has_value());
+        CHECK(Plan::fromJson(makePlan().toJson()).has_value());
     }
     { // failure detail: expected and actual values reach the worker
         const std::string tap = "TAP version 13\nnot ok 1 - adds\n  ---\n  location: '/x/a.test.mjs:2:1'\n  error: |-\n    Expected values to be strictly equal:\n  code: 'ERR_ASSERTION'\n  expected: 3\n  actual: 2\n  ...\n# tests 1\n# pass 0\n# fail 1\n";
@@ -104,7 +111,7 @@ int main()
 
     { // plan validation
         CHECK(Plan::fromJson(makePlan().toJson()).has_value());
-        Plan dup = makePlan(); dup.items[2].files = {"a.hpp"};
+        Plan dup = makePlan(); dup.items[2].files = {"src/calc.js"};
         CHECK(!Plan::fromJson(dup.toJson()).has_value());                       // overlapping editable files
         Plan cyc = makePlan(); cyc.items[0].deps = {"b"};
         CHECK(!Plan::fromJson(cyc.toJson()).has_value());                       // cycle
@@ -181,7 +188,7 @@ int main()
     }
     { // the ladder for a small item (one file, complexity 1, no tester): retry, rearchitect (a dedicated job), then escalate once
         Sim s = startSim(2, FrontierMode::stub);
-        s.feed("workflowPlanned", wfbody::planned("w-000001", [] { Plan p; p.task = "t"; p.items = {{"a", "A", "g", {"a.hpp"}, {}, 1}}; return p; }()));
+        s.feed("workflowPlanned", wfbody::planned("w-000001", onePlan()));
         auto ids = s.run(s.step());                                              // agent a attempt 1 local
         s.finishJob(ids[0], JobState::succeeded);
         ids = s.run(s.step());                                                   // gate 1
@@ -211,7 +218,7 @@ int main()
     }
     { // frontier off: the ladder still runs locally, then fails; no frontier job is ever created
         Sim s = startSim(2, FrontierMode::off);
-        s.feed("workflowPlanned", wfbody::planned("w-000001", [] { Plan p; p.task = "t"; p.items = {{"a", "A", "g", {"a.hpp"}, {}, 1}}; return p; }()));
+        s.feed("workflowPlanned", wfbody::planned("w-000001", onePlan()));
         bool sawFrontier = false, sawFail = false;
         for (int guard = 0; guard < 12 && s.wfs.find("w-000001")->state == WorkflowState::running; ++guard) {
             const auto acts = s.step();
@@ -224,14 +231,24 @@ int main()
         CHECK(sawFail && !sawFrontier);
         CHECK(s.wfs.find("w-000001")->state == WorkflowState::failed);
     }
-    { // divide and conquer: after the local attempts the model decides the division; the item is replaced by smaller items
-        Sim s = startSim(2, FrontierMode::stub);
+    { // divide and conquer: after the local attempts the model decides the division; the parts join the plan and the item stays as their coordinator
+        const auto gate = [](const char* t, bool stub) { GateSpec g; g.kind = "node-test"; g.tests = {t}; g.minTests = 1; g.mustFailOnStub = stub; return g; };
         Plan base;
         base.task = "t";
-        base.items = {{"t", "Tests", "g", {"tests/t.test.mjs"}, {}, 1, "tester"}, {"a", "Work", "g", {"a.js", "b.js"}, {"t"}, 3, "developer"}, {"z", "After", "g", {"z.js"}, {"a"}, 1, "developer"}};
+        base.harness = "web-static";
+        WorkItem t; t.id = "t"; t.title = "Tests"; t.goal = "g"; t.persona = "tester"; t.files = {"tests/e.test.mjs"}; t.gate = gate("tests/e.test.mjs", true);
+        WorkItem a; a.id = "a"; a.title = "Work"; a.goal = "g"; a.files = {"src/e.js", "src/f.js"}; a.deps = {"t"}; a.complexity = 3; a.gate = gate("tests/e.test.mjs", false);
+        WorkItem z; z.id = "z"; z.title = "After"; z.goal = "g"; z.files = {"src/g.js"}; z.deps = {"a"}; z.gate = gate("tests/e.test.mjs", false);
+        base.items = {t, a, z};
+        const auto part = [&](const char* id, const char* persona, const char* file, std::vector<std::string> deps, bool stub) {
+            WorkItem w; w.id = id; w.title = id; w.goal = "g"; w.persona = persona; w.files = {file}; w.deps = std::move(deps); w.gate = gate("tests/f.test.mjs", stub);
+            return w;
+        };
+        Sim s = startSim(2, FrontierMode::stub);
         s.feed("workflowPlanned", wfbody::planned("w-000001", base));
         s.fragment.task = "frag";
-        s.fragment.items = {{"x", "Part x", "g", {"a.js"}, {}, 1, "developer"}, {"y", "Part y", "g", {"b.js"}, {"x"}, 1, "developer"}};
+        s.fragment.harness = "web-static";
+        s.fragment.items = {part("tf", "tester", "tests/f.test.mjs", {}, true), part("x", "developer", "src/e.js", {"tf"}, false), part("y", "developer", "src/f.js", {"x"}, false)};
         // tester t accepted at once
         auto ids = s.run(s.step());
         s.finishJob(ids[0], JobState::succeeded);
@@ -251,16 +268,19 @@ int main()
         CHECK(acts.size() == 1 && acts[0].kind == WorkflowAction::Kind::amendPlan);
         s.run(acts);                                                             // the daemon merges the fragment
         const Plan& merged = *s.wfs.find("w-000001")->plan;
-        CHECK(merged.find("a") == nullptr && merged.find("a.x") && merged.find("a.y"));
-        CHECK(merged.find("a.x")->deps == std::vector<std::string>{"t"});        // roots inherit the parent's dependencies
+        CHECK(merged.find("a") && merged.find("a")->persona == "integrator" && merged.find("a.tf") && merged.find("a.x") && merged.find("a.y"));
+        CHECK(merged.find("a.tf")->deps == std::vector<std::string>{"t"});       // roots inherit the parent's dependencies
         CHECK(merged.find("a.y")->deps == std::vector<std::string>{"a.x"});
-        CHECK(merged.find("z")->deps == std::vector<std::string>{"a.y"});        // dependants now wait for the leaves
-        acts = s.step();                                                         // the first child starts at once
-        CHECK(acts.size() == 1 && acts[0].job.item == "a.x" && acts[0].job.role == "agent" && acts[0].job.attempt == 1);
+        CHECK(merged.find("a")->deps == std::vector<std::string>{"a.y"});        // the coordinator waits for the leaves
+        CHECK(merged.find("z")->deps == std::vector<std::string>{"a"});          // dependants still wait for the item, now its integration
+        acts = s.step();                                                         // the first part starts at once
+        CHECK(acts.size() == 1 && acts[0].job.item == "a.tf" && acts[0].job.role == "agent" && acts[0].job.attempt == 1);
         // an invalid division is rejected, counts as a failed attempt, and the ladder moves on: send back to the producer
         Sim r = startSim(2, FrontierMode::stub);
         r.feed("workflowPlanned", wfbody::planned("w-000001", base));
-        r.fragment.items = {{"x", "Part x", "g", {"a.js"}, {}, 1, "developer"}, {"y", "Part y", "g", {"c.js"}, {"x"}, 1, "developer"}};  // does not cover b.js
+        r.fragment.task = "frag";
+        r.fragment.harness = "web-static";
+        r.fragment.items = {part("tf", "tester", "tests/f.test.mjs", {}, true), part("x", "developer", "src/e.js", {"tf"}, false), part("y", "developer", "src/h.js", {"x"}, false)};  // does not cover src/f.js
         ids = r.run(r.step()); r.finishJob(ids[0], JobState::succeeded);
         ids = r.run(r.step()); r.finishJob(ids[0], JobState::succeeded);
         for (int i = 0; i < 2; ++i) { ids = r.run(r.step()); r.finishJob(ids[0], JobState::failed); }
@@ -271,7 +291,7 @@ int main()
         acts = r.step();                                                         // rejected division = failed attempt 3: reviseTests
         CHECK(acts.size() >= 2 && acts[0].decisionAction == "reviseTests");
         bool dispute = false;
-        for (const auto& a : acts) if (a.kind == WorkflowAction::Kind::writeDispute && a.item == "t" && a.fromItem == "a") dispute = true;
+        for (const auto& act : acts) if (act.kind == WorkflowAction::Kind::writeDispute && act.item == "t" && act.fromItem == "a") dispute = true;
         CHECK(dispute);
         r.run(acts);
         // the tester item t is re-run (no longer accepted), then a continues with a fresh attempt
@@ -411,7 +431,7 @@ int main()
     { // Governance on: an item the ladder cannot finish is deferred to the owner (a blocking request), not failed; the owner decides.
         for (const char* resolution : {"retry", "stop"}) {
             Sim s = startSim(2, FrontierMode::off, true);
-            s.feed("workflowPlanned", wfbody::planned("w-000001", [] { Plan p; p.task = "t"; p.items = {{"a", "A", "g", {"a.hpp"}, {}, 1}}; return p; }()));
+            s.feed("workflowPlanned", wfbody::planned("w-000001", onePlan()));
             bool deferred = false, raised = false;
             for (int guard = 0; guard < 14 && !raised; ++guard) {
                 const auto acts = s.step();
@@ -458,7 +478,7 @@ int main()
             spec.engines = {"small=http://127.0.0.1:8091/v1,model=m,slots=2", "big=http://127.0.0.1:8092/v1,model=m,slots=2"};
             if (withFallback) spec.fallbackEngine = "big";
             s.feed("workflowSubmitted", wfbody::submitted("w-000001", spec));
-            s.feed("workflowPlanned", wfbody::planned("w-000001", [] { Plan p; p.task = "t"; p.items = {{"a", "A", "g", {"a.hpp"}, {}, 1}}; return p; }()));
+            s.feed("workflowPlanned", wfbody::planned("w-000001", onePlan()));
             std::vector<std::string> strategies, engineOfAgent;
             for (int guard = 0; guard < 40 && s.wfs.find("w-000001")->state == WorkflowState::running; ++guard) {
                 const auto acts = s.step();
