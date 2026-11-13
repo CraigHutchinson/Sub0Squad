@@ -344,6 +344,11 @@ ForkResult runCanvasFork(const ForkOptions& o)
                 break;
             }
         }
+        if (!restored.empty() && !isPythonPath(path)) {   // they may call each other in any order: their prototypes come back first, as the skeleton had them
+            std::string prototypes;
+            for (const auto& fn : restored) { const std::string first = fn.substr(0, fn.find('\n')); if (!first.empty() && first[0] != ' ' && first[0] != '\t') prototypes += trimmed(first) + ";\n"; }
+            if (!prototypes.empty()) restored.insert(restored.begin(), prototypes);
+        }
         const std::string brief = "This function was MISSING from the file: the harness added its declaration. The build failed without it:\n" + clip(firstErrorLine(slurp(before / "gate.txt")), 400);
         if (!addSection(path, name, signature, scope, brief, restored)) { res.error = "mend add-section: the canvas refused the new section"; return finish(2, "skeleton"); }
         std::printf("mend add-section: `%s` in %s; %zu earlier section(s) kept\n", name.c_str(), path.c_str(), res.sections.size() - 1);

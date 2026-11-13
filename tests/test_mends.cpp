@@ -9,6 +9,7 @@
 #include "sub0squad/harness.hpp"
 #include "sub0squad/harness_common.hpp"
 #include "sub0squad/mends.hpp"
+#include "sub0squad/sandbox.hpp"
 
 #include <fstream>
 #include <sstream>
@@ -158,6 +159,27 @@ int main()
         const std::string protos = "static double parseNumber(Cursor& c);\nstatic int other();\n\nstatic int other()\n{\n    return parseNumber(c);\n}\n";
         CHECK_EQ(prototypeOf(protos, "parseNumber"), std::string("static double parseNumber(Cursor& c)"));
         CHECK(prototypeOf(protos, "missing").empty() && prototypeOf("    return parseNumber(c);\n    parseNumber(c);\n", "parseNumber").empty());
+    }
+    // `mend-apply`, the job the engine starts for `silence-unused`: attempt N is attempt N-1's output with the one edit, everything else kept; a place the
+    // harness cannot mend fails the job (the ladder then decides), and nothing but silence-unused is applied without a model.
+    {
+        const fs::path d = makeTempDir("mend-apply");
+        const fs::path before = d / "items" / "dev" / "attempt-3" / "out";
+        fs::create_directories(before / "src");
+        { std::ofstream(before / "src" / "calc.cpp") << "static double parseNumber()\n{\n    bool hasExp = false;\n    return 0;\n}\n"; std::ofstream(before / "src" / "other.cpp") << "int other;\n"; }
+        { std::ofstream(d / "items" / "dev" / "attempt-3" / "fork.json") << "{\"failure\":\"compile\"}\n"; }
+        const std::vector<std::string> base = {"--workflow-dir", d.string(), "--item", "dev", "--attempt", "4", "--file", "src/calc.cpp", "--symbol", "hasExp"};
+        const auto with = [&](std::vector<std::string> extra) { auto a = base; a.insert(a.end(), extra.begin(), extra.end()); return a; };
+        CHECK_EQ(runMendApply(with({"--action", "silence-unused", "--line", "3", "--column", "10"})), 0);
+        const fs::path now = d / "items" / "dev" / "attempt-4";
+        CHECK_EQ(slurp(now / "out" / "src" / "calc.cpp"), std::string("static double parseNumber()\n{\n    [[maybe_unused]] bool hasExp = false;\n    return 0;\n}\n"));
+        CHECK_EQ(slurp(now / "out" / "src" / "other.cpp"), std::string("int other;\n"));                       // the rest of the attempt is carried over untouched
+        CHECK(fs::exists(now / "fork.json") && contains(slurp(now / "mend.txt"), "silence-unused: `hasExp` at src/calc.cpp:3"));
+        CHECK_EQ(slurp(before / "src" / "calc.cpp").find("maybe_unused"), std::string::npos);                    // the earlier attempt is evidence: not edited
+        CHECK_EQ(runMendApply(with({"--action", "silence-unused", "--line", "4", "--column", "1"})), 1);        // the name is not on that line
+        CHECK_EQ(runMendApply(with({"--action", "add-section", "--line", "3", "--column", "10"})), 64);         // needs a model: not this command's
+        CHECK_EQ(runMendApply({"--workflow-dir", d.string(), "--item", "dev", "--attempt", "4", "--action", "silence-unused", "--file", "../../etc/passwd", "--symbol", "x", "--line", "1"}), 64);
+        removeTree(d);
     }
     return finish();
 }

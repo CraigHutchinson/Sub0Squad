@@ -301,7 +301,16 @@ int runGateFlow(const GateHooks& hooks, const std::vector<std::string>& args)
         const auto leafOf = [](const std::string& n) { const auto c = n.find_last_of(":."); return c == std::string::npos ? n : n.substr(c + 1); };
         bool holds = false;
         if (m->requires_ == "contract") {
-            for (const auto& f : item->files) for (const auto& c : contractOf(findHarness(plan->harness), f)) if (c.name == leafOf(m->symbol)) { holds = true; m->file = f; }
+            // The gate clips long output lines, and a long workspace path can cut the line INSIDE the name (`calc::ev`): a name that ends where the line
+            // ends is a prefix, and it holds when exactly one contract function begins with it.
+            const bool cut = m->error.size() >= m->symbol.size() && m->error.compare(m->error.size() - m->symbol.size(), m->symbol.size(), m->symbol) == 0;
+            int candidates = 0;
+            std::string full, file;
+            for (const auto& f : item->files) for (const auto& c : contractOf(findHarness(plan->harness), f)) {
+                const std::string qualified = c.scope.empty() ? c.name : c.scope + "::" + c.name;
+                if (c.name == leafOf(m->symbol) || (cut && (qualified.rfind(m->symbol, 0) == 0 || c.name.rfind(m->symbol, 0) == 0))) { ++candidates; full = qualified; file = f; }
+            }
+            if (candidates == 1) { holds = true; m->file = file; m->symbol = full; }
         } else if (m->requires_ == "prototype") {
             for (const auto& f : item->files) if (!prototypeOf(slurp(attemptDir / "out" / f), leafOf(m->symbol)).empty()) { holds = true; m->file = f; }
         } else if (m->requires_ == "location" && m->line > 0) {
