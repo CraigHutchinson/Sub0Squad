@@ -85,6 +85,61 @@ std::string renderFolded(const std::vector<std::string>& lines, const std::vecto
 
 }  // namespace
 
+Skeleton expandSkeleton(const std::string& declared, const std::string& path)
+{
+    Skeleton out;
+    const bool python = isPythonPath(path);
+    const auto ext = path.rfind('.') == std::string::npos ? std::string{} : path.substr(path.rfind('.'));
+    const bool script = ext == ".js" || ext == ".mjs" || ext == ".ts";
+    const bool cpp = !python && !script;
+    const auto lines = splitLines(declared);
+    struct Decl { std::size_t line; std::string indent, signature, name; };
+    std::vector<Decl> decls;
+    for (std::size_t i = 0; i < lines.size(); ++i) {
+        const auto first = lines[i].find_first_not_of(" \t");
+        if (first == std::string::npos || lines[i].compare(first, 2, "@@") != 0) continue;
+        Decl d;
+        d.line = i;
+        d.indent = lines[i].substr(0, first);
+        d.signature = lines[i].substr(first + 2);
+        d.signature.erase(0, d.signature.find_first_not_of(" \t"));
+        while (!d.signature.empty() && (std::isspace(static_cast<unsigned char>(d.signature.back())) || d.signature.back() == '{' || d.signature.back() == ';' || (python && d.signature.back() == ':'))) d.signature.pop_back();
+        d.name = nameBefore(d.signature);
+        if (const auto c = d.name.rfind(':'); c != std::string::npos) d.name = d.name.substr(c + 1);
+        if (d.name.empty()) { out.error = "line " + std::to_string(i + 1) + " is not a function signature (`@@ " + d.signature.substr(0, 60) + "`): write `@@` then the signature with its parameter list, on one line"; return out; }
+        for (const auto& e : decls) if (e.name == d.name && e.indent == d.indent) { out.error = "the function `" + d.name + "` is declared twice (lines " + std::to_string(e.line + 1) + " and " + std::to_string(i + 1) + ")"; return out; }
+        decls.push_back(std::move(d));
+    }
+    // C++ file-scope functions get prototypes ahead of the first of them, so sections can call each other whatever their order.
+    std::string prototypes;
+    std::size_t protoAt = lines.size();
+    if (cpp)
+        for (const auto& d : decls) {
+            if (!d.indent.empty() || nameBefore(d.signature).find(':') != std::string::npos || d.name == "main") continue;
+            if (protoAt == lines.size()) protoAt = d.line;
+            prototypes += d.signature + ";\n";
+        }
+    bool needStdexcept = cpp && !decls.empty() && declared.find("<stdexcept>") == std::string::npos;
+    std::size_t lastInclude = lines.size();
+    if (needStdexcept) for (std::size_t i = 0; i < lines.size(); ++i) if (lines[i].rfind("#include", 0) == 0) lastInclude = i;
+    if (needStdexcept && lastInclude == lines.size()) { out.text += "#include <stdexcept>\n"; needStdexcept = false; }
+    std::size_t next = 0;
+    for (std::size_t i = 0; i < lines.size(); ++i) {
+        if (i == protoAt && !prototypes.empty()) out.text += prototypes + "\n";
+        if (next < decls.size() && decls[next].line == i) {
+            const Decl& d = decls[next++];
+            if (python) out.text += d.indent + d.signature + ":\n" + d.indent + "    raise NotImplementedError(\"not implemented: " + d.name + "\")\n";
+            else if (script) out.text += d.indent + d.signature + " {\n" + d.indent + "    throw new Error('not implemented: " + d.name + "');\n" + d.indent + "}\n";
+            else out.text += d.indent + d.signature + "\n" + d.indent + "{\n" + d.indent + "    throw std::logic_error(\"not implemented: " + d.name + "\");\n" + d.indent + "}\n";
+            out.sections.push_back({d.name, d.signature});
+            continue;
+        }
+        out.text += lines[i] + "\n";
+        if (needStdexcept && i == lastInclude) out.text += "#include <stdexcept>\n";
+    }
+    return out;
+}
+
 bool isPythonPath(const std::string& path) { return path.size() > 3 && path.compare(path.size() - 3, 3, ".py") == 0; }
 
 std::vector<FoldRegion> foldRegions(const std::string& text, bool python, bool all)

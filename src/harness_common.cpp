@@ -214,7 +214,8 @@ std::string runPrecheckFlow(const GateHooks& hooks, const std::vector<std::strin
     for (const auto& f : hooks.scaffold()) writeFile(ws / f.path, f.content);
     for (const auto& dep : closure(*plan, itemId)) copyTree(dir / "items" / dep / "accepted", ws);
     copyTree(files, ws);
-    std::string bad = hooks.precheck(files, ws);
+    const bool partial = one(a, "partial", "") == "1";
+    std::string bad = partial && hooks.precheckPartial ? hooks.precheckPartial(files, ws) : hooks.precheck(files, ws);
     fs::remove_all(ws, ec);
     return bad;
 }

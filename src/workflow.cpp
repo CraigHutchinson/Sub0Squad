@@ -330,7 +330,9 @@ JobSpec agentJob(const WorkflowRecord& wf, const WorkflowSettings& st, const Wor
     if (llm) {
         s.argv = {st.exe, "llm-agent", "--workflow-dir", wf.spec.sandboxDir, "--item", it.id, "--tier", tier, "--attempt", std::to_string(attempt), "--engine", engine->toArg(),
                   "--max-tokens", std::to_string(wf.spec.maxTokens), "--timeout", "1700", "--treatment", wf.spec.treatment, "--repair-turns", std::to_string(wf.spec.repairTurns), "--size-budget", std::to_string(wf.spec.sizeBudget)};
-        if (wf.spec.executor == "fork" && tier == "local" && it.persona != "tester")   // a developer's item as forked sections; the gate job judges the merged files
+        const DecisionRecord* before = attempt > 1 ? decisionFor(wf, it.id, attempt - 1) : nullptr;
+        const bool sections = before && before->action == "sections";   // the ladder chose forked sections for this attempt
+        if ((wf.spec.executor == "fork" || sections) && tier == "local" && it.persona != "tester")   // a developer's item as forked sections; the gate job judges the merged files
             s.argv = {st.exe, "llm-fork", "--workflow-dir", wf.spec.sandboxDir, "--item", it.id, "--attempt", std::to_string(attempt), "--engine", engine->toArg(),
                       "--max-tokens", std::to_string(wf.spec.maxTokens), "--timeout", "1700", "--repair-turns", std::to_string(wf.spec.repairTurns), "--agent-exit", "1"};
         else if (wf.spec.executor != "session") s.argv.insert(s.argv.end(), {"--executor", "canvas"});
@@ -496,6 +498,9 @@ std::vector<WorkflowAction> advance(const WorkflowRecord& wf, const JobStore& st
             for (const JobRecord* g : v.gates) if (g->spec.attempt == n && g->exitJson.find("\"code\":6") != std::string::npos) ctx.interfaceGap = true;
             if (role == "agent" && latest->exitJson.find("\"code\":4") != std::string::npos) ctx.oversize = true;
             if (const Harness* hs = wf.plan ? findHarness(wf.plan->harness) : nullptr; hs && hs->mockFile) { ctx.frontierHasReference = !v.item->files.empty(); for (const auto& f : v.item->files) if (hs->mockFile(f, false).empty()) ctx.frontierHasReference = false; }
+            ctx.persona = v.item->persona;
+            if (const Harness* hs = findHarness(plan.harness)) ctx.divideBySections = hs->divideBySections;
+            for (const auto& dd : wf.decisions) if (dd.item == v.item->id && dd.action == "sections") ctx.sectionsTried = true;
             ctx.decomposeTried = v.decomposeTried;
             ctx.rearchitectTried = v.rearchitectTried;
             for (const auto& dd : wf.decisions) if (dd.item == v.item->id && dd.action == "reviseTests") ctx.reviseTried = true;
@@ -538,6 +543,12 @@ std::vector<WorkflowAction> advance(const WorkflowRecord& wf, const JobStore& st
                     } else if (!restore) failedItem = v.item->id;
                     break;
                 case Action::retry: case Action::escalate: out.push_back(start(agentJob(wf, st, *v.item, n + 1, dec.tier))); break;
+                case Action::sections: {   // the executor of the next attempt is read from the decision just recorded
+                    WorkflowRecord shadow = wf;
+                    shadow.decisions.push_back({v.item->id, n, "sections", "local", ""});
+                    out.push_back(start(agentJob(shadow, st, *v.item, n + 1, "local")));
+                    break;
+                }
                 case Action::decompose: out.push_back(start(architectJob(wf, st, *v.item, n + 1, "decompose"))); break;
                 case Action::rearchitect: out.push_back(start(architectJob(wf, st, *v.item, n + 1, "rearchitect"))); break;
                 case Action::reviseTests: {

@@ -6,7 +6,7 @@ namespace sub0squad {
 
 const char* toString(Action a)
 {
-    switch (a) { case Action::retry: return "retry"; case Action::escalate: return "escalate"; case Action::fail: return "fail"; case Action::decompose: return "decompose"; case Action::reviseTests: return "reviseTests"; case Action::rearchitect: return "rearchitect"; }
+    switch (a) { case Action::retry: return "retry"; case Action::escalate: return "escalate"; case Action::fail: return "fail"; case Action::sections: return "sections"; case Action::decompose: return "decompose"; case Action::reviseTests: return "reviseTests"; case Action::rearchitect: return "rearchitect"; }
     return "?";
 }
 
@@ -20,7 +20,7 @@ std::string toJson(const DecisionContext& c, const Decision& d)
         .kv("localAttempts", c.localAttempts).kv("frontierAttempts", c.frontierAttempts).kv("failedRole", c.failedRole)
         .kv("failure", c.failure).kv("complexity", c.complexity).kv("frontier", c.frontier == FrontierMode::stub ? "stub" : "off")
         .kv("maxLocalAttempts", c.maxLocalAttempts).kv("maxFrontierAttempts", c.maxFrontierAttempts).kv("depth", c.depth).kv("totalAttempts", c.totalAttempts)
-        .kvBool("splittable", c.splittable).kvBool("hasTesterDep", c.hasTesterDep).kvBool("decomposeTried", c.decomposeTried).kvBool("reviseTried", c.reviseTried)
+        .kv("persona", c.persona).kvBool("divideBySections", c.divideBySections).kvBool("sectionsTried", c.sectionsTried).kvBool("splittable", c.splittable).kvBool("hasTesterDep", c.hasTesterDep).kvBool("decomposeTried", c.decomposeTried).kvBool("reviseTried", c.reviseTried)
         .kvBool("rearchitectTried", c.rearchitectTried).endObject().endObject();
     return w.take();
 }
@@ -66,7 +66,14 @@ Decision RulePolicy::decide(const DecisionContext& c) const
         d.reasons.push_back("interface mismatch (a name the tests need is not provided): the contract is incomplete or the tests overreach, so the next scope up rewrites the card to name every export before another attempt at the file");
         return d;
     }
-    if (c.oversize && !c.decomposeTried && c.splittable && c.depth < c.maxDepth) {
+    const bool developer = c.persona == "developer";   // a tester's item is never divided (row 44)
+    if (c.oversize && developer && c.divideBySections && !c.sectionsTried) {
+        d.action = Action::sections;
+        d.tier = "local";
+        d.reasons.push_back("plan phase: the item is estimated too big for one reply; this platform divides by sections of a file, so the next attempt writes it as forked sections (a skeleton, then one function per session)");
+        return d;
+    }
+    if (c.oversize && developer && !c.divideBySections && !c.decomposeTried && c.splittable && c.depth < c.maxDepth) {
         d.action = Action::decompose;
         d.tier = "local";
         d.reasons.push_back("plan phase: the item is estimated too big for one attempt, so it is divided before any code is written");
@@ -85,7 +92,13 @@ Decision RulePolicy::decide(const DecisionContext& c) const
         return d;
     }
     d.reasons.push_back("local attempts exhausted (" + std::to_string(c.localAttempts) + ")");
-    if (!c.decomposeTried && c.splittable && c.depth < c.maxDepth) {
+    if (developer && c.divideBySections && !c.sectionsTried) {
+        d.action = Action::sections;
+        d.tier = "local";
+        d.reasons.push_back("first rung: this platform divides by sections of a file (a new module would need a header no item owns), so the next attempt writes the item as forked sections");
+        return d;
+    }
+    if (developer && !c.divideBySections && !c.decomposeTried && c.splittable && c.depth < c.maxDepth) {
         d.action = Action::decompose;
         d.tier = "local";
         d.reasons.push_back("first rung: let the model decide how to divide the item into smaller work packages");

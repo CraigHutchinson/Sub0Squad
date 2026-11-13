@@ -77,14 +77,17 @@ Build configureAndBuild(const fs::path& src, const fs::path& build, const std::v
 // ---- gate: the shared flow with C++ hooks -------------------------------------------------------------------------------------------
 namespace {
 
-std::string cppPrecheck(const fs::path& out, const fs::path& ws)
+std::string cppCheck(const fs::path& out, const fs::path& ws, bool partial)
 {
     // The cheapest check that names a file and a line: does every translation unit the attempt wrote compile on its own?
     std::string syntax;
     for (auto& e : fs::recursive_directory_iterator(out)) {
         if (!e.is_regular_file() || e.path().extension() != ".cpp") continue;
         const std::string rel = fs::relative(e.path(), out).generic_string();
-        const Cmd c = run({compiler(), "-std=c++20", "-fsyntax-only", "-Wall", "-Wextra", "-Werror", "-Iinclude", "-Isrc", "-Itests", "-DCALC_CLI_PATH=\"x\"", rel}, ws, 60);
+        std::vector<std::string> argv = {compiler(), "-std=c++20", "-fsyntax-only", "-Wall", "-Wextra", "-Werror", "-Iinclude", "-Isrc", "-Itests", "-DCALC_CLI_PATH=\"x\""};
+        if (partial) argv.insert(argv.end(), {"-Wno-unused-function", "-Wno-unused-parameter", "-Wno-unused-variable"});   // sections are still stubs
+        argv.push_back(rel);
+        const Cmd c = run(argv, ws, 60);
         if (c.exitCode != 0) syntax += "does not compile: " + rel + "\n" + diagnostics(c.output, 4);
     }
     return syntax.empty() ? syntax : syntax + "The code does not compile, so no test could run. Fix the errors first.";
@@ -113,7 +116,9 @@ std::string cppBuildAndRun(const fs::path& ws, const std::vector<std::string>& t
 }  // namespace
 
 namespace {
-const GateHooks& cppHooks() { static const GateHooks hooks = {&cppScaffold, &cppPrecheck, &cppBuildAndRun}; return hooks; }
+std::string cppPrecheck(const fs::path& out, const fs::path& ws) { return cppCheck(out, ws, false); }
+std::string cppPrecheckPartial(const fs::path& out, const fs::path& ws) { return cppCheck(out, ws, true); }
+const GateHooks& cppHooks() { static const GateHooks hooks = {&cppScaffold, &cppPrecheck, &cppBuildAndRun, nullptr, &cppPrecheckPartial}; return hooks; }
 }  // namespace
 
 int runCppGate(const std::vector<std::string>& args) { return runGateFlow(cppHooks(), args); }

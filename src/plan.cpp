@@ -13,12 +13,6 @@ namespace {
 std::string knownHarnesses() { std::string s; for (const auto& n : harnessNames()) s += (s.empty() ? "" : ", ") + n; return s; }
 }  // namespace
 
-std::string Plan::notRunnable() const
-{
-    if (findHarness(harness)) return {};
-    return harness.empty() ? "the plan names no project harness (known: " + knownHarnesses() + ")" : "unknown project harness '" + harness + "' (known: " + knownHarnesses() + ")";
-}
-
 std::string Plan::toJson() const
 {
     json::Writer w;
@@ -159,7 +153,7 @@ std::expected<Plan, std::string> Plan::fromJson(std::string_view text, int cardB
         return std::unexpected("plan is not valid JSON of the expected shape (at " + where + "): " + e.what());
     }
     if (schema != "plan-2") return std::unexpected("unsupported plan schema '" + schema + "' (plan-2 is the only one)");
-    if (plan.harness != "" && !findHarness(plan.harness)) return std::unexpected("unknown project harness '" + plan.harness + "' (known: " + knownHarnesses() + ")");
+    if (!findHarness(plan.harness)) return std::unexpected("unknown project harness '" + plan.harness + "' (known: " + knownHarnesses() + ")");
     if (auto ok = plan.validate(cardBudgetTokens); !ok) return std::unexpected(ok.error());
     return plan;
 }
@@ -168,7 +162,7 @@ std::expected<Plan, std::string> Plan::fromJson(std::string_view text, int cardB
 std::expected<void, std::string> Plan::validate(int cardBudgetTokens) const
 {
     const Plan& plan = *this;
-    if (plan.harness != "" && !findHarness(plan.harness)) return std::unexpected("unknown project harness '" + plan.harness + "' (known: " + knownHarnesses() + ")");
+    if (!findHarness(plan.harness)) return std::unexpected("unknown project harness '" + plan.harness + "' (known: " + knownHarnesses() + ")");
     if (plan.items.empty()) return std::unexpected("plan has no items");
     if (plan.items.size() > 32) return std::unexpected("plan has more than 32 items");
     std::set<std::string> ids;
@@ -224,6 +218,11 @@ std::expected<Plan, std::string> Plan::amended(const Plan& base, const std::stri
     const int depth = static_cast<int>(std::count(parentId.begin(), parentId.end(), '.'));
     if (depth >= maxDepth) return std::unexpected("item '" + parentId + "' is already at the maximum division depth (" + std::to_string(maxDepth) + ")");
     if (fragment.items.size() < 2) return std::unexpected("a division needs at least two items");
+    if (parent->persona == "tester") {   // a tester writes one test file; dividing it invents implementation work (docs/INTERVENTIONS.md row 44)
+        for (const auto& f : fragment.items)
+            if (f.persona == "developer") return std::unexpected("'" + parentId + "' is a tester's item and cannot be divided into implementation work (part '" + f.id + "' is a developer's)");
+        return std::unexpected("'" + parentId + "' is a tester's item: a tester's item is not divided");
+    }
     std::set<std::string> fragIds, depended;
     for (const auto& f : fragment.items) fragIds.insert(f.id);
     for (const auto& f : fragment.items) for (const auto& d : f.deps) depended.insert(d);

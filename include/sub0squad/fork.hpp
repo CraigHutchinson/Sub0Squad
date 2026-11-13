@@ -18,8 +18,9 @@
 
 namespace sub0squad {
 
-/// One chat completion (the signature of `chatCompleteMessages` without the stream hooks).
-using ChatFn = std::function<std::expected<ChatResult, std::string>(const EngineProfile&, const std::vector<ChatMessage>&, int maxTokens, int timeoutSec)>;
+/// One chat completion. `guard` (may be empty) is asked while the reply streams and cancels it by returning true: the result then has `finishReason`
+/// "aborted". An engine that cannot stream may ignore the guard.
+using ChatFn = std::function<std::expected<ChatResult, std::string>(const EngineProfile&, const std::vector<ChatMessage>&, int maxTokens, int timeoutSec, const StreamGuard& guard)>;
 
 struct ForkOptions
 {
@@ -31,6 +32,9 @@ struct ForkOptions
     int parallel = 0;                   ///< 0: up to the idle slots (the default); N: exactly N at once (an experiment)
     std::string sequentialReason;       ///< non-empty: one section at a time, and this is why
     long memFloorMiB = 0;               ///< > 0: below this much available memory forks are shed (one section at a time)
+    int skeletonMaxTokens = 1500;       ///< the skeleton is declarations only: its reply is bounded at the server ...
+    int skeletonMaxLines = 120;         ///< ... and cancelled while it streams when it runs past this many lines (row 46)
+    int wallBudgetSec = 1500;           ///< the whole attempt's wall budget (0 = none): when it is spent no further session starts
     ChatFn chat;                        ///< empty: the engine over HTTP
     std::function<int()> idleSlots;     ///< empty: the engine's `/slots`, else its configured slot count
     std::function<long()> availableMiB; ///< empty: /proc/meminfo
@@ -52,6 +56,8 @@ struct ForkResult
     int width = 1;                      ///< sections generated at once
     std::string widthReason;
     bool shed = false;
+    bool budgetSpent = false;           ///< the wall budget ran out before every section had its session
+    int skeletonTries = 0;              ///< skeleton replies asked for (1 when the first was usable)
     int rounds = 0;
     int conflicts = 0;                  ///< commits the canvas refused because another section had changed the same lines
     int lostEdits = 0;                  ///< committed sections whose text is not in the merged file (must be 0)

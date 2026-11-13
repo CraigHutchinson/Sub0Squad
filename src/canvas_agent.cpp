@@ -98,14 +98,14 @@ std::optional<std::map<std::string, std::string>> applyAsTransactions(const std:
     return canvas.files();
 }
 
-std::string precheckCanvas(const Canvas& canvas, const Harness* harness, const fs::path& dir, const std::string& itemId, int attempt, const fs::path& attemptDir)
+std::string precheckCanvas(const Canvas& canvas, const Harness* harness, const fs::path& dir, const std::string& itemId, int attempt, const fs::path& attemptDir, bool partial)
 {
     if (!harness || !harness->precheck) return {};
     const fs::path candidate = attemptDir / "candidate";
     std::error_code ec;
     fs::remove_all(candidate, ec);
     for (const auto& [path, text] : canvas.files()) (void)writeFile(candidate / path, text);
-    std::string bad = harness->precheck({"--workflow-dir", dir.string(), "--item", itemId, "--attempt", std::to_string(attempt), "--files-dir", candidate.string()});
+    std::string bad = harness->precheck({"--workflow-dir", dir.string(), "--item", itemId, "--attempt", std::to_string(attempt), "--files-dir", candidate.string(), "--partial", partial ? "1" : "0"});
     fs::remove_all(candidate, ec);
     return bad;
 }

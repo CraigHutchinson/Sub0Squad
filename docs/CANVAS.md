@@ -117,8 +117,8 @@ Three **executors** run an item (`WorkflowSpec.executor`, `--executor session|ca
 
 ### What a forked attempt does (`src/fork.cpp`)
 
-1. **Primer:** one session writes the skeleton: every function declared, each body one statement that raises `not implemented: <name>`. It must pass the
-   precheck (one retry with the error) and then becomes revision 1. A skeleton that does not parse delegates nothing (exit 2).
+1. **Primer:** one session DECLARES the structure (`@@ signature` lines, no bodies) and the harness completes it into the skeleton (see "After the first
+   real run" below). It must pass the partial precheck (one retry with the reason) and then becomes revision 1. No usable skeleton delegates nothing (exit 2).
 2. **Sections:** every stub inside a named function is a section. Each session gets the same prefix (system block, card, the numbered skeleton), so a server
    that keeps a prompt cache prefills it once, and is told which function it owns.
 3. **Width (throughput by default, `planParallel`):** as many sections at once as there are idle slots. One at a time needs a stated reason
@@ -130,6 +130,51 @@ Three **executors** run an item (`WorkflowSpec.executor`, `--executor session|ca
    never committed, then to all; each in a fresh small session that shows the current revision with its own function open and the others folded.
 6. `fork.json` records the width and its reason, conflicts, lost edits (must be 0: every committed function is in the merged text), refusals, tokens per phase
    (skeleton, sections, integration) and the idle-slot share.
+
+### After the first real run (run-v8, 35B, `--executor fork`; catalogue rows 44 to 46)
+
+The first real use failed before any section ran, and the failure changed three things.
+
+**The skeleton is the harness's job (row 46).** Asked for a skeleton with stubbed bodies, the 35B wrote the implementation (13,893 tokens, 27 minutes) and it
+did not compile. An instruction is a request; a format is a constraint. So the primer no longer writes bodies at all: it DECLARES the structure
+(imports, constants, type declarations, and one `@@ <signature>` line per function, placed where the function belongs) and the harness completes it
+(`expandSkeleton`): every `@@` line becomes the function with a placeholder body that raises `not implemented: <name>`; a C++ file gets `<stdexcept>` and a
+prototype for each file-scope function so sections can call each other in any order. There is no body for the model to get wrong. Three bounds make a
+runaway cheap: the skeleton reply is limited to 1,500 tokens at the server, cancelled while it streams past 120 lines, and the whole attempt has a wall
+budget (`--attempt-wall`, 1,500 s by default) after which no session starts. A `@@` line that is not a signature is refused with its line number.
+
+**A file being written in sections is checked as partial (row 46).** A skeleton's stubs leave helpers uncalled and parameters unused, which `-Werror` rejects
+in a finished file and must not reject in an unfinished one. The skeleton and every section commit go through the harness's PARTIAL precheck (C++: the same
+compile without the unused-function, unused-parameter and unused-variable warnings); the merged file is judged by the full gate, unchanged.
+
+**Division on compiled platforms is by sections, not by modules (row 45): the choice, and why.** A division into parts gives each part a tester, and in C++
+that tester must compile against the part's interface. No item of a division owns the header that would declare it, so every part tester failed INTERFACE
+MISMATCH however often it retried. Two answers were on the table: a CONTRACT stage (one item writes the headers of every part first) or dividing by
+sections of one file under a skeleton. **Sections were chosen**, for three reasons:
+
+1. *The skeleton already is the contract.* Its signatures are declared once, compile-checked before any body is written, and visible to every section. A
+   contract stage would be a second mechanism for the same fact.
+2. *It needs no architect.* run-v8's architect produced no valid division in four hours (and divided a tester into a project, row 44). Sections are found
+   by the harness from the declared skeleton; nothing has to be validated beyond "it compiles".
+3. *It is what the evidence asks for.* The item that failed (the C++ engine, one file of about 340 lines) is too long for a reply, not too wide for a
+   module. Sections cut length; a division cuts breadth.
+
+What is built: `Harness::divideBySections` (true for `cpp-cmake`); where the ladder would ask for a division on such a platform it records a `sections`
+decision and the item's next attempt IS the fork executor (`RulePolicy`, `Action::sections`, `agentJob`), once per item; an item reported too big for one
+reply goes there at once. Division into modules stays available where the platform tolerates a late interface (Python, JavaScript).
+
+What this does NOT solve, stated so it is not forgotten: a compiled project that genuinely needs new modules (the knowledge store) needs the CONTRACT
+stage. It is the right first stage for the process registry to gain once a stage can create items (`docs/PROCESS_DESIGN.md`, "Stages that create items"):
+a `contract` item per division that writes declarations only, accepted by the partial compile check, on which the parts' testers and developers depend.
+
+**Only a developer's item is divided (row 44).** `RulePolicy` offers `decompose` and `sections` for developers only; a tester that fails goes retry, then
+the card is rewritten (`rearchitect`), then escalation where allowed, then fail. `Plan::amended` refuses any division of a tester's item and names a
+developer part when the fragment holds one. ("Send the contract back" as a rung of its own, a request to the architect of the level above, is not built:
+`rearchitect` is the nearest thing that exists.)
+
+All of this is tested without a model (`test_fork`: the C++ calculator blueprint forked into eight sections through the real C++ gate; a model that ignores
+the instruction; a bad `@@` line; a spent budget. `test_blocks`: `expandSkeleton` per language. `test_workflow`: the policy and the engine's `sections` rung).
+None of it has been seen on the real model yet.
 
 ### Decisions taken while building, and why
 
@@ -154,8 +199,10 @@ Three **executors** run an item (`WorkflowSpec.executor`, `--executor session|ca
 ### What is not built or not proven
 
 * Nothing here has run on a real model. The commands are in `docs/BLOCK_PROVING_GROUNDS.md` ("Real-model measurements").
-* The C++ skeleton prompt asks for unnamed unused parameters so the stubs compile under `-Werror`; whether a 35B does that reliably is unknown. If it does not,
-  the precheck's first retry tells it the exact warning.
+* Whether a 35B keeps to the `@@` format is unknown. If it does not, the reply is cancelled at 120 lines or refused with the line that is wrong, once; a
+  second failure ends the attempt in minutes, not in an hour.
+* A signature with a default argument would be declared twice by the prototype the harness adds for a C++ file-scope function (a compile error the precheck
+  reports); templates on the line above a `@@` line are not handled.
 * A fork needs functions. A file that is mostly data or one large function gets no parallelism from it (the canvas executor still applies).
 * Testers' items do not fork (a test file's sections are test cases, and the tester gate judges the file as a whole); in a workflow with `--executor fork`
   testers run on the canvas.

@@ -64,18 +64,49 @@ std::string forkSystemBlock(const std::string& persona, const std::string& brief
 }
 
 const char* const kPrimerAsk =
-    "\nWrite the SKELETON first, with no implementation yet. For every file to write give the complete file: its imports, its constants, and every function or method declared with its exact "
-    "signature and a one-line comment saying what it does. The body of each function is ONE statement that raises an error whose message is exactly `not implemented: <name>`, where <name> is "
-    "the function's name (JavaScript: throw new Error('not implemented: name'); C++: throw std::logic_error(\"not implemented: name\"); with unused parameters left unnamed so it compiles "
-    "without warnings; Python: raise NotImplementedError(\"not implemented: name\")). Constructors and one-line helpers may be written in full. "
-    "The skeleton must compile or parse as it stands. Reply in the file format: === FILE: <path> === ... === END FILE ===";
+    "\nDeclare the STRUCTURE of each file only. Other workers write the function bodies afterwards, one function each, at the same time. For every file to write, reply with:\n"
+    "=== SKELETON: <path> ===\n"
+    "<the file's includes or imports, constants, and type or class declarations, written normally>\n"
+    "@@ <the signature of ONE function or method, on one line, with NO body>\n"
+    "=== END SKELETON ===\n"
+    "Put one `@@` line where each function or method belongs (a method: inside its class, indented like the class's other members). Write NO function bodies at all: the harness "
+    "gives every `@@` line a placeholder body and compiles the result. Split the work into functions of at most about 40 lines each. Keep each file's skeleton under 80 lines. "
+    "Nothing else in the reply (no explanations, no markdown fences).\n"
+    "Example (C++):\n=== SKELETON: src/shapes.cpp ===\n#include \"shapes.hpp\"\n#include <cmath>\n\nnamespace shapes {\n\n@@ static double square(double x)\n@@ double circleArea(double radius)\n@@ double hypotenuse(double a, double b)\n\n}  // namespace shapes\n=== END SKELETON ===\n"
+    "Example (Python):\n=== SKELETON: shapes/core.py ===\nimport math\n\n\nclass Circle:\n    def __init__(self, radius):\n        self.radius = radius\n\n    @@ def area(self)\n    @@ def scaled(self, factor)\n\n\n@@ def hypotenuse(a, b)\n=== END SKELETON ===\n";
+
+/// The files of a skeleton reply: `=== SKELETON: path ===` blocks (a `=== FILE: path ===` block is read the same way), each up to its END line or the next block.
+std::map<std::string, std::string> parseSkeletonReply(const std::string& reply, const std::set<std::string>& allowed)
+{
+    std::map<std::string, std::string> files;
+    std::istringstream in(reply);
+    std::string path, body;
+    const auto close = [&] { if (!path.empty() && allowed.count(path) && !body.empty()) files[path] = body; path.clear(); body.clear(); };
+    for (std::string line; std::getline(in, line);) {
+        if (!line.empty() && line.back() == '\r') line.pop_back();
+        const bool head = line.rfind("=== SKELETON:", 0) == 0 || line.rfind("=== FILE:", 0) == 0;
+        if (head) {
+            close();
+            path = line.substr(line.find(':') + 1);
+            if (const auto e = path.rfind("==="); e != std::string::npos) path.erase(e);
+            path.erase(0, path.find_first_not_of(" \t"));
+            path.erase(path.find_last_not_of(" \t") + 1);
+            continue;
+        }
+        if (line.rfind("=== END", 0) == 0) { close(); continue; }
+        if (path.empty() || line.rfind("```", 0) == 0) continue;
+        body += line + "\n";
+    }
+    close();
+    return files;
+}
 
 }  // namespace
 
 std::string ForkResult::toJson() const
 {
     json::Writer w;
-    w.beginObject().kvBool("passed", passed).kv("exitCode", exitCode).kv("width", width).kv("widthReason", widthReason).kvBool("shed", shed).kv("rounds", rounds)
+    w.beginObject().kvBool("passed", passed).kv("exitCode", exitCode).kv("width", width).kv("widthReason", widthReason).kvBool("shed", shed).kvBool("budgetSpent", budgetSpent).kv("skeletonTries", skeletonTries).kv("rounds", rounds)
         .kv("conflicts", conflicts).kv("lostEdits", lostEdits).kv("refused", refused)
         .kv("skeletonTokens", static_cast<std::int64_t>(skeletonTokens)).kv("sectionTokens", static_cast<std::int64_t>(sectionTokens)).kv("integrationTokens", static_cast<std::int64_t>(integrationTokens))
         .kv("wallSec", wallSec).kv("sectionWallSec", sectionWallSec).kv("idleShare", idleShare).kv("error", error).key("sections").beginArray();
@@ -102,7 +133,9 @@ ForkResult runCanvasFork(const ForkOptions& o)
     const std::set<std::string> allowed(item.files.begin(), item.files.end());
     long testCount = 0;
     const std::string card = buildCard(o.dir, *plan, item, o.itemId, "baseline", testCount);
-    const ChatFn chat = o.chat ? o.chat : ChatFn{[](const EngineProfile& e, const std::vector<ChatMessage>& m, int maxTokens, int timeoutSec) { return chatCompleteMessages(e, m, maxTokens, timeoutSec); }};
+    const ChatFn chat = o.chat ? o.chat : ChatFn{[](const EngineProfile& e, const std::vector<ChatMessage>& m, int maxTokens, int timeoutSec, const StreamGuard& guard) { return chatCompleteMessages(e, m, maxTokens, timeoutSec, {}, guard); }};
+    // The attempt's wall budget (row 46: one attempt spent 54 minutes on two skeletons): every call is bounded by what is left, and none starts after it is spent.
+    const auto remainingSec = [&]() -> int { return o.wallBudgetSec <= 0 ? o.timeoutSec : std::max(0, std::min(o.timeoutSec, o.wallBudgetSec - static_cast<int>(since(t0)))); };
     const auto seeded = [&](const std::string& label) { EngineProfile e = o.engine; e.seed = turnSeed(o.engine.seed, o.itemId + "#" + std::to_string(o.attempt) + "#" + label); return e; };
     const auto finish = [&](int code) {
         res.exitCode = code;
@@ -112,28 +145,46 @@ ForkResult runCanvasFork(const ForkOptions& o)
         return res;
     };
 
-    // ---- 1. the primer: the skeleton, which must pass the precheck to become revision 1 ----
+    // ---- 1. the primer DECLARES the structure; the harness completes it into the skeleton, which must pass the compile check to become revision 1 ----
     Canvas canvas;
-    const std::string primerSystem = systemBlock(item.persona, harnessBrief(plan->harness));
+    const std::string primerSystem = "You plan the structure of source files for a small software squad. " + harnessBrief(plan->harness) + "\n";
     std::vector<ChatMessage> primer = {{"system", primerSystem}, {"user", card + kPrimerAsk}};
     const fs::path primerTrace = attemptDir / "conversation-skeleton.md";
-    traceBegin(primerTrace, "Skeleton session of " + o.itemId, o.engine, o.maxTokens);
+    traceBegin(primerTrace, "Skeleton session of " + o.itemId, o.engine, std::min(o.maxTokens, o.skeletonMaxTokens));
     for (int tryNo = 0; tryNo < 2; ++tryNo) {
+        if (remainingSec() <= 0) { res.budgetSpent = true; res.error = "the attempt's wall budget (" + std::to_string(o.wallBudgetSec) + " s) was spent before a skeleton was accepted"; return finish(2); }
+        ++res.skeletonTries;
         traceSent(primerTrace, tryNo, primer, tryNo == 0 ? 0 : primer.size() - 2, -1);
-        auto r = chat(seeded("skeleton" + std::to_string(tryNo)), primer, o.maxTokens, o.timeoutSec);
+        // A skeleton is short by definition: the reply is bounded at the server, and cancelled while it streams if it runs on (a model writing the
+        // implementation it was asked to leave out).
+        const StreamGuard tooLong = [&](const std::string& soFar) { return o.skeletonMaxLines > 0 && std::count(soFar.begin(), soFar.end(), '\n') > o.skeletonMaxLines; };
+        auto r = chat(seeded("skeleton" + std::to_string(tryNo)), primer, std::min(o.maxTokens, o.skeletonMaxTokens), remainingSec(), tooLong);
         if (!r) { res.error = "the skeleton call failed: " + r.error(); return finish(2); }
         traceReply(primerTrace, tryNo, *r);
         res.skeletonTokens += r->promptTokens + r->completionTokens;
-        const Parsed parsed = parseReply(r->content, allowed);
+        std::string bad;
         Canvas candidate;
-        for (const auto& [path, text] : parsed.files) candidate.addFile(path, text);
-        std::string bad = parsed.files.empty() ? std::string{"the reply held none of the files"} : precheckCanvas(candidate, harness, o.dir, o.itemId, o.attempt, attemptDir);
+        if (r->finishReason == "aborted") bad = "it ran past " + std::to_string(o.skeletonMaxLines) + " lines and was stopped: a skeleton holds declarations and `@@` signature lines only, with NO function bodies";
+        else if (r->finishReason == "length") bad = "it was cut off at the token limit: a skeleton holds declarations and `@@` signature lines only, with NO function bodies";
+        else {
+            const auto declared = parseSkeletonReply(r->content, allowed);
+            if (declared.empty()) bad = "the reply held no === SKELETON: <path> === block for the files to write";
+            for (const auto& [path, text] : declared) {
+                if (!bad.empty()) break;
+                if (text.find("@@") == std::string::npos) { candidate.addFile(path, text); continue; }   // a file with no function to delegate is taken as written
+                const Skeleton sk = expandSkeleton(text, path);
+                if (!sk.error.empty()) bad = path + ": " + sk.error;
+                else candidate.addFile(path, sk.text);
+            }
+            if (bad.empty()) bad = precheckCanvas(candidate, harness, o.dir, o.itemId, o.attempt, attemptDir, true);
+        }
         if (bad.empty()) { canvas = std::move(candidate); break; }
         traceVerdict(primerTrace, tryNo, "the skeleton was refused: " + bad);
         std::printf("fork skeleton refused: %s\n", bad.substr(0, 200).c_str());
+        events::note("skeleton refused: " + bad.substr(0, 120));
         if (tryNo == 1) { res.error = "no usable skeleton: " + bad; return finish(2); }
-        primer.push_back({"assistant", "[your skeleton is not repeated here]"});
-        primer.push_back({"user", "That skeleton cannot be used: " + clip(bad, 1200) + "\nWrite the skeleton again so that it compiles or parses as it stands." + kPrimerAsk});
+        primer.push_back({"assistant", "[your previous reply is not repeated here]"});
+        primer.push_back({"user", "That reply cannot be used: " + clip(bad, 1200) + "\nReply again with the structure only." + kPrimerAsk});
     }
     persistCanvas(canvas, attemptDir);
 
@@ -203,7 +254,8 @@ ForkResult runCanvasFork(const ForkOptions& o)
         if (tag == "section") traceBegin(trace, "Section " + s.name + " of " + o.itemId, o.engine, o.maxTokens);
         for (int tryNo = 0; tryNo < 3; ++tryNo) {
             traceSent(trace, tryNo, convo, tryNo == 0 ? 0 : convo.size() - 2, -1);
-            auto r = chat(seeded(tag + ":" + s.name + ":" + std::to_string(tryNo)), convo, o.maxTokens, o.timeoutSec);
+            if (remainingSec() <= 0) { std::lock_guard<std::mutex> l(mu); res.budgetSpent = true; return; }
+            auto r = chat(seeded(tag + ":" + s.name + ":" + std::to_string(tryNo)), convo, o.maxTokens, remainingSec(), {});
             ++s.calls;
             if (!r) { traceVerdict(trace, tryNo, "the engine call failed: " + r.error()); return; }
             traceReply(trace, tryNo, *r);
@@ -237,7 +289,7 @@ ForkResult runCanvasFork(const ForkOptions& o)
                 Canvas scratch = canvas;
                 const TxResult applied = scratch.apply(tx);
                 if (!applied.ok) { refusal = applied.error; if (applied.error.find("were changed by") != std::string::npos) ++res.conflicts; }
-                else if (const std::string bad = precheckCanvas(scratch, harness, o.dir, o.itemId, o.attempt, attemptDir); !bad.empty()) refusal = "your function does not pass the check, so it was not kept:\n" + clip(bad, 1000);
+                else if (const std::string bad = precheckCanvas(scratch, harness, o.dir, o.itemId, o.attempt, attemptDir, true); !bad.empty()) refusal = "your function does not pass the check, so it was not kept:\n" + clip(bad, 1000);
                 else {
                     canvas = std::move(scratch);
                     persistCanvas(canvas, attemptDir);
@@ -300,7 +352,7 @@ ForkResult runCanvasFork(const ForkOptions& o)
 
     // ---- 4. the merged file under the item's gate; a failure goes back to the sections it names ----
     bool ok = gate(gateText);
-    while (!ok && res.rounds < o.rounds) {
+    while (!ok && res.rounds < o.rounds && remainingSec() > 0) {
         ++res.rounds;
         std::vector<ForkSection*> implicated;
         // The first round goes to the sections the failure names (and any that never committed); when it names none, or naming them did not help, to all.
@@ -347,6 +399,7 @@ int runLlmFork(const std::vector<std::string>& args)
     o.parallel = std::atoi(arg(args, "parallel", "0").c_str());
     o.sequentialReason = arg(args, "sequential-reason");
     o.memFloorMiB = std::atol(arg(args, "mem-floor-mib", "0").c_str());
+    o.wallBudgetSec = std::atoi(arg(args, "attempt-wall", "1500").c_str());
     auto profile = EngineProfile::parse(arg(args, "engine"));
     if (!profile) { std::fprintf(stderr, "llm-fork: %s\n", profile.error().c_str()); return 64; }
     o.engine = *profile;

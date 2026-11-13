@@ -276,7 +276,7 @@ ModelCheck canvasModelCheck(int cases, unsigned seed)
 ChatFn slotModelEngine(std::function<std::string(const std::vector<ChatMessage>&)> answer, SlotModel model, double msPerSimSecond)
 {
     auto inFlight = std::make_shared<std::atomic<int>>(0);
-    return [answer = std::move(answer), model, msPerSimSecond, inFlight](const EngineProfile&, const std::vector<ChatMessage>& messages, int maxTokens, int) -> std::expected<ChatResult, std::string> {
+    return [answer = std::move(answer), model, msPerSimSecond, inFlight](const EngineProfile&, const std::vector<ChatMessage>& messages, int maxTokens, int, const StreamGuard&) -> std::expected<ChatResult, std::string> {
         ChatResult r;
         r.content = answer(messages);
         std::size_t promptChars = 0;
@@ -297,25 +297,25 @@ ChatFn slotModelEngine(std::function<std::string(const std::vector<ChatMessage>&
 
 namespace {
 
-/// The reference Python engine as a skeleton: every method of four lines or more becomes a stub; returns the functions that were stubbed.
+/// The reference Python engine as a DECLARED skeleton (what a primer replies): every function of four lines or more becomes one `@@ signature` line;
+/// `functions` receives the reference text of each.
 std::string pythonSkeleton(const std::string& ref, std::map<std::string, std::string>& functions)
 {
     const auto lines = splitLines(ref);
     std::vector<bool> drop(lines.size(), false);
-    std::map<std::size_t, std::string> stubAt;
+    std::map<std::size_t, std::string> declAt;
     for (const auto& r : foldRegions(ref, true, true)) {
         if (r.name.empty() || r.name.rfind("__", 0) == 0 || r.bodyTo - r.first < 3 || functions.count(r.name)) continue;
         std::string text;
-        for (int k = r.first; k <= r.bodyTo; ++k) text += lines[static_cast<std::size_t>(k) - 1] + "\n";
+        for (int k = r.first; k <= r.bodyTo; ++k) { text += lines[static_cast<std::size_t>(k) - 1] + "\n"; drop[static_cast<std::size_t>(k) - 1] = true; }
         functions[r.name] = text;
-        const std::string& first = lines[static_cast<std::size_t>(r.bodyFrom) - 1];
-        const std::string indent = first.substr(0, first.find_first_not_of(" \t"));
-        for (int k = r.bodyFrom; k <= r.bodyTo; ++k) drop[static_cast<std::size_t>(k) - 1] = true;
-        stubAt[static_cast<std::size_t>(r.bodyFrom) - 1] = indent + "raise NotImplementedError(\"not implemented: " + r.name + "\")";
+        const std::string& sig = lines[static_cast<std::size_t>(r.first) - 1];
+        const auto ind = sig.find_first_not_of(" \t");
+        declAt[static_cast<std::size_t>(r.first) - 1] = sig.substr(0, ind) + "@@ " + sig.substr(ind, sig.rfind(':') - ind);
     }
     std::string out;
     for (std::size_t i = 0; i < lines.size(); ++i) {
-        if (const auto s = stubAt.find(i); s != stubAt.end()) out += s->second + "\n";
+        if (const auto d = declAt.find(i); d != declAt.end()) out += d->second + "\n";
         if (!drop[i]) out += lines[i] + "\n";
     }
     return out;
@@ -334,7 +334,7 @@ ParallelProof parallelSectionsProof(const fs::path& workDir, int width, const Sl
     if (functions.size() < 4) { p.error = "the reference has too few functions to fork"; return p; }
     const auto answer = [&](const std::vector<ChatMessage>& m) -> std::string {
         const std::string& ask = m.back().content;
-        if (ask.find("Write the SKELETON first") != std::string::npos) return "=== FILE: " + file + " ===\n" + skeleton + "=== END FILE ===\n";
+        if (ask.find("Declare the STRUCTURE") != std::string::npos) return "=== SKELETON: " + file + " ===\n" + skeleton + "=== END SKELETON ===\n";
         const auto own = ask.rfind("You own `");
         if (own == std::string::npos) return "I do not know what to write.";
         const std::string name = ask.substr(own + 9, ask.find('`', own + 9) - own - 9);

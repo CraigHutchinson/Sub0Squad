@@ -95,7 +95,7 @@ add_test(NAME test_reporting COMMAND ${CMAKE_COMMAND} -DSRC_DIR=${CMAKE_SOURCE_D
 function(sub0squad_add_test name)
   # tests that exercise the multi-call binary receive its path as argv[1]
   add_executable(${name} tests/${name}.cpp)
-  target_compile_options(${name} PRIVATE ${SUB0SQUAD_STRICT})
+  target_compile_options(${name} PRIVATE ${SUB0SQUAD_STRICT} -g)   # line numbers when a test crashes
   target_include_directories(${name} PRIVATE tests)
   target_link_libraries(${name} PRIVATE sub0squad_core simdjson::simdjson ${ARGN})
   add_test(NAME ${name} COMMAND ${name} $<TARGET_FILE:sub0squad>)

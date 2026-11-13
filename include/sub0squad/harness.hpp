@@ -31,6 +31,9 @@ struct Harness
     /// The cheapest check alone (a syntax or compile check that names file and line), over candidate files that are NOT yet the attempt's output: the commit
     /// gate of a canvas transaction (docs/CANVAS.md). Arguments: `--workflow-dir D --item I --attempt N --files-dir DIR`. Returns "" when the files pass.
     std::string (*precheck)(const std::vector<std::string>& args) = nullptr;
+    /// Work is divided by SECTIONS of a file under a skeleton (the fork executor), never into new modules: in a compiled language a new module needs a
+    /// header that declares its interface and no item of a division owns one (docs/INTERVENTIONS.md row 45, docs/CANVAS.md "Division on compiled platforms").
+    bool divideBySections = false;
 };
 
 /// The harness named `name`, or nullptr (an empty or unknown name; the empty name is the legacy header-only calculator sandbox, which has no entry).
