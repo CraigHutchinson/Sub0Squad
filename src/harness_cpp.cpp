@@ -185,6 +185,7 @@ int runCppIntegrate(const std::vector<std::string>& args)
             md += " |\n";
         }
         md += "\n## Verification\n\n" + std::to_string(all.pass) + " tests passed over the merged project, built with AddressSanitizer and UBSan; the app ran a smoke expression.\n\n## The app's screen (capture)\n\n```\n" + frame.output + "```\n\n## Run it\n\n```sh\ncd project\ncmake -S . -B build -G Ninja && cmake --build build\nbuild/calc_cli '2^3^2'\n```\n";
+        md += provenanceMarkdown(*plan, dir);
         if (!plan->reasons.empty()) { md += "\n## Why this split\n\n"; for (const auto& r : plan->reasons) md += "- " + r + "\n"; }
         writeFile(dir / "report.md", md);
         json::Writer w;

@@ -437,6 +437,21 @@ WorkflowAction finish(WorkflowState s, std::string note) { WorkflowAction a; a.k
 
 }  // namespace
 
+std::string firstCause(const WorkflowRecord& wf)
+{
+    for (const auto& d : wf.decisions) if (d.action == "fail" && (!wf.plan || wf.plan->find(d.item))) return d.item;
+    return {};
+}
+
+std::vector<std::string> laterFailures(const WorkflowRecord& wf)
+{
+    const std::string first = firstCause(wf);
+    std::vector<std::string> later;
+    for (const auto& d : wf.decisions)
+        if (d.action == "fail" && d.item != first && (!wf.plan || wf.plan->find(d.item)) && std::find(later.begin(), later.end(), d.item) == later.end()) later.push_back(d.item);
+    return later;
+}
+
 std::vector<WorkflowAction> advance(const WorkflowRecord& wf, const JobStore& store, const WorkflowSettings& st, const IDecisionPolicy& policy)
 {
     std::vector<WorkflowAction> out;
@@ -645,7 +660,14 @@ std::vector<WorkflowAction> advance(const WorkflowRecord& wf, const JobStore& st
         // Never discard progress (owner rule): an item that ran out of options stops its own branch, not the others. Jobs in flight and work this pass
         // started carry on; the workflow fails once nothing else can move (everything that depended on the failed item stays pending).
         if (anyActive || !out.empty()) return out;
-        if (!anyActive) out.push_back(finish(WorkflowState::failed, "item '" + failedItem + "' failed after the policy ran out of options"));
+        if (!anyActive) {
+            // Name the FIRST cause (row 14), not whichever item the loop above reached last, and say what failed after it.
+            const std::string cause = firstCause(wf).empty() ? failedItem : firstCause(wf);
+            std::string note = "item '" + cause + "' failed after the policy ran out of options";
+            const auto later = laterFailures(wf);
+            if (!later.empty()) { note += " (it failed first; later failures:"; for (const auto& l : later) note += " '" + l + "'"; note += ")"; }
+            out.push_back(finish(WorkflowState::failed, note));
+        }
         return out;
     }
 

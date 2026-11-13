@@ -386,16 +386,18 @@ void printWorkflows(const std::string& text)
                         else if (k == "reasons") { for (auto r : v.get_array()) reasons.push_back(json::toString(r.value())); }
                         else if (k == "items") {
                             for (auto iv : v.get_array()) {
-                                std::string iid, title, status, tier; std::int64_t attempts = 0;
+                                std::string iid, title, status, tier, builtBy; std::int64_t attempts = 0;
                                 for (auto g : iv.get_object()) {
                                     const std::string_view gk = g.unescaped_key();
                                     auto gv = g.value();
                                     if (gk == "id") iid = json::toString(gv); else if (gk == "title") title = json::toString(gv);
                                     else if (gk == "status") status = json::toString(gv); else if (gk == "tier") tier = json::toString(gv);
                                     else if (gk == "attempts") attempts = gv.get_int64();
+                                    else if (gk == "builtBy") builtBy = json::toString(gv);
                                 }
                                 char buf[256];
-                                std::snprintf(buf, sizeof buf, "  %-11s %-10s attempts %lld  last tier %-13s %s", iid.c_str(), status.c_str(), static_cast<long long>(attempts), tier.empty() ? "-" : tier.c_str(), title.c_str());
+                                std::snprintf(buf, sizeof buf, "  %-11s %-10s attempts %lld  last tier %-13s %s%s", iid.c_str(), status.c_str(), static_cast<long long>(attempts), tier.empty() ? "-" : tier.c_str(), title.c_str(),
+                                              builtBy == "stub" ? "  [NOT model-built: frontier stub]" : builtBy == "mock" ? "  [mock agent]" : "");
                                 items.push_back(buf);
                             }
                         } else if (k == "decisions") {

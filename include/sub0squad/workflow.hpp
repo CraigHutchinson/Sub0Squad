@@ -139,6 +139,12 @@ struct WorkflowAction
 [[nodiscard]] std::vector<WorkflowAction> advance(const WorkflowRecord& wf, const JobStore& jobs, const WorkflowSettings& settings,
                                                   const IDecisionPolicy& policy);
 
+/// The FIRST cause of a failed workflow (catalogue row 14): the item whose ladder ended first, by journal order. Items that fail later may have failed because of
+/// it (a coordinator whose part failed, a dependant) or independently; blaming the last one reported a part that was never attempted. "" when no item failed.
+[[nodiscard]] std::string firstCause(const WorkflowRecord& wf);
+/// Items other than the first cause that also failed, in journal order.
+[[nodiscard]] std::vector<std::string> laterFailures(const WorkflowRecord& wf);
+
 /// Per-item view for status output.
 struct ItemStatus
 {

@@ -59,6 +59,12 @@ int main(int, char** argv)
         const double share = std::atof(field(s, "frontierTokenShare").c_str());
         CHECK(share > 0.0 && share < 0.5);                                // escalation is the exception, not the rule
         CHECK(s.find("\"stub\":true") != std::string::npos);
+        // Row 31: the item the stub tier wrote is labelled NOT model-built in the status, the table and the report; the mock agent's items say mock.
+        CHECK(s.find("\"id\":\"dev-engine\"") != std::string::npos && s.find("\"builtBy\":\"stub\"") != std::string::npos && s.find("\"builtBy\":\"mock\"") != std::string::npos);
+        CHECK(sq.cli({"project", "status", wf}).out.find("[NOT model-built: frontier stub]") != std::string::npos);
+        const std::string reportText = slurp(sq.home() / "state" / "workflows" / wf / "report.md");
+        CHECK(reportText.find("## How each item was built") != std::string::npos && reportText.find("| dev-engine | stub |") != std::string::npos && reportText.find("| dev-app | mock |") != std::string::npos);
+        CHECK(reportText.find("0 of 4 items were built by a model") != std::string::npos);
         // The calculator the squad built works.
         const auto project = sq.home() / "state" / "workflows" / wf / "project";
         CHECK(std::filesystem::exists(project / "calc" / "engine.py") && std::filesystem::exists(sq.home() / "state" / "workflows" / wf / "report.md"));

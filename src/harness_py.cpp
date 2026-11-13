@@ -113,6 +113,7 @@ int runPyIntegrate(const std::vector<std::string>& args)
             md += " |\n";
         }
         md += "\n## Verification\n\n" + std::to_string(all.pass) + " tests passed over the merged project in Python development mode with warnings as errors; the app ran a smoke expression.\n\n## The app's screen (capture)\n\n```\n" + frame.output + "```\n\n## Run it\n\n```sh\ncd project\npython3 -m calc '2^3^2'\n```\n";
+        md += provenanceMarkdown(*plan, dir);
         if (!plan->reasons.empty()) { md += "\n## Why this split\n\n"; for (const auto& r : plan->reasons) md += "- " + r + "\n"; }
         writeFile(dir / "report.md", md);
         json::Writer w;

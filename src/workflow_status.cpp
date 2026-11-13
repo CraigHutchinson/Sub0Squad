@@ -16,6 +16,7 @@ std::string workflowStatusJson(const RuntimePaths& paths, const WorkflowStore& w
     for (const auto& wf : workflows.workflows()) {
         if (!onlyId.empty() && wf.id != onlyId) continue;
         w.beginObject().kv("id", wf.id).kv("task", wf.spec.task).kv("taskText", wf.spec.taskText).kv("seed", "").kv("state", toString(wf.state)).kv("note", wf.note).kv("sandbox", wf.spec.sandboxDir)
+            .kv("firstCause", firstCause(wf))
             .kv("process", wf.spec.process.name + "@" + std::to_string(wf.spec.process.version)).kv("submittedAt", wf.submittedAt).kv("finishedAt", wf.finishedAt);
         w.key("engines").beginArray();
         for (const auto& e : wf.spec.engines) w.str(e);
@@ -45,6 +46,7 @@ std::string workflowStatusJson(const RuntimePaths& paths, const WorkflowStore& w
             for (const auto& r : ledger) if (r.workflow == wf.id && r.item == it.id) { tin += r.tokensIn; tout += r.tokensOut; dur += r.durationSec; if (!r.engine.empty()) engine = r.engine; }
             const auto dot = it.id.rfind('.');
             w.beginObject().kv("id", it.id).kv("title", it.title).kv("status", it.status).kv("attempts", it.attempts).kv("tier", it.tier)
+                .kv("builtBy", it.status != "accepted" ? std::string{} : it.tier == "frontier-stub" ? std::string{"stub"} : pi && pi->persona == "integrator" ? std::string{"parts"} : wf.spec.agent == "mock" ? std::string{"mock"} : std::string{"model"})
                 .kv("persona", pi ? pi->persona : std::string{}).kv("parent", dot == std::string::npos ? std::string{} : it.id.substr(0, dot))
                 .kv("tokensIn", tin).kv("tokensOut", tout).kv("durationSec", dur).kv("engine", engine);
             w.key("deps").beginArray();

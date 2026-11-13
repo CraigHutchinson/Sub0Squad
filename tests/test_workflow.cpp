@@ -603,6 +603,27 @@ int main()
             CHECK_EQ(count(s, "retry"), 0);
         }
     }
+    {   // Row 14: a workflow that fails names the item that failed FIRST, and lists what failed after it. (The loop used to keep whichever failing item it reached
+        // LAST in plan order: with a and c both failing it named c, and once blamed a part that had never been attempted.)
+        SCENARIO("first-cause-attribution");
+        Plan p;
+        p.task = "t"; p.harness = "web-static";
+        WorkItem a; a.id = "a"; a.title = "A"; a.goal = "g"; a.files = {"src/calc.js"}; a.gate.kind = "node-test"; a.gate.tests = {"tests/eval.test.mjs"};
+        WorkItem c; c.id = "c"; c.title = "C"; c.goal = "g"; c.files = {"style.css"}; c.gate = a.gate;
+        p.items = {a, c};
+        Sim s = startSim(1, FrontierMode::off);
+        s.feed("workflowPlanned", wfbody::planned("w-000001", p));
+        for (int guard = 0; guard < 80 && s.wfs.find("w-000001")->state == WorkflowState::running; ++guard) {
+            const auto acts = s.step();
+            for (const auto& id : s.run(acts)) s.finishJob(id, s.job(id)->spec.role == "gate" ? JobState::failed : JobState::succeeded);
+        }
+        const WorkflowRecord& wf = *s.wfs.find("w-000001");
+        CHECK(wf.state == WorkflowState::failed);
+        CHECK_EQ(firstCause(wf), std::string("a"));
+        CHECK(laterFailures(wf) == std::vector<std::string>{"c"});
+        CHECK(wf.note.find("item 'a' failed after the policy ran out of options (it failed first; later failures: 'c')") != std::string::npos);
+        CHECK(firstCause(WorkflowRecord{}).empty());
+    }
     {   // Processes other than the standard one: the SAME engine, different parameters, different behaviour (docs/PROCESS_DESIGN.md). The goldens above hold the
         // standard process to what the engine did before processes were data; these drive the others.
         using Outcome = std::pair<JobState, std::string>;
