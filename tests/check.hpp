@@ -12,6 +12,8 @@ inline int gFailures = 0;
 #define CHECK(cond) do { if (!(cond)) { std::fprintf(stderr, "%s:%d: CHECK failed: %s\n", __FILE__, __LINE__, #cond); ++gFailures; } } while (0)
 #define CHECK_EQ(a, b) do { auto&& _a = (a); auto&& _b = (b); if (!(_a == _b)) { std::fprintf(stderr, "%s:%d: CHECK_EQ failed: %s != %s\n", __FILE__, __LINE__, #a, #b); ++gFailures; } } while (0)
 
+#define CHECK_GE(a, b) do { auto&& _a = (a); auto&& _b = (b); if (!(_a >= _b)) { std::fprintf(stderr, "%s:%d: CHECK_GE failed: %s < %s\n", __FILE__, __LINE__, #a, #b); ++gFailures; } } while (0)
+
 /// A fresh directory under `$SUB0SQUAD_TEST_TMP`, or `test-tmp` in the working directory (ctest runs in the build directory, so
 /// tests never write to shared locations like /tmp). Unix socket paths are limited to ~107 bytes: socket code uses the
 /// /proc/self/fd trick, so a long base is fine.

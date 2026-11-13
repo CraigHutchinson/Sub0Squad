@@ -15,29 +15,6 @@
 using namespace sub0squad;
 using namespace bench;
 
-/// The reference as a DECLARED skeleton (what a primer replies): each function in `names` becomes one `@@ signature` line; `functions` receives each
-/// one's reference text. `python` selects the language of the fold detection.
-static std::string skeletonOf(const std::string& ref, const std::vector<std::string>& names, std::map<std::string, std::string>& functions, bool python = true)
-{
-    auto v = lines(ref);
-    const auto regions = foldRegions(ref, python, true);
-    for (auto r = regions.rbegin(); r != regions.rend(); ++r) {   // bottom up, so earlier line numbers stay valid
-        if (std::find(names.begin(), names.end(), r->name) == names.end() || functions.count(r->name)) continue;
-        std::string text;
-        for (int k = r->first; k <= r->bodyTo; ++k) text += v[static_cast<std::size_t>(k) - 1] + "\n";
-        functions[r->name] = text;
-        const std::string sig = v[static_cast<std::size_t>(r->first) - 1];
-        const auto ind = sig.find_first_not_of(" \t");
-        std::string decl = sig.substr(ind);
-        if (python) decl.erase(decl.rfind(':'));
-        v.erase(v.begin() + (r->first - 1), v.begin() + r->bodyTo);
-        v.insert(v.begin() + (r->first - 1), sig.substr(0, ind) + "@@ " + decl);
-    }
-    std::string out;
-    for (const auto& l : v) out += l + "\n";
-    return out;
-}
-static std::string skeletonBlock(const std::string& path, const std::string& declared) { return "=== SKELETON: " + path + " ===\n" + declared + "=== END SKELETON ===\n"; }
 static std::string ownerOf(const fake::Request& rq)
 {
     const std::string& ask = rq.last();

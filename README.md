@@ -48,7 +48,6 @@ sub0squad up                                  # starts the daemon and the portal
 sub0squad do "write a calculator in C++"      # triage picks the blueprint, the plan loads itself, the work starts
 sub0squad project wait w-000001 --timeout 900 # blocks until the project ends (seconds with the mock agent)
 sub0squad project status                      # the workflow and each item
-sub0squad down                                # stops the daemon and the portal
 ```
 
 * **Watch it live:** `up` prints the portal's address (http://127.0.0.1:8780/ unless `SUB0SQUAD_PORTAL_PORT` or `--portal-port` says otherwise). It shows the
@@ -57,7 +56,26 @@ sub0squad down                                # stops the daemon and the portal
   `state/workflows/w-000001/report.md` the report, and `items/<item>/attempt-N/` every attempt with its conversation, files and gate output.
 * **Other starts:** `sub0squad do "write a calculator in Python"`, `sub0squad do "write a scientific calculator as a web page"`, or by name:
   `sub0squad project submit --task calculator-py`. A task with no blueprint stops at "awaiting a plan" and says where the request is.
+* **A workflow of your own.** A workflow is a **process**: data that says which executor writes developers' and testers' items, which rungs of the escalation
+  ladder exist (divide into modules, write by sections, send the tests back, rewrite the card, escalate) and how long each kind of job may run. `standard`
+  is today's behaviour; `sections` writes developers' items as forked sections and never divides them into modules. A new one is a copy with changes:
+
+  ```sh
+  sub0squad process list                        # built-in processes and the files in $SUB0SQUAD_HOME/state/processes/
+  sub0squad process add my-flow --from sections --set ascent.maxRoundTrips=5 --describe "sections, five integration round trips"
+  sub0squad do "write a calculator in Python" --process my-flow
+  sub0squad project wait w-000002 --timeout 900
+  sub0squad process show my-flow                # the file: every parameter, so it says what runs
+  ```
+
+  Nothing in the engine changes: `process show standard` lists every parameter, `process add --set PATH=VALUE` changes one, and the file can be edited by hand
+  (an unknown key is an error that names it). The workflow keeps a copy of its process, so editing the file later changes nothing that is already running. With
+  the mock agent the executors are not used (the mock writes reference files); the ladder's rungs and the wall times are.
 * **If something is wrong:** `sub0squad doctor` again; `sub0squad status` and `sub0squad logs ID` show the jobs; the daemon's log is under `state/up/`.
+
+```sh
+sub0squad down                                # stops the daemon and the portal
+```
 <!-- first-use:end -->
 
 ### With a local model

@@ -6,9 +6,12 @@
 #include "fake_engine.hpp"
 #include "sub0squad/harness.hpp"
 #include "sub0squad/harness_py.hpp"
+#include "sub0squad/outline.hpp"
 #include "sub0squad/sandbox.hpp"
 
+#include <algorithm>
 #include <fstream>
+#include <map>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -32,6 +35,37 @@ inline int lineOf(const std::string& text, const std::string& needle)
 }
 inline std::string reference() { return sub0squad::findHarness("py-unittest")->mockFile(kFile, false); }
 inline std::string defective() { return sub0squad::findHarness("py-unittest")->mockFile(kFile, true); }
+
+/// The reference as a DECLARED skeleton (what a primer replies): each function in `names` becomes one `@@ signature` line; `functions` receives each
+/// one's reference text. `python` selects the language of the fold detection.
+inline std::string skeletonOf(const std::string& ref, const std::vector<std::string>& names, std::map<std::string, std::string>& functions, bool python = true)
+{
+    auto v = lines(ref);
+    const auto regions = sub0squad::foldRegions(ref, python, true);
+    for (auto r = regions.rbegin(); r != regions.rend(); ++r) {   // bottom up, so earlier line numbers stay valid
+        if (std::find(names.begin(), names.end(), r->name) == names.end() || functions.count(r->name)) continue;
+        std::string text;
+        for (int k = r->first; k <= r->bodyTo; ++k) text += v[static_cast<std::size_t>(k) - 1] + "\n";
+        functions[r->name] = text;
+        const std::string sig = v[static_cast<std::size_t>(r->first) - 1];
+        const auto ind = sig.find_first_not_of(" \t");
+        std::string decl = sig.substr(ind);
+        if (python) decl.erase(decl.rfind(':'));
+        v.erase(v.begin() + (r->first - 1), v.begin() + r->bodyTo);
+        v.insert(v.begin() + (r->first - 1), sig.substr(0, ind) + "@@ " + decl);
+    }
+    std::string out;
+    for (const auto& l : v) out += l + "\n";
+    return out;
+}
+inline std::string skeletonBlock(const std::string& path, const std::string& declared) { return "=== SKELETON: " + path + " ===\n" + declared + "=== END SKELETON ===\n"; }
+/// The names of the functions of `ref` worth a section of their own (four lines or more, not a constructor).
+inline std::vector<std::string> sectionNames(const std::string& ref, bool python = true)
+{
+    std::vector<std::string> names;
+    for (const auto& r : sub0squad::foldRegions(ref, python, true)) if (!r.name.empty() && r.name.rfind("__", 0) != 0 && r.bodyTo - r.first >= 3) names.push_back(r.name);
+    return names;
+}
 
 /// A fresh workflow directory with the plan written and `test-engine` accepted.
 inline fs::path workflow(const char* tag)

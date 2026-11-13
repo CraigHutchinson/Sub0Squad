@@ -139,6 +139,8 @@ add_test(NAME test_readme COMMAND test_readme $<TARGET_FILE:sub0squad> ${CMAKE_C
 add_dependencies(test_readme sub0squad)
 set_tests_properties(test_readme PROPERTIES TIMEOUT 900)
 set_tests_properties(test_project PROPERTIES TIMEOUT 600)
+sub0squad_add_test(test_executors)
+set_tests_properties(test_executors PROPERTIES TIMEOUT 900)
 sub0squad_add_test(test_e2e)
 set_tests_properties(test_e2e PROPERTIES TIMEOUT 300)
 sub0squad_add_test(test_idle)

@@ -1,6 +1,6 @@
 # Process design: processes as data over the V, delegation and parallelism; the process controller
 
-Status: DESIGN, revision 2, 2026-11-11. Owner of the design: this document. It supersedes the first draft after an audit of that draft against
+Status: DESIGN, revision 2, 2026-11-11; **the first slice is BUILT (2026-11-13), in a smaller and in some respects different form: read section 12 first.** Owner of the design: this document. It supersedes the first draft after an audit of that draft against
 `src/workflow.cpp` (section 1). Builds on DESIGN_AUDIT.md section 3 (four registries), BUILDING_BLOCKS.md (co-evolving structure and leaves, up-transfer,
 versioned contracts, the three ideals), FEEDBACK_LOOPS.md section 4 (the bar), INTERVENTIONS.md (the ledger) and WORK_GRAPH.md sections 7, 13, 14 (the V,
 requests). Nothing here is built except the harness registry (`harness.hpp`, `harness_registry.cpp`). Every new capability is off by default; the owner
@@ -481,6 +481,43 @@ loops), `test_process` green, and the goldens equal under the refactored engine 
 
 **What it buys**: every later step (predicates, stage derivation, `Plan::extended`, bars, drafts) is compared against goldens recorded from the engine as it is
 today, which is the one thing that cannot be done after the fact.
+
+## 12. As built (2026-11-13): what the first slice is, what changed from section 9, and why
+
+Built: `include/sub0squad/process.hpp`, `src/process.cpp`, `registry/processes/{standard,sections}@1.json`, the engine reading its parameters from the workflow's process,
+`WorkflowAction::toJson()`, `process list|show|add`, `--process NAME`, `tests/test_process.cpp`, `tests/data/actions/*.ndjson` (the goldens) and the scenarios in
+`test_workflow.cpp`. The standard process is proven identical by the goldens: **14 scenarios (145 engine passes) recorded from the engine BEFORE the change are reproduced byte
+for byte**; six more were recorded afterwards to pin the other processes (they prove nothing about equivalence). A corrupted golden fails the test (checked). Where this differs from section 9, and why:
+
+1. **A process is the parameter set of the fixed three stages (plan, build, integrate), not a list of stages.** Section 9 already said "no stage loop, no predicates,
+   no new actions"; the built `Process` goes one step further and has no `stages[]` at all. A stage list with nothing but the three stages the engine has would be
+   a field no process could legally change. Stages as data (steps 2 to 7 of section 10) are worth building when a process needs a stage the skeleton lacks: the
+   first real candidate is the CONTRACT stage of docs/CANVAS.md ("Division on compiled platforms"), not the spike.
+2. **A knob with one legal value is not a knob.** The first sketch had `planner.tool` and `integrate.tier`; the planner has one tool and the integrator's tier is
+   a label. They are not in the file. What a process can change is exactly what the engine can do differently: executor of each persona, which ladder rungs
+   exist, wall times, planner retries, coordinator round trips.
+3. **The executors are process parameters.** `leaf.executor.developer` / `.tester` is `session`, `canvas` or `fork` (a tester cannot fork: a test file has no
+   sections). The workflow's `--executor` is an override of the process, empty by default. This is where "the three executors are registered processes" lands: an
+   executor is chosen by data, and a new combination is a file.
+4. **A rung a process lacks is skipped by the policy, not mapped to `fail` by the engine.** Section 2.1 said a disallowed rung maps the policy's decision to `fail`
+   before the exhaustion chain. That skips every rung ABOVE the disallowed one: a process without `decompose` would fail where the ladder should go on to the
+   tests, the card and the frontier tier. The five `allow*` flags are inputs of `DecisionContext`; `RulePolicy` tests each rung's flag and falls through. They
+   are configuration and not failure evidence, so they are not in the recorded decision (which keeps the goldens equal).
+5. **The process is stored in the workflow's spec, not looked up while the engine runs.** The CLI resolves the name (built-in, or `<state>/processes/NAME.json`),
+   and `workflowSubmitted` carries the whole process. The journal therefore says what ran, `advance()` stays a pure function of the record, and editing a file
+   later changes nothing in flight. The price is about 600 bytes per workflow in the journal. A spec written before processes existed reads as `standard`.
+6. **One table describes the file format.** `fieldsOf()` lists every parameter once; writing, reading, `set` and the list of paths all come from it, so a
+   parameter cannot be written but not read. An unknown key is an error that names it (the draft said "tolerant like Plan"; for a file a person writes, a typo
+   that silently means the default is the worse failure).
+7. **There is no second engine to compare against.** Section 5 planned "same snapshot, both engines" and a shadow mode while both existed. The engine was
+   refactored in place, so the goldens (recorded first, as the design demanded) are the whole oracle. Parts 3 and 4 of the equivalence test (recorded journals of
+   real runs, a shadow run) are not built; recorded journals would still find orderings the scenarios did not produce, and remain worth doing before the next
+   change to the engine's decisions.
+
+Proven by the second built process: `sections` and the custom `--set` process drive the SAME engine to different behaviour (`process-sections-never-divides`,
+`process-custom-parameters`, `process-planner-and-integration`, `process-executor-override`; each with its contrast against `standard`), and through the daemon
+with a fake engine (`test_executors`). Not proven: that a process other than these two does what its author means beyond what a scenario drives; the spike-first
+preset of section 6 needs stages as data and is still a design.
 
 ## 10. Migration after the slice
 

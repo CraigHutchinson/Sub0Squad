@@ -97,7 +97,7 @@ static Plan simPlan(std::vector<WorkItem> items)
 static Plan makePlan() { return simPlan({{"a", "A", "goal a", {"src/calc.js"}, {}, 1}, {"b", "B", "goal b", {"src/ui.js"}, {"a"}, 2}, {"c", "C", "goal c", {"style.css"}, {}, 1}}); }
 static Plan onePlan() { return simPlan({{"a", "A", "g", {"src/calc.js"}, {}, 1}}); }
 
-static Sim startSim(int maxLocal = 2, FrontierMode fm = FrontierMode::stub, bool ask = false)
+static Sim startSim(int maxLocal = 2, FrontierMode fm = FrontierMode::stub, bool ask = false, const Process& process = standardProcess(), bool llm = false)
 {
     Sim s;
     s.settings.frontier = fm;
@@ -106,6 +106,8 @@ static Sim startSim(int maxLocal = 2, FrontierMode fm = FrontierMode::stub, bool
     spec.sandboxDir = "/sb";
     spec.maxLocalAttempts = maxLocal;
     spec.ask = ask;
+    spec.process = process;
+    if (llm) { spec.agent = "llm"; spec.engines = {"e=http://127.0.0.1:9/v1"}; }
     s.feed("workflowSubmitted", wfbody::submitted("w-000001", spec));
     return s;
 }
@@ -599,6 +601,131 @@ int main()
             CHECK(s.wfs.find("w-000001")->state == WorkflowState::succeeded);
             CHECK_EQ(count(s, "rearchitect"), 1);
             CHECK_EQ(count(s, "retry"), 0);
+        }
+    }
+    {   // Processes other than the standard one: the SAME engine, different parameters, different behaviour (docs/PROCESS_DESIGN.md). The goldens above hold the
+        // standard process to what the engine did before processes were data; these drive the others.
+        using Outcome = std::pair<JobState, std::string>;
+        const auto drive = [](Sim& s, const std::function<Outcome(const JobRecord&)>& outcome) {
+            for (int guard = 0; guard < 120 && s.wfs.find("w-000001")->state == WorkflowState::running; ++guard) {
+                const auto acts = s.step();
+                for (const auto& id : s.run(acts)) { const Outcome o = outcome(*s.job(id)); s.finishJob(id, o.first, o.second); }
+            }
+        };
+        const auto count = [](Sim& s, const char* action) { int n = 0; for (const auto& d : s.wfs.find("w-000001")->decisions) if (d.action == action) ++n; return n; };
+        const auto gate = [](const char* tests, bool stub) { GateSpec g; g.kind = "node-test"; g.tests = {tests}; g.minTests = 1; g.mustFailOnStub = stub; return g; };
+        // A tester's item and a wide developer's item that depends on it: the plan on which the processes differ.
+        const auto widePlan = [&] {
+            Plan p;
+            p.task = "t"; p.harness = "web-static";
+            WorkItem t; t.id = "t"; t.title = "Tests"; t.goal = "g"; t.persona = "tester"; t.files = {"tests/e.test.mjs"}; t.gate = gate("tests/e.test.mjs", true);
+            WorkItem a; a.id = "a"; a.title = "Work"; a.goal = "g"; a.files = {"src/e.js", "src/f.js"}; a.deps = {"t"}; a.complexity = 3; a.gate = gate("tests/e.test.mjs", false);
+            p.items = {t, a};
+            return p;
+        };
+        // everything succeeds except the developer's gate and the decompose job: the ladder climbs until it is spent
+        const auto stuck = [&](const JobRecord& j) { return (j.spec.role == "gate" && j.spec.item == "a") || j.spec.role == "decompose" ? Outcome{JobState::failed, ""} : Outcome{JobState::succeeded, ""}; };
+        {   // the standard process divides a stuck wide item into modules; the sections process never does, and starts it as forked sections
+            SCENARIO("process-standard-divides");
+            Sim s = startSim(2, FrontierMode::off, false, standardProcess(), true);
+            s.feed("workflowPlanned", wfbody::planned("w-000001", widePlan()));
+            drive(s, stuck);
+            CHECK(s.wfs.find("w-000001")->state == WorkflowState::failed);
+            CHECK_GE(count(s, "decompose"), 1);
+        }
+        {
+            SCENARIO("process-sections-never-divides");
+            Sim s = startSim(2, FrontierMode::off, false, sectionsProcess(), true);
+            s.feed("workflowPlanned", wfbody::planned("w-000001", widePlan()));
+            // t first (a canvas session), then a's FIRST attempt is already the fork executor
+            auto acts = s.step();
+            CHECK(acts.size() == 1 && acts[0].job.item == "t" && acts[0].job.argv[1] == "llm-agent");
+            CHECK(std::find(acts[0].job.argv.begin(), acts[0].job.argv.end(), "canvas") != acts[0].job.argv.end());      // a tester's item runs on the canvas
+            s = startSim(2, FrontierMode::off, false, sectionsProcess(), true);
+            s.feed("workflowPlanned", wfbody::planned("w-000001", widePlan()));
+            bool devStartedAsFork = false;
+            for (int guard = 0; guard < 120 && s.wfs.find("w-000001")->state == WorkflowState::running; ++guard) {
+                const auto step = s.step();
+                for (const auto& a : step) if (a.kind == WorkflowAction::Kind::startJob && a.job.item == "a" && a.job.role == "agent" && a.job.attempt == 1) devStartedAsFork = a.job.argv[1] == "llm-fork";
+                for (const auto& id : s.run(step)) { const Outcome o = stuck(*s.job(id)); s.finishJob(id, o.first, o.second); }
+            }
+            CHECK(devStartedAsFork);
+            CHECK(s.wfs.find("w-000001")->state == WorkflowState::failed);
+            CHECK_EQ(count(s, "decompose"), 0);                                                                         // the rung does not exist in this process
+        }
+        {   // a process of one's own, by parameters alone: no escalation (the stub tier would otherwise be asked), no card rewrite, and its own wall times
+            SCENARIO("process-custom-parameters");
+            Process mine = standardProcess();
+            mine.name = "mine";
+            CHECK(mine.set("leaf.allow.escalate", "false").has_value() && mine.set("leaf.allow.rearchitect", "false").has_value());
+            CHECK(mine.set("leaf.wallSeconds.gate", "45").has_value() && mine.set("integrate.wallSeconds", "77").has_value() && mine.set("planner.wallSeconds", "33").has_value());
+            Sim s = startSim(2, FrontierMode::stub, false, mine);
+            s.feed("workflowPlanned", wfbody::planned("w-000001", onePlan()));
+            int gateWall = 0;
+            bool sawFrontier = false;
+            for (int guard = 0; guard < 40 && s.wfs.find("w-000001")->state == WorkflowState::running; ++guard) {
+                const auto step = s.step();
+                for (const auto& a : step) if (a.kind == WorkflowAction::Kind::startJob) { if (a.job.role == "gate") gateWall = static_cast<int>(a.job.wallSeconds); if (a.job.tier == "frontier-stub") sawFrontier = true; }
+                for (const auto& id : s.run(step)) s.finishJob(id, s.job(id)->spec.role == "gate" ? JobState::failed : JobState::succeeded);
+            }
+            CHECK_EQ(gateWall, 45);
+            CHECK(!sawFrontier);
+            CHECK_EQ(count(s, "escalate"), 0);
+            CHECK_EQ(count(s, "rearchitect"), 0);
+            CHECK(s.wfs.find("w-000001")->state == WorkflowState::failed);
+            // the standard process, same plan, same outcomes: it does climb (rearchitect, then the frontier tier)
+            SCENARIO("process-custom-parameters-standard-contrast");
+            Sim c = startSim(2, FrontierMode::stub);
+            c.feed("workflowPlanned", wfbody::planned("w-000001", onePlan()));
+            drive(c, [](const JobRecord& j) { return j.spec.role == "gate" && j.spec.tier != "frontier-stub" ? Outcome{JobState::failed, ""} : Outcome{JobState::succeeded, ""}; });
+            CHECK_EQ(count(c, "rearchitect"), 1);
+            CHECK_EQ(count(c, "escalate"), 1);
+        }
+        {   // the planner's wall time and retries, and the integration's wall time, come from the process
+            SCENARIO("process-planner-and-integration");
+            Process fast = standardProcess();
+            fast.name = "fast";
+            CHECK(fast.set("planner.wallSeconds", "33").has_value() && fast.set("planner.retries", "0").has_value() && fast.set("integrate.wallSeconds", "77").has_value());
+            Sim s = startSim(2, FrontierMode::off, false, fast);
+            auto acts = s.step();
+            CHECK(acts.size() == 1 && acts[0].job.role == "planner" && acts[0].job.wallSeconds == 33);
+            const auto ids = s.run(acts);
+            s.finishJob(ids[0], JobState::failed);
+            acts = s.step();
+            CHECK(acts.size() == 1 && acts[0].kind == WorkflowAction::Kind::finish && acts[0].finalState == WorkflowState::failed);   // no retry
+            Sim d = startSim(2, FrontierMode::off);
+            acts = d.step();
+            const auto dids = d.run(acts);
+            d.finishJob(dids[0], JobState::failed);
+            acts = d.step();
+            CHECK(acts.size() == 1 && acts[0].kind == WorkflowAction::Kind::startJob && acts[0].job.role == "planner" && acts[0].job.wallSeconds == 60);   // the standard process retries once
+            Sim e = startSim(2, FrontierMode::off, false, fast);
+            e.feed("workflowPlanned", wfbody::planned("w-000001", onePlan()));
+            drive(e, [](const JobRecord&) { return Outcome{JobState::succeeded, ""}; });
+            CHECK(e.wfs.find("w-000001")->state == WorkflowState::succeeded);
+            bool integrator = false;
+            for (const auto& j : e.jobs.jobs()) if (j.spec.role == "integrator") { integrator = true; CHECK_EQ(j.spec.wallSeconds, static_cast<std::int64_t>(77)); }
+            CHECK(integrator);
+        }
+        {   // a spec's executor overrides the process for every item; a tester is never forked
+            SCENARIO("process-executor-override");
+            Sim s;
+            s.settings.frontier = FrontierMode::off;
+            WorkflowSpec spec;
+            spec.task = "t"; spec.sandboxDir = "/sb"; spec.agent = "llm"; spec.engines = {"e=http://127.0.0.1:9/v1"}; spec.executor = "fork";
+            s.feed("workflowSubmitted", wfbody::submitted("w-000001", spec));
+            Plan p;
+            p.task = "t"; p.harness = "web-static";
+            WorkItem t; t.id = "t"; t.title = "Tests"; t.goal = "g"; t.persona = "tester"; t.files = {"tests/e.test.mjs"}; t.gate = gate("tests/e.test.mjs", true);
+            WorkItem d; d.id = "d"; d.title = "Work"; d.goal = "g"; d.files = {"src/e.js"}; d.gate = gate("tests/e.test.mjs", false);
+            p.items = {t, d};
+            s.feed("workflowPlanned", wfbody::planned("w-000001", p));
+            const auto acts = s.step();
+            CHECK_EQ(acts.size(), static_cast<std::size_t>(2));
+            for (const auto& a : acts) {
+                if (a.job.item == "t") CHECK(a.job.argv[1] == "llm-agent" && std::find(a.job.argv.begin(), a.job.argv.end(), "canvas") != a.job.argv.end());
+                if (a.job.item == "d") CHECK_EQ(a.job.argv[1], std::string("llm-fork"));
+            }
         }
     }
     { // Divide only when it pays: over the ceiling always, under the soft budget never, in between only when the saving beats the division's cost.
