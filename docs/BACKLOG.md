@@ -133,4 +133,14 @@ hand-written Sugiyama pass; how it works with the retained-mode patching in `por
      states, the confirmations, that nothing is changed without approval, and that the project it starts finishes with the mock agent. The README's first-use section points at the wizard as the
      shortest path and keeps the plain commands for scripting.
   Depends on: process-as-data, `doctor`, `up` and `down` (built), engine service management, the fake-engine test harness (built). Out of scope for a first slice: a graphical front end, remote hosts.
+- **A planning iteration that asks clarifying questions (owner direction, 2026-11-13).** Today an underspecified request gets silent defaults: an unspecified calculator goes to the C++ blueprint,
+  the executor is `session` until the real-model comparison exists, the frontier tier is off. These defaults are accepted for now. The planning step (a stage of a registered process, and the first step of the
+  wizard) should instead ask the owner the few questions that change the outcome before any work starts, through the inbox (`request raise --kind clarification`, the answer comes back as data): which platform
+  (C++, Python, web), what scope and size, which executor, which engine and model, what the bar is for done; ask once, remember the answers in the project's knowledge register, offer the current defaults as
+  the first option so "just go" is one keypress, and never ask what the request or the harness already says. Acceptance: a test with a vague request shows the questions, an answered request shows none, and
+  the defaults path needs no answer.
+- **`up` should warn when an older daemon is already running** (a build id differs from the binary's): the submit-time refusal exists (`archive`, row 20); the warning belongs at start as well.
+- **Portal on the local network (proposed, not agreed; the portal is loopback-only today by design).** The portal serves run files, prompts and transcripts and takes owner actions (raise, answer), and checks the
+  Host header against loopback, so it must not simply bind a LAN address. If remote viewing is wanted: an explicit opt-in flag (never the default), read-only (the action endpoints off), a shared token in the URL or a
+  header, the Host check extended to the chosen name, and the address printed by `up`; until then use an SSH tunnel (`ssh -L 8780:127.0.0.1:8780 USER@HOST`). Needs the owner's go-ahead before it is built.
 - **A `doctor` command** that checks the first-use prerequisites (binary version, engine reachable, memory guard, ports, cgroup limits) and says what to fix.
