@@ -44,7 +44,7 @@ class Squad
 {
 public:
     Squad(std::string exe, const char* tag) : exe_(std::move(exe)), home_(makeTempDir(tag)) { setenv("SUB0SQUAD_HOME", home_.c_str(), 1); }
-    ~Squad() { stopDaemon(); std::filesystem::remove_all(home_); }
+    ~Squad() { stopDaemon(); removeTree(home_); }
 
     void startDaemon(int maxJobs = 2, std::vector<std::string> extra = {})
     {

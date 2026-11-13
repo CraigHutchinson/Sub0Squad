@@ -675,7 +675,7 @@ int main()
     }
     { // QA: two modules that each wrote the same helper and the same block; a long function; tests and node_modules are left alone.
         const auto root = std::filesystem::current_path() / "qa-test";
-        std::filesystem::remove_all(root);
+        removeTree(root);
         std::filesystem::create_directories(root / "src");
         std::filesystem::create_directories(root / "tests");
         const std::string shared = "function isDigit(c) {\n  return c >= '0' && c <= '9';\n}\nfunction readNumber(text, start) {\n  let end = start;\n  while (end < text.length && isDigit(text[end])) end += 1;\n  const value = Number(text.slice(start, end));\n  return { value, end };\n}\n";
@@ -692,7 +692,7 @@ int main()
             for (const auto& w : x.where) if (w.find("tests/") != std::string::npos) testsFlagged = true;
         }
         CHECK(dupHelper && dupBlock && longFn && !testsFlagged);
-        std::filesystem::remove_all(root);
+        removeTree(root);
     }
     { // Tolerant plan reading (what the 9B wrote: notes as one string) and an error that says where a type is wrong.
         const std::string base = "{\"schema\":\"plan-2\",\"task\":\"x\",\"harness\":\"web-static\",\"items\":[{\"id\":\"a\",\"title\":\"A\",\"persona\":\"developer\",\"goal\":\"g\",\"files\":%FILES%,\"deps\":[],\"complexity\":%CX%,"

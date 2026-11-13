@@ -44,7 +44,7 @@ int main()
                 CHECK(r3.has_value() && !r3->tornTail && r3->records.size() == rr->records.size() + 1);
             }
         }
-        fs::remove_all(d2);
+        removeTree(d2);
     }
 
     // Corruption in the middle is reported, not silently skipped.
@@ -54,8 +54,8 @@ int main()
         bad[bad.find('\n') / 2] = '#';
         { std::ofstream o(d3 / "journal-000001.ndjson", std::ios::binary); o << bad; }
         CHECK(!Journal::replay(d3).has_value());
-        fs::remove_all(d3);
+        removeTree(d3);
     }
-    fs::remove_all(dir);
+    removeTree(dir);
     return finish();
 }
