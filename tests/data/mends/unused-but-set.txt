@@ -1,0 +1,5 @@
+GATE FAIL: does not compile: src/calc.cpp
+  src/calc.cpp:321:10: error: variable ‘hasExp’ set but not used [-Werror=unused-but-set-variable]
+    321 |     bool hasExp = false;
+        |          ^~~~~~
+The code does not compile, so no test could run. Fix the errors first.

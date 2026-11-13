@@ -77,6 +77,8 @@ add_library(sub0squad_core STATIC
   src/workflow.cpp
   src/policy.cpp
   src/predicate.cpp
+  src/mends.cpp
+  src/contract.cpp
   src/scenario_compare.cpp
   src/build_id.cpp
   src/cmd_archive.cpp
@@ -112,6 +114,8 @@ sub0squad_add_test(test_job_spec)
 sub0squad_add_test(test_journal)
 sub0squad_add_test(test_job_store)
 sub0squad_add_test(test_predicate)
+sub0squad_add_test(test_mends)
+target_compile_definitions(test_mends PRIVATE SUB0SQUAD_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
 sub0squad_add_test(test_process)
 target_compile_definitions(test_process PRIVATE SUB0SQUAD_REGISTRY_DIR="${CMAKE_CURRENT_SOURCE_DIR}/registry")
 sub0squad_add_test(test_workflow)

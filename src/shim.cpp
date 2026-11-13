@@ -311,6 +311,18 @@ void Shim::writeExit()
     for (pid_t p : survivors_) w.num(static_cast<std::int64_t>(p));
     w.endArray();
     w.kv("durationMs", static_cast<std::int64_t>(ms)).kv("eventsDropped", static_cast<std::int64_t>(droppedEventLines_));
+    // What the job itself reports about its outcome (`result.json` in its run directory: a small JSON object, e.g. a gate's mend): carried in the exit
+    // record, so it reaches the journal with the job's end and the workflow engine can read it without touching a file.
+    {
+        std::ifstream in(dir_ + "/result.json", std::ios::binary);
+        std::stringstream ss;
+        ss << in.rdbuf();
+        std::string result = ss.str();
+        while (!result.empty() && (result.back() == '\n' || result.back() == ' ')) result.pop_back();
+        bool object = false;
+        if (in && result.size() <= 8192) { try { json::withObject(result, [&](simdjson::ondemand::object& obj) { for (auto f : obj) (void)f.value().raw_json(); object = true; }); } catch (const simdjson::simdjson_error&) { object = false; } }
+        if (object) w.kvRaw("result", result);
+    }
     w.endObject();
     writeFileAtomic("exit.json", w.take());
 }

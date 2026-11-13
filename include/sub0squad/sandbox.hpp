@@ -23,6 +23,8 @@ namespace sub0squad {
 /// on the canvas (include/sub0squad/fork.hpp): a primer writes the skeleton, each function is a section written by a session of its own, side by side up
 /// to the idle slots. Exit 0 the merged file passes its gate, 1 it does not, 2 no usable skeleton (`--agent-exit 1`: 0 whenever the files were written).
 [[nodiscard]] int runLlmFork(const std::vector<std::string>& args);
+/// `mend-apply`: a mend the harness applies with no model (mends.hpp, `silence-unused`): attempt N is attempt N-1's output with the one edit made.
+[[nodiscard]] int runMendApply(const std::vector<std::string>& args);
 /// `mock-architect --mode decompose|rearchitect ...` and `llm-architect --mode ... --engine ...`: the dedicated jobs of the escalation ladder.
 /// decompose writes `attempt-N/fragment.json` (a plan-2 fragment the daemon merges) or declines (exit 3); rearchitect writes `card-override.json`.
 [[nodiscard]] int runMockArchitect(const std::vector<std::string>& args);

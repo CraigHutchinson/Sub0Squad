@@ -17,6 +17,9 @@
 #include "agent_impl.hpp"
 #include "json_util.hpp"
 #include "sub0squad/canvas.hpp"
+#include "sub0squad/contract.hpp"
+#include "sub0squad/harness_common.hpp"
+#include "sub0squad/mends.hpp"
 #include "sub0squad/event_channel.hpp"
 #include "sub0squad/harness.hpp"
 #include "sub0squad/host_guard.hpp"
@@ -195,7 +198,7 @@ std::string ForkResult::toJson() const
 {
     json::Writer w;
     w.beginObject().kvBool("passed", passed).kv("exitCode", exitCode).kv("failure", failure).kv("resumedFrom", resumedFrom).kv("width", width).kv("widthReason", widthReason).kvBool("shed", shed)
-        .kvBool("budgetSpent", budgetSpent).kv("budgetSec", budgetSec).kv("skeletonTries", skeletonTries).kv("rounds", rounds).kv("targeted", targeted).kv("mechanicalMends", mechanicalMends)
+        .kvBool("budgetSpent", budgetSpent).kv("budgetSec", budgetSec).kv("skeletonTries", skeletonTries).kv("rounds", rounds).kv("targeted", targeted).kv("mechanicalMends", mechanicalMends).kv("contractSections", contractSections)
         .kv("conflicts", conflicts).kv("lostEdits", lostEdits).kv("refused", refused)
         .kv("skeletonTokens", static_cast<std::int64_t>(skeletonTokens)).kv("sectionTokens", static_cast<std::int64_t>(sectionTokens)).kv("integrationTokens", static_cast<std::int64_t>(integrationTokens))
         .kv("wallSec", wallSec).kv("sectionWallSec", sectionWallSec).kv("idleShare", idleShare).kv("error", error).key("sections").beginArray();
@@ -282,8 +285,69 @@ ForkResult runCanvasFork(const ForkOptions& o)
         return res;
     };
 
+    // The contract of each file (contract.hpp): the functions the harness's own stub defines. They are sections whatever the model declares.
+    std::map<std::string, std::vector<ContractFunction>> contract;
+    for (const auto& f : item.files) if (auto c = contractOf(harness, f); !c.empty()) contract[f] = std::move(c);
+    /// Add `signature` to the canvas as a stubbed section of `path` (a harness transaction, a new revision), with `restored` functions put back before it.
+    const auto addSection = [&](const std::string& path, const std::string& name, const std::string& signature, const std::string& scope, const std::string& brief, const std::vector<std::string>& restored) {
+        if (!canvas.replaceText(path, withStubFunction(canvas.text(path), path, signature, scope, restored), "harness").ok) return false;
+        ForkSection s;
+        s.name = name; s.file = path; s.symbol = name; s.brief = brief;
+        const auto v = linesOf(canvas.text(path));
+        for (const auto& r : foldRegions(canvas.text(path), isPythonPath(path), true)) if (leaf(r.name) == name) { const std::string& decl = v[static_cast<std::size_t>(r.first) - 1]; s.indent = decl.substr(0, decl.find_first_not_of(" \t")); s.signature = trimmed(decl); }
+        while (!s.signature.empty() && (s.signature.back() == '{' || s.signature.back() == ':' || s.signature.back() == ' ')) s.signature.pop_back();
+        res.sections.erase(std::remove_if(res.sections.begin(), res.sections.end(), [&](const ForkSection& e) { return e.file == path && e.symbol == name; }), res.sections.end());
+        res.sections.push_back(std::move(s));
+        ++res.contractSections;
+        std::printf("contract: `%s` was not in %s: added by the harness as a section\n", name.c_str(), path.c_str());
+        events::note("the harness added the missing function " + name + " as a section");
+        return true;
+    };
+    /// Every contract function the canvas does not define becomes a section (row 59): a model's section list cannot leave the entry point out.
+    const auto ensureContract = [&](const std::string& brief) {
+        for (const auto& [path, fns] : contract) if (canvas.has(path)) for (const auto& f : undefinedContract(canvas.text(path), path, fns)) (void)addSection(path, f.name, f.signature, f.scope, brief, {});
+    };
+
     // ---- 1. the document: the earlier attempt's canvas when it stopped short, else a declared skeleton completed by the harness ----
-    if (!o.fresh && o.attempt > 1) {
+    if (!o.mendSection.empty() && o.attempt > 1) {
+        // The mend `add-section`: the previous attempt's files as they stand, whatever it failed on; nothing accepted is written again.
+        const fs::path before = itemDir / ("attempt-" + std::to_string(o.attempt - 1));
+        const Earlier e = readEarlier(before / "fork.json");
+        for (const auto& f : item.files) if (const std::string text = slurp(before / "out" / f); !text.empty()) canvas.addFile(f, text);
+        const std::string path = canvas.has(o.mendFile) ? o.mendFile : canvas.paths().empty() ? std::string{} : canvas.paths().front();
+        const std::string name = leaf(o.mendSection);
+        std::string signature, scope;
+        if (!path.empty()) {
+            if (const auto c = contract.find(path); c != contract.end()) for (const auto& f : c->second) if (f.name == name) { signature = f.signature; scope = f.scope; }
+            if (signature.empty()) signature = prototypeOf(canvas.text(path), name);
+        }
+        if (signature.empty()) { res.error = "mend add-section: `" + o.mendSection + "` is neither a contract function nor declared in the file, so it has no signature to add"; return finish(2, "skeleton"); }
+        res.sections = e.sections;
+        res.resumedFrom = o.attempt - 1;
+        // Sections an earlier assembly removed because nobody called them: with a new caller they may be needed, so their last committed text comes back
+        // (from the canvas history the attempt kept); assembly removes them again if they are still uncalled.
+        std::vector<std::string> restored;
+        std::string flat = path;
+        for (char& c : flat) if (c == '/') c = '_';
+        for (auto& s : res.sections) {
+            if (!s.removed || s.file != path) continue;
+            for (int rev = 400; rev >= 1; --rev) {
+                const std::string old = slurp(before / "canvas" / (flat + ".r" + std::to_string(rev)));
+                if (old.empty()) continue;
+                const auto v = linesOf(old);
+                std::string fn;
+                for (const auto& r : foldRegions(old, isPythonPath(path), true)) if (leaf(r.name) == s.symbol) for (int k = r.first; k <= r.bodyTo && k <= static_cast<int>(v.size()); ++k) fn += v[static_cast<std::size_t>(k) - 1] + "\n";
+                if (fn.empty() || fn.find("not implemented: " + s.name) != std::string::npos) continue;
+                restored.push_back(fn);
+                s.removed = false;
+                std::printf("mend: `%s` (removed earlier as uncalled) is put back\n", s.symbol.c_str());
+                break;
+            }
+        }
+        const std::string brief = "This function was MISSING from the file: the harness added its declaration. The build failed without it:\n" + clip(firstErrorLine(slurp(before / "gate.txt")), 400);
+        if (!addSection(path, name, signature, scope, brief, restored)) { res.error = "mend add-section: the canvas refused the new section"; return finish(2, "skeleton"); }
+        std::printf("mend add-section: `%s` in %s; %zu earlier section(s) kept\n", name.c_str(), path.c_str(), res.sections.size() - 1);
+    } else if (!o.fresh && o.attempt > 1) {
         const fs::path before = itemDir / ("attempt-" + std::to_string(o.attempt - 1));
         const Earlier e = readEarlier(before / "fork.json");
         // "tests" is not resumed: every section was written and the rounds were used, so the structure itself had its chance.
@@ -296,12 +360,17 @@ ForkResult runCanvasFork(const ForkOptions& o)
                 res.resumedFrom = o.attempt - 1;
                 std::printf("fork: resuming the canvas of attempt %d (%s): %zu section(s)\n", o.attempt - 1, e.failure.c_str(), res.sections.size());
                 events::note("fork resumes attempt " + std::to_string(o.attempt - 1) + " (" + e.failure + ")");
+                if (o.contractSections) ensureContract("This function was MISSING from the file: the tests call it and nothing defined it. The harness added its declaration.");
             }
         }
     }
     if (canvas.paths().empty()) {
         const std::string primerSystem = "You plan the structure of source files for a small software squad. " + harnessBrief(plan->harness) + "\n";
-        std::vector<ChatMessage> primer = {{"system", primerSystem}, {"user", card + kPrimerAsk}};
+        std::string contractNote;
+        if (o.contractSections)
+            for (const auto& [path, fns] : contract) for (const auto& f : fns) contractNote += "  " + path + ": " + f.signature + "\n";
+        if (!contractNote.empty()) contractNote = "\nThe harness itself declares these contract functions as sections, with exactly these signatures (you may place their `@@` line; you need not):\n" + contractNote + "Declare the HELPER functions they need.\n";
+        std::vector<ChatMessage> primer = {{"system", primerSystem}, {"user", card + kPrimerAsk + contractNote}};
         const fs::path primerTrace = attemptDir / "conversation-skeleton.md";
         traceBegin(primerTrace, "Skeleton session of " + o.itemId, o.engine, std::min(o.maxTokens, o.skeletonMaxTokens));
         for (int tryNo = 0; tryNo < 2; ++tryNo) {
@@ -321,12 +390,19 @@ ForkResult runCanvasFork(const ForkOptions& o)
             else {
                 const auto declared = parseSkeletonReply(r->content, allowed);
                 if (declared.empty()) bad = "the reply held no === SKELETON: <path> === block for the files to write";
-                for (const auto& [path, text] : declared) {
+                for (const auto& [path, modelText] : declared) {
                     if (!bad.empty()) break;
+                    // The contract first (row 59): each contract function is declared with the contract's signature, whether or not the model listed it.
+                    const auto fns = o.contractSections && contract.count(path) ? contract.at(path) : std::vector<ContractFunction>{};
+                    const std::string text = fns.empty() ? modelText : withContractDeclarations(modelText, path, fns);
+                    const auto marks = [](const std::string& t) { int n = 0; for (std::size_t at = t.find("@@"); at != std::string::npos; at = t.find("@@", at + 2)) ++n; return n; };
+                    if (marks(text) > marks(modelText)) { res.contractSections += marks(text) - marks(modelText); std::printf("contract: the skeleton of %s left %d contract function(s) out; the harness declared them\n", path.c_str(), marks(text) - marks(modelText)); }
                     if (text.find("@@") == std::string::npos) { candidate.addFile(path, text); continue; }   // a file with no function to delegate is taken as written
                     const Skeleton sk = expandSkeleton(text, path);
                     if (!sk.error.empty()) bad = path + ": " + sk.error;
                     else candidate.addFile(path, sk.text);
+                    // The skeleton check: a skeleton that leaves a contract function undefined is refused (it cannot happen after the step above; kept as the check).
+                    if (bad.empty() && !fns.empty()) if (const auto missing = undefinedContract(sk.text, path, fns); !missing.empty()) bad = path + ": the skeleton leaves the contract function `" + missing.front().name + "` undefined (" + missing.front().signature + ")";
                 }
                 if (bad.empty()) bad = precheckCanvas(candidate, harness, o.dir, o.itemId, o.attempt, attemptDir, true);
             }
@@ -545,7 +621,7 @@ ForkResult runCanvasFork(const ForkOptions& o)
             if (!firstPhase) res.targeted += static_cast<int>(missing.size());
             const std::string prefix = writePrefix();
             const auto writePrompt = [&](ForkSection& s) -> std::vector<ChatMessage> {
-                return {{"system", system}, {"user", prefix + "\nYou own `" + s.symbol + "` in " + s.file + "." + (s.lastRefusal.empty() ? std::string{} : " Your earlier reply was refused: " + clip(s.lastRefusal, 500)) +
+                return {{"system", system}, {"user", prefix + "\nYou own `" + s.symbol + "` in " + s.file + "." + (s.brief.empty() ? std::string{} : " " + s.brief) + (s.lastRefusal.empty() ? std::string{} : " Your earlier reply was refused: " + clip(s.lastRefusal, 500)) +
                                                          " Reply with:\n=== EDIT: " + s.file + " SYMBOL " + s.symbol + " ===\n<your function>\n=== END EDIT ==="}};
             };
             runPool(missing, writePrompt, firstPhase ? "section" : "rewrite" + std::to_string(round), firstPhase ? res.sectionTokens : res.integrationTokens, firstPhase);
@@ -606,6 +682,19 @@ ForkResult runCanvasFork(const ForkOptions& o)
             persistCanvas(canvas, attemptDir);
             strict = precheckCanvas(canvas, harness, o.dir, o.itemId, o.attempt, attemptDir, false);
         }
+        // A name the compiler calls unused is marked `[[maybe_unused]]` by the harness (the mend `silence-unused`, mends.hpp): run-v10 sent one such error to
+        // its section three times and the model did not clear it once. No session is spent on it.
+        for (int mend = 0; mend < 8 && !strict.empty(); ++mend) {
+            const auto m = matchMend(builtinMends(), strict);
+            if (!m || m->action != "silence-unused" || !canvas.has(m->file)) break;
+            const auto mended = silenceUnused(canvas.text(m->file), m->file, m->line, m->column, m->symbol);
+            if (!mended || !canvas.replaceText(m->file, *mended, "harness").ok) break;
+            ++res.mechanicalMends;
+            persistCanvas(canvas, attemptDir);
+            std::printf("assembly: `%s` at %s:%d is unused: marked [[maybe_unused]] by the harness\n", m->symbol.c_str(), m->file.c_str(), m->line);
+            events::note("assembly: marked the unused name " + m->symbol + " [[maybe_unused]]");
+            strict = precheckCanvas(canvas, harness, o.dir, o.itemId, o.attempt, attemptDir, false);
+        }
         if (!strict.empty()) {
             // A compile error goes to the owner of the function it is in, with only its own errors and its own function open.
             std::map<ForkSection*, std::string> findings;
@@ -647,6 +736,29 @@ ForkResult runCanvasFork(const ForkOptions& o)
     }
 }
 
+int runMendApply(const std::vector<std::string>& args)
+{
+    const fs::path dir = arg(args, "workflow-dir");
+    const std::string itemId = arg(args, "item"), action = arg(args, "action"), file = arg(args, "file"), symbol = arg(args, "symbol");
+    const int attempt = std::atoi(arg(args, "attempt", "0").c_str()), line = std::atoi(arg(args, "line", "0").c_str()), column = std::atoi(arg(args, "column", "0").c_str());
+    if (dir.empty() || itemId.empty() || attempt < 2 || file.empty() || file[0] == '/' || file.find("..") != std::string::npos) { std::fprintf(stderr, "mend-apply: --workflow-dir D --item I --attempt N (2 or more) --action A --file F --line L --column C --symbol S\n"); return 64; }
+    if (action != "silence-unused") { std::fprintf(stderr, "mend-apply: '%s' is not an action the harness applies without a model (silence-unused is)\n", action.c_str()); return 64; }
+    const fs::path itemDir = dir / "items" / itemId, before = itemDir / ("attempt-" + std::to_string(attempt - 1)), now = itemDir / ("attempt-" + std::to_string(attempt));
+    const std::string text = slurp(before / "out" / file);
+    if (text.empty()) { std::fprintf(stderr, "mend-apply: attempt %d left no %s\n", attempt - 1, file.c_str()); return 1; }
+    const auto mended = silenceUnused(text, file, line, column, symbol);
+    if (!mended) { std::fprintf(stderr, "mend-apply: `%s` is not declared at %s:%d in a way the harness can mark unused\n", symbol.c_str(), file.c_str(), line); return 1; }
+    std::error_code ec;
+    fs::remove_all(now / "out", ec);
+    fs::create_directories(now / "out", ec);
+    fs::copy(before / "out", now / "out", fs::copy_options::recursive | fs::copy_options::overwrite_existing, ec);   // everything the attempt before wrote is kept
+    if (ec || !writeFile(now / "out" / file, *mended)) { std::fprintf(stderr, "mend-apply: cannot write attempt %d\n", attempt); return 1; }
+    if (fs::exists(before / "fork.json")) fs::copy_file(before / "fork.json", now / "fork.json", fs::copy_options::overwrite_existing, ec);   // a later fork attempt resumes from here as from the attempt before
+    (void)writeFile(now / "mend.txt", "silence-unused: `" + symbol + "` at " + file + ":" + std::to_string(line) + " marked [[maybe_unused]] by the harness; nothing else was changed\n");
+    std::printf("mend silence-unused: `%s` at %s:%d marked [[maybe_unused]]\n", symbol.c_str(), file.c_str(), line);
+    return 0;
+}
+
 int runLlmFork(const std::vector<std::string>& args)
 {
     std::setvbuf(stdout, nullptr, _IOLBF, 0);
@@ -663,6 +775,9 @@ int runLlmFork(const std::vector<std::string>& args)
     o.wallBudgetSec = std::atoi(arg(args, "attempt-wall", "900").c_str());
     o.wallPerSectionSec = std::atoi(arg(args, "section-wall", "150").c_str());
     o.fresh = arg(args, "fresh", "0") == "1";
+    o.contractSections = arg(args, "contract-sections", "1") != "0";
+    o.mendSection = arg(args, "mend-section");
+    o.mendFile = arg(args, "mend-file");
     auto profile = EngineProfile::parse(arg(args, "engine"));
     if (!profile) { std::fprintf(stderr, "llm-fork: %s\n", profile.error().c_str()); return 64; }
     o.engine = *profile;

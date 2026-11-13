@@ -3,6 +3,7 @@
 #include "json_util.hpp"
 
 #include "sub0squad/harness.hpp"
+#include "sub0squad/mends.hpp"
 #include "sub0squad/predicate.hpp"
 #include <algorithm>
 #include <set>
@@ -387,6 +388,30 @@ const Stage& itemsStageOf(const WorkflowRecord& wf)
     return st ? *st : standard;
 }
 
+/// The mend a failed gate reported in its result (`{"code":N, ..., "result":{"mend":{...}}}`: the gate looked its first error up in the mends table).
+std::optional<MendMatch> mendIn(const std::string& text, const char* outer)
+{
+    std::string raw;
+    try {
+        json::withObject(text, [&](simdjson::ondemand::object& obj) {
+            for (auto f : obj) {
+                if (json::keyOf(f) != outer) continue;
+                if (std::string_view{outer} == "mend") { std::string_view r = f.value().raw_json(); raw.assign(r); continue; }
+                for (auto g : f.value().get_object()) if (json::keyOf(g) == "mend") { std::string_view r = g.value().raw_json(); raw.assign(r); }
+            }
+        });
+    } catch (const simdjson::simdjson_error&) { return std::nullopt; }
+    return raw.empty() ? std::nullopt : MendMatch::fromJson(raw);
+}
+
+/// How many times a mend was applied to an item (`name` empty: any mend). Mends are decisions, so this is read from the journal.
+int mendsApplied(const WorkflowRecord& wf, const std::string& item, const std::string& name = {})
+{
+    int n = 0;
+    for (const auto& d : wf.decisions) if (d.item == item && d.action == "mend" && (name.empty() || d.tier == name)) ++n;
+    return n;
+}
+
 JobSpec agentJob(const WorkflowRecord& wf, const WorkflowSettings& st, const WorkItem& it, int attempt, const std::string& tier)
 {
     auto engine = wf.spec.engineFor(it.persona);
@@ -397,16 +422,28 @@ JobSpec agentJob(const WorkflowRecord& wf, const WorkflowSettings& st, const Wor
     JobSpec s = baseJob(wf, st, "agent", llm ? "llm-agent" : "mock-agent", tier, llm && tier == "local" ? leaf.agentWallLlmSeconds : leaf.agentWallOtherSeconds);
     s.item = it.id;
     s.attempt = attempt;
+    // A mend (mends.hpp): the attempt IS the mend's action on what the attempt before it left. `silence-unused` is an edit by the harness with no model.
+    const DecisionRecord* before = attempt > 1 ? decisionFor(wf, it.id, attempt - 1) : nullptr;
+    const std::optional<MendMatch> mend = before && before->action == "mend" ? mendIn(before->json, "mend") : std::nullopt;
+    if (mend && mend->action == "silence-unused") {
+        s.tool = "mend-apply";
+        s.argv = {st.exe, "mend-apply", "--workflow-dir", wf.spec.sandboxDir, "--item", it.id, "--attempt", std::to_string(attempt), "--action", mend->action, "--file", mend->file,
+                  "--line", std::to_string(mend->line), "--column", std::to_string(mend->column), "--symbol", mend->symbol};
+        s.wallSeconds = leaf.agentWallOtherSeconds;
+        return s;
+    }
     if (llm) { s.leaseResource = engine->endpoint; s.leaseCap = std::max(1, engine->maxConcurrent); }
     if (llm) {
         s.argv = {st.exe, "llm-agent", "--workflow-dir", wf.spec.sandboxDir, "--item", it.id, "--tier", tier, "--attempt", std::to_string(attempt), "--engine", engine->toArg(),
                   "--max-tokens", std::to_string(wf.spec.maxTokens), "--timeout", "1700", "--treatment", wf.spec.treatment, "--repair-turns", std::to_string(wf.spec.repairTurns), "--size-budget", std::to_string(wf.spec.sizeBudget)};
-        const DecisionRecord* before = attempt > 1 ? decisionFor(wf, it.id, attempt - 1) : nullptr;
         const bool sections = before && before->action == "sections";   // the ladder chose forked sections for this attempt
         const std::string executor = executorFor(wf.spec, leaf, it.persona);
-        if ((executor == "fork" || sections) && tier == "local" && it.persona != "tester")   // a developer's item as forked sections; the gate job judges the merged files
+        if ((executor == "fork" || sections || mend) && tier == "local" && it.persona != "tester") {   // a developer's item as forked sections; the gate job judges the merged files
             s.argv = {st.exe, "llm-fork", "--workflow-dir", wf.spec.sandboxDir, "--item", it.id, "--attempt", std::to_string(attempt), "--engine", engine->toArg(),
                       "--max-tokens", std::to_string(wf.spec.maxTokens), "--timeout", "1700", "--repair-turns", std::to_string(wf.spec.repairTurns), "--agent-exit", "1"};
+            if (!leaf.contractSections) s.argv.insert(s.argv.end(), {"--contract-sections", "0"});
+            if (mend) s.argv.insert(s.argv.end(), {"--mend-section", mend->symbol, "--mend-file", mend->file});   // add-section: only the missing function is written
+        }
         else if (executor != "session") s.argv.insert(s.argv.end(), {"--executor", "canvas"});
     } else {
         s.argv = {st.exe, "mock-agent", "--workflow-dir", wf.spec.sandboxDir, "--item", it.id, "--tier", tier, "--attempt", std::to_string(attempt)};
@@ -645,17 +682,43 @@ bool advanceItems(const WorkflowRecord& wf, const std::vector<ItemView>& views, 
             if (latest->state == JobState::succeeded && !d) { out.push_back(start(agentJob(wf, st, *v.item, n + 1, "local"))); continue; }
             failed = true;
         }
+        // A failed gate that reported a mend: the harness repairs the cause itself. The decision `mend` is journaled; the next attempt is the mend's action and
+        // spends no rung of the ladder. The same signature is mended at most `maxPerItem` times for an item; after that the ladder below decides.
+        if (!d && failed && !disputed && role == "agent" && v.item->persona == "developer") {
+            const JobRecord* gate = nullptr;
+            for (const JobRecord* g : v.gates) if (g->spec.attempt == n) gate = g;
+            const LeafParams& leaf = itemsStageOf(wf).leaf;
+            const auto mend = gate && gate->state != JobState::succeeded && leaf.mendsEnabled ? mendIn(gate->exitJson, "result") : std::nullopt;
+            const bool runnable = mend && (mend->action == "silence-unused" || (wf.spec.agent == "llm" && !wf.spec.engines.empty()));
+            if (runnable && std::find(leaf.mendsDisabled.begin(), leaf.mendsDisabled.end(), mend->name) == leaf.mendsDisabled.end() && mendsApplied(wf, v.item->id, mend->name) < mend->maxPerItem) {
+                const int applied = mendsApplied(wf, v.item->id, mend->name) + 1;
+                json::Writer w;
+                w.beginObject().kv("action", "mend").kv("signature", mend->name).kvRaw("mend", mend->toJson()).key("reasons").beginArray()
+                    .str("the gate of '" + v.item->id + "' attempt " + std::to_string(n) + " failed with a known mechanical error: " + mend->error)
+                    .str("mend '" + mend->name + "' (" + std::to_string(applied) + " of at most " + std::to_string(mend->maxPerItem) + " for this item): the harness applies '" + mend->action + "' to `" + mend->symbol + "` itself; no rung of the ladder is spent")
+                    .endArray().key("inputs").beginObject().kv("item", v.item->id).kv("attempt", n).kv("applied", applied).endObject().endObject();
+                WorkflowAction rec;
+                rec.kind = WorkflowAction::Kind::recordDecision;
+                rec.item = v.item->id; rec.attempt = n; rec.decisionAction = "mend"; rec.decisionTier = mend->name; rec.decisionJson = w.take();
+                WorkflowRecord shadow = wf;   // the next attempt's job is built from the decision just recorded
+                shadow.decisions.push_back({v.item->id, n, "mend", mend->name, rec.decisionJson});
+                out.push_back(std::move(rec));
+                out.push_back(start(agentJob(shadow, st, *v.item, n + 1, "local")));
+                continue;
+            }
+        }
         if (!d && (failed || disputed)) {
             DecisionContext ctx;
             ctx.workflow = wf.id; ctx.item = v.item->id; ctx.attempt = n;
-            ctx.localAttempts = v.localAttempts; ctx.frontierAttempts = v.frontierAttempts;
+            const int mended = mendsApplied(wf, v.item->id);   // a mend's attempt is the harness's work: it counts against no budget of the ladder
+            ctx.localAttempts = v.localAttempts - mended; ctx.frontierAttempts = v.frontierAttempts;
             ctx.failedRole = role == "agent" ? (latest->state != JobState::succeeded ? "agent" : "gate") : role;
             ctx.failure = std::string{toString(latest->state)} + (latest->note.empty() ? "" : ": " + latest->note);
             ctx.complexity = v.item->complexity;
             ctx.frontier = st.frontier;
             ctx.maxLocalAttempts = wf.spec.maxLocalAttempts;
             ctx.depth = static_cast<int>(std::count(v.item->id.begin(), v.item->id.end(), '.'));
-            ctx.totalAttempts = n;
+            ctx.totalAttempts = n - mended;
             ctx.splittable = v.item->files.size() > 1 || v.item->complexity >= 2;
             for (const JobRecord* g : v.gates) if (g->spec.attempt == n && g->exitJson.find("\"code\":3") != std::string::npos) ctx.nearPass = true;
             for (const JobRecord* g : v.gates) if (g->spec.attempt == n && g->exitJson.find("\"code\":5") != std::string::npos) ctx.repeatedFailure = true;
@@ -734,7 +797,7 @@ bool advanceItems(const WorkflowRecord& wf, const std::vector<ItemView>& views, 
         if (!d) continue;
         // A decision is recorded; act on it if its follow-up job has not been submitted yet.
         if (d->action == "fail") failedItem = v.item->id;
-        else if (d->action == "strategy") out.push_back(start(agentJob(wf, st, *v.item, n + 1, "local")));
+        else if (d->action == "strategy" || d->action == "mend") out.push_back(start(agentJob(wf, st, *v.item, n + 1, "local")));
         else if (d->action == "deferred") {
             const RequestRecord* rq = escalationFor(wf, v.item->id, n);
             if (rq && rq->status == "answered") { if (rq->resolution == "stop") failedItem = v.item->id; else out.push_back(start(agentJob(wf, st, *v.item, n + 1, "local"))); }

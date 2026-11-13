@@ -33,6 +33,11 @@ struct Harness
     /// Work is divided by SECTIONS of a file under a skeleton (the fork executor), never into new modules: in a compiled language a new module needs a
     /// header that declares its interface and no item of a division owns one (docs/INTERVENTIONS.md row 45, docs/CANVAS.md "Division on compiled platforms").
     bool divideBySections = false;
+    /// The harness's own version of a scaffold file (the stub or header every workspace starts from), "" when it supplies none at that path. The stub of a
+    /// deliverable is its CONTRACT: the functions it defines are the ones the delivered file must define (contract.hpp, catalogue row 59).
+    std::string (*scaffoldFile)(const std::string& path) = nullptr;
+    /// The paths of every scaffold file.
+    std::vector<std::string> (*scaffoldPaths)() = nullptr;
 };
 
 /// The harness named `name`, or nullptr (an empty or unknown name; the empty name is the legacy header-only calculator sandbox, which has no entry).

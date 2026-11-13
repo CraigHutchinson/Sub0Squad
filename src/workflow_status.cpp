@@ -52,6 +52,12 @@ std::string workflowStatusJson(const RuntimePaths& paths, const WorkflowStore& w
                 .kv("builtBy", it.status != "accepted" ? std::string{} : it.tier == "frontier-stub" ? std::string{"stub"} : pi && pi->persona == "integrator" ? std::string{"parts"} : wf.spec.agent == "mock" ? std::string{"mock"} : std::string{"model"})
                 .kv("persona", pi ? pi->persona : std::string{}).kv("parent", dot == std::string::npos ? std::string{} : it.id.substr(0, dot))
                 .kv("tokensIn", tin).kv("tokensOut", tout).kv("durationSec", dur).kv("engine", engine);
+            // Mends the harness applied to this item (mends.hpp): `mends` as they were decided; `healed` once the item is accepted after them.
+            w.key("mends").beginArray();
+            for (const auto& d : wf.decisions) if (d.item == it.id && d.action == "mend") w.str(d.tier);
+            w.endArray().key("healed").beginArray();
+            if (it.status == "accepted") for (const auto& d : wf.decisions) if (d.item == it.id && d.action == "mend") w.str(d.tier);
+            w.endArray();
             w.key("deps").beginArray();
             if (pi) for (const auto& d : pi->deps) w.str(d);
             w.endArray().endObject();
