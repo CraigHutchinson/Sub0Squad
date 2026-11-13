@@ -49,7 +49,7 @@ harness with the mock agents (seconds, deterministic) and use real models only t
 ## 4. Environment facts for the next session or machine
 
 - Libraries are consumed through CPM with `CPM_<Name>_SOURCE` overrides (`~/.config/sub0/cpm-env.sh`, shared cache `CPM_SOURCE_CACHE=~/.cache/CPM`). Pinned-only build verified once; re-check before any release.
-- Models on this drive (outside the repo, in `Models/` next to the `GitHub/` directory): `Qwen3.8-27B-GGUF/Qwen3.8-27B-UD-IQ1_S.gguf` and `Qwen3.8-27B-Q4_K_M-GGUF/Qwen3.8-27B-Q4_K_M.gguf` (sha256 verified).
+- Models on this drive (outside the repo, in `Models/` beside the `GitHub/` directory): `Models/Qwen3.8-27B-GGUF/Qwen3.8-27B-UD-IQ1_S.gguf` and `.../Qwen3.8-27B-Q4_K_M-GGUF/Qwen3.8-27B-Q4_K_M.gguf` (sha256 verified).
   The `llama-server` used is Sub0Llm's reference build: `.../Sub0Llm/out/build/llama-optimizer/bin/llama-server` (0.9.0-dev, commit cf659f2). The Ubuntu snap `qwen3-6` serves on 127.0.0.1:8342 and unloads after idle; it holds about 25 GB while loaded.
   Stopping the snap needs root (`sudo snap stop qwen3-6`); the owner gave permission, but it was not needed once the idle unload happened.
 - Test and experiment state lives under `out/` (gitignored): `out/build/dev/*-home`, `opt1` (an isolated `engine` item with correct fixed tests), `real1-home`, `real2-home`. Safe to delete.

@@ -4,6 +4,9 @@
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
+#include <system_error>
+#include <thread>
+#include <chrono>
 #include <string>
 #include <thread>
 #include <unistd.h>
