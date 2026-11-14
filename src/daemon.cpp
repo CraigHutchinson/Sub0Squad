@@ -66,6 +66,10 @@ void Daemon::Impl::handle(Client& c, const std::string& text)
     if (req->version != 1) { send(c, errorReply("protocol version " + std::to_string(req->version) + " not supported (daemon speaks 1)")); return; }
     const std::string& cmd = req->cmd;
     if (cmd == "ping") {
+        // A ping also runs the memory watcher's check NOW (what its timer does every 1 to 5 seconds), before it answers: the watcher's decision can then
+        // be observed without waiting on a clock (catalogue row 22: the shed test waited up to 12 s for a 5 s timer and failed on a loaded host).
+        shedIfPressured();
+        scheduleQueued();
         json::Writer w;
         w.beginObject().kvBool("ok", true).kv("v", 1).kv("pid", static_cast<std::int64_t>(::getpid())).kv("maxJobs", opts.maxJobs)
             .kvBool("journalOk", journalOk).kv("build", buildId()).endObject();

@@ -196,12 +196,16 @@ int main(int, char** argv)
         const std::string srv = sq.submitWorker("ss", {"--steps", "400", "--step-ms", "50"}, {"--service"});
         CHECK(sq.waitState(newer, "running") && sq.waitState(srv, "running"));
         { std::ofstream o(fake, std::ios::trunc); o << 1500; }  // under the 2000 reserve, above half of it
-        CHECK(sq.waitState(newer, "cancelled", 12000));          // the newest plain job goes first
+        CHECK_EQ(sq.cli({"ping"}).exitCode, 0);                  // the watcher's check runs before the ping is answered: no timer to wait for (row 22)
+        const std::string decided = sq.statusField(newer, "state");
+        CHECK(decided == "cancelling" || decided == "cancelled"); // decided already, whatever the host's load: the newest plain job goes first
+        CHECK(sq.waitState(newer, "cancelled", 60000));          // only its teardown takes time
         CHECK(sq.statusField(newer, "note").find("shed: memory pressure") != std::string::npos);
         CHECK(sq.statusField(srv, "state") == "running");        // the server survives while memory is only low
         { std::ofstream o(fake, std::ios::trunc); o << 100000; }
         const std::string after = sq.submitWorker("sc", {"--steps", "2", "--step-ms", "20"});
-        CHECK(sq.waitState(after, "succeeded", 12000));          // admission resumes once memory recovers
+        CHECK_EQ(sq.cli({"ping"}).exitCode, 0);
+        CHECK(sq.waitState(after, "succeeded", 60000));          // admission resumes once memory recovers
         ::unsetenv("SUB0SQUAD_FAKE_MEMAVAILABLE_FILE");
         (void)sq.cli({"cancel", older});
         (void)sq.cli({"cancel", srv});
