@@ -1,0 +1,3 @@
+{"schema":"diagnostics-1","diagnostics":[
+{"name":"iterator-for-const-iterator-ref","match":["cannot bind non-const lvalue reference of type '[^']*const_iterator&' to an rvalue of type '[^']*const_iterator'"],"hint":"The function you call takes a `const_iterator&`, and the variable you pass is not a const_iterator: `auto pos = v.begin();` on a non-const container is an `iterator`, so the call makes a temporary and a non-const reference cannot bind to it. Declare the variables from cbegin() and cend(): `auto pos = v.cbegin(); auto end = v.cend();`.","edit":"const-iterators","fixture":"tests/data/mends/const-iterator-ref.txt"}
+]}

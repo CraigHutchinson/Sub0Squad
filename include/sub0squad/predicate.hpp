@@ -11,6 +11,7 @@
 /// The whole vocabulary:
 ///   always                                   true
 ///   plan.present                             the workflow has a plan
+///   brief.present                            the workflow's brief is recorded (the planning questions are settled: clarify.hpp)
 ///   stage.NAME.done | .active | .failed      the derived state of a stage EARLIER in the process (never the stage itself or a later one: no cycles)
 ///   items.all(STATE) | items.any(STATE)      over the plan's items; STATE is pending | running | accepted | failed; `all` over no items is FALSE
 ///   items.count(STATE) | items.count()       a number, to compare with a literal
@@ -33,6 +34,7 @@ struct Snapshot
     struct StageFacts { bool done = false, active = false, failed = false; };
     struct JobFacts { int tries = 0; bool succeeded = false, failed = false, active = false; };   ///< of the LATEST job of the step
     bool planPresent = false;
+    bool briefPresent = false;
     bool openBlocking = false;
     int pending = 0, running = 0, accepted = 0, failed = 0;   ///< the plan's items by state
     std::map<std::string, StageFacts, std::less<>> stages;    ///< only stages already derived this pass (the earlier ones)

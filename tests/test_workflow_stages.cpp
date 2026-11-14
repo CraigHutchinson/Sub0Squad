@@ -178,6 +178,43 @@ int main()
             CHECK(qa.spec.argv == (std::vector<std::string>{"/bin/sub0squad", "qa", "/sb/project"}) && qa.spec.tool == "qa" && qa.spec.wallSeconds == 120 && qa.spec.item.empty());   // the placeholder is the workflow's sandbox
             CHECK_EQ(stages(s), std::string("plan=done build=done integrate=done review=done"));
         }
+        {   // a stage BEFORE the planner: the planning questions. Its job runs; the daemon asks ONE blocking clarification; nothing else moves while it
+            // is open (the engine emits nothing: no second request, no planner); the answer makes the brief, the brief changes the TASK the planner
+            // is started with, and the rest is the standard process.
+            SCENARIO("stages-clarified-asks-once");
+            Sim s = startSim(2, FrontierMode::off, false, clarifiedProcess());
+            ClarifyFacts facts;
+            facts.taskText = "write a calculator"; facts.task = "calculator-cpp";
+            s.questions = clarify(facts);
+            s.questions.task = "t";   // the simulated workflow's task name; a platform answer replaces it
+            CHECK_EQ(stages(s), std::string("clarify=active plan=waiting build=waiting integrate=waiting"));
+            CHECK_EQ(waitingOn(s, "clarify"), std::string("brief.present"));
+            auto acts = s.step();
+            CHECK(acts.size() == 1 && acts[0].kind == WorkflowAction::Kind::startJob && acts[0].job.role == "clarifier" && acts[0].job.argv == (std::vector<std::string>{"/bin/sub0squad", "plan-questions", "--workflow-dir", "/sb"}));
+            for (const auto& id : s.run(acts)) s.finishJob(id, JobState::succeeded, "");
+            acts = s.step();
+            CHECK(acts.size() == 1 && acts[0].kind == WorkflowAction::Kind::settleBrief);
+            s.run(acts);
+            const WorkflowRecord& wf = *s.wfs.find("w-000001");
+            CHECK(wf.requests.size() == 1 && wf.requests[0].from == "planner" && wf.requests[0].kind == "clarification" && wf.requests[0].blocking && wf.requests[0].status == "open");
+            CHECK_EQ(wf.requests[0].options.front(), std::string("go (platform cpp)"));
+            for (int i = 0; i < 3; ++i) CHECK(s.step().empty());                       // open: the engine waits, and asks nothing twice
+            CHECK_EQ(stages(s), std::string("clarify=active plan=waiting build=waiting integrate=waiting"));
+            s.feed("workflowRequestAnswered", wfbody::requestAnswered("w-000001", "r-1", "platform=python", "", "user"));
+            acts = s.step();
+            CHECK(acts.size() == 1 && acts[0].kind == WorkflowAction::Kind::settleBrief);
+            s.run(acts);
+            CHECK(!wf.brief.empty() && wf.spec.task == "calculator-py" && wf.brief.find("\"source\":\"answer\"") != std::string::npos);
+            CHECK_EQ(stages(s), std::string("clarify=done plan=active build=waiting integrate=waiting"));
+            acts = s.step();
+            CHECK(acts.size() == 1 && acts[0].job.role == "planner" && acts[0].job.argv[3] == "calculator-py");   // ${task} is the brief's
+            for (const auto& id : s.run(acts)) s.finishJob(id, JobState::succeeded, "");
+            s.feed("workflowPlanned", wfbody::planned("w-000001", onePlan()));
+            drive(s, allPass);
+            CHECK(wf.state == WorkflowState::succeeded);
+            CHECK_EQ(wf.note, std::string("clarification passed; all items accepted; integration passed"));
+            CHECK_EQ(wf.requests.size(), static_cast<std::size_t>(1));
+        }
         {   // the same process when its extra stage fails: the workflow fails and says which step, with the job's note
             SCENARIO("stages-reviewed-review-fails");
             Sim s = startSim(2, FrontierMode::off, false, reviewedProcess());

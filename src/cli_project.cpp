@@ -204,6 +204,7 @@ int parseWorkflowFlags(int argc, char** argv, int from, WorkflowSpec& spec)
         } else if (a == "--engine-for") { std::string kv = val(); const auto eq = kv.find('='); if (eq == std::string::npos) { std::fprintf(stderr, "--engine-for takes PERSONA=ENGINE\n"); return 2; } spec.route[kv.substr(0, eq)] = kv.substr(eq + 1); }
         else if (a == "--size-budget") spec.sizeBudget = std::atoi(val().c_str());
         else if (a == "--ask") spec.ask = true;
+        else if (a == "--defaults") spec.defaults = true;
         else if (a == "--fallback-engine") spec.fallbackEngine = val();
         else if (a == "--max-tokens") spec.maxTokens = std::atoi(val().c_str());
         else if (a == "--mends") {
@@ -331,6 +332,18 @@ int cmdProject(const RuntimePaths& paths, int argc, char** argv)
 {
     if (argc < 1) { std::fputs(kUsage, stderr); return 2; }
     const std::string sub = argv[0];
+    if (sub == "answers") {   // the project's record of answered planning questions: show it, or forget it so they are asked again
+        if (argc > 1 && std::string{argv[1]} == "--forget") {
+            std::error_code ec;
+            std::filesystem::remove(paths.projectAnswersFile(), ec);
+            std::puts("forgotten: the planning questions will be asked again");
+            return 0;
+        }
+        const auto answers = parseProjectAnswers(slurpFile(paths.projectAnswersFile().string()));
+        if (answers.empty()) std::puts("no answers are remembered");
+        for (const auto& [k, v] : answers) std::printf("%s=%s\n", k.c_str(), v.c_str());
+        return 0;
+    }
     if (sub == "submit") {
         const bool allowMismatch = takeAllowMismatch(argc, argv);
         WorkflowSpec spec;

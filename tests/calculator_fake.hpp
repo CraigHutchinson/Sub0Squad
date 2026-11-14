@@ -91,11 +91,21 @@ struct Calculator
             for (const auto& p : list) reply += bench::skeletonBlock(p, of(p).declared);
             return {reply};
         }
-        if (const auto own = ask.rfind("You own `"); own != std::string::npos) {
-            const std::string name = ask.substr(own + 9, ask.find('`', own + 9) - own - 9);
-            std::string file = ask.substr(ask.find(" in ", own) + 4);
-            file = file.substr(0, file.find_first_of(" \n"));
-            if (!file.empty() && file.back() == '.') file.pop_back();
+        // A section's request: its first prompt ("You own `NAME` in FILE."), or a retry after a refusal (the block it is asked to send again).
+        const auto own = ask.rfind("You own `");
+        const auto again = ask.rfind("Reply again with the corrected function:\n=== EDIT: ");
+        if (own != std::string::npos || again != std::string::npos) {
+            std::string name, file;
+            if (own != std::string::npos) {
+                name = ask.substr(own + 9, ask.find('`', own + 9) - own - 9);
+                file = ask.substr(ask.find(" in ", own) + 4);
+                file = file.substr(0, file.find_first_of(" \n"));
+                if (!file.empty() && file.back() == '.') file.pop_back();
+            } else {
+                const std::string block = ask.substr(again + 51, ask.find(" ===", again + 51) - again - 51);   // `FILE SYMBOL NAME`
+                file = block.substr(0, block.find(" SYMBOL "));
+                name = block.substr(block.find(" SYMBOL ") + 8);
+            }
             sectionsAsked.push_back(name);
             const auto& f = of(file);
             const std::string last = name.rfind(':') == std::string::npos ? name : name.substr(name.rfind(':') + 1);   // `Parser::term` is the reference's `term`

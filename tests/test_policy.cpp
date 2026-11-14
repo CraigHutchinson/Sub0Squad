@@ -114,6 +114,21 @@ int main()
         CHECK(policy.decide(plain).action == Action::retry);   // an ordinary near pass (the files changed) is repaired as before
         CHECK(toJson(plain, policy.decide(plain)).find("stuckNearPass") == std::string::npos);   // written only when it holds: the goldens keep their bytes
     }
+    { RulePolicy policy; // Row 75: a fork attempt that left a section UNACCEPTED (gate exit 8). That section is the first cause: the ladder retries
+        // (the fork resumes and writes only it) whatever else the context says, then thinks once when the next attempt ends the same way; no
+        // whole-file rung (sections, reviseTests, rearchitect) comes before those two.
+        DecisionContext c; c.workflow = "w"; c.item = "engine"; c.attempt = 1; c.localAttempts = 2; c.totalAttempts = 2; c.failedRole = "gate";
+        c.unacceptedSection = true; c.hasTesterDep = true; c.repeatedFailure = true; c.interfaceGap = true; c.splittable = true; c.divideBySections = true; c.forked = true;
+        const Decision first = policy.decide(c);
+        CHECK(first.action == Action::retry && first.reasons.back().find("first cause: a section of the file was never accepted") == 0);
+        CHECK(toJson(c, first).find("\"unacceptedSection\":true,\"unacceptedBefore\":false") != std::string::npos);
+        c.unacceptedBefore = true;
+        CHECK(policy.decide(c).action == Action::think);
+        c.thinkTried = true;   // thought already: the ordinary ladder, which here sends the tests back (the repeated-failure signal)
+        CHECK(policy.decide(c).action == Action::reviseTests);
+        c.thinkTried = false; c.allowThinkFirst = false;   // a process without the rung
+        CHECK(policy.decide(c).action == Action::reviseTests);
+    }
     { RulePolicy policy; // The frontier stub is only used when it has a reference; a repeated failure disputes the tests only when it is a near pass.
         DecisionContext c; c.workflow = "w"; c.item = "lexer"; c.attempt = 6; c.localAttempts = 2; c.failedRole = "gate"; c.totalAttempts = 6;
         c.decomposeTried = c.reviseTried = c.rearchitectTried = true; c.splittable = true;

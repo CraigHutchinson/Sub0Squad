@@ -24,7 +24,7 @@ static const char* kBuild = "{\"name\":\"build\",\"kind\":\"items\",\"entry\":\"
 int main()
 {
     // The built-ins are valid, distinct, and round-trip through their own JSON.
-    CHECK_EQ(builtinProcesses().size(), static_cast<std::size_t>(3));
+    CHECK_EQ(builtinProcesses().size(), static_cast<std::size_t>(4));
     for (const Process* p : builtinProcesses()) {
         CHECK_EQ(p->validate(), std::string(""));
         auto back = Process::fromJson(p->toJson());
@@ -63,6 +63,11 @@ int main()
         const Stage* sectionsBuild = sectionsProcess().itemsStage();
         CHECK(sectionsBuild && sectionsBuild->leaf.developerExecutor == "fork" && sectionsBuild->leaf.testerExecutor == "canvas" && !sectionsBuild->leaf.allowDecompose);
         CHECK_EQ(reviewedProcess().stages.size(), static_cast<std::size_t>(4));
+        // `clarified`: the standard stages behind a planning stage that accepts a brief; the planner waits for it
+        const Process& c = clarifiedProcess();
+        CHECK(c.stages.size() == 4 && c.stages[0].name == "clarify" && c.stages[0].job.tool == "plan-questions" && c.stages[0].job.accept == "brief" && c.stages[0].exit == "brief.present");
+        CHECK(c.stages[1].name == "plan" && c.stages[1].entry == "stage.clarify.done" && c.validate().empty() && c.producesPlan());
+        { Process bad = c; bad.stages[0].job.accept = "answers"; CHECK(contains(bad.validate(), "must be \"\", \"plan\" or \"brief\"")); }
         const Stage* review = reviewedProcess().stage("review");
         CHECK(review && review->job.tool == "qa" && review->entry == "stage.integrate.done" && review->exit == "job(qa).succeeded");
     }
@@ -71,7 +76,7 @@ int main()
         const Process& s = standardProcess();
         const std::string json = s.toJson();
         const auto paths = s.parameterPaths();
-        CHECK_EQ(paths.size(), static_cast<std::size_t>(9 + 19 + 9));   // a job stage: entry, exit and 7 of the job (its args are a list: edit the file); the items stage: entry, exit, 14 of the leaf (its list of disabled mends is edited in the file), 1 of the ascent
+        CHECK_EQ(paths.size(), static_cast<std::size_t>(9 + 20 + 9));   // a job stage: entry, exit and 7 of the job (its args are a list: edit the file); the items stage: entry, exit, 14 of the leaf (its list of disabled mends is edited in the file), 1 of the ascent
         for (const auto& path : paths) CHECK(contains(json, ("\"" + path.substr(path.rfind('.') + 1) + "\":").c_str()));
         CHECK(paths.front() == "plan.entry" && paths.back() == "integrate.job.accept");
         CHECK(contains(json, "\"schema\":\"process-1\"") && contains(json, "\"executor\":{\"developer\":\"session\",\"tester\":\"session\"}"));
@@ -113,7 +118,7 @@ int main()
         CHECK(contains(errorOf(file(std::string{kPlan} + "," + kPlan)), "stage 'plan': the name is used twice"));
         CHECK(contains(errorOf(file(std::string{kPlan} + ",{\"name\":\"again\",\"kind\":\"job\",\"job\":{\"step\":\"planner\",\"tool\":\"qa\"}}")), "job.step 'planner' is also the step of stage 'plan'"));
         CHECK(contains(errorOf(file("{\"name\":\"a\",\"kind\":\"job\",\"job\":{\"step\":\"gate\",\"tool\":\"qa\"}}")), "is the step of an item's job"));
-        CHECK(contains(errorOf(file("{\"name\":\"a\",\"kind\":\"job\",\"job\":{\"step\":\"s\",\"tool\":\"rm\"}}")), "job.tool 'rm' is not a registered stage tool (mock-planner, harness:integrate, qa, plan-lint)"));
+        CHECK(contains(errorOf(file("{\"name\":\"a\",\"kind\":\"job\",\"job\":{\"step\":\"s\",\"tool\":\"rm\"}}")), "job.tool 'rm' is not a registered stage tool (mock-planner, harness:integrate, qa, plan-lint, plan-questions)"));
         CHECK(contains(errorOf(file("{\"name\":\"a\",\"kind\":\"job\",\"job\":{\"step\":\"s\",\"tool\":\"qa\",\"args\":[\"${home}/x\"]}}")), "'${home}' is not a placeholder"));
         CHECK(contains(errorOf(file("{\"name\":\"a\",\"kind\":\"job\",\"job\":{\"step\":\"s\",\"tool\":\"qa\",\"args\":[1]}}")), "'job.args' must be a list of strings"));
         CHECK(contains(errorOf(file("{\"name\":\"a\",\"kind\":\"job\",\"job\":{\"step\":\"s\",\"tool\":\"qa\",\"args\":\"--x\"}}")), "'job.args' must be a list of strings"));
@@ -179,11 +184,11 @@ int main()
         { std::ofstream(dir / "broken.json") << "{\"schema\":\"process-1\",\"name\":\"broken\",\"stages\":[{\"name\":\"build\",\"kind\":\"items\",\"leaf\":{\"wat\":1}}]}"; }
         CHECK(contains(findProcess("broken", dir).error(), "unknown key 'leaf.wat'") && contains(findProcess("broken", dir).error(), "broken.json"));
         const auto none = findProcess("ghost", dir);
-        CHECK(!none.has_value() && contains(none.error(), "no process named 'ghost'") && contains(none.error(), "standard, sections, reviewed"));
+        CHECK(!none.has_value() && contains(none.error(), "no process named 'ghost'") && contains(none.error(), "standard, sections, reviewed, clarified"));
         CHECK(!findProcess("../etc/passwd", dir).has_value());                  // a name is never a path
         const auto names = processNames(dir);
-        CHECK(names.size() == 6 && names[0] == "standard" && names[1] == "sections" && names[2] == "reviewed");   // built-ins first, then the user's, sorted
-        if (names.size() == 6) CHECK(names[3] == "broken" && names[4] == "liar" && names[5] == "mine");
+        CHECK(names.size() == 7 && names[0] == "standard" && names[1] == "sections" && names[2] == "reviewed" && names[3] == "clarified");   // built-ins first, then the user's, sorted
+        if (names.size() == 7) CHECK(names[4] == "broken" && names[5] == "liar" && names[6] == "mine");
         removeTree(dir);
     }
     // A workflow spec carries its process through the journal: written whole, read whole; a spec without one runs the standard process; a bad one is refused.

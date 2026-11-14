@@ -35,6 +35,39 @@ void Daemon::Impl::executeWorkflowAction(const std::string& wfId, const Workflow
             }
             break;
         }
+        case WorkflowAction::Kind::settleBrief: {
+            // The planning stage (clarify.hpp): the questions its job wrote are asked once, as one blocking clarification; the brief is recorded when
+            // nothing is open (any more), and what the owner answered is remembered in the project's record.
+            const WorkflowRecord* wf = wfStore.find(wfId);
+            if (!wf) break;
+            const std::filesystem::path sandbox{wf->spec.sandboxDir};
+            std::ifstream in(sandbox / "questions.json");
+            std::stringstream ss;
+            ss << in.rdbuf();
+            const auto questions = ClarifyPlan::fromJson(ss.str());
+            BriefStep step;
+            if (!questions) { step.kind = BriefStep::Kind::error; step.error = questions.error(); }
+            else step = nextBriefStep(*wf, *questions);
+            if (step.kind == BriefStep::Kind::ask) (void)raiseRequest(wfId, step.request);
+            else if (step.kind == BriefStep::Kind::brief) {
+                { std::ofstream o(sandbox / "brief.json", std::ios::trunc); o << step.brief.toJson() << "\n"; }
+                if (const auto keep = step.brief.toRemember(); !keep.empty()) {
+                    std::ifstream had(opts.paths.projectAnswersFile());
+                    std::stringstream hs;
+                    hs << had.rdbuf();
+                    auto answers = parseProjectAnswers(hs.str());
+                    for (const auto& [k, v] : keep) answers[k] = v;
+                    std::ofstream o(opts.paths.projectAnswersFile(), std::ios::trunc);
+                    o << projectAnswersJson(answers) << "\n";
+                }
+                record("workflowBriefed", wfbody::briefed(wfId, step.brief.task, step.brief.executor, step.brief.toJson()));
+                logf("workflow %s: brief recorded: task '%s', executor '%s'", wfId.c_str(), step.brief.task.c_str(), step.brief.executor.c_str());
+            } else if (step.kind == BriefStep::Kind::error) {
+                record("workflowFinished", wfbody::finished(wfId, WorkflowState::failed, "the planning questions could not be settled: " + step.error));
+                logf("workflow %s: brief rejected: %s", wfId.c_str(), step.error.c_str());
+            }
+            break;
+        }
         case WorkflowAction::Kind::amendPlan: {
             const WorkflowRecord* wf = wfStore.find(wfId);
             if (!wf || !wf->plan) break;
@@ -165,6 +198,17 @@ std::string Daemon::Impl::doWorkflowSubmit(const std::string& specJson)
     std::filesystem::create_directories(spec->sandboxDir, ec);
     if (ec) return errorReply("cannot create the sandbox " + spec->sandboxDir + ": " + ec.message());
     if (!spec->mends.empty()) std::ofstream(std::filesystem::path{spec->sandboxDir} / "mends.json") << spec->mends << "\n";   // the gate reads the workflow's own mends from its sandbox
+    // A process with a planning stage: what is known about the request, for its `plan-questions` job (the facts are data in the sandbox, so the job
+    // is a pure function of a file; the project's remembered answers are among them).
+    if (std::any_of(spec->process.stages.begin(), spec->process.stages.end(), [](const Stage& s) { return s.kind == StageKind::job && s.job.accept == "brief"; })) {
+        ClarifyFacts facts;
+        facts.taskText = spec->taskText; facts.task = spec->task; facts.agent = spec->agent; facts.executor = spec->executor; facts.acceptDefaults = spec->defaults;
+        std::ifstream had(opts.paths.projectAnswersFile());
+        std::stringstream hs;
+        hs << had.rdbuf();
+        facts.remembered = parseProjectAnswers(hs.str());
+        std::ofstream(std::filesystem::path{spec->sandboxDir} / "clarify-input.json") << facts.toJson() << "\n";
+    }
     record("workflowSubmitted", wfbody::submitted(id, *spec));
     logf("workflow %s submitted: task '%s', sandbox %s", id.c_str(), spec->task.c_str(), spec->sandboxDir.c_str());
     if (!isKnownTask(spec->task) && spec->process.producesPlan()) {  // the process plans, and no blueprint exists: the architect role is deferred as a file handoff

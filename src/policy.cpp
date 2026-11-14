@@ -28,6 +28,7 @@ std::string toJson(const DecisionContext& c, const Decision& d)
     for (const auto& [name, allowed] : rungs) lacks = lacks || !allowed;
     if (c.forked) w.kvBool("forked", true);   // written only when it holds, like `processLacks`
     if (c.stuckNearPass) w.kvBool("stuckNearPass", true).kvBool("thinkTried", c.thinkTried);
+    if (c.unacceptedSection) w.kvBool("unacceptedSection", true).kvBool("unacceptedBefore", c.unacceptedBefore).kvBool("thinkTried", c.thinkTried);
     if (lacks) { w.key("processLacks").beginArray(); for (const auto& [name, allowed] : rungs) if (!allowed) w.str(name); w.endArray(); }
     w.endObject().endObject();
     return w.take();
@@ -77,6 +78,19 @@ Decision RulePolicy::decide(const DecisionContext& c) const
         d.tier = "local";
         d.reasons.push_back("stuck near pass: this attempt ended on the same files as the one before it, with at most 15 % of the tests failing; another plain repair would end the same way");
         d.reasons.push_back("tests of which nearly all pass are probably right: the manager applies strategy 'think' first (reasoning on), before the tests are sent back or the card is rewritten");
+        return d;
+    }
+    if (c.unacceptedSection && c.allowThinkFirst && !c.thinkTried) {
+        // The first cause is ONE section; nothing about the whole file (its tests, its card, its division) is in question yet.
+        if (!c.unacceptedBefore) {
+            d.action = Action::retry;
+            d.tier = "local";
+            d.reasons.push_back("first cause: a section of the file was never accepted, so its stub stands in the file and the other errors are consequences; the next attempt resumes the canvas and writes only that section");
+            return d;
+        }
+        d.action = Action::think;
+        d.tier = "local";
+        d.reasons.push_back("first cause: the same section was left unaccepted by two attempts running; the manager applies strategy 'think' (reasoning on) to it before any whole-file rung");
         return d;
     }
     if (c.repeatedFailure && c.hasTesterDep && !c.reviseTried && c.allowReviseTests) {

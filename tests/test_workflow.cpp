@@ -337,6 +337,18 @@ int main()
             CHECK_EQ(count(s, "reviseTests") + count(s, "disputed") + count(s, "rearchitect") + count(s, "decompose"), 0);
             for (const auto& d : wf.decisions) if (d.action == "strategy") { CHECK_EQ(d.tier, std::string("think")); CHECK_EQ(d.attempt, 2); CHECK(d.json.find("\"stuckNearPass\":true") != std::string::npos && d.json.find("stuck near pass") != std::string::npos); }
         }
+        {   // gate exit 8 (a fork attempt left a section unaccepted: the first cause, row 75): a retry, then `think` when the next attempt ends the
+            // same way, then the item passes; no mend, no whole-file rung
+            SCENARIO("unaccepted-section-is-first-cause");
+            Sim s = startSim(2, FrontierMode::off);
+            s.feed("workflowPlanned", wfbody::planned("w-000001", onePlan()));
+            drive(s, [&](const JobRecord& j) { return j.spec.role == "gate" && j.spec.attempt <= 2 ? Outcome{JobState::failed, "{\"code\":8,\"result\":{\"mend\":{\"name\":\"unused-entity\",\"action\":\"silence-unused\",\"requires\":\"location\",\"symbol\":\"hasExp\",\"file\":\"src/calc.js\",\"line\":3,\"column\":4,\"error\":\"e\",\"maxPerItem\":2}}}"} : ok; });
+            const WorkflowRecord& wf = *s.wfs.find("w-000001");
+            CHECK(wf.state == WorkflowState::succeeded);
+            CHECK_EQ(count(s, "retry"), 1);
+            CHECK_EQ(count(s, "strategy"), 1);
+            CHECK_EQ(count(s, "mend") + count(s, "rearchitect") + count(s, "decompose") + count(s, "reviseTests"), 0);   // even a mend the gate reported is not applied: it is a consequence
+        }
         {   // gate exit 5 (the same tests failed the same way twice) on an item graded by a tester's tests: the tests are sent back, once
             SCENARIO("repeated-failure-sends-tests-back");
             Plan p;

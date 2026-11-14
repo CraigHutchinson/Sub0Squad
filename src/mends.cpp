@@ -21,6 +21,12 @@ const char* const kBuiltin = R"JSON({"schema":"mends-1","mends":[
 ]}
 )JSON";
 
+// The text of registry/diagnostics.json (test_mends holds the file and this equal, byte for byte).
+const char* const kBuiltinDiagnostics = R"JSON({"schema":"diagnostics-1","diagnostics":[
+{"name":"iterator-for-const-iterator-ref","match":["cannot bind non-const lvalue reference of type '[^']*const_iterator&' to an rvalue of type '[^']*const_iterator'"],"hint":"The function you call takes a `const_iterator&`, and the variable you pass is not a const_iterator: `auto pos = v.begin();` on a non-const container is an `iterator`, so the call makes a temporary and a non-const reference cannot bind to it. Declare the variables from cbegin() and cend(): `auto pos = v.cbegin(); auto end = v.cend();`.","edit":"const-iterators","fixture":"tests/data/mends/const-iterator-ref.txt"}
+]}
+)JSON";
+
 bool isIdent(char c) { return std::isalnum(static_cast<unsigned char>(c)) || c == '_'; }
 
 /// Typographic quotes (GCC writes U+2018 and U+2019 in a UTF-8 locale) and backticks (the linker's) as plain '.
@@ -147,6 +153,108 @@ std::string firstErrorLine(const std::string& output)
         return plainQuotes(line);
     }
     return {};
+}
+
+const std::string& builtinDiagnosticsJson() { static const std::string text = kBuiltinDiagnostics; return text; }
+
+const std::vector<KnownDiagnostic>& builtinDiagnostics()
+{
+    static const std::vector<KnownDiagnostic> table = [] { auto t = parseDiagnostics(kBuiltinDiagnostics); return t ? *t : std::vector<KnownDiagnostic>{}; }();
+    return table;
+}
+
+std::expected<std::vector<KnownDiagnostic>, std::string> parseDiagnostics(std::string_view text)
+{
+    std::vector<KnownDiagnostic> out;
+    bool schema = false;
+    try {
+        json::withObject(text, [&](simdjson::ondemand::object& obj) {
+            for (auto f : obj) {
+                const std::string_view k = f.unescaped_key();
+                auto v = f.value();
+                if (k == "schema") schema = json::toString(v) == "diagnostics-1";
+                else if (k == "diagnostics") {
+                    for (auto element : v.get_array()) {
+                        KnownDiagnostic d;
+                        for (auto x : element.get_object()) {
+                            const std::string_view dk = x.unescaped_key();
+                            auto dv = x.value();
+                            if (dk == "name") d.name = json::toString(dv);
+                            else if (dk == "match") { for (auto p : dv.get_array()) d.match.push_back(json::toString(p.value())); }
+                            else if (dk == "hint") d.hint = json::toString(dv);
+                            else if (dk == "edit") d.edit = json::toString(dv);
+                            else if (dk == "fixture") d.fixture = json::toString(dv);
+                            else throw std::runtime_error("unknown key '" + std::string{dk} + "' in a diagnostic");
+                        }
+                        out.push_back(std::move(d));
+                    }
+                }
+            }
+        });
+    } catch (const simdjson::simdjson_error& e) { return std::unexpected(std::string{"bad diagnostics table: "} + e.what()); }
+    catch (const std::runtime_error& e) { return std::unexpected(std::string{"bad diagnostics table: "} + e.what()); }
+    if (!schema) return std::unexpected("a diagnostics table needs \"schema\": \"diagnostics-1\"");
+    for (std::size_t i = 0; i < out.size(); ++i) {
+        const KnownDiagnostic& d = out[i];
+        const std::string where = "diagnostic '" + d.name + "': ";
+        if (d.name.empty() || d.name.size() > 40 || !std::all_of(d.name.begin(), d.name.end(), [](char c) { return std::islower(static_cast<unsigned char>(c)) || std::isdigit(static_cast<unsigned char>(c)) || c == '-'; })) return std::unexpected("diagnostic " + std::to_string(i + 1) + ": the name must be 1 to 40 characters of a-z, 0-9 and '-'");
+        for (std::size_t e = 0; e < i; ++e) if (out[e].name == d.name) return std::unexpected(where + "the name is used twice");
+        if (d.hint.empty() || d.hint.size() > 600) return std::unexpected(where + "needs a hint of at most 600 characters");
+        if (!d.edit.empty() && d.edit != "const-iterators") return std::unexpected(where + "edit '" + d.edit + "' is not a known edit (const-iterators)");
+        if (d.match.empty()) return std::unexpected(where + "needs at least one pattern");
+        for (const auto& p : d.match) {
+            if (p.size() > 300) return std::unexpected(where + "a pattern is longer than 300 characters");
+            try { const std::regex re(p); } catch (const std::regex_error& e) { return std::unexpected(where + "pattern \"" + p + "\" is not a regular expression: " + e.what()); }
+        }
+    }
+    return out;
+}
+
+std::optional<KnownDiagnostic> matchDiagnostic(const std::vector<KnownDiagnostic>& table, const std::string& output)
+{
+    const std::string line = firstErrorLine(output);
+    if (line.empty()) return std::nullopt;
+    for (const KnownDiagnostic& d : table)
+        for (const auto& p : d.match) {
+            try { if (std::regex_search(line, std::regex(p))) return d; } catch (const std::regex_error&) {}
+        }
+    return std::nullopt;
+}
+
+std::optional<std::string> applyDiagnosticEdit(const std::string& edit, const std::string& functionText)
+{
+    if (edit != "const-iterators") return std::nullopt;
+    std::string out = functionText;
+    for (const auto& [from, to] : {std::pair<std::string, std::string>{".begin()", ".cbegin()"}, {".end()", ".cend()"}})
+        for (std::size_t at = out.find(from); at != std::string::npos; at = out.find(from, at + to.size())) out.replace(at, from.size(), to);
+    if (out == functionText) return std::nullopt;
+    return out;
+}
+
+std::string errorKind(const std::string& output)
+{
+    const std::string line = firstErrorLine(output);
+    static const std::regex place(R"(^\s*[A-Za-z0-9_./+-]+\.[A-Za-z0-9]+:\d+(:\d+)?:\s*)");
+    return std::regex_replace(line, place, "");
+}
+
+std::string unacceptedSections(const std::string& forkJson)
+{
+    if (forkJson.find("\"failure\":\"sections-missing\"") == std::string::npos) return {};
+    static const std::string key = "sections never accepted: ";
+    const auto at = forkJson.find(key);
+    if (at == std::string::npos) return {};
+    const auto end = forkJson.find_first_of("\"(;", at + key.size());
+    std::string names = forkJson.substr(at + key.size(), end == std::string::npos ? std::string::npos : end - at - key.size());
+    while (!names.empty() && names.back() == ' ') names.pop_back();
+    return names;
+}
+
+bool isUnusedConsequence(const std::string& firstError)
+{
+    for (const char* mark : {"-Wunused", "-Werror=unused", "set but not used", "defined but not used", "unused variable", "unused parameter", "unused function"})
+        if (firstError.find(mark) != std::string::npos) return true;
+    return false;
 }
 
 std::optional<MendMatch> matchMend(const std::vector<Mend>& table, const std::string& output)

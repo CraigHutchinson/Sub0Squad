@@ -13,6 +13,7 @@ struct TriageResult
 {
     std::string projectType;             ///< "web-static", "cpp-header" or "unknown"
     std::string blueprint;               ///< known task name, or empty
+    bool platformAssumed = false;        ///< a blueprint was chosen although the request names no platform (the default one): what the planning questions ask about
     int complexity = 1;                  ///< 1..5
     bool split = false;
     std::vector<std::string> personas;   ///< personas the plan will use

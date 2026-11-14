@@ -28,6 +28,7 @@ struct Sim
     std::uint64_t seq = 0;
     WorkflowSettings settings{"/bin/sub0squad", FrontierMode::stub};
     RulePolicy policy;
+    ClarifyPlan questions;   ///< what the planning job "wrote" (questions.json), for a process with a stage that accepts a brief
 
     void feed(const char* type, const std::string& body)
     {
@@ -62,6 +63,13 @@ struct Sim
                 case WorkflowAction::Kind::loadPlan: break;
                 case WorkflowAction::Kind::writeDispute: break;
                 case WorkflowAction::Kind::setStrategy: break;
+                case WorkflowAction::Kind::settleBrief: {   // as the daemon does: ask once, or record the brief
+                    const BriefStep step = nextBriefStep(*wfs.find("w-000001"), questions);
+                    if (step.kind == BriefStep::Kind::ask) { RequestRecord r = step.request; r.id = "r-" + std::to_string(wfs.find("w-000001")->requests.size() + 1); feed("workflowRequestRaised", wfbody::requestRaised("w-000001", r)); }
+                    else if (step.kind == BriefStep::Kind::brief) feed("workflowBriefed", wfbody::briefed("w-000001", step.brief.task, step.brief.executor, step.brief.toJson()));
+                    else if (step.kind == BriefStep::Kind::error) feed("workflowFinished", wfbody::finished("w-000001", WorkflowState::failed, step.error));
+                    break;
+                }
                 case WorkflowAction::Kind::raiseRequest: { RequestRecord r = a.request; r.id = "r-" + std::to_string(wfs.find("w-000001")->requests.size() + 1); feed("workflowRequestRaised", wfbody::requestRaised("w-000001", r)); break; }
                 case WorkflowAction::Kind::sendDown: feed("workflowDecision", wfbody::decision("w-000001", "d2", 1, "disputed", "local", "{}")); break;  // the daemon picks the part; here always d2
                 case WorkflowAction::Kind::amendPlan: {

@@ -1,0 +1,14 @@
+double evaluate(const std::string& expr, bool degrees)
+{
+    auto tokens = tokenize(expr);
+    auto pos = tokens.begin();
+    auto end = tokens.end();
+
+    double result = parseExpression(pos, end, degrees);
+
+    if (pos != end) {
+        throw std::runtime_error("Unexpected characters at end of expression");
+    }
+
+    return result;
+}

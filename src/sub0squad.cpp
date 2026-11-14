@@ -8,6 +8,7 @@
 #include <string_view>
 #include <Version.hpp>
 #include "sub0squad/build_id.hpp"
+#include "sub0squad/clarify.hpp"
 #include "sub0squad/client.hpp"
 #include "sub0squad/mock_worker.hpp"
 #include "sub0squad/harness_cpp.hpp"
@@ -109,6 +110,7 @@ int main(int argc, char** argv)
     if (argc > 1) {
         const std::vector<std::string> rest(argv + 2, argv + argc);
         if (std::strcmp(argv[1], "mock-planner") == 0) return sub0squad::runMockPlanner(rest);
+        if (std::strcmp(argv[1], "plan-questions") == 0) return sub0squad::runPlanQuestions(rest);
         if (std::strcmp(argv[1], "mock-agent") == 0) return sub0squad::runMockAgent(rest);
         if (std::strcmp(argv[1], "guard") == 0) return sub0squad::runGuard(rest);
         if (std::strcmp(argv[1], "fetch-model") == 0) return sub0squad::runFetchModel(rest);

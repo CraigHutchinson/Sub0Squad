@@ -42,6 +42,10 @@ struct DecisionContext
     /// would end the same way. The ladder goes to the `think` strategy FIRST, once (`thinkTried`), before `reviseTests` and `rearchitect`: tests of which
     /// nearly all pass are probably right, so they are the last thing to dispute.
     bool stuckNearPass = false, thinkTried = false;
+    /// The attempt was a fork that left a section UNACCEPTED (gate exit code 8; catalogue row 75): that section is the first cause, and every error about
+    /// unused code in the file is its consequence. The ladder retries (the fork resumes its canvas and writes only that section, with the hint of a known
+    /// diagnostic); when the attempt before it ended the same way (`unacceptedBefore`) it applies `think` once; no whole-file rung comes before these.
+    bool unacceptedSection = false, unacceptedBefore = false;
     bool decomposeTried = false, reviseTried = false, rearchitectTried = false;
     int maxDepth = 2;
     /// Whose work it is. Only a DEVELOPER's item is ever divided: a tester writes one test file, and an architect asked to divide it invents

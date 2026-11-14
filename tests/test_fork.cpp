@@ -236,7 +236,7 @@ int main()
             const int n = calls[name]++;
             const auto reply = [&](const std::string& text) { return fake::Reply{"=== EDIT: " + file + " SYMBOL " + name + " ===\n" + text + "=== END EDIT ===\n"}; };
             if (name == "spare") return reply("static double spare(double x)\n{\n    return x * 2;\n}\n");
-            if (name == "term" && n < 3) return reply("    double term()\n    {\n        return nothing_declared_anywhere;\n    }\n");
+            if (name == "term" && n < 4) return reply("    double term()\n    {\n        return nothing_declared_anywhere;\n    }\n");
             if (name == "unary" && n == 0) return reply(noReturn);
             // The declaration is the harness's: a section that drops the indentation or renames a parameter still lands with the skeleton's declaration.
             if (name == "call") { std::string body = cfn[name]; return reply("double call(const std::string& fn, const std::vector<double>& args)" + body.substr(body.find("\n    {"))); }
@@ -256,7 +256,7 @@ int main()
         CHECK(slurp(attempt / "canvas.json").find("\"by\":\"harness\"") != std::string::npos);                    // the log says the harness removed it
         // Accepted sections are never re-run: every section had ONE session, except the two that had to answer for their own defects.
         for (const auto& [name, n] : calls) {
-            if (name == "term") CHECK_EQ(n, 4);            // three refusals, then its one session in assembly
+            if (name == "term") CHECK_EQ(n, 5);            // three refusals, one more under think (rows 74, 75), then its one session in assembly
             else if (name == "unary") CHECK_EQ(n, 2);      // written once, then one session for the finding that is its own
             else CHECK_EQ(n, 1);
         }

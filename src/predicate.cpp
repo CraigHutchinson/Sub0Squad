@@ -9,7 +9,7 @@ namespace sub0squad {
 struct Predicate::Node
 {
     enum class Kind { either, both, negate, compare, number, truth,
-                      always, planPresent, stageDone, stageActive, stageFailed, itemsAll, itemsAny, itemsCount, jobSucceeded, jobFailed, jobActive, jobTries, openBlocking };
+                      always, planPresent, briefPresent, stageDone, stageActive, stageFailed, itemsAll, itemsAny, itemsCount, jobSucceeded, jobFailed, jobActive, jobTries, openBlocking };
     Kind kind = Kind::truth;
     bool isNumber = false;                      ///< the type of the node's value: a number or a truth value
     std::int64_t literal = 0;                   ///< number, truth (0 or 1)
@@ -160,6 +160,12 @@ struct Parser
             if (error.empty() && field != "present") fail(fieldAt, "'plan' has only '.present', not '." + field + "'");
             return done(make(Node::Kind::planPresent, from));
         }
+        if (head == "brief") {
+            const std::size_t fieldAt = at + 1;
+            const std::string field = member();
+            if (error.empty() && field != "present") fail(fieldAt, "'brief' has only '.present', not '." + field + "'");
+            return done(make(Node::Kind::briefPresent, from));
+        }
         if (head == "requests") {
             const std::size_t fieldAt = at + 1;
             const std::string field = member();
@@ -212,7 +218,7 @@ struct Parser
             n->name = step;
             return done(n);
         }
-        fail(from, "unknown name '" + head + "' (the vocabulary is: always, plan.present, stage.NAME.done, items.all(STATE), items.count(STATE), job(STEP).succeeded, requests.openBlocking)");
+        fail(from, "unknown name '" + head + "' (the vocabulary is: always, plan.present, brief.present, stage.NAME.done, items.all(STATE), items.count(STATE), job(STEP).succeeded, requests.openBlocking)");
         return make(Node::Kind::truth, from);
     }
 };
@@ -234,6 +240,7 @@ std::int64_t value(const Node& n, const Snapshot& s)
         case K::number: case K::truth: return n.literal;
         case K::always: return 1;
         case K::planPresent: return s.planPresent;
+        case K::briefPresent: return s.briefPresent;
         case K::stageDone: return stage().done;
         case K::stageActive: return stage().active;
         case K::stageFailed: return stage().failed;

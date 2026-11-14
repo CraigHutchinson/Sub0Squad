@@ -11,6 +11,8 @@
 #include "sub0squad/process.hpp"
 
 #include <map>
+#include "sub0squad/clarify.hpp"
+
 #include <optional>
 #include <set>
 #include <string>
@@ -44,6 +46,7 @@ struct WorkflowSpec
     int sizeBudget = 1800;                        ///< estimated completion tokens above which an item that has tests is divided BEFORE the first attempt (0 = never)
     int maxTokens = 3000;                         ///< completion budget of one llm attempt
     std::string fallbackEngine;                   ///< name of a stronger engine profile the manager moves an item to when the ladder is spent (a strategy); empty = none
+    bool defaults = false;                        ///< the owner asked for the defaults: a planning stage asks nothing (clarify.hpp)
     bool ask = false;                             ///< governance on: an item the ladder cannot finish is deferred to the owner (a blocking request) instead of failing the workflow
 
     /// The engine profile for a persona (route, else the first engine), or nullopt when none is configured.
@@ -79,6 +82,7 @@ struct WorkflowRecord
     std::optional<Plan> plan;
     std::vector<DecisionRecord> decisions;
     std::vector<RequestRecord> requests;
+    std::string brief;                      ///< the `brief-1` record of a planning stage ("" until it is settled): what the workflow runs with and why
     std::set<std::string> rejectedAmends;   ///< "item#attempt": a decomposition the daemon refused (invalid plan), which counts as a failed attempt
     std::vector<std::string> amendedItems;  ///< items that were replaced by a division, in order (history)
     bool cancelRequested = false;
@@ -91,6 +95,8 @@ struct WorkflowRecord
 namespace wfbody {
 [[nodiscard]] std::string submitted(const std::string& id, const WorkflowSpec& spec);
 [[nodiscard]] std::string planned(const std::string& id, const Plan& plan);
+/// The planning questions are settled: the task and the executor the workflow now runs with, and the whole brief.
+[[nodiscard]] std::string briefed(const std::string& id, const std::string& task, const std::string& executor, const std::string& briefJson);
 [[nodiscard]] std::string decision(const std::string& id, const std::string& item, int attempt, const std::string& action, const std::string& tier, const std::string& decisionJson);
 [[nodiscard]] std::string planAmended(const std::string& id, const std::string& replaced, const Plan& plan);
 [[nodiscard]] std::string amendRejected(const std::string& id, const std::string& item, int attempt, const std::string& reason);
@@ -123,7 +129,7 @@ struct WorkflowSettings
 /// What the engine asks the daemon to do, in order.
 struct WorkflowAction
 {
-    enum class Kind { startJob, loadPlan, recordDecision, cancelJob, finish, amendPlan, writeDispute, sendDown, raiseRequest, setStrategy } kind = Kind::finish;
+    enum class Kind { startJob, loadPlan, recordDecision, cancelJob, finish, amendPlan, writeDispute, sendDown, raiseRequest, setStrategy, settleBrief } kind = Kind::finish;
     JobSpec job;                                       ///< startJob
     std::string jobId;                                 ///< cancelJob
     std::string item;                                  ///< recordDecision
@@ -137,6 +143,17 @@ struct WorkflowAction
     /// shadow comparison of two engines is a comparison of their serialised lists.
     [[nodiscard]] std::string toJson() const;
 };
+
+/// What `settleBrief` does next for a workflow whose planning job wrote `questions` (clarify.hpp): put the open questions to the owner as ONE blocking
+/// clarification (`ask`), or record the brief (`brief`: nothing was open, or the owner answered), or nothing yet (`wait`: the request is open).
+struct BriefStep
+{
+    enum class Kind { ask, brief, wait, error } kind = Kind::wait;
+    RequestRecord request;      ///< ask (the daemon assigns the id)
+    Brief brief;                ///< brief
+    std::string error;          ///< error
+};
+[[nodiscard]] BriefStep nextBriefStep(const WorkflowRecord& wf, const ClarifyPlan& questions);
 
 /// Evaluate one running workflow. Idempotent: calling it again before its actions are applied returns the same actions.
 [[nodiscard]] std::vector<WorkflowAction> advance(const WorkflowRecord& wf, const JobStore& jobs, const WorkflowSettings& settings,

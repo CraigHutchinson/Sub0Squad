@@ -133,6 +133,9 @@ hand-written Sugiyama pass; how it works with the retained-mode patching in `por
      states, the confirmations, that nothing is changed without approval, and that the project it starts finishes with the mock agent. The README's first-use section points at the wizard as the
      shortest path and keeps the plain commands for scripting.
   Depends on: process-as-data, `doctor`, `up` and `down` (built), engine service management, the fake-engine test harness (built). Out of scope for a first slice: a graphical front end, remote hosts.
+- **BUILT (eighth pass; `docs/PROCESS_DESIGN.md` section 15, the `clarified` process, `test_clarify`): the planning iteration below, for the two topics an
+  answer can change (platform, executor); the other topics are settled as "not asked" with the reason. Open: the bar for done and the engine as questions
+  (they need the process and the engines to be replaceable after submission), choices from the harness registry instead of the calculator's three.**
 - **A planning iteration that asks clarifying questions (owner direction, 2026-11-13).** Today an underspecified request gets silent defaults: an unspecified calculator goes to the C++ blueprint,
   the executor is `session` until the real-model comparison exists, the frontier tier is off. These defaults are accepted for now. The planning step (a stage of a registered process, and the first step of the
   wizard) should instead ask the owner the few questions that change the outcome before any work starts, through the inbox (`request raise --kind clarification`, the answer comes back as data): which platform

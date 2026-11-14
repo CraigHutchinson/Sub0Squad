@@ -1,0 +1,4 @@
+your function does not pass the check, so it was not kept:
+src/calc.cpp:205:37: error: cannot bind non-const lvalue reference of type ‘std::vector<calc::Token>::const_iterator&’ to an rvalue of type ‘std::vector<calc::Token>::const_iterator’
+    205 |     double result = parseExpression(pos, end, degrees);
+        |                                     ^~~
