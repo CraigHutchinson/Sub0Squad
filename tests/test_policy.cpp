@@ -54,6 +54,15 @@ int main()
         CHECK(policy.decide(c).action == Action::sections);
         c.sectionsTried = true; c.hasTesterDep = true;
         CHECK(policy.decide(c).action == Action::reviseTests);                                 // then the ladder goes on, never to decompose
+        // Row 73: a rung never repeats what just failed. An item that already ran as forked sections is not offered `sections`; the ladder goes on, and
+        // the decision says why (and records `forked` among its inputs only when it holds).
+        DecisionContext f; f.divideBySections = true; f.localAttempts = 2; f.maxLocalAttempts = 2; f.totalAttempts = 2; f.splittable = true; f.hasTesterDep = true; f.forked = true;
+        const Decision fd = policy.decide(f);
+        CHECK(fd.action == Action::reviseTests);
+        CHECK(std::find(fd.reasons.begin(), fd.reasons.end(), "the failed attempt already ran as forked sections: the `sections` rung would repeat it, so it is skipped") != fd.reasons.end());
+        CHECK(toJson(f, fd).find("\"forked\":true") != std::string::npos && toJson(c, policy.decide(c)).find("forked") == std::string::npos);
+        f.oversize = true; f.localAttempts = 1; f.totalAttempts = 1;
+        CHECK(policy.decide(f).action == Action::retry);                                       // "too big for one reply" cannot ask for sections either: it already is sections
         DecisionContext o; o.divideBySections = true; o.oversize = true; o.localAttempts = 1; o.totalAttempts = 1;
         CHECK(policy.decide(o).action == Action::sections);                                    // too big for one reply: sections at once, even for one file
         o.persona = "tester";

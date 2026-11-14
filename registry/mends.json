@@ -1,5 +1,6 @@
 {"schema":"mends-1","mends":[
 {"name":"undefined-contract-symbol","class":"M","match":["undefined reference to '([A-Za-z_][A-Za-z0-9_:]*)","'([A-Za-z_][A-Za-z0-9_:]*)' was not declared in this scope","cannot import name '([A-Za-z_][A-Za-z0-9_]*)'","has no attribute '([A-Za-z_][A-Za-z0-9_]*)'"],"requires":"contract","action":"add-section","maxPerItem":2,"fixture":"tests/data/mends/undefined-reference.txt"},
+{"name":"undefined-declared-member","class":"M","match":["undefined reference to '([A-Za-z_~][A-Za-z0-9_:~]*)"],"requires":"declared","action":"add-section","maxPerItem":2,"fixture":"tests/data/mends/undefined-member.txt"},
 {"name":"helper-never-defined","class":"M","match":["'([^']+)' (?:declared 'static'|used) but never defined"],"requires":"prototype","action":"add-section","maxPerItem":2,"fixture":"tests/data/mends/never-defined.txt"},
 {"name":"unused-entity","class":"M","match":["variable '([A-Za-z_][A-Za-z0-9_]*)' set but not used","unused variable '([A-Za-z_][A-Za-z0-9_]*)'","unused parameter '([A-Za-z_][A-Za-z0-9_]*)'"],"requires":"location","action":"silence-unused","maxPerItem":2,"fixture":"tests/data/mends/unused-but-set.txt"}
 ]}

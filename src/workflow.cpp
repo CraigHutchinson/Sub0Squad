@@ -442,6 +442,7 @@ JobSpec agentJob(const WorkflowRecord& wf, const WorkflowSettings& st, const Wor
         const bool sections = before && before->action == "sections";   // the ladder chose forked sections for this attempt
         const std::string executor = executorFor(wf.spec, leaf, it.persona);
         if ((executor == "fork" || sections || mend) && tier == "local" && it.persona != "tester") {   // a developer's item as forked sections; the gate job judges the merged files
+            s.tool = "llm-fork";   // the job says what it is: the policy reads it to never repeat the failing attempt's executor (row 73)
             s.argv = {st.exe, "llm-fork", "--workflow-dir", wf.spec.sandboxDir, "--item", it.id, "--attempt", std::to_string(attempt), "--engine", engine->toArg(),
                       "--max-tokens", std::to_string(wf.spec.maxTokens), "--timeout", "1700", "--repair-turns", std::to_string(wf.spec.repairTurns), "--agent-exit", "1"};
             if (!leaf.contractSections) s.argv.insert(s.argv.end(), {"--contract-sections", "0"});
@@ -734,6 +735,8 @@ bool advanceItems(const WorkflowRecord& wf, const std::vector<ItemView>& views, 
             ctx.allowRearchitect = leaf.allowRearchitect; ctx.allowEscalate = leaf.allowEscalate;
             if (const Harness* hs = findHarness(plan.harness)) ctx.divideBySections = hs->divideBySections;
             for (const auto& dd : wf.decisions) if (dd.item == v.item->id && dd.action == "sections") ctx.sectionsTried = true;
+            // What the failing attempt WAS (row 73): the latest agent job of this item. A rung that would run the same executor again is skipped.
+            for (const JobRecord* j : v.attempts) if (j->spec.tool == "llm-fork") ctx.forked = true;
             ctx.decomposeTried = v.decomposeTried;
             ctx.rearchitectTried = v.rearchitectTried;
             for (const auto& dd : wf.decisions) if (dd.item == v.item->id && dd.action == "reviseTests") ctx.reviseTried = true;

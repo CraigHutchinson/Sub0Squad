@@ -6,9 +6,12 @@
 // That the ENGINE applies a mend at most twice and then lets the ladder go on is in test_workflow; the whole loop through a daemon is in test_heal.
 #include "check.hpp"
 #include "sub0squad/contract.hpp"
+#include "sub0squad/fork.hpp"
 #include "sub0squad/harness.hpp"
+#include "sub0squad/attempt_failure.hpp"
 #include "sub0squad/harness_common.hpp"
 #include "sub0squad/mends.hpp"
+#include "sub0squad/outline.hpp"
 #include "sub0squad/sandbox.hpp"
 
 #include <fstream>
@@ -28,11 +31,11 @@ int main()
     // The table: the file in the registry is the built-in one, byte for byte; it parses; every mend names a fixture that exists and that IT matches.
     CHECK_EQ(slurp(root / "registry" / "mends.json"), builtinMendsJson());
     const auto& mends = builtinMends();
-    CHECK_EQ(mends.size(), static_cast<std::size_t>(3));
+    CHECK_EQ(mends.size(), static_cast<std::size_t>(4));
     for (const Mend& m : mends) {
         const std::string fixture = slurp(root / m.fixture);
         CHECK(!fixture.empty());
-        const auto hit = matchMend(mends, fixture);
+        const auto hit = matchMend({m}, fixture);   // two mends may share a pattern (an undefined reference): the gate takes the first whose REQUIREMENT holds
         CHECK(hit.has_value() && hit->name == m.name && hit->action == m.action && hit->maxPerItem == 2);
         if (!hit || hit->name != m.name) std::fprintf(stderr, "mend %s does not match its fixture %s (matched: %s)\n", m.name.c_str(), m.fixture.c_str(), hit ? hit->name.c_str() : "nothing");
     }
@@ -82,16 +85,16 @@ int main()
         CHECK(mine.has_value() && mine->size() == 1 && (*mine)[0].maxPerItem == 1);
         if (mine) {
             const auto merged = mergedMends(mends, *mine);
-            CHECK_EQ(merged.size(), static_cast<std::size_t>(4));
+            CHECK_EQ(merged.size(), mends.size() + 1);
             CHECK(matchMend(merged, "src/a.cpp:3:9: error: no member named 'evaluate' in namespace 'calc'\n").value_or(MendMatch{}).name == "mine");
             Mend replaced = mends[2];
             replaced.maxPerItem = 1;
-            CHECK(mergedMends(mends, {replaced}).size() == 3 && mergedMends(mends, {replaced})[2].maxPerItem == 1);   // same name: the built-in one is replaced
+            CHECK(mergedMends(mends, {replaced}).size() == mends.size() && mergedMends(mends, {replaced})[2].maxPerItem == 1);   // same name: the built-in one is replaced
         }
         CHECK(contains(errorOf("{\"mends\":[]}"), "needs \"schema\": \"mends-1\""));
         CHECK(contains(errorOf("nonsense"), "bad mends table"));
         CHECK(contains(errorOf(table("{\"name\":\"a\",\"match\":[\"x(y)\"],\"requires\":\"contract\",\"action\":\"run-shell\"}")), "mend 'a': action 'run-shell' is not a mend action"));
-        CHECK(contains(errorOf(table("{\"name\":\"a\",\"match\":[\"x(y)\"],\"requires\":\"luck\",\"action\":\"add-section\"}")), "requires 'luck' must be contract, prototype or location"));
+        CHECK(contains(errorOf(table("{\"name\":\"a\",\"match\":[\"x(y)\"],\"requires\":\"luck\",\"action\":\"add-section\"}")), "requires 'luck' must be contract, declared, prototype or location"));
         CHECK(contains(errorOf(table("{\"name\":\"a\",\"match\":[\"x(y)\"],\"requires\":\"contract\",\"action\":\"silence-unused\"}")), "so it requires location"));
         CHECK(contains(errorOf(table("{\"name\":\"a\",\"match\":[\"x(y\"],\"requires\":\"contract\",\"action\":\"add-section\"}")), "is not a regular expression"));
         CHECK(contains(errorOf(table("{\"name\":\"a\",\"match\":[\"no group\"],\"requires\":\"contract\",\"action\":\"add-section\"}")), "captures no name"));
@@ -159,6 +162,72 @@ int main()
         const std::string protos = "static double parseNumber(Cursor& c);\nstatic int other();\n\nstatic int other()\n{\n    return parseNumber(c);\n}\n";
         CHECK_EQ(prototypeOf(protos, "parseNumber"), std::string("static double parseNumber(Cursor& c)"));
         CHECK(prototypeOf(protos, "missing").empty() && prototypeOf("    return parseNumber(c);\n    parseNumber(c);\n", "parseNumber").empty());
+    }
+    // Row 71, from run-v11's real files: a class that declares member functions and defines none. Every declared member is found with the signature its
+    // out-of-class definition has; the skeleton gets one `@@` line each, which the harness expands to stubs named with their class, so a member
+    // `Parser::evaluate` and the contract's free `evaluate` are two sections; the real link error names a member, and the mend's pattern captures it.
+    {
+        const std::string real = slurp(root / "tests/data/mends/member-skeleton.cpp");   // run-v11 attempt 7, as the gate saw it
+        const auto members = memberDeclarations(real, "src/calc.cpp");
+        CHECK_EQ(members.size(), static_cast<std::size_t>(18));
+        const auto sig = [&](const std::string& q) { for (const auto& m : members) if (m.qualified() == q) return m.signature + " @" + m.scope; return std::string{}; };
+        CHECK_EQ(sig("Parser::Parser"), std::string("Parser::Parser(const std::string& expr, bool degrees) @calc"));
+        CHECK_EQ(sig("Parser::parse"), std::string("double Parser::parse() @calc"));
+        CHECK_EQ(sig("Parser::isEnd"), std::string("bool Parser::isEnd() const @calc"));
+        CHECK_EQ(sig("Parser::evaluateFunction"), std::string("double Parser::evaluateFunction(const std::string& name, const std::vector<double>& args) @calc"));
+        CHECK_EQ(undefinedMembers(real, "src/calc.cpp").size(), members.size());          // none is defined: `evaluate` is, and it is not a member
+        CHECK(overloadedMembers(real, "src/calc.cpp").empty());
+        CHECK(memberDeclarations("class A:\n    def f(self): pass\n", "a.py").empty());      // C and C++ only
+        // what does not count: a data member, a defaulted or deleted or pure function, an operator, a member defined in the class, a std::function field
+        const std::string odd = "struct S {\n    int n = f(2);\n    S() = default;\n    S(const S&) = delete;\n    virtual double area() const = 0;\n    bool operator==(const S& o) const;\n"
+                                "    int twice(int x) { return 2 * x; }\n    std::function<double(double)> fn;\n    virtual int size() const override;\n    static S make(int n = 3);\n    int size(int scale);\n};\n";
+        const auto oddMembers = memberDeclarations(odd, "s.hpp");
+        CHECK_EQ(oddMembers.size(), static_cast<std::size_t>(3));
+        if (oddMembers.size() == 3) { CHECK_EQ(oddMembers[0].signature, std::string("int S::size() const")); CHECK_EQ(oddMembers[1].signature, std::string("S S::make(int n)")); }
+        CHECK(overloadedMembers(odd, "s.hpp") == std::vector<std::string>{"S::size"});       // two sections cannot share a name: the skeleton check refuses it
+        // The skeleton as the model declared it (attempt 3: the class has its own `evaluate`), completed by the harness.
+        const std::string declared = slurp(root / "tests/data/mends/member-skeleton-evaluate.cpp");
+        const std::string start = declared.substr(0, declared.find("double evaluate(const std::string& expr, bool degrees);")) + "@@ double evaluate(const std::string& expr, bool degrees)\n\n}  // namespace calc\n";
+        const std::string withMembers = withMemberDeclarations(start, "src/calc.cpp");
+        CHECK(contains(withMembers, "@@ Parser::Parser(const std::string& expr, bool degrees)\n") && contains(withMembers, "@@ double Parser::evaluate()\n") && contains(withMembers, "@@ double Parser::toRad(double x)\n"));
+        CHECK(withMembers.find("@@ double Parser::evaluate()") < withMembers.rfind("}  // namespace calc"));     // inside the namespace the class is in
+        CHECK(undefinedMembers(withMembers, "src/calc.cpp").empty());                           // an `@@` line counts: the harness will define it
+        CHECK_EQ(withMemberDeclarations(withMembers, "src/calc.cpp"), withMembers);             // and it is added once
+        const Skeleton sk = expandSkeleton(withMembers, "src/calc.cpp");
+        CHECK(sk.error.empty());                                                               // `Parser::evaluate` and `evaluate` are not "declared twice"
+        CHECK(contains(sk.text, "double Parser::evaluate()\n{\n    throw std::logic_error(\"not implemented: Parser::evaluate\");\n}\n"));
+        CHECK(contains(sk.text, "Parser::Parser(const std::string& expr, bool degrees)\n{\n    (void)expr;\n    (void)degrees;\n    throw std::logic_error(\"not implemented: Parser::Parser\");\n}\n"));
+        CHECK(contains(sk.text, "not implemented: evaluate\"") && undefinedMembers(sk.text, "src/calc.cpp").empty());
+        // the real gate text of that attempt
+        const std::string gate = slurp(root / "tests/data/mends/undefined-member.txt");
+        const auto all = matchMend(mends, gate);
+        CHECK(all && all->name == "undefined-contract-symbol" && all->symbol == "calc::Parser::Parser");   // by pattern alone it is the first mend; its requirement (a CONTRACT function) does not hold ...
+        const auto hit = matchMend({mends[1]}, gate);
+        CHECK(hit && hit->name == "undefined-declared-member" && hit->requires_ == "declared" && hit->action == "add-section" && hit->symbol == "calc::Parser::Parser");   // ... and the gate goes on to this one
+    }
+    // Rows 25/26 and 70, from run-v11's real near pass: the failing tests are found by name and quoted as they are written.
+    {
+        const std::string gate = slurp(root / "tests/data/mends/near-pass.txt");
+        CHECK(gate.rfind("GATE FAIL: 2 of 22 tests failed", 0) == 0);
+        const std::string tests = "#include \"helpers/check.hpp\"\nstatic double ev(const char* e) { return calc::evaluate(e); }\n\nTEST(basic_addition) { CHECK_NEAR(ev(\"1+2\"), 3, 1e-9); }\n"
+                                  "TEST(basic_power_right_associativity) {\n    CHECK_NEAR(ev(\"2^3^2\"), 512, 1e-9);\n}\n\nTEST(precedence_and_unary_minus)\n{\n    CHECK_NEAR(ev(\"-2^2\"), -4, 1e-9);\n    CHECK_NEAR(ev(\"2+3*4\"), 14, 1e-9);\n}\n";
+        const std::string quoted = failingTestSources(gate, {{"tests/eval.test.cpp", tests}});
+        CHECK(quoted.rfind("The failing tests as they are written:\n--- tests/eval.test.cpp, basic_power_right_associativity\nTEST(basic_power_right_associativity) {\n    CHECK_NEAR(ev(\"2^3^2\"), 512, 1e-9);\n}\n", 0) == 0);
+        CHECK(contains(quoted, "--- tests/eval.test.cpp, precedence_and_unary_minus\nTEST(precedence_and_unary_minus)\n{\n    CHECK_NEAR(ev(\"-2^2\"), -4, 1e-9);\n    CHECK_NEAR(ev(\"2+3*4\"), 14, 1e-9);\n}\n"));
+        CHECK(!contains(quoted, "basic_addition"));                                           // only the tests that fail
+        CHECK(failingTestSources("GATE FAIL: does not compile: src/calc.cpp\n", {{"tests/eval.test.cpp", tests}}).empty());
+        const std::string py = "def test_add():\n    assert ev('1+2') == 3\n\ndef test_power():\n    assert ev('2^3^2') == 512\n    assert ev('2^0') == 1\n\ndef test_last():\n    pass\n";
+        CHECK_EQ(failingTestSources("GATE FAIL: 1 of 3 tests failed\nnot ok 2 - test_power\n", {{"tests/test_calc.py", py}}), std::string("The failing tests as they are written:\n--- tests/test_calc.py, test_power\ndef test_power():\n    assert ev('2^3^2') == 512\n    assert ev('2^0') == 1\n\n"));
+        // a constructor's member-initializer list is the section's to write: the declaration is the skeleton's, the list is kept
+        CHECK_EQ(applySectionSignature("Parser::Parser(const std::string& e, bool d) : expr_(e), pos_{0}, degrees_(d)\n{\n}\n", "Parser::Parser(const std::string& expr, bool degrees)", "", "src/calc.cpp"),
+                 std::string("Parser::Parser(const std::string& expr, bool degrees)\n    : expr_(e), pos_{0}, degrees_(d)\n{\n}\n"));
+        // every failed attempt says why (row 72): the record round-trips, quotes and newlines included, and is gone when cleared
+        const fs::path dir = makeTempDir("why");
+        recordAttemptFailure(dir, "agent", "format", "no reply was kept: 6 call(s)\nthe last refusal: too many arguments to function 'app::Result app::run(const std::string&)' \"x\"");
+        CHECK_EQ(attemptFailureJson(dir), std::string("{\"schema\":\"attempt-failure-1\",\"role\":\"agent\",\"kind\":\"format\",\"reason\":\"no reply was kept: 6 call(s)\\nthe last refusal: too many arguments to function 'app::Result app::run(const std::string&)' \\\"x\\\"\"}"));
+        clearAttemptFailure(dir);
+        CHECK(attemptFailureJson(dir).empty());
+        removeTree(dir);
     }
     // `mend-apply`, the job the engine starts for `silence-unused`: attempt N is attempt N-1's output with the one edit, everything else kept; a place the
     // harness cannot mend fails the job (the ladder then decides), and nothing but silence-unused is applied without a model.

@@ -80,6 +80,18 @@ int main()
         CHECK(log.find("\"calc/engine.py\":2") != std::string::npos);                                    // one commit only
         CHECK(slurp(attemptDir(d, 2) / "agent.json").find("\"refused\":1") != std::string::npos);
     }
+    {   // The same refusal three times running ends the attempt, and the attempt says WHY in its directory (catalogue row 72: run-v11's tester spent six
+        // turns an attempt on one compile error, five attempts over, and nothing recorded the reason).
+        const fs::path d = workflow("canvas-same-refusal");
+        int n = 0;
+        fake::Engine engine([&](const fake::Request&, int) { ++n; return fake::Reply{std::string{"=== FILE: "} + kFile + " ===\n" + std::string(static_cast<std::size_t>(n), '\n') + "def evaluate(expr, degrees=False:\n    return 0\n=== END FILE ===\n"}; });
+        CHECK_EQ(runLlmAgent(canvasArgs(d, engine, 1, 5)), 3);
+        CHECK_EQ(engine.requestCount(), static_cast<std::size_t>(3));                                    // not the seven calls the turns allowed (the error's line number differs each time)
+        const std::string why = slurp(attemptDir(d, 1) / "failure.json");
+        CHECK(why.find("\"schema\":\"attempt-failure-1\",\"role\":\"agent\",\"kind\":\"format\"") != std::string::npos);
+        CHECK(why.find("3 call(s), 3 transaction(s) refused, the same refusal three times running") != std::string::npos && why.find("syntax error") != std::string::npos);
+        CHECK(!fs::exists(attemptDir(d, 1) / "out" / kFile));
+    }
     {   // A commit that still fails the tests: the next turn is rebuilt from the card and revision 2; the earlier reply and the old file are not in the window.
         const fs::path d = workflow("canvas-flat");
         failedAttempt(d, 1, bad);

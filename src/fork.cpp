@@ -18,6 +18,7 @@
 #include "json_util.hpp"
 #include "sub0squad/canvas.hpp"
 #include "sub0squad/contract.hpp"
+#include "sub0squad/attempt_failure.hpp"
 #include "sub0squad/harness_common.hpp"
 #include "sub0squad/mends.hpp"
 #include "sub0squad/event_channel.hpp"
@@ -68,6 +69,40 @@ bool namesWord(const std::string& text, const std::string& word)
 
 std::string leaf(const std::string& name) { const auto c = name.find_last_of(":."); return c == std::string::npos ? name : name.substr(c + 1); }
 std::string trimmed(const std::string& l) { const auto a = l.find_first_not_of(" \t"); return a == std::string::npos ? std::string{} : l.substr(a, l.find_last_not_of(" \t") - a + 1); }
+
+/// The function-like region `symbol` names: the one of exactly that name; else one whose qualified name ends with it (`Parser::parse` in
+/// `calc::Parser::parse`); else, for an unqualified symbol, the first whose last name is it. A member and a free function may share a last name (row 71).
+const FoldRegion* regionOf(const std::vector<FoldRegion>& regions, const std::string& symbol)
+{
+    for (const auto& r : regions) if (r.name == symbol) return &r;
+    for (const auto& r : regions) if (r.name.size() > symbol.size() + 2 && r.name.compare(r.name.size() - symbol.size() - 2, 2, "::") == 0 && r.name.compare(r.name.size() - symbol.size(), symbol.size(), symbol) == 0) return &r;
+    if (symbol.find(':') == std::string::npos) for (const auto& r : regions) if (leaf(r.name) == symbol) return &r;
+    return nullptr;
+}
+
+/// The lines of the region `symbol` names in `text` ("" when there is none).
+std::string functionText(const std::string& text, const std::string& path, const std::string& symbol)
+{
+    const auto regions = foldRegions(text, isPythonPath(path), true);
+    const FoldRegion* r = regionOf(regions, symbol);
+    if (!r) return {};
+    const auto v = linesOf(text);
+    std::string fn;
+    for (int k = r->first; k <= r->bodyTo && k <= static_cast<int>(v.size()); ++k) fn += v[static_cast<std::size_t>(k) - 1] + "\n";
+    return fn;
+}
+
+/// Tests failed and tests run, from a gate's text (`GATE FAIL: 2 of 22 tests failed`, `GATE PASS: ... (22 tests, ...`); {-1, -1} when it says neither
+/// (the file did not build, or nothing ran).
+std::pair<int, int> testCounts(const std::string& gateText)
+{
+    if (gateText.rfind("GATE FAIL: ", 0) == 0 && std::isdigit(static_cast<unsigned char>(gateText[11]))) {
+        const auto of = gateText.find(" of ", 11);
+        if (of != std::string::npos && gateText.find(" tests failed", of) != std::string::npos) return {std::atoi(gateText.c_str() + 11), std::atoi(gateText.c_str() + of + 4)};
+    }
+    if (gateText.rfind("GATE PASS: ", 0) == 0) if (const auto open = gateText.find('('); open != std::string::npos) return {0, std::atoi(gateText.c_str() + open + 1)};
+    return {-1, -1};
+}
 
 std::string forkSystemBlock(const std::string& persona, const std::string& brief)
 {
@@ -166,6 +201,18 @@ std::string applySectionSignature(const std::string& textIn, const std::string& 
     const auto brace = text.find('{');
     // Whether what precedes the first brace is the model's own declaration (it holds a parameter list); if not, the reply is a body alone.
     const bool declared = brace != std::string::npos && text.substr(0, brace).find('(') != std::string::npos;
+    if (declared && !script) {
+        // A constructor's member-initializer list is part of what the section writes: it is kept (the declaration before it is still the skeleton's).
+        int level = 0;
+        std::size_t close = std::string::npos;
+        for (std::size_t k = text.find('('); k < text.size(); ++k) { if (text[k] == '(') ++level; else if (text[k] == ')' && --level == 0) { close = k; break; } }
+        const auto next = close == std::string::npos ? std::string::npos : text.find_first_not_of(" \t\r\n", close + 1);
+        const auto sigParen = signature.find('(');
+        const std::string qualifiedName = sigParen == std::string::npos ? std::string{} : signature.substr(0, sigParen);
+        const auto sep = qualifiedName.rfind("::");
+        const bool constructor = sep != std::string::npos && sep >= 1 && qualifiedName.substr(sep + 2) == leaf(qualifiedName.substr(0, sep)) && qualifiedName.find(' ') == std::string::npos;
+        if (constructor && next != std::string::npos && text[next] == ':' && (next + 1 >= text.size() || text[next + 1] != ':')) return indent + signature + "\n" + indent + "    " + text.substr(next) + "\n";
+    }
     std::string body = declared ? text.substr(brace) : (brace != std::string::npos && trimmed(text.substr(0, brace)).empty() ? text.substr(brace) : "{\n" + text + "\n" + indent + "}");
     return script ? indent + signature + " " + body + "\n" : indent + signature + "\n" + indent + body + "\n";
 }
@@ -193,6 +240,47 @@ std::map<std::string, std::string> sectionsOwningFailure(const std::string& gate
             for (const auto& lit : literals) if (f.find(lit) != std::string::npos) { owners[name] += f + "\n"; break; }
     }
     return owners;
+}
+
+std::string failingTestSources(const std::string& gateText, const std::vector<std::pair<std::string, std::string>>& testFiles)
+{
+    // The names of the failing tests: `FAIL 6 - name: ...` (the C++ runner), `not ok 6 - name` (TAP), `FAIL: name` / `FAILED file::name` (Python runners).
+    std::vector<std::string> names;
+    for (const auto& l : linesOf(gateText)) {
+        const std::string t = trimmed(l);
+        std::size_t at = std::string::npos;
+        if (t.rfind("FAIL ", 0) == 0 || t.rfind("not ok ", 0) == 0) { at = t.find(" - "); if (at != std::string::npos) at += 3; }
+        else if (t.rfind("FAIL: ", 0) == 0) at = 6;
+        else if (t.rfind("FAILED ", 0) == 0) { at = t.rfind("::"); at = at == std::string::npos ? 7 : at + 2; }
+        if (at == std::string::npos || at >= t.size()) continue;
+        std::size_t e = at;
+        while (e < t.size() && (std::isalnum(static_cast<unsigned char>(t[e])) || t[e] == '_')) ++e;
+        if (e > at && std::find(names.begin(), names.end(), t.substr(at, e - at)) == names.end()) names.push_back(t.substr(at, e - at));
+    }
+    std::string out;
+    for (const auto& name : names) {
+        for (const auto& [path, text] : testFiles) {
+            const auto v = linesOf(text);
+            const bool python = isPythonPath(path);
+            for (std::size_t i = 0; i < v.size(); ++i) {
+                const std::string t = trimmed(v[i]);
+                const bool head = namesWord(v[i], name) && (python ? t.rfind("def ", 0) == 0 : (t.rfind("TEST", 0) == 0 || t.rfind("test(", 0) == 0 || t.rfind("it(", 0) == 0 || t.find("void ") != std::string::npos));
+                if (!head) continue;
+                std::string block;
+                int depth = 0, lines = 0;
+                const auto indent = v[i].find_first_not_of(" \t");
+                for (std::size_t k = i; k < v.size() && lines < 16; ++k, ++lines) {
+                    if (python && k > i && !trimmed(v[k]).empty() && v[k].find_first_not_of(" \t") <= indent) break;
+                    block += v[k] + "\n";
+                    for (const char c : v[k]) { if (c == '{') ++depth; else if (c == '}') --depth; }
+                    if (!python && depth <= 0 && v[k].find_first_of("{}") != std::string::npos) break;
+                }
+                if (out.size() + block.size() <= 1600) out += "--- " + path + ", " + name + "\n" + block;
+                break;
+            }
+        }
+    }
+    return out.empty() ? out : "The failing tests as they are written:\n" + out;
 }
 
 std::vector<CompileFinding> compileFindings(const std::string& output, const std::string& path)
@@ -223,7 +311,8 @@ std::string ForkResult::toJson() const
 {
     json::Writer w;
     w.beginObject().kvBool("passed", passed).kv("exitCode", exitCode).kv("failure", failure).kv("resumedFrom", resumedFrom).kv("width", width).kv("widthReason", widthReason).kvBool("shed", shed)
-        .kvBool("budgetSpent", budgetSpent).kv("budgetSec", budgetSec).kv("skeletonTries", skeletonTries).kv("rounds", rounds).kv("targeted", targeted).kv("mechanicalMends", mechanicalMends).kv("contractSections", contractSections).kv("routedByMessage", routedByMessage)
+        .kvBool("budgetSpent", budgetSpent).kv("budgetSec", budgetSec).kv("skeletonTries", skeletonTries).kv("rounds", rounds).kv("targeted", targeted).kv("mechanicalMends", mechanicalMends).kv("contractSections", contractSections).kv("memberSections", memberSections).kv("routedByMessage", routedByMessage)
+        .kv("testsTotal", testsTotal).kv("testsFailed", testsFailed).kvBool("nearPass", nearPass).kv("reverted", reverted)
         .kv("conflicts", conflicts).kv("lostEdits", lostEdits).kv("refused", refused)
         .kv("skeletonTokens", static_cast<std::int64_t>(skeletonTokens)).kv("sectionTokens", static_cast<std::int64_t>(sectionTokens)).kv("integrationTokens", static_cast<std::int64_t>(integrationTokens))
         .kv("wallSec", wallSec).kv("sectionWallSec", sectionWallSec).kv("idleShare", idleShare).kv("error", error).key("sections").beginArray();
@@ -238,7 +327,7 @@ std::string ForkResult::toJson() const
 namespace {
 
 /// What an earlier attempt left for this one to continue: its sections and why it stopped ("" when there is nothing to resume).
-struct Earlier { std::string failure; std::vector<ForkSection> sections; };
+struct Earlier { std::string failure; int testsTotal = -1, testsFailed = -1; std::vector<ForkSection> sections; };
 Earlier readEarlier(const fs::path& forkJson)
 {
     Earlier e;
@@ -250,6 +339,8 @@ Earlier readEarlier(const fs::path& forkJson)
                 const std::string_view k = f.unescaped_key();
                 auto v = f.value();
                 if (k == "failure") e.failure = json::toString(v);
+                else if (k == "testsTotal") e.testsTotal = static_cast<int>(v.get_int64());
+                else if (k == "testsFailed") e.testsFailed = static_cast<int>(v.get_int64());
                 else if (k == "sections") {
                     for (auto sv : v.get_array()) {
                         ForkSection s;
@@ -299,7 +390,42 @@ ForkResult runCanvasFork(const ForkOptions& o)
     // The wall budget: a base plus an allowance per section (known once the skeleton is). Every call is bounded by what is left; none starts after it is spent.
     std::atomic<int> budget{o.wallBudgetSec};
     const auto remainingSec = [&]() -> int { return o.wallBudgetSec <= 0 ? o.timeoutSec : std::max(0, std::min(o.timeoutSec, budget.load() - static_cast<int>(since(t0)))); };
+    /// Run the item's gate over the canvas as it stands (the attempt's `out` is rewritten from it); the gate's text comes back in `gateText`.
+    const auto gate = [&](std::string& gateText) {
+        fs::remove_all(out, ec);
+        fs::create_directories(out, ec);
+        for (const auto& [path, text] : canvas.files()) (void)writeFile(out / path, text);
+        const int rc = harness && harness->gate ? harness->gate({"--workflow-dir", o.dir.string(), "--item", o.itemId, "--attempt", std::to_string(o.attempt), "--no-publish", "1"}) : 1;
+        gateText = slurp(attemptDir / "gate.txt");
+        return rc == 0;
+    };
+    // The best state the tests have judged in this attempt (catalogue row 70): a round that leaves the file worse, or not compiling, is undone, and an
+    // attempt never ends on a state worse than the best it had (which is at least the best of every earlier attempt, since it started from that).
+    struct Best { Canvas canvas; int failed = -1, total = -1; std::string gateText; std::vector<bool> removed; };
+    std::optional<Best> best;
+    const auto keepBest = [&](int failed, int total, const std::string& gateText) {
+        Best b{canvas, failed, total, gateText, {}};
+        for (const auto& sec : res.sections) b.removed.push_back(sec.removed);
+        best = std::move(b);
+    };
+    const auto restoreBest = [&](const std::string& why) {
+        canvas = best->canvas;
+        for (std::size_t i = 0; i < res.sections.size() && i < best->removed.size(); ++i) res.sections[i].removed = best->removed[i];
+        persistCanvas(canvas, attemptDir);
+        ++res.reverted;
+        std::printf("assembly: %s: back to the best state (%d of %d tests failing)\n", why.c_str(), best->failed, best->total);
+        events::note("assembly: back to the best state (" + std::to_string(best->failed) + " of " + std::to_string(best->total) + " failing)");
+    };
     const auto finish = [&](int code, const std::string& failure) {
+        if (code != 0 && best) {
+            if (canvas.files() != best->canvas.files()) restoreBest("the attempt ends on a worse state than it had");
+            std::string text;
+            (void)gate(text);   // `out` and gate.txt describe what stands
+            res.testsFailed = best->failed;
+            res.testsTotal = best->total;
+            res.nearPass = best->total >= 10 && best->failed * 100 <= best->total * 15;   // the gate's own near-pass rule (exit 3)
+            if (res.nearPass && code == 1) code = 3;
+        }
         res.exitCode = code;
         res.passed = code == 0;
         res.failure = failure;
@@ -307,6 +433,8 @@ ForkResult runCanvasFork(const ForkOptions& o)
         res.wallSec = since(t0);
         for (const auto& [path, text] : canvas.files()) (void)writeFile(out / path, text);   // what stands, always: the next attempt continues from it
         (void)writeFile(attemptDir / "fork.json", res.toJson() + "\n");
+        if (code == 0) clearAttemptFailure(attemptDir);
+        else recordAttemptFailure(attemptDir, "agent", failure, res.error + (res.testsTotal > 0 ? " (best state: " + std::to_string(res.testsFailed) + " of " + std::to_string(res.testsTotal) + " tests failing)" : std::string{}));
         return res;
     };
 
@@ -314,23 +442,32 @@ ForkResult runCanvasFork(const ForkOptions& o)
     std::map<std::string, std::vector<ContractFunction>> contract;
     for (const auto& f : item.files) if (auto c = contractOf(harness, f); !c.empty()) contract[f] = std::move(c);
     /// Add `signature` to the canvas as a stubbed section of `path` (a harness transaction, a new revision), with `restored` functions put back before it.
-    const auto addSection = [&](const std::string& path, const std::string& name, const std::string& signature, const std::string& scope, const std::string& brief, const std::vector<std::string>& restored) {
+    const auto addSection = [&](const std::string& path, const std::string& name, const std::string& signature, const std::string& scope, const std::string& brief, const std::vector<std::string>& restored, bool member = false) {
         if (!canvas.replaceText(path, withStubFunction(canvas.text(path), path, signature, scope, restored), "harness").ok) return false;
         ForkSection s;
         s.name = name; s.file = path; s.symbol = name; s.brief = brief;
         const auto v = linesOf(canvas.text(path));
-        for (const auto& r : foldRegions(canvas.text(path), isPythonPath(path), true)) if (leaf(r.name) == name) { const std::string& decl = v[static_cast<std::size_t>(r.first) - 1]; s.indent = decl.substr(0, decl.find_first_not_of(" \t")); s.signature = trimmed(decl); }
+        const auto regions = foldRegions(canvas.text(path), isPythonPath(path), true);
+        if (const FoldRegion* r = regionOf(regions, name)) { const std::string& decl = v[static_cast<std::size_t>(r->first) - 1]; s.indent = decl.substr(0, decl.find_first_not_of(" \t")); s.signature = trimmed(decl); s.symbol = r->name; }
         while (!s.signature.empty() && (s.signature.back() == '{' || s.signature.back() == ':' || s.signature.back() == ' ')) s.signature.pop_back();
-        res.sections.erase(std::remove_if(res.sections.begin(), res.sections.end(), [&](const ForkSection& e) { return e.file == path && e.symbol == name; }), res.sections.end());
+        res.sections.erase(std::remove_if(res.sections.begin(), res.sections.end(), [&](const ForkSection& e) { return e.file == path && (e.symbol == s.symbol || e.name == name); }), res.sections.end());
         res.sections.push_back(std::move(s));
-        ++res.contractSections;
-        std::printf("contract: `%s` was not in %s: added by the harness as a section\n", name.c_str(), path.c_str());
+        ++(member ? res.memberSections : res.contractSections);
+        std::printf("%s: `%s` was not in %s: added by the harness as a section\n", member ? "class member" : "contract", name.c_str(), path.c_str());
         events::note("the harness added the missing function " + name + " as a section");
         return true;
     };
     /// Every contract function the canvas does not define becomes a section (row 59): a model's section list cannot leave the entry point out.
     const auto ensureContract = [&](const std::string& brief) {
         for (const auto& [path, fns] : contract) if (canvas.has(path)) for (const auto& f : undefinedContract(canvas.text(path), path, fns)) (void)addSection(path, f.name, f.signature, f.scope, brief, {});
+    };
+
+    /// Every member function a class of the file declares and nothing defines becomes a section too (row 71): the skeleton declared it, so the file owes it.
+    const auto ensureMembers = [&](const std::string& brief) {
+        for (const auto& path : canvas.paths()) for (const auto& m : undefinedMembers(canvas.text(path), path)) {
+            if (std::any_of(res.sections.begin(), res.sections.end(), [&](const ForkSection& e) { return e.file == path && e.name == m.qualified() && !e.removed; })) continue;   // an overload: one section holds the name
+            (void)addSection(path, m.qualified(), m.signature, m.scope, brief, {}, true);
+        }
     };
 
     // ---- 1. the document: the earlier attempt's canvas when it stopped short, else a declared skeleton completed by the harness ----
@@ -340,10 +477,17 @@ ForkResult runCanvasFork(const ForkOptions& o)
         const Earlier e = readEarlier(before / "fork.json");
         for (const auto& f : item.files) if (const std::string text = slurp(before / "out" / f); !text.empty()) canvas.addFile(f, text);
         const std::string path = canvas.has(o.mendFile) ? o.mendFile : canvas.paths().empty() ? std::string{} : canvas.paths().front();
-        const std::string name = leaf(o.mendSection);
+        std::string name = leaf(o.mendSection);
         std::string signature, scope;
+        bool member = false;
         if (!path.empty()) {
-            if (const auto c = contract.find(path); c != contract.end()) for (const auto& f : c->second) if (f.name == name) { signature = f.signature; scope = f.scope; }
+            // A member a class of the file declares (`calc::Parser::parse`): its out-of-class definition, with the class kept in the section's name.
+            for (const auto& m : undefinedMembers(canvas.text(path), path)) {
+                const std::string q = m.qualified();
+                const bool named = o.mendSection == q || (o.mendSection.size() > q.size() + 2 && o.mendSection.compare(o.mendSection.size() - q.size() - 2, 2, "::") == 0 && o.mendSection.compare(o.mendSection.size() - q.size(), q.size(), q) == 0);
+                if (named && signature.empty()) { signature = m.signature; scope = m.scope; name = q; member = true; }
+            }
+            if (signature.empty()) if (const auto c = contract.find(path); c != contract.end()) for (const auto& f : c->second) if (f.name == name) { signature = f.signature; scope = f.scope; }
             if (signature.empty()) { signature = prototypeOf(canvas.text(path), name); scope = prototypeScope(canvas.text(path), name); }
         }
         if (signature.empty()) { res.error = "mend add-section: `" + o.mendSection + "` is neither a contract function nor declared in the file, so it has no signature to add"; return finish(2, "skeleton"); }
@@ -359,9 +503,7 @@ ForkResult runCanvasFork(const ForkOptions& o)
             for (int rev = 400; rev >= 1; --rev) {
                 const std::string old = slurp(before / "canvas" / (flat + ".r" + std::to_string(rev)));
                 if (old.empty()) continue;
-                const auto v = linesOf(old);
-                std::string fn;
-                for (const auto& r : foldRegions(old, isPythonPath(path), true)) if (leaf(r.name) == s.symbol) for (int k = r.first; k <= r.bodyTo && k <= static_cast<int>(v.size()); ++k) fn += v[static_cast<std::size_t>(k) - 1] + "\n";
+                const std::string fn = functionText(old, path, s.symbol);
                 if (fn.empty() || fn.find("not implemented: " + s.name) != std::string::npos) continue;
                 restored.push_back(fn);
                 s.removed = false;
@@ -375,22 +517,39 @@ ForkResult runCanvasFork(const ForkOptions& o)
             if (!prototypes.empty()) restored.insert(restored.begin(), prototypes);
         }
         const std::string brief = "This function was MISSING from the file: the harness added its declaration. The build failed without it:\n" + clip(firstErrorLine(slurp(before / "gate.txt")), 400);
-        if (!addSection(path, name, signature, scope, brief, restored)) { res.error = "mend add-section: the canvas refused the new section"; return finish(2, "skeleton"); }
+        if (!addSection(path, name, signature, scope, brief, restored, member)) { res.error = "mend add-section: the canvas refused the new section"; return finish(2, "skeleton"); }
+        ensureMembers("This member function is DECLARED by its class in the file and nothing defined it, so the build failed. The harness added its definition as a stub.");   // one mend covers every such member
         std::printf("mend add-section: `%s` in %s; %zu earlier section(s) kept\n", name.c_str(), path.c_str(), res.sections.size() - 1);
     } else if (!o.fresh && o.attempt > 1) {
-        const fs::path before = itemDir / ("attempt-" + std::to_string(o.attempt - 1));
-        const Earlier e = readEarlier(before / "fork.json");
-        // "tests" is not resumed: every section was written and the rounds were used, so the structure itself had its chance.
-        if (!e.sections.empty() && (e.failure == "budget" || e.failure == "sections-missing" || e.failure == "compile")) {
+        // The BEST earlier attempt first (row 70): the one whose file passed the largest share of its tests, when that is at least half. Whatever came
+        // between (a rewritten card, revised tests, a strategy), this attempt starts from it and never from a worse state. Failing that, the attempt
+        // before this one when it stopped short (out of budget, a section missing, a compile error in a section).
+        int from = 0, bestScore = -1;
+        Earlier e;
+        for (int n = 1; n < o.attempt; ++n) {
+            Earlier x = readEarlier(itemDir / ("attempt-" + std::to_string(n)) / "fork.json");
+            if (x.sections.empty() || x.testsTotal <= 0 || x.testsFailed < 0 || x.testsFailed * 2 > x.testsTotal) continue;
+            const int score = (x.testsTotal - x.testsFailed) * 10000 / x.testsTotal;
+            if (score >= bestScore) { bestScore = score; from = n; e = std::move(x); }
+        }
+        const bool byTests = from != 0;
+        if (!from) {
+            e = readEarlier(itemDir / ("attempt-" + std::to_string(o.attempt - 1)) / "fork.json");
+            if (!e.sections.empty() && (e.failure == "budget" || e.failure == "sections-missing" || e.failure == "compile")) from = o.attempt - 1;
+        }
+        if (from) {
+            const fs::path before = itemDir / ("attempt-" + std::to_string(from));
             Canvas candidate;
             for (const auto& f : item.files) if (const std::string text = slurp(before / "out" / f); !text.empty()) candidate.addFile(f, text);
             if (!candidate.paths().empty() && precheckCanvas(candidate, harness, o.dir, o.itemId, o.attempt, attemptDir, true).empty()) {
                 canvas = std::move(candidate);
                 res.sections = e.sections;
-                res.resumedFrom = o.attempt - 1;
-                std::printf("fork: resuming the canvas of attempt %d (%s): %zu section(s)\n", o.attempt - 1, e.failure.c_str(), res.sections.size());
-                events::note("fork resumes attempt " + std::to_string(o.attempt - 1) + " (" + e.failure + ")");
+                res.resumedFrom = from;
+                const std::string why = byTests ? "the best so far: " + std::to_string(e.testsTotal - e.testsFailed) + " of " + std::to_string(e.testsTotal) + " tests passed" : e.failure;
+                std::printf("fork: resuming the canvas of attempt %d (%s): %zu section(s)\n", from, why.c_str(), res.sections.size());
+                events::note("fork resumes attempt " + std::to_string(from) + " (" + why + ")");
                 if (o.contractSections) ensureContract("This function was MISSING from the file: the tests call it and nothing defined it. The harness added its declaration.");
+                if (o.contractSections) ensureMembers("This member function is DECLARED by its class in the file and nothing defined it. The harness added its definition as a stub.");
             }
         }
     }
@@ -424,15 +583,21 @@ ForkResult runCanvasFork(const ForkOptions& o)
                     if (!bad.empty()) break;
                     // The contract first (row 59): each contract function is declared with the contract's signature, whether or not the model listed it.
                     const auto fns = o.contractSections && contract.count(path) ? contract.at(path) : std::vector<ContractFunction>{};
-                    const std::string text = fns.empty() ? modelText : withContractDeclarations(modelText, path, fns);
+                    const std::string withContract = fns.empty() ? modelText : withContractDeclarations(modelText, path, fns);
+                    // Then the members (row 71): a class that declares a member function owes its definition, so each one gets a `@@` line of its own.
+                    const std::string text = o.contractSections ? withMemberDeclarations(withContract, path) : withContract;
                     const auto marks = [](const std::string& t) { int n = 0; for (std::size_t at = t.find("@@"); at != std::string::npos; at = t.find("@@", at + 2)) ++n; return n; };
-                    if (marks(text) > marks(modelText)) { res.contractSections += marks(text) - marks(modelText); std::printf("contract: the skeleton of %s left %d contract function(s) out; the harness declared them\n", path.c_str(), marks(text) - marks(modelText)); }
+                    if (marks(withContract) > marks(modelText)) { res.contractSections += marks(withContract) - marks(modelText); std::printf("contract: the skeleton of %s left %d contract function(s) out; the harness declared them\n", path.c_str(), marks(withContract) - marks(modelText)); }
+                    if (marks(text) > marks(withContract)) { res.memberSections += marks(text) - marks(withContract); std::printf("class members: the skeleton of %s declares %d member function(s) with no section; the harness made each one a section\n", path.c_str(), marks(text) - marks(withContract)); }
+                    if (const auto twice = o.contractSections ? overloadedMembers(text, path) : std::vector<std::string>{}; !twice.empty()) { bad = path + ": the class member `" + twice.front() + "` is declared more than once (overloads); every function is written by one worker under its own name, so give each a different name"; break; }
                     if (text.find("@@") == std::string::npos) { candidate.addFile(path, text); continue; }   // a file with no function to delegate is taken as written
                     const Skeleton sk = expandSkeleton(text, path);
                     if (!sk.error.empty()) bad = path + ": " + sk.error;
                     else candidate.addFile(path, sk.text);
                     // The skeleton check: a skeleton that leaves a contract function undefined is refused (it cannot happen after the step above; kept as the check).
                     if (bad.empty() && !fns.empty()) if (const auto missing = undefinedContract(sk.text, path, fns); !missing.empty()) bad = path + ": the skeleton leaves the contract function `" + missing.front().name + "` undefined (" + missing.front().signature + ")";
+                    // And a class whose member has no section is refused: nobody would write it, and the link fails (row 71).
+                    if (bad.empty() && o.contractSections) if (const auto missing = undefinedMembers(sk.text, path); !missing.empty()) bad = path + ": the class `" + missing.front().className + "` declares the member function `" + missing.front().name + "` and no section defines it; write `@@ " + missing.front().signature + "` after the class";
                 }
                 if (bad.empty()) bad = precheckCanvas(candidate, harness, o.dir, o.itemId, o.attempt, attemptDir, true);
             }
@@ -458,9 +623,9 @@ ForkResult runCanvasFork(const ForkOptions& o)
                 const FoldRegion* reg = nullptr;
                 for (const auto& r : regions) if (static_cast<int>(i) + 1 >= r.first && static_cast<int>(i) + 1 <= r.bodyTo) reg = &r;
                 if (name.empty() || !reg || reg->name.empty()) { std::printf("note: the stub at %s:%zu is not inside a named function; it stays as written\n", path.c_str(), i + 1); continue; }
-                if (std::any_of(res.sections.begin(), res.sections.end(), [&](const ForkSection& s) { return s.file == path && s.symbol == leaf(reg->name); })) continue;
+                if (std::any_of(res.sections.begin(), res.sections.end(), [&](const ForkSection& s) { return s.file == path && s.symbol == reg->name; })) continue;
                 ForkSection s;
-                s.name = name; s.file = path; s.symbol = leaf(reg->name);
+                s.name = name; s.file = path; s.symbol = reg->name;
                 const std::string& decl = v[static_cast<std::size_t>(reg->first) - 1];
                 s.indent = decl.substr(0, decl.find_first_not_of(" \t"));
                 s.signature = trimmed(decl);
@@ -473,14 +638,6 @@ ForkResult runCanvasFork(const ForkOptions& o)
     if (o.wallBudgetSec > 0) budget = o.wallBudgetSec + o.wallPerSectionSec * static_cast<int>(res.sections.size());
     std::printf("fork document: %zu file(s), %zu section(s), wall budget %d s%s\n", canvas.paths().size(), res.sections.size(), budget.load(), res.resumedFrom ? " (resumed)" : "");
 
-    const auto gate = [&](std::string& gateText) {
-        fs::remove_all(out, ec);
-        fs::create_directories(out, ec);
-        for (const auto& [path, text] : canvas.files()) (void)writeFile(out / path, text);
-        const int rc = harness && harness->gate ? harness->gate({"--workflow-dir", o.dir.string(), "--item", o.itemId, "--attempt", std::to_string(o.attempt), "--no-publish", "1"}) : 1;
-        gateText = slurp(attemptDir / "gate.txt");
-        return rc == 0;
-    };
     std::string gateText;
     if (res.sections.empty()) { std::printf("no stubs in the skeleton: nothing to delegate\n"); const bool ok = gate(gateText); return finish(ok ? 0 : 1, ok ? "" : "tests"); }
 
@@ -501,12 +658,18 @@ ForkResult runCanvasFork(const ForkOptions& o)
     const std::string system = forkSystemBlock(item.persona, harnessBrief(plan->harness));
     std::map<std::string, std::string> committedText;   // section name -> the function text it committed
     /// A stub's marker is still in the file: the section was never written.
-    const auto unwritten = [&](const ForkSection& s) { return !s.removed && canvas.has(s.file) && canvas.text(s.file).find("not implemented: " + s.name) != std::string::npos; };
+    const auto unwritten = [&](const ForkSection& s) {
+        if (s.removed || !canvas.has(s.file)) return false;
+        const std::string& text = canvas.text(s.file);
+        const std::string marker = "not implemented: " + s.name;   // the whole name: `evaluate` is not unwritten because `evaluateTokens` is
+        for (std::size_t at = text.find(marker); at != std::string::npos; at = text.find(marker, at + 1)) if (at + marker.size() >= text.size() || text[at + marker.size()] == '"' || text[at + marker.size()] == '\'') return true;
+        return false;
+    };
     const auto sectionAt = [&](const std::string& file, int line) -> ForkSection* {
         const auto regions = foldRegions(canvas.text(file), isPythonPath(file), true);
         for (const auto& r : regions) {
             if (line < r.first || line > r.bodyTo) continue;
-            for (auto& s : res.sections) if (s.file == file && !s.removed && s.symbol == leaf(r.name)) return &s;
+            for (auto& s : res.sections) if (s.file == file && !s.removed && regionOf(regions, s.symbol) == &r) return &s;
         }
         return nullptr;
     };
@@ -542,9 +705,9 @@ ForkResult runCanvasFork(const ForkOptions& o)
                 for (const auto& t : cr.transactions) for (const auto& op : t.ops) {
                     if (!refusal.empty()) break;
                     ++ops;
-                    if (t.path != s.file || op.kind != CanvasOp::Kind::replaceSymbol || leaf(op.symbol) != s.symbol) {
+                    if (t.path != s.file || op.kind != CanvasOp::Kind::replaceSymbol || leaf(op.symbol) != leaf(s.symbol)) {
                         std::string holder;
-                        for (const auto& other : res.sections) if (other.file == t.path && op.kind == CanvasOp::Kind::replaceSymbol && other.symbol == leaf(op.symbol)) holder = other.name;
+                        for (const auto& other : res.sections) if (other.file == t.path && op.kind == CanvasOp::Kind::replaceSymbol && leaf(other.symbol) == leaf(op.symbol)) holder = other.name;
                         refusal = "you own only `" + s.symbol + "` in " + s.file + (holder.empty() ? std::string{": that edit is outside it"} : ": `" + leaf(op.symbol) + "` is held by the worker writing " + holder) + ". Reply with your own function only";
                     } else written = op.text;
                 }
@@ -568,7 +731,8 @@ ForkResult runCanvasFork(const ForkOptions& o)
                     const auto found = compileFindings(bad, s.file);
                     std::string mine;
                     int from = 0, to = 0;
-                    for (const auto& reg : foldRegions(scratch.text(s.file), isPythonPath(s.file), true)) if (leaf(reg.name) == s.symbol) { from = reg.first; to = reg.bodyTo; }
+                    const auto scratchRegions = foldRegions(scratch.text(s.file), isPythonPath(s.file), true);
+                    if (const FoldRegion* reg = regionOf(scratchRegions, s.symbol)) { from = reg->first; to = reg->bodyTo; }
                     for (const auto& f : found) if (f.line >= from && f.line <= to) mine += f.text;
                     const bool blocked = !bad.empty() && (found.empty() || !mine.empty() || from == 0);
                     if (blocked) {
@@ -725,6 +889,12 @@ ForkResult runCanvasFork(const ForkOptions& o)
             events::note("assembly: marked the unused name " + m->symbol + " [[maybe_unused]]");
             strict = precheckCanvas(canvas, harness, o.dir, o.itemId, o.attempt, attemptDir, false);
         }
+        bool undone = false;
+        if (!strict.empty() && best) {   // the round's edits broke a file the tests had already judged: they are undone, never carried on (row 70)
+            restoreBest("the round's edits do not compile");
+            undone = true;
+            strict.clear();
+        }
         if (!strict.empty()) {
             // A compile error goes to the owner of the function it is in, with only its own errors and its own function open.
             std::map<ForkSection*, std::string> findings;
@@ -750,17 +920,28 @@ ForkResult runCanvasFork(const ForkOptions& o)
             continue;
         }
         // (c) it compiles strictly: the item's tests judge it.
-        if (gate(gateText)) { std::printf("RESULT: PASS after %d assembly round(s); width %d, %d refused, %d removed by the harness\n", round, res.width, res.refused, res.mechanicalMends); return finish(0, ""); }
+        if (!undone) {
+            if (gate(gateText)) {
+                res.testsFailed = 0;
+                res.testsTotal = testCounts(gateText).second;
+                std::printf("RESULT: PASS after %d assembly round(s); width %d, %d refused, %d removed by the harness\n", round, res.width, res.refused, res.mechanicalMends);
+                return finish(0, "");
+            }
+            const auto [failed, total] = testCounts(gateText);
+            // The gate failed on something the mends table knows (a symbol nobody defined: the link, not a test): no section can repair that by being
+            // asked again. The attempt ends here; the engine records the mend and the next attempt is its action.
+            if (failed < 0 && !best && fs::exists(attemptDir / "mend.json")) { res.error = "the gate failed with a known mechanical error, which the harness mends: " + clip(firstErrorLine(gateText), 300); return finish(1, "mendable"); }
+            if (best && (failed < 0 || failed > best->failed)) { restoreBest("the round left " + (failed < 0 ? std::string{"a file the tests cannot judge"} : std::to_string(failed) + " tests failing")); undone = true; }
+            else if (failed >= 0) keepBest(failed, total, gateText);
+        }
+        if (undone) gateText = best->gateText;
         if (round >= o.rounds || remainingSec() <= 0) { res.budgetSpent = res.budgetSpent || remainingSec() <= 0; res.error = "the assembled file compiles but its tests fail"; return finish(1, remainingSec() <= 0 ? "budget" : "tests"); }
         // A failing test goes to the sections it names; when it names none (or naming them did not help), to all.
         // First by MESSAGE (row 64): a test that fails with a message one function produces goes to that function, in any round, with the failure quoted.
         std::vector<std::pair<std::string, std::string>> texts;
         for (const auto& s : res.sections) {
             if (s.removed || !canvas.has(s.file)) continue;
-            const auto v = linesOf(canvas.text(s.file));
-            std::string fn;
-            for (const auto& r : foldRegions(canvas.text(s.file), isPythonPath(s.file), true)) if (leaf(r.name) == s.symbol) for (int k = r.first; k <= r.bodyTo && k <= static_cast<int>(v.size()); ++k) fn += v[static_cast<std::size_t>(k) - 1] + "\n";
-            texts.emplace_back(s.name, fn);
+            texts.emplace_back(s.name, functionText(canvas.text(s.file), s.file, s.symbol));
         }
         const std::map<std::string, std::string> byMessage = sectionsOwningFailure(gateText, texts);
         std::vector<ForkSection*> implicated;
@@ -768,10 +949,14 @@ ForkResult runCanvasFork(const ForkOptions& o)
         res.routedByMessage += static_cast<int>(byMessage.size());
         if (implicated.empty()) for (auto& s : res.sections) if (!s.removed) implicated.push_back(&s);
         res.targeted += static_cast<int>(implicated.size());
+        // The failing tests as they are written (rows 25/26): the assertion is quoted, not only its name.
+        std::vector<std::pair<std::string, std::string>> testFiles;
+        for (const auto& t : item.gate.tests) if (const std::string text = slurp(attemptDir / "ws" / t); !text.empty()) testFiles.emplace_back(t, text);
+        const std::string quotedTests = failingTestSources(gateText, testFiles);
         std::printf("assembly round %d: the tests failed; %zu section(s) go back\n", round + 1, implicated.size());
         runPool(implicated, [&](ForkSection& s) -> std::vector<ChatMessage> {
             const std::string view = "=== CANVAS: " + s.file + " (revision " + std::to_string(canvas.revision(s.file)) + ") ===\n" + sectionView(canvas.text(s.file), isPythonPath(s.file), {s.symbol}) + "=== END CANVAS ===\n";
-            return {{"system", system}, {"user", card + "\nThe functions were written separately and merged. The merged file was checked by running the tests and failed:\n" + clip(gateText, 1500) + "\n" + view +
+            return {{"system", system}, {"user", card + "\nThe functions were written separately and merged. The merged file was checked by running the tests and failed:\n" + clip(gateText, 1500) + "\n" + quotedTests + view +
                                                      (byMessage.count(s.name) ? "These failures carry a message that YOUR function produces, so the path that fails runs through it:\n" + clip(byMessage.at(s.name), 600) : std::string{}) +
                                                      "You own `" + s.symbol + "` in " + s.file + " (shown open; the others are folded). It may be at fault. Reply with the corrected function:\n=== EDIT: " + s.file + " SYMBOL " + s.symbol + " ===\n<your function>\n=== END EDIT ==="}};
         }, "tests" + std::to_string(round), res.integrationTokens, false);
@@ -823,9 +1008,18 @@ int runLlmFork(const std::vector<std::string>& args)
     auto profile = EngineProfile::parse(arg(args, "engine"));
     if (!profile) { std::fprintf(stderr, "llm-fork: %s\n", profile.error().c_str()); return 64; }
     o.engine = *profile;
+    // The manager's `think` strategy for this item (strategy.json, written by the daemon): reasoning on and room for it. Without this a fork after the
+    // strategy was the same fork again (catalogue row 73).
+    if (slurp(o.dir / "items" / o.itemId / "strategy.json").find("\"think\":true") != std::string::npos) {
+        o.engine.thinking = true;
+        o.maxTokens = std::max(o.maxTokens, 6000);
+        o.timeoutSec = std::max(o.timeoutSec, 3600);
+        std::printf("manager strategy: thinking on, %d token budget\n", o.maxTokens);
+    }
     const ForkResult r = runCanvasFork(o);
     if (!r.error.empty()) std::fprintf(stderr, "llm-fork: %s (%s)\n", r.error.c_str(), r.failure.c_str());
-    // As a workflow's agent job the attempt succeeds when it wrote its files: the gate job is the judge, as for every executor.
+    // As a workflow's agent job the attempt succeeds when it wrote its files: the gate job is the judge, as for every executor (a near pass is the
+    // gate's exit 3 there; alone, the fork's own exit code is 3).
     if (arg(args, "agent-exit", "0") == "1") return r.exitCode == 2 ? 2 : 0;
     return r.exitCode;
 }

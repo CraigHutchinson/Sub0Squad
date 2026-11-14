@@ -3,6 +3,51 @@
 Branch `worktree-agent-a507f5df083b20ce3`, from tag `parked-v1`. Newest state first. Every "passes" below was observed in `out/build/fable`, run sequentially under a
 process cap; nothing here has run on a real model.
 
+## WHERE IT STANDS (2026-11-14, seventh pass: the run-v11 blockers and part of the components cleanup; read this first)
+
+The lead's list of five groups is NOT complete. Done and committed in this pass, each with tests:
+* **Group 1, rows 70 to 73 (run-v11), all four built and proven without a model** (`docs/PROCESS_DESIGN.md` section 14, "Added in the seventh pass";
+  the catalogue rows say what was built and correct row 70's cause from the journal):
+  * 70: a fork keeps the best state its tests judged, undoes a round that leaves the file worse or not compiling, exits 3 on a near pass, and a later
+    attempt resumes the BEST earlier attempt; the gate does not call byte-identical files a repeated failure; failing tests are quoted as written.
+  * 71: declared class members become sections with generated stubs (names keep their class); the skeleton check refuses a member with no section and
+    overloads; the mend `undefined-declared-member` (requires `declared`).
+  * 72: `attempt-N/failure.json` (agent, gate job, or the daemon), shown as `lastFailure` by `project status` and the portal. **Why `test-app` failed, from
+    the archive:** every reply called `app::run("10", "*", "10")` and the helper took one string; it now takes one string per argument too, and that
+    tester's real reply passes the C++ tester gate. The same refusal three times running ends an attempt.
+  * 73: a fork job's tool is `llm-fork`; the policy skips `sections` for an item that forked; `llm-fork` applies the `think` strategy.
+  * Tests: `test_nearpass` (NEW: real daemon, real C++ builds, fake engine, three scenarios), `test_mends`, `test_policy`, `test_platforms`,
+    `test_canvas_agent`. Six goldens changed, by the job's tool name and the `forked` input only (checked by diff).
+* **Group 2, components cleanup, partly:** `portal.cpp` split (`portal_sampler`, `portal_files`, `portal` behind `portal_impl.hpp`); the page is
+  `web/portal.html` and `web/portal.js`, compiled in by `cmake/EmbedText.cmake`; `test_portal_page` renders the script with node against
+  `tests/data/portal/state.json` (DISABLED, visibly, where node is absent); `test_portal` checks the embedded page and the file view's path rules.
+  `client.cpp` split into `cli.cpp` (dispatch, usage), `cli_jobs.cpp`, `cli_project.cpp`, `cli_tools.cpp` behind `cli_impl.hpp` (the `wip-cli-split`
+  commit, finished: it needed one duplicate struct removed and one unused parameter). The failure record is its own layer-2 unit (`attempt_failure`).
+
+**Full suite:** `ctest -j1` under a process cap on the tree of the CLI split commit: **37 of 37 pass** (observed once, 293 s; the commit after it changes
+documents only). The run before it, at `cfeda49`, was 34 of 35: `layering` failed, and `b6e8c0d` fixed the cause.
+
+**A false pass to know about:** `cmake -P cmake/CheckLayers.cmake` WITHOUT `-DSRC_DIR=<repo>` checks nothing and prints "layering ok". The ctest
+`layering` test passes the directory and is the real check; it caught an upward include (status to a harness header) that the bare command had passed.
+
+**NOT done, in the lead's order (nothing started unless said):**
+1. **One CMake library per layer.** Not started, and it is NOT a build-file change: layer 2 (`workflow.cpp`, `plan.cpp`) CALLS `findHarness`, declared in
+   layer 0's `harness.hpp` and DEFINED in layer 3's `harness_registry.cpp`. With static libraries linked in layer order that is an unresolved symbol. The
+   honest fix is a registry in layer 0 (`registerHarness`, `findHarness`) that layer 3 fills from an explicit `registerBuiltinHarnesses()` called by the
+   composition root and by each test that needs harnesses (static libraries drop unreferenced registration objects). Find the other such symbols by
+   building it; each is a layering fact the include check cannot see.
+2. **Planning stage with clarifying questions; `sub0squad wizard`.** Not started. Spec: `docs/BACKLOG.md` "Getting started". Pieces that exist: `request
+   raise --kind clarification` and the inbox, `doctor`/`up`/`down` (`src/first_use.cpp`), the mock agent path, triage (`src/triage.cpp`).
+3. **The six scenarios, rows 25/26 beyond quoting, block 7, row 64 (b).** Only the quoting of failing tests (25/26) was added, in the fork's test rounds.
+4. **Docs rewrite (`DESIGN.md`, `M1_PLAN.md`, `WORK_GRAPH.md` section 23, `SCENARIOS.md`), the legacy and dead-code sweep, the consistency pass.** Not
+   started. Known small debt from this pass: three `cmd*` functions in `cli_tools.cpp` take a `paths` they do not use; `docs/COMPONENTS.md`'s table
+   still lists `calculator_templates` and the old test homes (its "State after the seventh pass" note is current).
+5. **Untested from this pass:** the daemon's fallback failure record (a job killed with no record of its own); the `lastFailure` line of the text
+   `project status`; `think` applied by `llm-fork` (code only). **Nothing here has run on a real model.**
+
+**Resume:** as in the fourth-pass section below, plus: run the layer check as `cmake -DSRC_DIR=$PWD -P cmake/CheckLayers.cmake`; never put a dollar-brace variable reference or
+`$((...))` in a shell command or heredoc in this environment (they are expanded to nothing, even inside a quoted heredoc): write such files with the file-write tool or from Python.
+
 ## WHERE IT STANDS (2026-11-14, sixth pass: "complete all the major work"; read this first)
 
 The owner's list of six groups is NOT complete. Done and committed in this pass, each with tests:

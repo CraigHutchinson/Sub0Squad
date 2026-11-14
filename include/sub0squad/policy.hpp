@@ -49,6 +49,9 @@ struct DecisionContext
     /// The project's harness divides work by SECTIONS of a file, never into new modules (row 45: in a compiled language a new module needs a header that
     /// no item owns). Where the ladder would divide, it writes the item as forked sections instead, once.
     bool divideBySections = false, sectionsTried = false;
+    /// The attempt that just failed already ran as forked sections (catalogue row 73): the `sections` rung would repeat the failing attempt's own executor,
+    /// so it is skipped. A rung never repeats what just failed.
+    bool forked = false;
 };
 
 /// retry: another local attempt. decompose: ask the model to divide the item. reviseTests: send back to the producer (the tester that wrote

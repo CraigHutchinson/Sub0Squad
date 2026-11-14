@@ -4,6 +4,8 @@
 // then do the item's tests run. A rejected transaction changes nothing and says why; a commit that makes the tests worse is reverted. Reads are bounded,
 // a runaway reply is cancelled while it streams, a reply cut off at the token limit is continued by appending. Off by default (`--canvas 1`).
 #include "agent_impl.hpp"
+#include "sub0squad/attempt_failure.hpp"
+#include "sub0squad/harness_common.hpp"
 
 #include "sub0squad/canvas.hpp"
 #include "sub0squad/edits.hpp"
@@ -149,7 +151,8 @@ int runCanvasAttempt(const AttemptContext& a)
     int bestFailing = -1;                 // fewest failing tests of any committed revision, and where it was
     std::map<std::string, int> bestRevision;
     if (const int f = failingTests(a.draftGate); f >= 0 && !a.baselineFiles.empty()) { bestFailing = f; for (const auto& path : canvas.paths()) bestRevision[path] = 1; }
-    std::string lastFinish, lastGate;
+    std::string lastFinish, lastGate, lastRefusal, lastRefusalKey;
+    int sameRefusals = 0;
     double totIn = 0, totOut = 0, decodeTps = 0, prefillTps = 0;
     long changedLines = 0;
 
@@ -198,7 +201,7 @@ int runCanvasAttempt(const AttemptContext& a)
         if (!reply) {
             traceVerdict(tracePath, call, "the engine call failed: " + reply.error());
             std::fprintf(stderr, "llm-agent: engine call failed: %s\n", reply.error().c_str());
-            if (!haveFiles) return 2;
+            if (!haveFiles) { recordAttemptFailure(attemptDir, "agent", "engine", "the engine call of turn " + std::to_string(call) + " failed: " + reply.error()); return 2; }
             break;
         }
         traceReply(tracePath, call, *reply);
@@ -265,6 +268,14 @@ int runCanvasAttempt(const AttemptContext& a)
             ++rejects;
             if (rejects > freeRejects) ++spent;   // the first refusals are answered in the same turn; after that each costs one
             if (refusal.rfind("the transaction changes nothing", 0) == 0 && rejects > 1) { stagnated = true; traceVerdict(tracePath, call, "stagnated: " + refusal); break; }
+            // The same refusal three times running (line numbers aside) is a worker that cannot see its error: more turns repeat it (run-v11's tester spent
+            // six turns an attempt on one compile error, catalogue row 72). The attempt stops and says why; the ladder decides with that evidence.
+            std::string key;
+            for (const char c : refusal.substr(0, 400)) if (!std::isdigit(static_cast<unsigned char>(c))) key += c;
+            sameRefusals = key == lastRefusalKey ? sameRefusals + 1 : 1;
+            lastRefusalKey = key;
+            lastRefusal = refusal;
+            if (sameRefusals >= 3) { stagnated = true; traceVerdict(tracePath, call, "stopped: the same refusal three times running: " + refusal); std::printf("canvas turn %d: the same refusal three times running: the attempt stops\n", call); break; }
             verdict = "Your transaction was REFUSED and nothing changed: " + refusal + "\nThe files are as shown below. Reply with a corrected transaction.";
             traceVerdict(tracePath, call, "transaction refused: " + refusal);
             std::printf("canvas turn %d: transaction refused: %s\n", call, refusal.substr(0, 200).c_str());
@@ -340,9 +351,15 @@ int runCanvasAttempt(const AttemptContext& a)
           << ",\"reverted\":" << reverts << ",\"changedLines\":" << changedLines << ",\"fileLines\":" << fileLines << "}}";
         (void)writeFile(attemptDir / "agent.json", m.str());
     }
-    if (!haveFiles) { std::fprintf(stderr, "llm-agent: no turn produced the requested files\n"); return 3; }
+    if (!haveFiles) {
+        std::fprintf(stderr, "llm-agent: no turn produced the requested files\n");
+        recordAttemptFailure(attemptDir, "agent", "format", "no reply was kept: " + std::to_string(calls) + " call(s), " + std::to_string(rejects) + " transaction(s) refused" + (sameRefusals >= 3 ? ", the same refusal three times running" : "") +
+                                                                           (lastRefusal.empty() ? std::string{"; last finish "} + lastFinish : ". The last refusal: " + lastRefusal));
+        return 3;
+    }
     events::progress(a.repairTurns + 1, a.repairTurns + 1, "written");
     if (!verified && lastFinish == "length") {
+        recordAttemptFailure(attemptDir, "agent", "oversize", "the reply was cut off at the " + std::to_string(a.maxTokens) + " token limit and the item's tests do not pass: it does not fit one attempt");
         events::note("reply cut off at the token limit: the item is too big for one attempt");
         std::printf("size verdict: split (the reply was cut off at the %d token limit)\n", a.maxTokens);
         return 4;
