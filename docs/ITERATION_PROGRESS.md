@@ -3,7 +3,32 @@
 Branch `worktree-agent-a507f5df083b20ce3`, from tag `parked-v1`. Newest state first. Every "passes" below was observed in `out/build/fable`, run sequentially under a
 process cap; nothing here has run on a real model.
 
-## WHERE IT STANDS (2026-11-13, fourth pass: review of the process-as-data work, by Fable 5.2)
+## WHERE IT STANDS (2026-11-14, fifth pass: self-healing, from run-v10)
+
+**Built and committed** (each with tests; design: `docs/PROCESS_DESIGN.md` section 14; findings: catalogue rows 59 to 64):
+* **Prevent (row 59):** a fork's sections start from the CONTRACT (what the harness's own stub of the file defines): the harness declares every contract
+  function in the skeleton whatever the model listed, and adds one to a resumed canvas that lacks it.
+* **Self-heal (rows 60, 61):** `registry/mends.json` (three mends) read by the gate; the gate reports a matching mend in its job result; the engine journals
+  the decision `mend` and runs the action as the next attempt, outside the ladder, at most twice per signature per item. `add-section` writes ONLY the missing
+  function; `silence-unused` is an edit by the harness with no model (`mend-apply`, and inside the fork's assembly).
+* **Proof without a model:** `test_mends` (the real run-v10 gate texts as fixtures), `test_workflow` `mend-*` scenarios, `test_heal` (a real daemon, a real
+  C++ build, a fake engine whose skeleton omits `calc::evaluate`: one `mend` decision, no `rearchitect`, only `evaluate` written in attempt 2).
+* **Found on the way:** the gate's line clipping cut the captured name under a long path and silently disabled the mend (row 63, fixed); the uncalled-function
+  removal deleted `tokenize` in run-v10 because its caller was the missing function (row 62).
+
+**Full suite:** FULLSUITE
+
+**Not done, stated:** routing a failing test to the section that owns the behaviour (row 64: designed, not built); the portal page does not show `healed`
+(the status JSON does); no command installs a per-workflow mends table; Python `add-section` and `helper-never-defined` have no end-to-end test; the put-back
+of removed sections is untested. **Nothing here has run on a real model**: the next real run should show `contractSections` in `fork.json` and, if a
+`-Wunused` error appears, a `mechanicalMends` count instead of a section retry.
+
+**Next steps, in order**
+1. Row 64 (a): route a failing test whose exception message is a string literal of one function to that section, with the assertion quoted.
+2. A mend per mechanical row of the catalogue (10, 12, 25); `process mends` to list the table; the portal's `healed` badge.
+3. Then the list of the fourth pass below (rows 19, 22, 25/26; scenarios; components cleanup; stale documents).
+
+## Fourth pass (2026-11-13: review of the process-as-data work, by Fable 5.2)
 
 **Review verdict on commits dfce443 to 1ba50c4 (made on Sonnet 5.5): the process-as-data slice was a thin parameter table, not the design.** The code was clean
 and well tested, and the goldens were recorded first as asked. But `Process` was 16 numbers and flags over three stages that `advance()` still hard-coded

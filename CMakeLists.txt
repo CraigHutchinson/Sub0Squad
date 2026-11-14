@@ -77,6 +77,8 @@ add_library(sub0squad_core STATIC
   src/workflow.cpp
   src/policy.cpp
   src/predicate.cpp
+  src/mends.cpp
+  src/contract.cpp
   src/scenario_compare.cpp
   src/build_id.cpp
   src/cmd_archive.cpp
@@ -112,6 +114,8 @@ sub0squad_add_test(test_job_spec)
 sub0squad_add_test(test_journal)
 sub0squad_add_test(test_job_store)
 sub0squad_add_test(test_predicate)
+sub0squad_add_test(test_mends)
+target_compile_definitions(test_mends PRIVATE SUB0SQUAD_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
 sub0squad_add_test(test_process)
 target_compile_definitions(test_process PRIVATE SUB0SQUAD_REGISTRY_DIR="${CMAKE_CURRENT_SOURCE_DIR}/registry")
 sub0squad_add_test(test_workflow)
@@ -146,6 +150,8 @@ set_tests_properties(test_readme PROPERTIES TIMEOUT 900)
 set_tests_properties(test_project PROPERTIES TIMEOUT 600)
 sub0squad_add_test(test_archive)
 sub0squad_add_test(test_executors)
+sub0squad_add_test(test_heal)
+set_tests_properties(test_heal PROPERTIES TIMEOUT 1200)
 set_tests_properties(test_executors PROPERTIES TIMEOUT 900)
 sub0squad_add_test(test_e2e)
 set_tests_properties(test_e2e PROPERTIES TIMEOUT 300)

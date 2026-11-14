@@ -16,6 +16,12 @@ namespace sub0squad {
 /// One file the harness provides itself.
 struct HarnessFile { std::string path; std::string content; };
 
+struct Harness;
+struct ContractFunction;
+/// The contract of the item file `path` on `harness` (contract.hpp): the functions its scaffold stub defines, with the signatures the scaffold's headers
+/// declare. Empty when the harness has no stub for the file.
+[[nodiscard]] std::vector<ContractFunction> contractOf(const Harness* harness, const std::string& path);
+
 }  // namespace sub0squad
 
 namespace sub0squad::harnessutil {

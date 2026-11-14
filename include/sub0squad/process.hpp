@@ -58,6 +58,13 @@ struct LeafParams
     int gateWallSeconds = 120;
     int architectWallLlmSeconds = 5400;
     int architectWallOtherSeconds = 120;
+    /// A fork's sections start from the CONTRACT: every function the harness's stub of the file defines is a mandatory section, whatever the model's
+    /// skeleton declared, and a file that lacks one gets it (catalogue row 59). Off only to reproduce the defect it prevents.
+    bool contractSections = true;
+    /// Known mechanical errors are repaired by the harness (mends.hpp): a failed gate that reports a mend gets the decision `mend` and the mend's action as
+    /// its next attempt, outside the ladder. `mendsDisabled` names mends this process does not apply.
+    bool mendsEnabled = true;
+    std::vector<std::string> mendsDisabled;
     bool operator==(const LeafParams&) const = default;
 };
 

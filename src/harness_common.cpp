@@ -1,6 +1,9 @@
 #include "sub0squad/harness_common.hpp"
 
+#include "sub0squad/contract.hpp"
 #include "sub0squad/event_channel.hpp"
+#include "sub0squad/harness.hpp"
+#include "sub0squad/mends.hpp"
 
 #include <poll.h>
 #include <signal.h>
@@ -13,6 +16,25 @@
 #include <fstream>
 #include <regex>
 #include <sstream>
+
+namespace sub0squad {
+
+std::vector<ContractFunction> contractOf(const Harness* harness, const std::string& path)
+{
+    if (!harness || !harness->scaffoldFile) return {};
+    const std::string stub = harness->scaffoldFile(path);
+    if (stub.empty()) return {};
+    std::vector<std::string> headers;
+    if (harness->scaffoldPaths)
+        for (const auto& p : harness->scaffoldPaths()) {
+            const auto dot = p.rfind('.');
+            const std::string ext = dot == std::string::npos ? std::string{} : p.substr(dot);
+            if ((ext == ".hpp" || ext == ".h") && p.rfind("tests/", 0) != 0) headers.push_back(harness->scaffoldFile(p));
+        }
+    return contractFunctions(path, stub, headers);
+}
+
+}  // namespace sub0squad
 
 namespace sub0squad::harnessutil {
 
@@ -264,10 +286,47 @@ int runGateFlow(const GateHooks& hooks, const std::vector<std::string>& args)
     if (!item) { std::printf("GATE FAIL: no item '%s'\n", itemId.c_str()); return 1; }
     const fs::path attemptDir = dir / "items" / itemId / ("attempt-" + std::to_string(attempt));
     const fs::path out = attemptDir / "out";
+    const fs::path mendFile = attemptDir / "mend.json";
+    std::error_code mendEc;
+    fs::remove(mendFile, mendEc);
+    // A failure the mends table knows (mends.hpp) is reported with the failure: `attempt-N/mend.json`, and as this job's result (which the journal carries),
+    // so the engine can have the harness repair the cause instead of asking a model or the ladder. The table is the built-in one plus the workflow's own
+    // `<workflow>/mends.json` (a mend of the same name replaces the built-in one). A requirement that does not hold means no mend.
+    const auto reportMend = [&](const std::string& msg) {
+        if (item->persona != "developer") return;
+        std::vector<Mend> table = builtinMends();
+        if (const std::string own = slurp(dir / "mends.json"); !own.empty()) { if (auto extra = parseMends(own)) table = mergedMends(std::move(table), *extra); else std::printf("note: %s is ignored: %s\n", (dir / "mends.json").c_str(), extra.error().c_str()); }
+        auto m = matchMend(table, msg);
+        if (!m) return;
+        const auto leafOf = [](const std::string& n) { const auto c = n.find_last_of(":."); return c == std::string::npos ? n : n.substr(c + 1); };
+        bool holds = false;
+        if (m->requires_ == "contract") {
+            // The gate clips long output lines, and a long workspace path can cut the line INSIDE the name (`calc::ev`): a name that ends where the line
+            // ends is a prefix, and it holds when exactly one contract function begins with it.
+            const bool cut = m->error.size() >= m->symbol.size() && m->error.compare(m->error.size() - m->symbol.size(), m->symbol.size(), m->symbol) == 0;
+            int candidates = 0;
+            std::string full, file;
+            for (const auto& f : item->files) for (const auto& c : contractOf(findHarness(plan->harness), f)) {
+                const std::string qualified = c.scope.empty() ? c.name : c.scope + "::" + c.name;
+                if (c.name == leafOf(m->symbol) || (cut && (qualified.rfind(m->symbol, 0) == 0 || c.name.rfind(m->symbol, 0) == 0))) { ++candidates; full = qualified; file = f; }
+            }
+            if (candidates == 1) { holds = true; m->file = file; m->symbol = full; }
+        } else if (m->requires_ == "prototype") {
+            for (const auto& f : item->files) if (!prototypeOf(slurp(attemptDir / "out" / f), leafOf(m->symbol)).empty()) { holds = true; m->file = f; }
+        } else if (m->requires_ == "location" && m->line > 0) {
+            for (const auto& f : item->files) if (m->file == f || (m->file.size() > f.size() && m->file.compare(m->file.size() - f.size() - 1, f.size() + 1, "/" + f) == 0)) { holds = true; m->file = f; }
+        }
+        if (!holds) return;
+        const std::string result = "{\"mend\":" + m->toJson() + "}\n";
+        writeFile(mendFile, result);
+        if (const char* runDir = std::getenv("SUB0SQUAD_RUN_DIR"); runDir && *runDir && one(a, "no-publish", "").empty()) writeFile(fs::path{runDir} / "result.json", result);   // only the gate JOB reports; an agent's self-check does not
+        std::printf("mend available: %s (%s) for %s\n", m->name.c_str(), m->action.c_str(), m->symbol.c_str());
+    };
     const auto fail = [&](const std::string& why) {
         const std::string msg = "GATE FAIL: " + why + "\n";
         writeFile(attemptDir / "gate.txt", msg);
         std::fputs(msg.c_str(), stdout);
+        reportMend(msg);
         return 1;
     };
 

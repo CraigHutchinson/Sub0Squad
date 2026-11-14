@@ -1,0 +1,5 @@
+GATE FAIL: does not compile: src/calc.cpp
+  src/calc.cpp:14:15: error: ‘double parseNumber(Cursor&)’ declared ‘static’ but never defined [-Werror=unused-function]
+     14 | static double parseNumber(Cursor& c);
+        |               ^~~~~~~~~~~
+The code does not compile, so no test could run. Fix the errors first.

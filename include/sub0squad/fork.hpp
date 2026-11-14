@@ -41,6 +41,13 @@ struct ForkOptions
     int wallBudgetSec = 900;            ///< the attempt's wall budget: this base (0 = no budget at all) ...
     int wallPerSectionSec = 150;        ///< ... plus this for every section, so a file of 14 functions is not given the time of a file of 4
     bool fresh = false;                 ///< never resume the previous attempt's canvas: start from a new skeleton
+    /// The sections start from the item's CONTRACT (contract.hpp, catalogue row 59): every function the harness's stub of a file defines is a mandatory
+    /// section with the contract's signature, added by the harness to the skeleton and to a resumed canvas that lacks it. Off only to reproduce the defect.
+    bool contractSections = true;
+    /// The mend `add-section` (mends.hpp): continue the previous attempt's files whatever it failed on, add `mendSection` (in `mendFile`) as a stubbed
+    /// section with the contract's signature (or the file's own prototype of it), put back sections an earlier assembly removed as uncalled, and write ONLY
+    /// the new section. Empty: an ordinary attempt.
+    std::string mendSection, mendFile;
     ChatFn chat;                        ///< empty: the engine over HTTP
     std::function<int()> idleSlots;     ///< empty: the engine's `/slots`, else its configured slot count
     std::function<long()> availableMiB; ///< empty: /proc/meminfo
@@ -56,6 +63,7 @@ struct ForkSection
     bool committed = false;
     bool removed = false;               ///< nobody called it: the harness removed it from the assembled file
     std::string lastRefusal;            ///< why its last reply was refused ("" when it was kept)
+    std::string brief;                  ///< why the harness added this section (a mend): shown to the session that writes it
 };
 
 struct ForkResult
@@ -74,7 +82,8 @@ struct ForkResult
     int skeletonTries = 0;
     int rounds = 0;                     ///< assembly rounds used
     int targeted = 0;                   ///< targeted sessions in assembly (a finding routed to one section)
-    int mechanicalMends = 0;            ///< functions nobody called that the harness removed
+    int mechanicalMends = 0;            ///< functions nobody called that the harness removed, and unused names it marked `[[maybe_unused]]`
+    int contractSections = 0;           ///< contract functions the harness added as sections because the skeleton or the resumed file lacked them
     int conflicts = 0;                  ///< commits the canvas refused because another section had changed the same lines
     int lostEdits = 0;                  ///< committed sections whose text is not in the merged file (must be 0)
     int refused = 0;                    ///< transactions refused (the compile check, an unreadable reply, an edit outside the section)

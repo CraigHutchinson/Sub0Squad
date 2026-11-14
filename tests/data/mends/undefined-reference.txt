@@ -1,0 +1,9 @@
+GATE FAIL: INTERFACE MISMATCH: the build failed:
+  /WORKFLOW/items/dev-engine/attempt-1/ws/tests/eval.test.cpp:5:(.text+0x61): undefined reference to `calc::evaluate(std::__cxx11::basic_string<char, std::char_traits<char>, std::al
+  /usr/bin/x86_64-linux-gnu-ld.bfd: /WORKFLOW/items/dev-engine/attempt-1/ws/tests/eval.test.cpp:6:(.text+0x24e): undefined reference to `calc::evaluate(std::__cxx11::basic_string<ch
+  /usr/bin/x86_64-linux-gnu-ld.bfd: /WORKFLOW/items/dev-engine/attempt-1/ws/tests/eval.test.cpp:7:(.text+0x43b): undefined reference to `calc::evaluate(std::__cxx11::basic_string<ch
+  /usr/bin/x86_64-linux-gnu-ld.bfd: /WORKFLOW/items/dev-engine/attempt-1/ws/tests/eval.test.cpp:8:(.text+0x628): undefined reference to `calc::evaluate(std::__cxx11::basic_string<ch
+  /usr/bin/x86_64-linux-gnu-ld.bfd: /WORKFLOW/items/dev-engine/attempt-1/ws/tests/eval.test.cpp:9:(.text+0x80f): undefined reference to `calc::evaluate(std::__cxx11::basic_string<ch
+  collect2: error: ld returned 1 exit status
+  ninja: build stopped: subcommand failed.
+

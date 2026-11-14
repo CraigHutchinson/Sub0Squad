@@ -1,0 +1,7 @@
+GATE FAIL: 4 of 17 tests failed
+FAIL 9 - unary_minus_precedence: CHECK_NEAR failed: calc::evaluate("-2 ^ 2") ~ -4.0
+  the test expected -4 but the code gave 4 (eval.test.cpp:51)
+FAIL 11 - decimals_and_constants: unexpected exception: Expected '(' after function name
+FAIL 14 - logarithms: unexpected exception: Expected '(' after function name
+FAIL 15 - math_functions: unexpected exception: Unknown function: sinh
+

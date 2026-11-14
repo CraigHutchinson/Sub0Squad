@@ -58,6 +58,9 @@ std::vector<Field> fieldsOf(Stage& st)
         num("leaf.wallSeconds.gate", st.leaf.gateWallSeconds);
         num("leaf.wallSeconds.architectLlm", st.leaf.architectWallLlmSeconds);
         num("leaf.wallSeconds.architectOther", st.leaf.architectWallOtherSeconds);
+        flag("leaf.contractSections", st.leaf.contractSections);
+        flag("leaf.mends.enabled", st.leaf.mendsEnabled);
+        list("leaf.mends.disabled", st.leaf.mendsDisabled);
         num("ascent.maxRoundTrips", st.ascent.maxRoundTrips);
     }
     return f;
@@ -147,6 +150,8 @@ std::string validateStage(const Stage& st, const std::string& where)
         for (const std::string& bad : {range(j.wallSeconds, 10, 86400, where + "job.wallSeconds"), range(j.retries, 0, 5, where + "job.retries")}) if (!bad.empty()) return bad;
     } else {
         const LeafParams& l = st.leaf;
+        if (l.mendsDisabled.size() > 32) return where + "leaf.mends.disabled has more than 32 names";
+        for (const auto& n : l.mendsDisabled) if (!validName(n)) return where + "leaf.mends.disabled: '" + n + "' is not a mend name (a-z, 0-9 and '-')";
         if (!validExecutor(l.developerExecutor, false)) return where + "leaf.executor.developer '" + l.developerExecutor + "' must be session, canvas or fork";
         if (!validExecutor(l.testerExecutor, true)) return where + "leaf.executor.tester '" + l.testerExecutor + "' must be session or canvas (a test file has no sections to fork)";
         for (const std::string& bad : {range(l.agentWallLlmSeconds, 60, 604800, where + "leaf.wallSeconds.agentLlm"), range(l.agentWallOtherSeconds, 10, 3600, where + "leaf.wallSeconds.agentOther"),
