@@ -87,7 +87,11 @@ add_library(sub0squad_core STATIC
   src/cmd_archive.cpp
   src/process.cpp
   src/cmd_process.cpp
-  src/client.cpp)
+  src/client.cpp
+  src/cli.cpp
+  src/cli_jobs.cpp
+  src/cli_project.cpp
+  src/cli_tools.cpp)
 # The portal's page is two files of its own (web/portal.html, web/portal.js), compiled in as strings; editing either rebuilds the generated source.
 set(SUB0SQUAD_PORTAL_WEB ${CMAKE_CURRENT_BINARY_DIR}/portal_web.cpp)
 add_custom_command(OUTPUT ${SUB0SQUAD_PORTAL_WEB}
