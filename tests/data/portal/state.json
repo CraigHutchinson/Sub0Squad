@@ -1,0 +1,19 @@
+{"workflows":{"ok":true,"asOf":1794626165.4,"source":"daemon","workflows":[
+{"id":"w-000001","task":"calculator-cpp","taskText":"write a calculator","seed":"","state":"running","note":"","sandbox":"/home/u/.sub0squad/state/workflows/w-000001","firstCause":"","process":"standard@1","submittedAt":1794616000.0,"finishedAt":0,
+"engines":["qwen35=http://127.0.0.1:8092/v1,model=qwen35,kind=external-server,ctx=16384,slots=3"],
+"requests":[],"reasons":["blueprint calculator-cpp"],"jobs":9,"jobsActive":1,
+"stages":[{"name":"plan","kind":"job","state":"done","waitingOn":""},{"name":"build","kind":"items","state":"active","waitingOn":"items.pending == 0"},{"name":"integrate","kind":"job","state":"waiting","waitingOn":"stage(build).done"}],
+"items":[
+{"id":"test-engine","title":"Engine tests","status":"accepted","attempts":1,"tier":"local","builtBy":"model","persona":"tester","parent":"","tokensIn":3400,"tokensOut":900,"durationSec":340,"engine":"qwen35","mends":[],"healed":[],"deps":[]},
+{"id":"dev-engine","title":"Engine","status":"running","attempts":2,"tier":"local","builtBy":"","persona":"developer","parent":"","tokensIn":41000,"tokensOut":8000,"durationSec":2256,"engine":"qwen35","mends":["undefined-declared-member"],"healed":["undefined-declared-member"],"deps":["test-engine"]},
+{"id":"dev-app","title":"App <b>not markup</b>","status":"pending","attempts":2,"tier":"local","builtBy":"","persona":"developer","parent":"","tokensIn":7000,"tokensOut":2900,"durationSec":608,"engine":"qwen35","mends":[],"lastFailureAttempt":2,"lastFailure":{"schema":"attempt-failure-1","role":"gate","kind":"gate","reason":"GATE FAIL: 1 of 6 tests failed\nFAIL 3 - rounds_floating_noise: expected <b>0.3</b>"},"healed":[],"deps":["dev-engine"]}
+],
+"decisions":[
+{"action":"mend","signature":"undefined-declared-member","mend":{"name":"undefined-declared-member","action":"add-section","requires":"declared","symbol":"calc::Parser::parse","file":"src/calc.cpp","line":0,"column":0,"error":"undefined reference to 'calc::Parser::parse()'","maxPerItem":2},"reasons":["the gate of 'dev-engine' attempt 1 failed with a known mechanical error","mend 'undefined-declared-member' (1 of at most 2 for this item)"],"inputs":{"item":"dev-engine","attempt":1,"applied":1}},
+{"action":"retry","tier":"local","confidence":1.0,"reasons":["item 'dev-app' attempt 1 failed in its gate","local attempts 1 of 2 used: retry locally"],"inputs":{"workflow":"w-000001","item":"dev-app","attempt":1,"localAttempts":1,"failedRole":"gate","failure":"succeeded","persona":"developer"}}
+],
+"ledger":{"byTier":{"local":{"attempts":5,"tokensIn":51400,"tokensOut":11800,"costUnits":0.0,"durationSec":3204}},"byEngine":{"qwen35":{"attempts":5,"tokensIn":51400,"tokensOut":11800,"decodeTps":3.4}},"frontierTokenShare":0,"workRatio":0.31,"totalTokens":63200,"acceptedWorkTokens":900,"reworkTokens":2000,"promptOverheadTokens":51400,"harnessBytes":9000,"stub":true}}
+]},
+"jobs":{"ok":true,"jobs":[
+{"id":"j-000009","state":"running","tool":"llm-fork","workflow":"w-000001","item":"dev-engine","role":"agent","attempt":2,"elapsedSec":120,"note":"","service":false,"lease":"http://127.0.0.1:8092/v1","progress":{"done":1,"total":4,"label":"sections"},"metrics":{}}
+]}}

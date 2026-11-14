@@ -71,6 +71,8 @@ add_library(sub0squad_core STATIC
   src/overseer.cpp
   src/plan_lint.cpp
   src/portal.cpp
+  src/portal_sampler.cpp
+  src/portal_files.cpp
   src/portal_page.cpp
   src/event_channel.cpp
   src/sandbox.cpp
@@ -86,6 +88,16 @@ add_library(sub0squad_core STATIC
   src/process.cpp
   src/cmd_process.cpp
   src/client.cpp)
+# The portal's page is two files of its own (web/portal.html, web/portal.js), compiled in as strings; editing either rebuilds the generated source.
+set(SUB0SQUAD_PORTAL_WEB ${CMAKE_CURRENT_BINARY_DIR}/portal_web.cpp)
+add_custom_command(OUTPUT ${SUB0SQUAD_PORTAL_WEB}
+  COMMAND ${CMAKE_COMMAND} -DOUT=${SUB0SQUAD_PORTAL_WEB} -DNAMESPACE=sub0squad::portalweb
+          "-DFILES=kPageHtml=${CMAKE_CURRENT_SOURCE_DIR}/web/portal.html|kPageScript=${CMAKE_CURRENT_SOURCE_DIR}/web/portal.js"
+          -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedText.cmake
+  DEPENDS web/portal.html web/portal.js cmake/EmbedText.cmake
+  COMMENT "Embedding the portal page"
+  VERBATIM)
+target_sources(sub0squad_core PRIVATE ${SUB0SQUAD_PORTAL_WEB})
 target_include_directories(sub0squad_core PUBLIC include PRIVATE src)
 target_compile_options(sub0squad_core PRIVATE ${SUB0SQUAD_STRICT})
 target_link_libraries(sub0squad_core PUBLIC Sub0Pipeline::Sub0Pipeline Sub0Pipeline::Priority Sub0Pub::Sub0Pub Threads::Threads PRIVATE simdjson::simdjson)
@@ -100,6 +112,14 @@ enable_testing()
 add_test(NAME dependency_selftest COMMAND sub0squad --selftest)
 add_test(NAME layering COMMAND ${CMAKE_COMMAND} -DSRC_DIR=${CMAKE_SOURCE_DIR} -P ${CMAKE_SOURCE_DIR}/cmake/CheckLayers.cmake)
 add_test(NAME test_reporting COMMAND ${CMAKE_COMMAND} -DSRC_DIR=${CMAKE_SOURCE_DIR} -P ${CMAKE_SOURCE_DIR}/cmake/CheckTests.cmake)
+# The portal page's script, rendered against a recorded state with no browser. It needs node; without it the test is registered as DISABLED so the
+# report says it did not run (it is never silently absent). test_portal checks the embedded page itself and always runs.
+find_program(SUB0SQUAD_NODE NAMES node nodejs)
+add_test(NAME test_portal_page COMMAND ${SUB0SQUAD_NODE} ${CMAKE_SOURCE_DIR}/tests/portal_page_test.js ${CMAKE_SOURCE_DIR}/web/portal.js ${CMAKE_SOURCE_DIR}/tests/data/portal/state.json)
+if(NOT SUB0SQUAD_NODE)
+  set_tests_properties(test_portal_page PROPERTIES DISABLED TRUE)
+  message(STATUS "node was not found: test_portal_page is disabled (the portal page script is not rendered by any test on this machine)")
+endif()
 
 function(sub0squad_add_test name)
   # tests that exercise the multi-call binary receive its path as argv[1]
@@ -111,6 +131,8 @@ function(sub0squad_add_test name)
   add_dependencies(${name} sub0squad)
 endfunction()
 
+sub0squad_add_test(test_portal)
+target_include_directories(test_portal PRIVATE src)
 sub0squad_add_test(test_job_spec)
 sub0squad_add_test(test_journal)
 sub0squad_add_test(test_job_store)

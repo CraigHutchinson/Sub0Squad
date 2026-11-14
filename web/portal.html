@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Sub0Squad portal</title>
+<style>
+:root{--bg:#f7f7f5;--panel:#fff;--ink:#1c1c1a;--mute:#6b6b66;--line:#d9d9d3;--pending:#9a9a94;--running:#2f6fd6;--accepted:#2a8a4a;--failed:#c23a30;--edge:#a9a9a2;--accent:#7a4fd0;--warn:#b7791f}
+@media (prefers-color-scheme:dark){:root{--bg:#161615;--panel:#20201e;--ink:#ecece8;--mute:#9a9a94;--line:#3a3a36;--pending:#77776f;--running:#5b9bff;--accepted:#4cc274;--failed:#ff6b5e;--edge:#5c5c56;--accent:#a98bf0;--warn:#e0a23a}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 system-ui,sans-serif}
+header{padding:12px 16px;border-bottom:1px solid var(--line);display:flex;gap:16px;align-items:baseline;flex-wrap:wrap}
+h1{font-size:16px;margin:0}.mute{color:var(--mute)}main{padding:12px 16px;display:grid;gap:12px;grid-template-columns:1fr;max-width:1500px;margin:0 auto}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:12px}
+.tiles{display:flex;gap:10px;flex-wrap:wrap;margin-top:6px}
+.tile{border:1px solid var(--line);border-radius:8px;padding:6px 10px;min-width:150px;cursor:pointer;background:var(--panel)}
+.tile:hover{border-color:var(--accent)}.tile .v{font-size:19px;font-weight:600}.tile .l{font-size:12px;color:var(--mute)}.tile svg{display:block;margin-top:2px}
+.kpis{display:flex;gap:18px;flex-wrap:wrap}.kpi b{display:block;font-size:20px}
+svg{max-width:100%}.graph svg{width:100%;height:auto;display:block;overflow:visible}
+.node{cursor:pointer}.node rect.box{fill:var(--panel);stroke-width:2}.node text{fill:var(--ink);font-size:12px}.node .sub{fill:var(--mute);font-size:10.5px}.node .live{fill:var(--running);font-size:10.5px}
+.s-pending rect.box{stroke:var(--pending)}.s-running rect.box{stroke:var(--running);animation:pulse 1.4s ease-in-out infinite}.s-accepted rect.box{stroke:var(--accepted)}.s-failed rect.box{stroke:var(--failed)}
+.node.sel rect.box{stroke-width:4}
+.node.cont rect.box{fill:color-mix(in srgb,var(--ink) 4%,var(--panel));stroke-dasharray:none}.node.cont.s-pending rect.box{stroke-dasharray:6 4}
+.node.act-divide rect.box,.node.act-architect rect.box,.node.act-integrate rect.box{stroke:var(--accent);fill:color-mix(in srgb,var(--accent) 14%,var(--panel))}.node.act-integrate rect.box{stroke:#1a9a8a}
+.actdot{fill:var(--accent);stroke:var(--panel);stroke-width:2}.actdot.int{fill:#1a9a8a}.acttext{fill:#fff;font-size:13px;font-weight:700;text-anchor:middle}.badge{display:inline-block;padding:0 7px;border-radius:9px;font-size:11px;font-weight:600;border:1px solid var(--accent);color:var(--accent);vertical-align:1px;cursor:help}.badge.fr{border-color:var(--warn);color:var(--warn)}.badge.mock{border-color:var(--mute);color:var(--mute)}.bpill{fill:none;stroke:var(--accent);stroke-width:1.2}.bpill.fr{stroke:var(--warn)}.btext{fill:var(--accent);font-size:10px;font-weight:600}.btext.fr{fill:var(--warn)}@keyframes pulse{50%{stroke-opacity:.35}}
+.edge{fill:none;stroke:var(--edge);stroke-width:1.5}.edge.parent{stroke-dasharray:4 4;stroke:var(--accent)}
+.lane{fill:none;stroke:var(--line);stroke-dasharray:2 5}.lanelabel{fill:var(--mute);font-size:11px}
+.spark{fill:none;stroke:var(--running);stroke-width:1.5}.spark.b{stroke:var(--accepted)}.spark.c{stroke:var(--warn)}.sparkfill{fill:var(--running);opacity:.12}
+table{border-collapse:collapse;width:100%}td,th{text-align:left;padding:4px 8px;border-bottom:1px solid var(--line);font-size:13px;vertical-align:middle}
+tr.click{cursor:pointer}tr.click:hover,tr.selrow{background:var(--bg)}
+.pill{display:inline-block;padding:0 8px;border-radius:10px;font-size:12px;border:1px solid var(--line)}.pill.warn{color:var(--warn);border-color:var(--warn)}.pill.bad{color:var(--failed);border-color:var(--failed)}
+.legend span{margin-right:14px}.dot{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:4px;border:2px solid}
+.bar{height:8px;background:var(--line);border-radius:4px;overflow:hidden;min-width:90px}.bar i{display:block;height:100%;background:var(--running)}
+#drawer{position:fixed;top:0;right:0;width:min(420px,100vw);height:100vh;overflow:auto;background:var(--panel);border-left:1px solid var(--line);padding:14px;transform:translateX(105%);transition:transform .18s;z-index:5;box-shadow:-6px 0 20px rgba(0,0,0,.15)}
+#drawer.open{transform:none}#drawer h2{margin:0 0 6px;font-size:16px}#drawer .x{position:absolute;top:8px;right:12px;cursor:pointer;font-size:20px;color:var(--mute);background:none;border:0}
+.kv{display:grid;grid-template-columns:130px 1fr;gap:2px 8px;font-size:13px;margin:8px 0}.kv span:nth-child(odd){color:var(--mute)}
+pre.viewer{white-space:pre-wrap;word-break:break-word;font-size:12px;max-height:78vh;overflow:auto;border:1px solid var(--line);padding:8px;border-radius:6px}
+details>summary{cursor:pointer}.fl{padding-left:12px;font-size:13px}
+code{font-size:12px;word-break:break-all}
+.rq{border:1px solid var(--line);border-radius:8px;padding:8px 10px;margin:6px 0}.rq.block{border-color:var(--warn)}.rq textarea,.addform textarea{width:100%;font:inherit;background:var(--bg);color:var(--ink);border:1px solid var(--line);border-radius:6px;padding:6px;margin:6px 0}
+.btn{font:inherit;cursor:pointer;border:1px solid var(--accent);color:var(--accent);background:none;border-radius:6px;padding:2px 10px;margin:2px 6px 2px 0}.btn.warn{border-color:var(--failed);color:var(--failed)}.btn.opt{border-color:var(--line);color:var(--mute)}
+.addform label{display:inline-block;margin-right:12px;font-size:13px}.node.blocked rect.box{stroke-dasharray:6 4}
+.reqline{margin:2px 0}.triage{border-left:3px solid var(--warn);padding:2px 8px;margin:6px 0;font-size:13px}.triage.fatal{border-left-color:var(--failed)}.triage.guidance{border-left-color:var(--accepted)}.offline .btn{opacity:.4;pointer-events:none}.warnbar{border:1px solid var(--warn);color:var(--warn);border-radius:6px;padding:4px 8px;margin:6px 0;font-size:13px}
+@media(min-width:900px){main{grid-template-columns:3fr 2fr}.wide{grid-column:1/-1}}
+</style></head><body>
+<header><h1>Sub0Squad portal</h1><span class="mute" title="Small work: be the expert and do it best. Larger work: divide it well and make sure the separation and the interactions hold. The squad is part of your team.">Many small minds, one whole solution.</span><span id="asof" class="mute">connecting…</span><span class="mute">read-only · loopback · live 1 s · click anything for detail</span></header>
+<main>
+<section class="card wide"><div class="kpis" id="kpis"></div></section>
+<section class="card wide" id="intent"><b>Intent</b> <span class="mute">what was asked, what was added or decided since, and what is waiting for an answer</span>
+<div id="in-req"></div>
+<b>Inbox</b> <span class="mute" id="in-count"></span><div id="offlinebar"></div><div id="inbox"></div>
+<details id="addbox"><summary>Add a requirement, clarification or question to the running project</summary>
+<div class="addform"><div><label><input type="radio" name="addkind" value="requirement" checked> requirement</label><label><input type="radio" name="addkind" value="clarification"> clarification</label><label><input type="radio" name="addkind" value="question"> question for the architect</label></div>
+<div class="mute" style="margin-top:4px">Scope (the nodes it concerns; none ticked = all):</div><div id="add-scope"></div>
+<textarea id="add-text" rows="3" placeholder="e.g. The result should keep a history of the last five calculations."></textarea>
+<button class="btn" id="add-go">Add to the project</button> <span class="mute" id="in-msg"></span></div></details>
+<b>Decisions</b><div id="in-log"></div></section>
+<section class="card wide"><b>System</b> <span class="mute" id="sysnote"></span><div class="tiles" id="sys"></div></section>
+<section class="card wide"><b>Engines</b> <span class="mute">(live from each llama-server's /slots: prefill progress, tokens decoded, rates)</span><div id="engines"></div></section>
+<section class="card wide"><div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px"><b id="wfname">Work graph</b>
+<span class="legend mute"><span><i class="dot" style="border-color:var(--pending)"></i>pending</span><span><i class="dot" style="border-color:var(--running)"></i>running</span><span><i class="dot" style="border-color:var(--accepted)"></i>accepted</span><span><i class="dot" style="border-color:var(--failed)"></i>failed</span><span>line: depends on · dashed box: divided into parts it integrates</span></span></div>
+<div id="graph" class="graph"></div><div class="mute" id="note" style="margin-top:6px"></div></section>
+<section class="card wide"><b>Workflow package</b> <span class="mute">the request, the plan, the deliverables and every artifact of every node</span>
+<div id="pkg"><div id="pk-info"></div><b>Deliverables</b><div id="pk-del"></div><b>Search the history</b> <span class="mute">conversations, replies, gate outputs, briefings: what a worker saw and said</span>
+<div><input id="q" type="search" placeholder="e.g. appended equals, ENOENT, style.css" style="width:min(520px,100%);font:inherit;background:var(--bg);color:var(--ink);border:1px solid var(--line);border-radius:6px;padding:4px 8px"> <span class="mute" id="q-note"></span></div><div id="q-out"></div>
+<b>Files</b> <span class="mute" id="pk-count"></span><div id="pk-top"></div><div id="pk-tree"></div></div></section>
+<section class="card"><b>Nodes</b><table><thead><tr><th>node</th><th>model</th><th>status</th><th>att.</th><th>in</th><th>out</th><th>time</th></tr></thead><tbody id="nodes"></tbody></table></section>
+<section class="card"><b>Decisions</b><table><tbody id="decisions"></tbody></table></section>
+<section class="card wide"><b>Daemon jobs</b><table><thead><tr><th>job</th><th>state</th><th>tool / role</th><th>node</th><th>progress</th><th>elapsed</th></tr></thead><tbody id="jobs"></tbody></table></section>
+</main>
+<aside id="drawer" aria-live="off"><button class="x" id="dx" aria-label="close">×</button><div id="dA"></div><div id="dB"></div><div id="dC"></div></aside>
+<script>__PORTAL_SCRIPT__</script></body></html>
