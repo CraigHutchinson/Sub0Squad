@@ -1,5 +1,10 @@
 # M1 plan: daemon, CLI and process jobs, proven end to end on mock work
 
+> **Historical (read `docs/ITERATION_PROGRESS.md` for the present).** M1 is done; this plan is kept for its reasoning and its test list. Since it was
+> written the daemon gained: workflows as processes (`docs/PROCESS_DESIGN.md` section 13), a build id that is checked at submit and `run-info.json`
+> (catalogue row 20), capacity classes for a workflow's structural jobs (row 19), a job's own `result.json` carried in its exit record (section 14), and a
+> `ping` that runs the memory watcher's check (row 22). The `--max-jobs` limit described here now applies to workers; structural jobs have a reserve.
+
 Status: **IMPLEMENTED ON LINUX 2026-11-09 except the items under "Implementation status" below** (owner: Linux only for now, Windows later). Design context: DESIGN.md sections 3, 4, 13, 14, 18. Legend as in DESIGN:
 **[V]** verified, **[P]** proposed, **[U]** unknown until tested.
 

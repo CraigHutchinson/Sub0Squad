@@ -516,6 +516,14 @@ nothing is worth keeping.
 
 ## 23. Forked sessions: skeleton first, then a session per function (owner direction, 2026-11-10)
 
+> **Superseded in its details (2026-11-14); the idea stands.** What is built is described in `docs/CANVAS.md` ("As built", "Assembly convergence") and
+> `include/sub0squad/fork.hpp`. Differences from the text below: the primer DECLARES the structure (`@@ signature` lines) and the harness writes the stub
+> bodies, on every platform, not only JavaScript; the sections' list starts from the item's CONTRACT (the functions the harness's own stub defines), so the
+> entry point cannot be left out (catalogue row 59); sections commit to a revisioned canvas through a compile check, with the declaration kept by the
+> harness; assembly converges by routed findings (a compile error to its owner, a failing test to the function that produced its message, an unused name
+> marked by the harness), never by whole-file rounds first; a failed attempt is resumed from its canvas; known mechanical errors are mended by the harness
+> between attempts (`docs/PROCESS_DESIGN.md` section 14).
+
 Instead of one context that grows with every reply, prime one session, then fork. `llm-fork` (and `replay <workflow> <node> --fork`) runs a node like this:
 
 1. **Primer:** one session writes every file as a **skeleton**: imports, constants, every function or class declared with its exact signature and a one-line scope

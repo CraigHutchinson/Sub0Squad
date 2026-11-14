@@ -14,12 +14,12 @@ The owner's list of six groups is NOT complete. Done and committed in this pass,
   row 19 (capacity classes: structural jobs without a lease have a reserve of two job slots, and go first among startable jobs).
 * **Group 6:** block 9's golden decision logs are the action goldens (33 scenarios, mend decisions included).
 
-**Full suite:** being run at the commit after this one; see the next log line for the result.
+**Full suite:** `ctest -j1` under a process cap at `2166544`: **28 of 28 pass** (observed, with the lead session's real run loading the host). The commit after it changes documents only.
 
 **NOT done (in the owner's order), nothing started unless said:**
 * Group 2: rows 25/26 beyond what row 64 (a) quotes; the six remaining scenarios of `docs/SCENARIOS.md`.
 * Group 3: components cleanup (split `test_workflow.cpp`, `client.cpp`, `portal.cpp`; one CMake library per layer). `KNOWN_VIOLATIONS` is empty and layering passes.
-* Group 4: stale documents (`DESIGN.md`, `M1_PLAN.md`, `WORK_GRAPH.md` section 23); a sweep for legacy and dead code.
+* Group 4: `DESIGN.md`, `M1_PLAN.md`, `WORK_GRAPH.md` section 23 and `SCENARIOS.md` now carry a dated note that says what superseded them and where the present is described; they were NOT rewritten. No sweep for legacy and dead code was made.
 * Group 5: the planning stage that asks clarifying questions through the inbox; `sub0squad wizard`.
 * Group 6: block 7 (section integration seams); the final docs consistency pass.
 
