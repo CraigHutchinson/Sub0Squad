@@ -549,7 +549,7 @@ ForkResult runCanvasFork(const ForkOptions& o)
                 std::printf("fork: resuming the canvas of attempt %d (%s): %zu section(s)\n", from, why.c_str(), res.sections.size());
                 events::note("fork resumes attempt " + std::to_string(from) + " (" + why + ")");
                 if (o.contractSections) ensureContract("This function was MISSING from the file: the tests call it and nothing defined it. The harness added its declaration.");
-                if (o.contractSections) ensureMembers("This member function is DECLARED by its class in the file and nothing defined it. The harness added its definition as a stub.");
+                if (o.memberSections) ensureMembers("This member function is DECLARED by its class in the file and nothing defined it. The harness added its definition as a stub.");
             }
         }
     }
@@ -585,11 +585,11 @@ ForkResult runCanvasFork(const ForkOptions& o)
                     const auto fns = o.contractSections && contract.count(path) ? contract.at(path) : std::vector<ContractFunction>{};
                     const std::string withContract = fns.empty() ? modelText : withContractDeclarations(modelText, path, fns);
                     // Then the members (row 71): a class that declares a member function owes its definition, so each one gets a `@@` line of its own.
-                    const std::string text = o.contractSections ? withMemberDeclarations(withContract, path) : withContract;
+                    const std::string text = o.memberSections ? withMemberDeclarations(withContract, path) : withContract;
                     const auto marks = [](const std::string& t) { int n = 0; for (std::size_t at = t.find("@@"); at != std::string::npos; at = t.find("@@", at + 2)) ++n; return n; };
                     if (marks(withContract) > marks(modelText)) { res.contractSections += marks(withContract) - marks(modelText); std::printf("contract: the skeleton of %s left %d contract function(s) out; the harness declared them\n", path.c_str(), marks(withContract) - marks(modelText)); }
                     if (marks(text) > marks(withContract)) { res.memberSections += marks(text) - marks(withContract); std::printf("class members: the skeleton of %s declares %d member function(s) with no section; the harness made each one a section\n", path.c_str(), marks(text) - marks(withContract)); }
-                    if (const auto twice = o.contractSections ? overloadedMembers(text, path) : std::vector<std::string>{}; !twice.empty()) { bad = path + ": the class member `" + twice.front() + "` is declared more than once (overloads); every function is written by one worker under its own name, so give each a different name"; break; }
+                    if (const auto twice = o.memberSections ? overloadedMembers(text, path) : std::vector<std::string>{}; !twice.empty()) { bad = path + ": the class member `" + twice.front() + "` is declared more than once (overloads); every function is written by one worker under its own name, so give each a different name"; break; }
                     if (text.find("@@") == std::string::npos) { candidate.addFile(path, text); continue; }   // a file with no function to delegate is taken as written
                     const Skeleton sk = expandSkeleton(text, path);
                     if (!sk.error.empty()) bad = path + ": " + sk.error;
@@ -597,7 +597,7 @@ ForkResult runCanvasFork(const ForkOptions& o)
                     // The skeleton check: a skeleton that leaves a contract function undefined is refused (it cannot happen after the step above; kept as the check).
                     if (bad.empty() && !fns.empty()) if (const auto missing = undefinedContract(sk.text, path, fns); !missing.empty()) bad = path + ": the skeleton leaves the contract function `" + missing.front().name + "` undefined (" + missing.front().signature + ")";
                     // And a class whose member has no section is refused: nobody would write it, and the link fails (row 71).
-                    if (bad.empty() && o.contractSections) if (const auto missing = undefinedMembers(sk.text, path); !missing.empty()) bad = path + ": the class `" + missing.front().className + "` declares the member function `" + missing.front().name + "` and no section defines it; write `@@ " + missing.front().signature + "` after the class";
+                    if (bad.empty() && o.memberSections) if (const auto missing = undefinedMembers(sk.text, path); !missing.empty()) bad = path + ": the class `" + missing.front().className + "` declares the member function `" + missing.front().name + "` and no section defines it; write `@@ " + missing.front().signature + "` after the class";
                 }
                 if (bad.empty()) bad = precheckCanvas(candidate, harness, o.dir, o.itemId, o.attempt, attemptDir, true);
             }
@@ -1003,6 +1003,7 @@ int runLlmFork(const std::vector<std::string>& args)
     o.wallPerSectionSec = std::atoi(arg(args, "section-wall", "150").c_str());
     o.fresh = arg(args, "fresh", "0") == "1";
     o.contractSections = arg(args, "contract-sections", "1") != "0";
+    o.memberSections = arg(args, "member-sections", "1") != "0";
     o.mendSection = arg(args, "mend-section");
     o.mendFile = arg(args, "mend-file");
     auto profile = EngineProfile::parse(arg(args, "engine"));

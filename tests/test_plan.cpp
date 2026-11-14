@@ -1,5 +1,6 @@
 // The plan and its divisions: validation, plan-2 (personas, cards, gates), tolerant reading, amendment by a division, the completion of a division.
 #include "workflow_sim.hpp"
+#include "sub0squad/harness_registry.hpp"
 #include <sstream>
 #include <filesystem>
 #include <fstream>
@@ -21,6 +22,7 @@
 
 int main()
 {
+    sub0squad::registerBuiltinHarnesses();   // the registry starts empty: this program is its own composition root
     {   // Every plan names a registered harness: one that names none, or an unknown one, is not a plan.
         Plan none = makePlan();
         none.harness.clear();

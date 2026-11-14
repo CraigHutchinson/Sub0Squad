@@ -53,12 +53,14 @@ std::vector<Field> fieldsOf(Stage& st)
         flag("leaf.allow.reviseTests", st.leaf.allowReviseTests);
         flag("leaf.allow.rearchitect", st.leaf.allowRearchitect);
         flag("leaf.allow.escalate", st.leaf.allowEscalate);
+        flag("leaf.allow.thinkFirst", st.leaf.allowThinkFirst);
         num("leaf.wallSeconds.agentLlm", st.leaf.agentWallLlmSeconds);
         num("leaf.wallSeconds.agentOther", st.leaf.agentWallOtherSeconds);
         num("leaf.wallSeconds.gate", st.leaf.gateWallSeconds);
         num("leaf.wallSeconds.architectLlm", st.leaf.architectWallLlmSeconds);
         num("leaf.wallSeconds.architectOther", st.leaf.architectWallOtherSeconds);
         flag("leaf.contractSections", st.leaf.contractSections);
+        flag("leaf.memberSections", st.leaf.memberSections);
         flag("leaf.mends.enabled", st.leaf.mendsEnabled);
         list("leaf.mends.disabled", st.leaf.mendsDisabled);
         num("ascent.maxRoundTrips", st.ascent.maxRoundTrips);

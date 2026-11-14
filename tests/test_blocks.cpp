@@ -5,6 +5,7 @@
 //   block 6 (parallel sections): the width rule, the slot-model arithmetic, and the fork harness on a slot-model engine (parity, conflicts, lost edits).
 // argv[2] is the fixture directory.
 #include "check.hpp"
+#include "sub0squad/harness_registry.hpp"
 #include "sub0squad/blocks.hpp"
 #include "sub0squad/canvas.hpp"
 #include "sub0squad/fork.hpp"
@@ -20,6 +21,7 @@ static bool near(double a, double b, double eps = 1e-6) { return std::fabs(a - b
 
 int main(int argc, char** argv)
 {
+    sub0squad::registerBuiltinHarnesses();   // the registry starts empty: this program is its own composition root
     if (argc < 3) { std::fprintf(stderr, "usage: test_blocks <sub0squad> <fixture dir>\n"); return 2; }
 
     // ---- block 1: recorded replies ----

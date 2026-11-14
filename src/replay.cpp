@@ -149,7 +149,7 @@ int runReplay(const ReplayOptions& o)
         } else {
             const std::string gate = slurp(attempt / "gate.txt");
             const bool ok = gate.rfind("GATE PASS", 0) == 0;
-            result = ok ? "PASS" : (v.exitCode == 0 || v.exitCode == 3 || v.exitCode == 5 ? "FAIL" : "ERROR");
+            result = ok ? "PASS" : (v.exitCode == 0 || v.exitCode == 3 || v.exitCode == 5 || v.exitCode == 7 ? "FAIL" : "ERROR");
             note = ok ? "" : gate.substr(0, gate.find('\n')).substr(0, 140);
             if (note.empty()) note = "exit " + std::to_string(v.exitCode);
         }

@@ -1,7 +1,7 @@
 #pragma once
 /// @file first_use.hpp
 /// The first-use path (README "First use"): `up` starts the daemon and the portal in the background, `down` stops them, `doctor` checks what a first
-/// run needs and says what to fix. Part of the sub0squad executable only (never the core library): `up` starts other processes of this binary, so the
+/// run needs and says what to fix. Presentation layer. `up` starts other processes of this binary, so the
 /// binary's path is passed in by main and verified, and a nested `up` is refused (docs/INTERVENTIONS.md row 32).
 
 #include <string>

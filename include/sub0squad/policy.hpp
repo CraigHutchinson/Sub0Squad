@@ -38,13 +38,17 @@ struct DecisionContext
     bool interfaceGap = false;     ///< the failed gate found a name the tests need that the module does not provide (gate exit code 6): the contract is the next scope up, not another leaf attempt
     bool nearPass = false;         ///< the failed gate had at least 10 tests and at most 15 % of them failing (gate exit code 3)
     int maxNearPassRepairs = 2;    ///< extra local repair attempts granted to a near pass before the ladder moves on
+    /// A near pass whose files are byte for byte the previous attempt's (gate exit code 7): the repair changed nothing that stands, so one more plain repair
+    /// would end the same way. The ladder goes to the `think` strategy FIRST, once (`thinkTried`), before `reviseTests` and `rearchitect`: tests of which
+    /// nearly all pass are probably right, so they are the last thing to dispute.
+    bool stuckNearPass = false, thinkTried = false;
     bool decomposeTried = false, reviseTried = false, rearchitectTried = false;
     int maxDepth = 2;
     /// Whose work it is. Only a DEVELOPER's item is ever divided: a tester writes one test file, and an architect asked to divide it invents
     /// implementation work (docs/INTERVENTIONS.md row 44).
     /// The rungs of the ladder this workflow's PROCESS has (docs/PROCESS_DESIGN.md): a rung it lacks is skipped, and the ladder goes on to the next one. The
     /// recorded decision lists the rungs the process lacks (`processLacks`, only when there are any), so it can be explained from its own inputs.
-    bool allowDecompose = true, allowSections = true, allowReviseTests = true, allowRearchitect = true, allowEscalate = true;
+    bool allowDecompose = true, allowSections = true, allowReviseTests = true, allowRearchitect = true, allowEscalate = true, allowThinkFirst = true;
     std::string persona = "developer";
     /// The project's harness divides work by SECTIONS of a file, never into new modules (row 45: in a compiled language a new module needs a header that
     /// no item owns). Where the ladder would divide, it writes the item as forked sections instead, once.
@@ -57,7 +61,8 @@ struct DecisionContext
 /// retry: another local attempt. decompose: ask the model to divide the item. reviseTests: send back to the producer (the tester that wrote
 /// the tests this item is graded by). rearchitect: a dedicated job rewrites the work card. escalate: the frontier-stub tier. fail.
 /// sections: the next attempt writes the item as forked sections on the canvas (a skeleton, then one function per session).
-enum class Action { retry, escalate, fail, decompose, reviseTests, rearchitect, sections };
+/// think: the next attempt runs under the manager's `think` strategy (reasoning on, a bigger budget); the workflow records it as that strategy.
+enum class Action { retry, escalate, fail, decompose, reviseTests, rearchitect, sections, think };
 
 struct Decision
 {

@@ -1,5 +1,6 @@
 // The workflow engine's mend decisions (docs/PROCESS_DESIGN.md section 14): one mend and no rearchitect; twice, then the ladder; a mend with no model; disabled; ignored.
 #include "workflow_sim.hpp"
+#include "sub0squad/harness_registry.hpp"
 #include <sstream>
 #include <filesystem>
 #include <fstream>
@@ -21,6 +22,7 @@
 
 int main()
 {
+    sub0squad::registerBuiltinHarnesses();   // the registry starts empty: this program is its own composition root
     {   // Self-mending (mends.hpp, catalogue rows 59 to 63): a failed gate that reports a known mechanical error gets the decision `mend` and the mend's action
         // as its next attempt. It is not a rung of the ladder; the same signature is mended at most twice per item; then the ladder goes on.
         const auto count = [](Sim& s, const char* action) { int n = 0; for (const auto& d : s.wfs.find("w-000001")->decisions) if (d.action == action) ++n; return n; };

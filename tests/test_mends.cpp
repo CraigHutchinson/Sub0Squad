@@ -5,6 +5,7 @@
 // run-v10 (attempts 1, 3 and 6, the workflow path shortened); never-defined.txt is written by hand in GCC's wording.
 // That the ENGINE applies a mend at most twice and then lets the ladder go on is in test_workflow; the whole loop through a daemon is in test_heal.
 #include "check.hpp"
+#include "sub0squad/harness_registry.hpp"
 #include "sub0squad/contract.hpp"
 #include "sub0squad/fork.hpp"
 #include "sub0squad/harness.hpp"
@@ -27,6 +28,7 @@ static std::string table(const std::string& mend) { return "{\"schema\":\"mends-
 
 int main()
 {
+    sub0squad::registerBuiltinHarnesses();   // the registry starts empty: this program is its own composition root
     const fs::path root = SUB0SQUAD_SOURCE_DIR;
     // The table: the file in the registry is the built-in one, byte for byte; it parses; every mend names a fixture that exists and that IT matches.
     CHECK_EQ(slurp(root / "registry" / "mends.json"), builtinMendsJson());

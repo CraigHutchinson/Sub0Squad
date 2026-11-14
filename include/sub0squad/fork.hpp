@@ -43,10 +43,11 @@ struct ForkOptions
     int wallPerSectionSec = 150;        ///< ... plus this for every section, so a file of 14 functions is not given the time of a file of 4
     bool fresh = false;                 ///< never resume the previous attempt's canvas: start from a new skeleton
     /// The sections start from the item's CONTRACT (contract.hpp, catalogue row 59): every function the harness's stub of a file defines is a mandatory
-    /// section with the contract's signature, added by the harness to the skeleton and to a resumed canvas that lacks it. The same holds for every member
-    /// function a class of the file declares without a body (row 71), and a skeleton that leaves one without a section is refused. Off only to reproduce
-    /// the defects.
+    /// section with the contract's signature, added by the harness to the skeleton and to a resumed canvas that lacks it. Off only to reproduce the defect.
     bool contractSections = true;
+    /// Every member function a class of the file declares without a body is a section too (row 71), with a generated stub; a skeleton that leaves one
+    /// without a section, or overloads a member, is refused. A switch of its own (the contract may be kept while this is off). Off only to reproduce the defect.
+    bool memberSections = true;
     /// The mend `add-section` (mends.hpp): continue the previous attempt's files whatever it failed on, add `mendSection` (in `mendFile`) as a stubbed
     /// section with the contract's signature (or the file's own prototype of it), put back sections an earlier assembly removed as uncalled, and write ONLY
     /// the new section. Empty: an ordinary attempt.

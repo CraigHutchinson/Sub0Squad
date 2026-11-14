@@ -1,6 +1,7 @@
 // The decision rules as pure functions: the ladder (near pass, testers, sections, oversize, interface gap, repeated failure, the stub), capacity classes,
 // when a division pays, slot affinity.
 #include "workflow_sim.hpp"
+#include "sub0squad/harness_registry.hpp"
 #include <sstream>
 #include <filesystem>
 #include <fstream>
@@ -22,6 +23,7 @@
 
 int main()
 {
+    sub0squad::registerBuiltinHarnesses();   // the registry starts empty: this program is its own composition root
     { RulePolicy policy; // Near pass: a gate failure with few failing tests is repaired (extra local attempts), not divided; a bad failure still climbs the ladder.
         DecisionContext c; c.workflow = "w"; c.item = "engine"; c.attempt = 2; c.localAttempts = 2; c.failedRole = "gate"; c.splittable = true; c.nearPass = true;
         c.totalAttempts = 2;
@@ -88,6 +90,29 @@ int main()
         CHECK(policy.decide(c).action == Action::reviseTests);
         c.reviseTried = true;
         CHECK(policy.decide(c).action != Action::reviseTests);
+    }
+    { RulePolicy policy; // A STUCK near pass (gate exit 7: a near pass on the same files as the attempt before) thinks FIRST: before another plain
+        // repair, before the tests are sent back (even when the item is graded by a tester's tests) and before the card is rewritten. Once.
+        DecisionContext c; c.workflow = "w"; c.item = "engine"; c.attempt = 2; c.localAttempts = 2; c.totalAttempts = 2; c.failedRole = "gate";
+        c.nearPass = c.stuckNearPass = true; c.hasTesterDep = true; c.splittable = true; c.divideBySections = true; c.forked = true;
+        const Decision first = policy.decide(c);
+        CHECK(first.action == Action::think && first.tier == "local");
+        CHECK(toJson(c, first).find("\"stuckNearPass\":true,\"thinkTried\":false") != std::string::npos);
+        c.localAttempts = 1;   // a local attempt is still free: thinking still comes first (a plain repair has just changed nothing)
+        CHECK(policy.decide(c).action == Action::think);
+        c.repeatedFailure = true;   // even the "tests suspect" signal does not send the tests back before thinking
+        CHECK(policy.decide(c).action == Action::think);
+        c.repeatedFailure = false; c.localAttempts = 3; c.thinkTried = true;   // thought once: the near-pass allowance, then the ordinary ladder
+        CHECK(policy.decide(c).action == Action::retry);
+        c.localAttempts = 4;
+        CHECK(policy.decide(c).action == Action::reviseTests);
+        c.thinkTried = false; c.allowThinkFirst = false;   // a process without the rung: the ladder as before, and the record says the rung is lacking
+        const Decision without = policy.decide(c);
+        CHECK(without.action == Action::reviseTests);
+        CHECK(toJson(c, without).find("\"processLacks\":[\"thinkFirst\"]") != std::string::npos);
+        DecisionContext plain; plain.workflow = "w"; plain.item = "engine"; plain.attempt = 2; plain.localAttempts = 2; plain.totalAttempts = 2; plain.failedRole = "gate"; plain.nearPass = true;
+        CHECK(policy.decide(plain).action == Action::retry);   // an ordinary near pass (the files changed) is repaired as before
+        CHECK(toJson(plain, policy.decide(plain)).find("stuckNearPass") == std::string::npos);   // written only when it holds: the goldens keep their bytes
     }
     { RulePolicy policy; // The frontier stub is only used when it has a reference; a repeated failure disputes the tests only when it is a near pass.
         DecisionContext c; c.workflow = "w"; c.item = "lexer"; c.attempt = 6; c.localAttempts = 2; c.failedRole = "gate"; c.totalAttempts = 6;

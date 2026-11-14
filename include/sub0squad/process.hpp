@@ -53,6 +53,9 @@ struct LeafParams
     bool allowReviseTests = true;                ///< a failure that points at the tests sends them back to the tester
     bool allowRearchitect = true;                ///< a dedicated job may rewrite the card
     bool allowEscalate = true;                   ///< the frontier tier may be asked (still subject to the workflow's frontier mode)
+    /// A STUCK near pass (two near-pass attempts ending on the same files, gate exit 7) goes to the `think` strategy first, before the tests are sent
+    /// back or the card rewritten: tests of which nearly all pass are probably right, and a plain repair has just shown it changes nothing.
+    bool allowThinkFirst = true;
     int agentWallLlmSeconds = 10800;             ///< a local model-driven attempt
     int agentWallOtherSeconds = 120;             ///< a mock or stub attempt
     int gateWallSeconds = 120;
@@ -61,6 +64,10 @@ struct LeafParams
     /// A fork's sections start from the CONTRACT: every function the harness's stub of the file defines is a mandatory section, whatever the model's
     /// skeleton declared, and a file that lacks one gets it (catalogue row 59). Off only to reproduce the defect it prevents.
     bool contractSections = true;
+    /// A fork makes every member function a class of the file declares without a body a section with a generated stub, and refuses a skeleton that leaves
+    /// one without a section (catalogue row 71). Its own switch: the contract sections and the member sections prevent different defects, and each can be
+    /// reproduced alone. Off only to reproduce the defect it prevents.
+    bool memberSections = true;
     /// Known mechanical errors are repaired by the harness (mends.hpp): a failed gate that reports a mend gets the decision `mend` and the mend's action as
     /// its next attempt, outside the ladder. `mendsDisabled` names mends this process does not apply.
     bool mendsEnabled = true;

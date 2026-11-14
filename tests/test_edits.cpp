@@ -1,5 +1,6 @@
 // Edit replies and the canvas they are applied to: each edit exactly once, every failure names the edit, other files untouched.
 #include "workflow_sim.hpp"
+#include "sub0squad/harness_registry.hpp"
 #include <sstream>
 #include <filesystem>
 #include <fstream>
@@ -21,6 +22,7 @@
 
 int main()
 {
+    sub0squad::registerBuiltinHarnesses();   // the registry starts empty: this program is its own composition root
     { // Edit replies: applied to the earlier files, exactly once each; every failure names the edit; the other files are untouched.
         const std::map<std::string, std::string> files{{"src/a.js", "function add(a, b) {\n  return a - b;\n}\nexport { add };\n"}, {"src/b.js", "export const x = 1;\n"}};
         const std::set<std::string> allowed{"src/a.js", "src/b.js"};

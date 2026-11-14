@@ -3,6 +3,7 @@
 // a reply is a transaction; the cheap check gates the commit; the conversation never carries files; a worse revision is undone; reads are bounded and a
 // path-only read gives the outline; a runaway reply is cancelled while it streams; a cut-off edit is continued by appending with the overlap trimmed.
 #include "agent_bench.hpp"
+#include "sub0squad/harness_registry.hpp"
 #include "sub0squad/outline.hpp"
 
 using namespace sub0squad;
@@ -31,6 +32,7 @@ static std::string between(const std::string& s, const std::string& from, const 
 
 int main()
 {
+    sub0squad::registerBuiltinHarnesses();   // the registry starts empty: this program is its own composition root
     const std::string ref = reference(), bad = defective();
     const int bugLine = lineOf(bad, "v = v / d");
     const std::string fixedLine = lines(ref)[static_cast<std::size_t>(bugLine) - 1];

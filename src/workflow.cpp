@@ -446,6 +446,7 @@ JobSpec agentJob(const WorkflowRecord& wf, const WorkflowSettings& st, const Wor
             s.argv = {st.exe, "llm-fork", "--workflow-dir", wf.spec.sandboxDir, "--item", it.id, "--attempt", std::to_string(attempt), "--engine", engine->toArg(),
                       "--max-tokens", std::to_string(wf.spec.maxTokens), "--timeout", "1700", "--repair-turns", std::to_string(wf.spec.repairTurns), "--agent-exit", "1"};
             if (!leaf.contractSections) s.argv.insert(s.argv.end(), {"--contract-sections", "0"});
+            if (!leaf.memberSections) s.argv.insert(s.argv.end(), {"--member-sections", "0"});
             if (mend) s.argv.insert(s.argv.end(), {"--mend-section", mend->symbol, "--mend-file", mend->file});   // add-section: only the missing function is written
         }
         else if (executor != "session") s.argv.insert(s.argv.end(), {"--executor", "canvas"});
@@ -726,13 +727,15 @@ bool advanceItems(const WorkflowRecord& wf, const std::vector<ItemView>& views, 
             ctx.splittable = v.item->files.size() > 1 || v.item->complexity >= 2;
             for (const JobRecord* g : v.gates) if (g->spec.attempt == n && g->exitJson.find("\"code\":3") != std::string::npos) ctx.nearPass = true;
             for (const JobRecord* g : v.gates) if (g->spec.attempt == n && g->exitJson.find("\"code\":5") != std::string::npos) ctx.repeatedFailure = true;
+            for (const JobRecord* g : v.gates) if (g->spec.attempt == n && g->exitJson.find("\"code\":7") != std::string::npos) ctx.nearPass = ctx.stuckNearPass = true;
+            ctx.thinkTried = hasStrategy(wf, v.item->id, "think");
             for (const JobRecord* g : v.gates) if (g->spec.attempt == n && g->exitJson.find("\"code\":6") != std::string::npos) ctx.interfaceGap = true;
             if (role == "agent" && latest->exitJson.find("\"code\":4") != std::string::npos) ctx.oversize = true;
             if (const Harness* hs = wf.plan ? findHarness(wf.plan->harness) : nullptr; hs && hs->mockFile) { ctx.frontierHasReference = !v.item->files.empty(); for (const auto& f : v.item->files) if (hs->mockFile(f, false).empty()) ctx.frontierHasReference = false; }
             ctx.persona = v.item->persona;
             const LeafParams& leaf = itemsStageOf(wf).leaf;
             ctx.allowDecompose = leaf.allowDecompose; ctx.allowSections = leaf.allowSections; ctx.allowReviseTests = leaf.allowReviseTests;
-            ctx.allowRearchitect = leaf.allowRearchitect; ctx.allowEscalate = leaf.allowEscalate;
+            ctx.allowRearchitect = leaf.allowRearchitect; ctx.allowEscalate = leaf.allowEscalate; ctx.allowThinkFirst = leaf.allowThinkFirst;
             if (const Harness* hs = findHarness(plan.harness)) ctx.divideBySections = hs->divideBySections;
             for (const auto& dd : wf.decisions) if (dd.item == v.item->id && dd.action == "sections") ctx.sectionsTried = true;
             // What the failing attempt WAS (row 73): the latest agent job of this item. A rung that would run the same executor again is skipped.
@@ -746,26 +749,29 @@ bool advanceItems(const WorkflowRecord& wf, const std::vector<ItemView>& views, 
             const bool restore = dec.action == Action::fail && v.restorable;  // fall back to the accepted version from before the dispute
             const auto order = strategyOrder(wf);
             const int usedStrategies = strategiesUsed(wf, v.item->id);
-            const bool strategy = dec.action == Action::fail && !restore && usedStrategies < static_cast<int>(order.size());  // the manager acts before anyone is asked
+            const bool thinkFirst = dec.action == Action::think;   // the policy chose the first strategy itself (a stuck near pass); recorded as that strategy
+            const bool strategy = thinkFirst || (dec.action == Action::fail && !restore && usedStrategies < static_cast<int>(order.size()));  // the manager acts before anyone is asked
+            const std::string strategyName = thinkFirst ? "think" : strategy ? order[static_cast<std::size_t>(usedStrategies)] : std::string{};
             const bool defer = dec.action == Action::fail && !restore && !strategy && wf.spec.ask;  // governance on and every strategy tried: ask the owner instead of failing
             WorkflowAction rec;
             rec.kind = WorkflowAction::Kind::recordDecision;
-            rec.item = v.item->id; rec.attempt = n; rec.decisionAction = restore ? "restored" : strategy ? "strategy" : defer ? "deferred" : toString(dec.action); rec.decisionTier = strategy ? order[static_cast<std::size_t>(usedStrategies)] : dec.tier;
+            rec.item = v.item->id; rec.attempt = n; rec.decisionAction = restore ? "restored" : strategy ? "strategy" : defer ? "deferred" : toString(dec.action); rec.decisionTier = strategy ? strategyName : dec.tier;
             if (restore) dec.reasons.push_back("the re-run could not pass: the version accepted before the dispute is restored and the work continues with it");
-            if (strategy) dec.reasons.push_back("the ladder is spent: the manager applies strategy '" + order[static_cast<std::size_t>(usedStrategies)] + "' (" + std::to_string(usedStrategies + 1) + " of " + std::to_string(order.size()) + ") and tries again");
+            if (strategy && !thinkFirst) dec.reasons.push_back("the ladder is spent: the manager applies strategy '" + strategyName + "' (" + std::to_string(usedStrategies + 1) + " of " + std::to_string(order.size()) + ") and tries again");
             if (defer) dec.reasons.push_back("the ladder is exhausted: deferred to the owner (a blocking request), who can guide another attempt or stop");
             rec.decisionJson = toJson(ctx, dec);
             out.push_back(std::move(rec));
             switch (dec.action) {
+                case Action::think:
                 case Action::fail:
                     if (strategy) {
                         WorkflowAction ss;
                         ss.kind = WorkflowAction::Kind::setStrategy;
-                        ss.item = v.item->id; ss.note = order[static_cast<std::size_t>(usedStrategies)];
+                        ss.item = v.item->id; ss.note = strategyName;
                         out.push_back(std::move(ss));
                         // the strategy file is written before the job starts, and the engine choice for "engine" is read from the decision just recorded
                         WorkflowRecord shadow = wf;
-                        shadow.decisions.push_back({v.item->id, n, "strategy", order[static_cast<std::size_t>(usedStrategies)], ""});
+                        shadow.decisions.push_back({v.item->id, n, "strategy", strategyName, ""});
                         out.push_back(start(agentJob(shadow, st, *v.item, n + 1, "local")));
                     } else if (defer) {
                         WorkflowAction rq;

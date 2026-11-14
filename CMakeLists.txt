@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.21)
+cmake_minimum_required(VERSION 3.24)
 # WORKING TITLE: the final sub0* name is pending (docs/DECISIONS.md). Keep the name in this file, cmake/, src/ and README.md only.
 project(Sub0Squad VERSION 0.0.0 LANGUAGES CXX)
 
@@ -13,85 +13,33 @@ find_package(Threads REQUIRED)
 
 set(SUB0SQUAD_STRICT -Wall -Wextra -Werror)
 
-# Everything except main() lives in one static library so tests can link it.
-add_library(sub0squad_core STATIC
-  src/paths.cpp
-  src/job_spec.cpp
-  src/journal.cpp
-  src/job_store.cpp
-  src/process_tree.cpp
-  src/shim.cpp
-  src/supervisor.cpp
-  src/mock_worker.cpp
-  src/frame.cpp
-  src/unix_socket.cpp
-  src/progress.cpp
-  src/status.cpp
-  src/daemon.cpp
-  src/daemon_jobs.cpp
-  src/daemon_workflow.cpp
-  src/daemon_governance.cpp
-  src/daemon_jobs.cpp
-  src/daemon_workflow.cpp
-  src/daemon_governance.cpp
-  src/plan.cpp
-  src/host_guard.cpp
-  src/architect.cpp
-  src/optimizer.cpp
-  src/scenario.cpp
-  src/triage.cpp
-  src/llm_agent.cpp
-  src/agent_card.cpp
-  src/canvas_agent.cpp
-  src/fork.cpp
-  src/blocks.cpp
-  src/throughput.cpp
-  src/turn_control.cpp
-  src/web_templates.cpp
-  src/harness_common.cpp
-  src/harness_web.cpp
-  src/calculator_spec.cpp
-  src/cpp_templates.cpp
-  src/harness_cpp.cpp
-  src/py_templates.cpp
-  src/harness_py.cpp
-  src/harness_registry.cpp
-  src/engine.cpp
-  src/ledger.cpp
-  src/workflow_status.cpp
-  src/briefing.cpp
-  src/qa.cpp
-  src/division.cpp
-  src/replay.cpp
-  src/edits.cpp
-  src/outline.cpp
-  src/canvas.cpp
-  src/recall.cpp
-  src/trace.cpp
-  src/overseer.cpp
-  src/plan_lint.cpp
-  src/portal.cpp
-  src/portal_sampler.cpp
-  src/portal_files.cpp
-  src/portal_page.cpp
-  src/event_channel.cpp
-  src/sandbox.cpp
-  src/workflow.cpp
-  src/policy.cpp
-  src/predicate.cpp
-  src/mends.cpp
-  src/attempt_failure.cpp
-  src/contract.cpp
-  src/scenario_compare.cpp
-  src/build_id.cpp
-  src/cmd_archive.cpp
-  src/process.cpp
-  src/cmd_process.cpp
-  src/client.cpp
-  src/cli.cpp
-  src/cli_jobs.cpp
-  src/cli_project.cpp
-  src/cli_tools.cpp)
+# One static library per component layer (docs/COMPONENTS.md), made from the same lists the include check reads (cmake/Layers.cmake) and linked in
+# layer order: a layer links only the layers below it, so an upward CALL is an unresolved symbol exactly as an upward include fails the layering test.
+include(cmake/Layers.cmake)
+set(SUB0SQUAD_LOWER "")
+set(layerIndex 0)
+foreach(layerName ${SUB0SQUAD_LAYER_NAMES})
+  set(layerSources "")
+  foreach(stem ${LAYER${layerIndex}})
+    # sub0squad.cpp is main(): the composition root is the executable, not part of a library.
+    if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/src/${stem}.cpp AND NOT stem STREQUAL "sub0squad")
+      list(APPEND layerSources src/${stem}.cpp)
+    endif()
+  endforeach()
+  set(lib sub0squad_${layerName})
+  add_library(${lib} STATIC ${layerSources})
+  target_include_directories(${lib} PUBLIC include PRIVATE src)
+  target_compile_options(${lib} PRIVATE ${SUB0SQUAD_STRICT})
+  target_link_libraries(${lib} PUBLIC ${SUB0SQUAD_LOWER} Threads::Threads PRIVATE simdjson::simdjson)
+  # The link-direction proof: this layer with EVERY object forced in must link against only the layers below it. The `link_<layer>` tests run them.
+  add_executable(link_${layerName} tests/link_main.cpp)
+  target_link_libraries(link_${layerName} PRIVATE "$<LINK_LIBRARY:WHOLE_ARCHIVE,${lib}>" simdjson::simdjson)
+  list(APPEND SUB0SQUAD_LINK_PROOFS link_${layerName})
+  set(SUB0SQUAD_LOWER ${lib})
+  math(EXPR layerIndex "${layerIndex} + 1")
+endforeach()
+# The daemon's job graph and typed events are the Sub0 libraries; only the orchestration layer uses them.
+target_link_libraries(sub0squad_orchestration PUBLIC Sub0Pipeline::Sub0Pipeline Sub0Pipeline::Priority Sub0Pub::Sub0Pub)
 # The portal's page is two files of its own (web/portal.html, web/portal.js), compiled in as strings; editing either rebuilds the generated source.
 set(SUB0SQUAD_PORTAL_WEB ${CMAKE_CURRENT_BINARY_DIR}/portal_web.cpp)
 add_custom_command(OUTPUT ${SUB0SQUAD_PORTAL_WEB}
@@ -101,20 +49,20 @@ add_custom_command(OUTPUT ${SUB0SQUAD_PORTAL_WEB}
   DEPENDS web/portal.html web/portal.js cmake/EmbedText.cmake
   COMMENT "Embedding the portal page"
   VERBATIM)
-target_sources(sub0squad_core PRIVATE ${SUB0SQUAD_PORTAL_WEB})
-target_include_directories(sub0squad_core PUBLIC include PRIVATE src)
-target_compile_options(sub0squad_core PRIVATE ${SUB0SQUAD_STRICT})
-target_link_libraries(sub0squad_core PUBLIC Sub0Pipeline::Sub0Pipeline Sub0Pipeline::Priority Sub0Pub::Sub0Pub Threads::Threads PRIVATE simdjson::simdjson)
+target_sources(sub0squad_presentation PRIVATE ${SUB0SQUAD_PORTAL_WEB})
 
-add_executable(sub0squad src/sub0squad.cpp src/first_use.cpp)
+add_executable(sub0squad src/sub0squad.cpp)
 target_include_directories(sub0squad PRIVATE src)
 target_link_libraries(sub0squad PRIVATE version::version)
 target_compile_options(sub0squad PRIVATE ${SUB0SQUAD_STRICT})
-target_link_libraries(sub0squad PRIVATE sub0squad_core simdjson::simdjson)
+target_link_libraries(sub0squad PRIVATE sub0squad_presentation simdjson::simdjson)
 
 enable_testing()
 add_test(NAME dependency_selftest COMMAND sub0squad --selftest)
 add_test(NAME layering COMMAND ${CMAKE_COMMAND} -DSRC_DIR=${CMAKE_SOURCE_DIR} -P ${CMAKE_SOURCE_DIR}/cmake/CheckLayers.cmake)
+foreach(proof ${SUB0SQUAD_LINK_PROOFS})
+  add_test(NAME ${proof} COMMAND ${proof})
+endforeach()
 add_test(NAME test_reporting COMMAND ${CMAKE_COMMAND} -DSRC_DIR=${CMAKE_SOURCE_DIR} -P ${CMAKE_SOURCE_DIR}/cmake/CheckTests.cmake)
 # The portal page's script, rendered against a recorded state with no browser. It needs node; without it the test is registered as DISABLED so the
 # report says it did not run (it is never silently absent). test_portal checks the embedded page itself and always runs.
@@ -125,57 +73,58 @@ if(NOT SUB0SQUAD_NODE)
   message(STATUS "node was not found: test_portal_page is disabled (the portal page script is not rendered by any test on this machine)")
 endif()
 
-function(sub0squad_add_test name)
-  # tests that exercise the multi-call binary receive its path as argv[1]
+function(sub0squad_add_test name layer)
+  # A test links the HIGHEST layer it needs (and so every layer below it), never the whole program: a test of the kernel cannot reach the daemon.
+  # Tests that exercise the multi-call binary receive its path as argv[1].
   add_executable(${name} tests/${name}.cpp)
   target_compile_options(${name} PRIVATE ${SUB0SQUAD_STRICT} -g)   # line numbers when a test crashes
   target_include_directories(${name} PRIVATE tests)
-  target_link_libraries(${name} PRIVATE sub0squad_core simdjson::simdjson ${ARGN})
+  target_link_libraries(${name} PRIVATE sub0squad_${layer} simdjson::simdjson ${ARGN})
   add_test(NAME ${name} COMMAND ${name} $<TARGET_FILE:sub0squad>)
   add_dependencies(${name} sub0squad)
 endfunction()
 
-sub0squad_add_test(test_portal)
+sub0squad_add_test(test_portal presentation)
 target_include_directories(test_portal PRIVATE src)
-sub0squad_add_test(test_job_spec)
-sub0squad_add_test(test_journal)
-sub0squad_add_test(test_job_store)
-sub0squad_add_test(test_predicate)
-sub0squad_add_test(test_mends)
+sub0squad_add_test(test_job_spec kernel)
+sub0squad_add_test(test_journal kernel)
+sub0squad_add_test(test_job_store kernel)
+sub0squad_add_test(test_predicate domain)
+sub0squad_add_test(test_mends agents)
 target_compile_definitions(test_mends PRIVATE SUB0SQUAD_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
-sub0squad_add_test(test_process)
+sub0squad_add_test(test_process domain)
 target_compile_definitions(test_process PRIVATE SUB0SQUAD_REGISTRY_DIR="${CMAKE_CURRENT_SOURCE_DIR}/registry")
 # The domain layer's tests, one program per unit; the three engine programs share tests/workflow_sim.hpp and the golden action logs in tests/data/actions.
-sub0squad_add_test(test_plan)
-sub0squad_add_test(test_policy)
-sub0squad_add_test(test_edits)
-sub0squad_add_test(test_diagnostics)
+sub0squad_add_test(test_plan harnesses)
+sub0squad_add_test(test_policy harnesses)
+sub0squad_add_test(test_edits harnesses)
+sub0squad_add_test(test_diagnostics harnesses)
 foreach(t test_workflow test_workflow_stages test_workflow_mends)
-  sub0squad_add_test(${t})
+  sub0squad_add_test(${t} harnesses)
   target_compile_definitions(${t} PRIVATE SUB0SQUAD_TEST_DATA="${CMAKE_CURRENT_SOURCE_DIR}/tests/data")
 endforeach()
-sub0squad_add_test(test_host_guard)
-sub0squad_add_test(test_platforms)
+sub0squad_add_test(test_host_guard kernel)
+sub0squad_add_test(test_platforms harnesses)
 target_compile_definitions(test_platforms PRIVATE SUB0SQUAD_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
 set_tests_properties(test_platforms PROPERTIES TIMEOUT 300)
-sub0squad_add_test(test_stream)
+sub0squad_add_test(test_stream domain)
 set_tests_properties(test_stream PROPERTIES TIMEOUT 60)
-sub0squad_add_test(test_agent)
-sub0squad_add_test(test_canvas_agent)
+sub0squad_add_test(test_agent agents)
+sub0squad_add_test(test_canvas_agent agents)
 set_tests_properties(test_canvas_agent PROPERTIES TIMEOUT 300)
-sub0squad_add_test(test_fork)
+sub0squad_add_test(test_fork agents)
 set_tests_properties(test_fork PROPERTIES TIMEOUT 300)
 add_executable(test_blocks tests/test_blocks.cpp)
 target_compile_options(test_blocks PRIVATE ${SUB0SQUAD_STRICT})
 target_include_directories(test_blocks PRIVATE tests)
-target_link_libraries(test_blocks PRIVATE sub0squad_core simdjson::simdjson)
+target_link_libraries(test_blocks PRIVATE sub0squad_agents simdjson::simdjson)
 add_test(NAME test_blocks COMMAND test_blocks $<TARGET_FILE:sub0squad> ${CMAKE_CURRENT_SOURCE_DIR}/tests/data/replies)
 add_dependencies(test_blocks sub0squad)
 set_tests_properties(test_blocks PROPERTIES TIMEOUT 300)
 set_tests_properties(test_agent PROPERTIES TIMEOUT 300)
-sub0squad_add_test(test_scenarios)
+sub0squad_add_test(test_scenarios agents)
 set_tests_properties(test_scenarios PROPERTIES TIMEOUT 600)
-sub0squad_add_test(test_project)
+sub0squad_add_test(test_project kernel)
 add_executable(test_readme tests/test_readme.cpp)
 target_compile_options(test_readme PRIVATE ${SUB0SQUAD_STRICT})
 target_include_directories(test_readme PRIVATE tests)
@@ -183,22 +132,22 @@ add_test(NAME test_readme COMMAND test_readme $<TARGET_FILE:sub0squad> ${CMAKE_C
 add_dependencies(test_readme sub0squad)
 set_tests_properties(test_readme PROPERTIES TIMEOUT 900)
 set_tests_properties(test_project PROPERTIES TIMEOUT 600)
-sub0squad_add_test(test_archive)
-sub0squad_add_test(test_executors)
-sub0squad_add_test(test_heal)
+sub0squad_add_test(test_archive kernel)
+sub0squad_add_test(test_executors agents)
+sub0squad_add_test(test_heal agents)
 set_tests_properties(test_heal PROPERTIES TIMEOUT 1200)
-sub0squad_add_test(test_nearpass)
+sub0squad_add_test(test_nearpass agents)
 set_tests_properties(test_nearpass PROPERTIES TIMEOUT 1800)
 set_tests_properties(test_executors PROPERTIES TIMEOUT 900)
-sub0squad_add_test(test_e2e)
+sub0squad_add_test(test_e2e kernel)
 set_tests_properties(test_e2e PROPERTIES TIMEOUT 300)
-sub0squad_add_test(test_idle)
+sub0squad_add_test(test_idle kernel)
 set_tests_properties(test_idle PROPERTIES TIMEOUT 120)
-sub0squad_add_test(test_shim)
+sub0squad_add_test(test_shim runtime)
 add_executable(test_adapter tests/test_adapter.cpp)
 target_compile_options(test_adapter PRIVATE ${SUB0SQUAD_STRICT})
 target_include_directories(test_adapter PRIVATE tests)
-target_link_libraries(test_adapter PRIVATE sub0squad_core simdjson::simdjson)
+target_link_libraries(test_adapter PRIVATE sub0squad_kernel simdjson::simdjson)
 add_test(NAME test_adapter COMMAND test_adapter ${CMAKE_CURRENT_SOURCE_DIR}/tests/data/optimization-run-1-stalled.json)
 set_tests_properties(test_shim PROPERTIES TIMEOUT 120)
 
@@ -210,4 +159,4 @@ add_test(NAME m0_graph_growth COMMAND m0_graph_growth)
 # sub0perf benchmark (Sub0Math tooling): Sub0Squad_Bench, plus _json, _runs, _check and _baseline targets.
 sub0math_add_benchmark(Sub0Squad_Bench benchmarks/bench_squad.cpp)
 target_include_directories(Sub0Squad_Bench PRIVATE include src)
-target_link_libraries(Sub0Squad_Bench PRIVATE sub0squad_core simdjson::simdjson)
+target_link_libraries(Sub0Squad_Bench PRIVATE sub0squad_kernel simdjson::simdjson)

@@ -1,5 +1,6 @@
 // What is read back from results: the failure excerpt a worker is shown, and the quality findings over sources.
 #include "workflow_sim.hpp"
+#include "sub0squad/harness_registry.hpp"
 #include <sstream>
 #include <filesystem>
 #include <fstream>
@@ -21,6 +22,7 @@
 
 int main()
 {
+    sub0squad::registerBuiltinHarnesses();   // the registry starts empty: this program is its own composition root
     { // failure detail: expected and actual values reach the worker
         const std::string tap = "TAP version 13\nnot ok 1 - adds\n  ---\n  location: '/x/a.test.mjs:2:1'\n  error: |-\n    Expected values to be strictly equal:\n  code: 'ERR_ASSERTION'\n  expected: 3\n  actual: 2\n  ...\n# tests 1\n# pass 0\n# fail 1\n";
         const std::string ex = webFailureExcerpt(tap);

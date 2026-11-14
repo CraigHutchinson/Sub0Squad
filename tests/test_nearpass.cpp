@@ -1,14 +1,17 @@
 // The real-run blockers of run-v11 (catalogue rows 70 to 73) through the DAEMON, with no model: a real daemon, the real command line, real `llm-fork` and
 // gate jobs (real C++ builds) and a fake engine that answers from the reference calculator the way the 35B did.
 //   near pass  (rows 70, 72, 73) `term` is first written with a defect that fails 1 of 16 tests: a near pass. A repair round then makes it WORSE (attempt 1)
-//              and another BREAKS THE FILE outside every section (attempt 2, run-v11's `expected unqualified-id before 'if'`). Each round is undone, every
-//              attempt ends on the best state, every gate exits 3, the ladder only ever says `retry` (never `sections`: the item already forked), the
-//              third attempt starts from the best canvas with no skeleton call and fixes the one function. Every failed attempt says why.
+//              and another BREAKS THE FILE outside every section (attempt 2, run-v11's `expected unqualified-id before 'if'`). Each round is undone and
+//              every attempt ends on the best state. Attempt 1's gate exits 3 (a near pass: `retry`); attempt 2 ends on the SAME files, so its gate exits 7
+//              (a stuck near pass) and the ladder applies the `think` strategy FIRST (never `sections`: the item already forked; never `reviseTests` or
+//              `rearchitect`: 15 of 16 tests pass, so the tests are probably right). The third attempt starts from the best canvas with no skeleton call,
+//              with the strategy file saying think, and fixes the one function. Every failed attempt says why.
 //   members    (row 71) the skeleton declares a class whose member functions have no section, as attempts 3, 7 and 8 of run-v11 did.
 //     heal     prevention off: the link fails with the real `undefined reference to calc::Parser::...`, the gate reports the mend
 //              `undefined-declared-member`, ONE decision `mend`, attempt 2 makes every declared member a section and the gate passes.
 //     prevent  the standard process: the harness makes every declared member a section in attempt 1; nothing to mend.
 #include "calculator_fake.hpp"
+#include "sub0squad/harness_registry.hpp"
 
 using namespace calcfake;
 
@@ -28,6 +31,7 @@ static std::string membersWithoutSections(const std::string& declared, bool keep
 
 int main(int, char** argv)
 {
+    sub0squad::registerBuiltinHarnesses();   // the registry starts empty: this program is its own composition root
     const std::string exe = argv[1];
     {   // ---- near pass: never thrown away, never made worse, repaired from the best state ----
         Squad sq(exe, "nearpass");
@@ -49,12 +53,16 @@ int main(int, char** argv)
         const fs::path item = dir / "items" / "dev-engine";
         if (field(status, "state") != "succeeded")
             for (int n = 1; n <= 4; ++n) std::fprintf(stderr, "--- attempt %d\ngate: %.600s\nfork: %.500s\n", n, slurp(item / ("attempt-" + std::to_string(n)) / "gate.txt").c_str(), slurp(item / ("attempt-" + std::to_string(n)) / "fork.json").c_str());
-        // The ladder: two retries and nothing else. No `sections` (the item already ran as a fork: row 73), no rearchitect, no reviseTests.
+        // The ladder: one retry (attempt 1's near pass), then `think` FIRST for the stuck near pass (attempt 2 ended on attempt 1's files), and nothing
+        // else. No `sections` (the item already ran as a fork: row 73), no rearchitect, no reviseTests.
         const std::string decisions = between(status, "\"decisions\":", "\"ledger\"");
-        CHECK_EQ(occurrences(decisions, "\"action\":\"retry\""), 2);
-        CHECK_EQ(occurrences(decisions, "\"action\":\"sections\"") + occurrences(decisions, "\"action\":\"rearchitect\"") + occurrences(decisions, "\"action\":\"reviseTests\"") + occurrences(decisions, "\"action\":\"strategy\""), 0);
+        CHECK_EQ(occurrences(decisions, "\"action\":\"retry\""), 1);
+        CHECK_EQ(occurrences(decisions, "\"action\":\"think\""), 1);   // the policy's own decision; the journal records it as the strategy `think`
+        CHECK_EQ(occurrences(decisions, "\"action\":\"sections\"") + occurrences(decisions, "\"action\":\"rearchitect\"") + occurrences(decisions, "\"action\":\"reviseTests\""), 0);
         CHECK(decisions.find("\"forked\":true") != std::string::npos);
-        CHECK(decisions.find("near pass (at most 15 % of the tests fail)") != std::string::npos);   // the second retry is the near-pass allowance
+        CHECK(decisions.find("\"stuckNearPass\":true,\"thinkTried\":false") != std::string::npos);
+        CHECK(decisions.find("stuck near pass: this attempt ended on the same files as the one before it") != std::string::npos);
+        CHECK(slurp(item / "strategy.json").find("\"think\":true") != std::string::npos);        // what attempt 3's fork read: reasoning on
         // Attempt 1: a near pass. The round that made it worse was undone; what stands fails ONE test, and the gate job said exit 3.
         const std::string fork1 = slurp(item / "attempt-1" / "fork.json");
         CHECK(fork1.find("\"exitCode\":3") != std::string::npos && fork1.find("\"nearPass\":true") != std::string::npos && fork1.find("\"testsTotal\":16,\"testsFailed\":1") != std::string::npos);
@@ -63,7 +71,7 @@ int main(int, char** argv)
         CHECK(out1.find("v = v / d;") != std::string::npos && out1.find("return 0.0;\n    }\n\n    double unary") == std::string::npos);
         CHECK(slurp(item / "attempt-1" / "gate.txt").rfind("GATE FAIL: 1 of 16 tests failed", 0) == 0);
         const std::string jobs = sq.cli({"status", "--json"}).out;
-        CHECK(occurrences(jobs, "\"code\":3") >= 2);                                             // the gate jobs of attempts 1 and 2
+        CHECK(occurrences(jobs, "\"code\":3") >= 1 && occurrences(jobs, "\"code\":7") == 1);     // the gate jobs of attempt 1 (near pass) and attempt 2 (stuck)
         // Every failed attempt says why, in its directory and (while it was the latest) in the status (row 72).
         const std::string why1 = slurp(item / "attempt-1" / "failure.json");
         CHECK(why1.find("\"role\":\"gate\"") != std::string::npos && why1.find("1 of 16 tests failed") != std::string::npos);
@@ -87,7 +95,8 @@ int main(int, char** argv)
     {   // ---- members, heal: prevention off, the link fails on a member the class declares, and the harness makes the members sections ----
         Squad sq(exe, "members-heal");
         sq.startDaemon(4, {"--frontier", "off"});
-        CHECK_EQ(sq.cli({"process", "add", "no-prevention", "--set", "build.leaf.contractSections=false", "--describe", "the standard process without contract-first sections: reproduces run-v10 and run-v11"}).exitCode, 0);
+        // Only the MEMBER prevention is off (its own switch): the contract sections stay on, so `evaluate` is still declared by the harness.
+        CHECK_EQ(sq.cli({"process", "add", "no-prevention", "--set", "build.leaf.memberSections=false", "--describe", "the standard process without member sections: reproduces run-v11"}).exitCode, 0);
         Calculator calc;
         calc.declare = [](const std::string& path, const std::string& declared) { return path == "src/calc.cpp" ? membersWithoutSections(declared, true) : declared; };
         fs::path dir;

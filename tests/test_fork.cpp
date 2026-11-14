@@ -4,6 +4,7 @@
 // reason for sequential, forks shed under memory pressure), ownership (an edit outside the section is refused and the holder named), the precheck as the
 // commit gate, the integration round, and that no edit is lost in the merge.
 #include "agent_bench.hpp"
+#include "sub0squad/harness_registry.hpp"
 #include "sub0squad/fork.hpp"
 #include "sub0squad/harness_cpp.hpp"
 #include "sub0squad/outline.hpp"
@@ -33,6 +34,7 @@ static std::vector<std::string> forkArgs(const fs::path& d, const fake::Engine& 
 
 int main()
 {
+    sub0squad::registerBuiltinHarnesses();   // the registry starts empty: this program is its own composition root
     const std::string ref = reference();
     const std::vector<std::string> names = {"expr", "term", "unary", "postfix", "primary"};
     std::map<std::string, std::string> fn;

@@ -1,5 +1,6 @@
-#include "sub0squad/harness.hpp"
+#include "sub0squad/harness_registry.hpp"
 
+#include "sub0squad/harness.hpp"
 #include "sub0squad/harness_cpp.hpp"
 #include "sub0squad/harness_py.hpp"
 #include "sub0squad/harness_web.hpp"
@@ -34,33 +35,13 @@ const Harness kPyUnittest = {
     &fileOf<&pyScaffold>, &pathsOf<&pyScaffold>,
 };
 
-const Harness* const kAll[] = {&kWebStatic, &kCppCmake, &kPyUnittest};
-
 }  // namespace
 
-const Harness* findHarness(std::string_view name)
+void registerBuiltinHarnesses()
 {
-    for (const Harness* h : kAll) if (name == h->name) return h;
-    return nullptr;
-}
-
-bool knownGateKind(std::string_view kind)
-{
-    for (const Harness* h : kAll) if (kind == h->gateKind) return true;
-    return false;
-}
-
-const Harness* harnessWithBlueprint(const std::string& name)
-{
-    for (const Harness* h : kAll) if (h->blueprint && !h->blueprint(name).empty()) return h;
-    return nullptr;
-}
-
-std::vector<std::string> harnessNames()
-{
-    std::vector<std::string> out;
-    for (const Harness* h : kAll) out.push_back(h->name);
-    return out;
+    registerHarness(kWebStatic);
+    registerHarness(kCppCmake);
+    registerHarness(kPyUnittest);
 }
 
 }  // namespace sub0squad

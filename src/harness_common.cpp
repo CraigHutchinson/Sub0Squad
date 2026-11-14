@@ -405,6 +405,8 @@ int runGateFlow(const GateHooks& hooks, const std::vector<std::string>& args)
             bool sameFiles = true;
             for (const auto& f : item->files) if (slurp(out / f) != slurp(dir / "items" / itemId / ("attempt-" + std::to_string(attempt - 1)) / "out" / f)) sameFiles = false;
             if (!sameFiles && !now.empty() && now == before && tap.tests >= 5 && tap.fail * 100 <= tap.tests * 40) return 5;
+            // 7: a STUCK near pass. The files are the previous attempt's, so its near pass is this one's: the repair changed nothing that stands.
+            if (sameFiles && tap.tests >= 10 && tap.fail * 100 <= tap.tests * 15) return 7;
         }
         return tap.tests >= 10 && tap.fail * 100 <= tap.tests * 15 ? 3 : code;  // 3: a near pass, repaired rather than divided
     }

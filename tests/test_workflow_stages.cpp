@@ -1,5 +1,6 @@
 // The workflow engine on processes other than the standard one: other parameters, other stages, the same engine (docs/PROCESS_DESIGN.md section 13).
 #include "workflow_sim.hpp"
+#include "sub0squad/harness_registry.hpp"
 #include <sstream>
 #include <filesystem>
 #include <fstream>
@@ -21,6 +22,7 @@
 
 int main()
 {
+    sub0squad::registerBuiltinHarnesses();   // the registry starts empty: this program is its own composition root
     {   // Processes other than the standard one: the SAME engine, different parameters, different behaviour (docs/PROCESS_DESIGN.md). The goldens above hold the
         // standard process to what the engine did before processes were data; these drive the others.
         using Outcome = std::pair<JobState, std::string>;
