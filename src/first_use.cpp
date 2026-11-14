@@ -1,5 +1,7 @@
 #include "first_use.hpp"
 
+#include "sub0squad/build_id.hpp"
+
 #include "sub0squad/client.hpp"
 #include "sub0squad/engine.hpp"
 #include "sub0squad/harness.hpp"
@@ -56,6 +58,19 @@ bool daemonAnswers(const RuntimePaths& paths)
     if (!client) return false;
     client->setReceiveTimeout(3);
     return client->request("ping").has_value();
+}
+
+/// The build id the running daemon reports ("" when none answers or it is too old to say).
+std::string daemonBuild(const RuntimePaths& paths)
+{
+    auto client = ControlClient::connect(paths);
+    if (!client) return {};
+    client->setReceiveTimeout(3);
+    const auto reply = client->request("ping");
+    if (!reply) return {};
+    const std::string key = "\"build\":\"";
+    const auto at = reply->find(key);
+    return at == std::string::npos ? std::string{} : reply->substr(at + key.size(), reply->find('"', at + key.size()) - at - key.size());
 }
 
 /// Whether something accepts connections on 127.0.0.1:port.
@@ -122,7 +137,13 @@ int runUp(const std::vector<std::string>& args, const std::string& exe)
     std::error_code ec;
     fs::create_directories(upDir, ec);
 
-    if (daemonAnswers(paths)) std::printf("daemon: already running\n");
+    if (daemonAnswers(paths)) {
+        // A daemon keeps running the program it was started from (catalogue row 20): after a rebuild it is an OLDER build than this command, and every
+        // submit would be refused. `up` says so here, where the fix is one command away, instead of at the first submit.
+        const std::string theirs = daemonBuild(paths);
+        if (theirs != buildId()) std::printf("daemon: already running, but it is ANOTHER BUILD of this program (%s; this command is %s). Restart it: `sub0squad down`, then `sub0squad up`. Until then submits are refused.\n", theirs.empty() ? "it does not say which" : theirs.c_str(), buildId().c_str());
+        else std::printf("daemon: already running\n");
+    }
     else {
         std::vector<std::string> argv = {exe, "serve", "--max-jobs", option(args, "max-jobs", "4"), "--frontier", option(args, "frontier", "stub")};
         if (startDetached(argv, upDir / "daemon.log") < 0) { std::fprintf(stderr, "up: cannot start the daemon\n"); return 1; }
