@@ -43,6 +43,19 @@ is a layer of units that is built, tested and changed together; a layer may depe
   are not done. The layer check passes with no tolerated violations.
 * **Test homes:** agents now have direct tests; `test_blocks` covers the pure units of layer 2 added here; `test_readme` runs the README.
 
+## State after the seventh pass (2026-11-14)
+
+* **Split:** `test_workflow.cpp` by unit (sixth pass); `portal.cpp` into `portal_sampler` (host and engine series, live JSON), `portal_files` (a
+  workflow's files, read only, never outside the sandbox) and `portal` (HTTP server, routes) behind `src/portal_impl.hpp`; the page into
+  `web/portal.html` and `web/portal.js`, compiled in by `cmake/EmbedText.cmake`; `client.cpp` into `client` (the connection), `cli` (dispatch and usage),
+  `cli_jobs`, `cli_project`, `cli_tools` behind `src/cli_impl.hpp`. New layer-2 unit `attempt_failure` (why an attempt failed, as a file).
+* **Test homes added:** `test_portal` (the embedded page, the file view's path rules), `test_portal_page` (the page script rendered with node against a
+  recorded state), `test_nearpass` (rows 70 to 73 through a real daemon).
+* **Not done: one library per layer.** The include direction is clean (`KNOWN_VIOLATIONS` is empty) but the LINK direction is not: `findHarness` is
+  declared in layer 0, defined in layer 3 and called from layer 2. A library per layer needs the registry moved to layer 0 with explicit registration
+  first (`docs/ITERATION_PROGRESS.md`, "NOT done", point 1).
+* **Run the layer check with its argument:** `cmake -DSRC_DIR=<repo> -P cmake/CheckLayers.cmake`. Without `-DSRC_DIR` it checks nothing and says ok.
+
 ## Cleanup order (each step keeps the whole suite green; a failing step is reverted, not patched forward)
 1. Harness registry and the layer check (done in this pass).
 2. Split `daemon.cpp` into its four units behind a private header. **Done 2026-11-11:** `daemon_impl.hpp` (the struct and declarations), `daemon.cpp` (reactor, IPC, create/run, 263 lines), `daemon_jobs.cpp` (278), `daemon_workflow.cpp` (216), `daemon_governance.cpp` (175); mechanical move of 37 methods, behaviour unchanged, 14/14 tests.
