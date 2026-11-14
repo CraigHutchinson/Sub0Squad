@@ -107,6 +107,41 @@ Work **done** is every token the engine processed for the workflow; work **achie
 
 Decode and prefill tokens per second per slot, host load, memory available, shed events, time in queue. These explain a wall-clock figure; they are not goals and are not compared across days.
 
+## 4a. Habits and the craft score (owner direction, 2026-11-14)
+
+Mending a compile error is not a failure: it is the normal development loop, and so are the other things a good engineer does: fixing, iterating, delegating, splitting and forking, designing and architecting, testing, QA, suggesting,
+improving. Outcome KPIs alone would reward luck and punish honest iteration, and would say nothing about *how* the work was done. So the scorecard also scores the **habits**, because habits are what the harness can teach and
+reinforce, and they predict outcomes on tasks we have not run yet.
+
+**Principle: score the habit's effect, not its count.** Activity alone earns nothing (a model that "iterates" ten times on the same mistake is thrashing). A habit scores when it is *present*, *effective* (it changed the outcome) and *efficient* (tokens per
+unit of progress). Each is computed from records we already keep or are adding (journal decisions, request records, gate texts, canvas logs, session usage), so the score cannot be gamed by saying the right words.
+
+| habit | observable evidence | effectiveness (did it help) | efficiency |
+|---|---|---|---|
+| **Fixing and mending** | a gate failure followed by a change that removes its first error; a harness mend; a section retry | errors resolved per turn; the first error actually changes (progress) rather than repeating (thrash) | tokens per resolved error (a mend costs none); identical consecutive replies score zero and are flagged |
+| **Iterating** | the attempt chain on an item; repair rounds in a fork; best-state resumes | the best state improves attempt over attempt (tests passed, errors falling); a later attempt never ends worse | marginal gain per 10,000 tokens; the attempt at which quality stopped improving versus where the work stopped |
+| **Delegating** | work handed to a role or session built for it: sections to forks, divisions to the architect, mechanical fixes to the harness, test failures routed to the owning section | the delegate's result was accepted without the delegator redoing it | tokens the delegator did not spend; delegation latency in ticks |
+| **Splitting and forking** | an item divided into testable parts or sections; the width actually used | oracle pass rate and tokens per quality point against the unsplit path; focus gain (section 4.4) | coordination cost; idle-while-pending |
+| **Designing and architecting** | a plan or contract written before code; interfaces named; a skeleton that compiles | interface mismatches avoided; attempts saved against a run with a thinner design; plan validity at first submission | design tokens as a share of the total; the cost of a redesign |
+| **Testing** | tests written before code; tests that fail on the stub; tests that catch seeded defects | oracle agreement; seeded-defect catch rate; disputes upheld | tests per token; tests that were never run or never failed |
+| **QA and review** | a review step that reads the merged result; QA findings (duplication, long functions, warnings); sanitizer runs | findings acted on and resolved; defects found before integration that would have escaped | review tokens against defects caught |
+| **Suggesting** | a worker or the harness raises a proposal, a question or a blocker instead of guessing (inbox records) | the suggestion was accepted and changed the plan; a clarification avoided rework | accepted suggestions per request; the cost of a wrong guess avoided |
+| **Improving** | refactors, cleanups, a catalogue row turned into a mend and a fixture, a prompt change that raised a block's bar | a later run's KPI is better on the same task; the same failure signature does not recur | improvement per change; regressions introduced |
+| **Verifying** | running the checks before claiming done; reading the gate rather than the agent's claim | claims that matched the gate; no acceptance that a later check overturned | verification cost against failures prevented |
+
+**Roles are scored on their own habits.** A tester is scored on testing and verifying, a developer on fixing, iterating and patching, an architect on designing and delegating, an integrator on QA and verifying, the harness itself on mending, delegating
+and improving. A run's **craft score** is the weighted combination of its roles' habit scores; per habit the score is `presence x effectiveness x efficiency`, each in 0 to 1, and a habit with no opportunity in the run is not scored (it is
+neither rewarded nor punished).
+
+**Thrash and convergence are the two sides of iteration.** The harness tracks, per item, whether each turn changed the first error (progress) or repeated it (thrash). Convergence rate (turns that made progress / turns) is what the iteration habit is scored on; a run of
+repeats triggers a different action (a hint, a deterministic edit, another strategy: catalogue rows 74 and 75) instead of the same turn again, and the thrash count is itself a KPI.
+
+**How the score is used.** (1) To compare ways of working on paired runs, as in section 5: the craft score must predict the outcome KPIs, and a habit whose score does not predict anything is dropped. (2) To coach: the weakest habit of a role is named in
+the scorecard and drives the next change (a hint table for a thrashing developer, a stronger skeleton for a weak design habit). (3) To emphasise: the habits are named in the prompts and the process stages (a review stage, a verify stage), because what the harness asks for is what it will get.
+(4) As the language of the **knowledge register** and the **dreamer**: lessons are filed against a habit ("fixing: a const_iterator binding error is cured by cbegin"), so what one run learns about a habit helps the next.
+
+**Weights** start equal across the habits that applied and are calibrated against outcome KPIs over the archived and future runs; they are a hypothesis until a regression of outcomes on habit scores supports them.
+
 ## 5. The fork decision, stated as an experiment
 
 For the same task, platform, model and seeds, run the **session** executor, the **canvas** executor and the **fork** executor, several times each, and report per executor: oracle pass rate (4.2), tokens per quality point (4.3), decode ticks to the accepted whole (4.4),
@@ -160,6 +195,8 @@ helpers misused, rewrites, lost best states), not from changing the model: the h
 | Oracle pass rate of an accepted project | 100 % of the reference suite |
 | Concurrency factor in a section phase at 4 slots | at least 2.5 |
 | Manual step-ins per run | 0 |
+| Convergence rate of iteration (turns that changed the first error / turns) | at least 0.8 |
+| Thrash (identical consecutive replies) | 0 |
 | Regress rate (attempts ending worse than the best earlier state) | 0 |
 | Coordination cost of a fork | under 60 % of its section tokens |
 
@@ -167,11 +204,11 @@ These are goals to measure against, not claims about today.
 
 ## 9. Build order
 
-1. **Accounting that reconciles** (slice 0): per-session usage records and ledger rows with `purpose`; the fork and agent write them; the reconciliation test; `--metrics` on the engine start line (the service command in the notes and the README get the flag).
+1. **Accounting that reconciles** (slice 0; per-turn first-error and reply-identity records are added at the same time, they are the raw data of the habit scores): per-session usage records and ledger rows with `purpose`; the fork and agent write them; the reconciliation test; `--metrics` on the engine start line (the service command in the notes and the README get the flag).
 2. **Engine ticks**: counter snapshots by the daemon; decode ticks, concurrency factor, tick latency per item; tests with the fake engine serving a `/metrics` response.
 3. **Scorecard**: `metrics WORKFLOW`, the report section, `metrics.json` in the archive, the portal panel; `metrics backfill` for runs v8 to v12.
 4. **Quality capture**: the independent oracle run and the seeded-defect check at integration.
-5. **Compare and gate**: `metrics compare`, the regression gate in `block run`.
+5. **Habit scores and the craft score** (section 4a) from the records of steps 1 to 4, then **compare and gate**: `metrics compare`, the regression gate in `block run`.
 6. **The fork experiment** (section 5) on one platform, 35B, several seeds, with the scorecards side by side; the first result decides the default executor.
 
 ## 10. Open questions for the owner
