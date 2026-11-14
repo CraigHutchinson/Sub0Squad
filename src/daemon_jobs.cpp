@@ -3,6 +3,8 @@
 
 #include "daemon_impl.hpp"
 
+#include "sub0squad/harness_common.hpp"
+
 namespace sub0squad {
 
 bool Daemon::Impl::record(std::string_view type, const std::string& body)
@@ -213,6 +215,16 @@ void Daemon::Impl::finalizeWith(const std::string& id, JobState state, const std
     std::string finalNote = note;
     if (auto sn = shedNote.find(id); sn != shedNote.end()) { finalNote = sn->second; shedNote.erase(sn); }
     if (job) record("jobFinished", journalbody::finished(id, job->run, state, exitJson, finalNote));
+    // Every failed attempt says why, in its own directory (catalogue row 72). The agent or the gate wrote the record when it could; when the job ended
+    // without one of its own (killed at its wall, lost, a tool that records nothing), the daemon writes what the exit record says.
+    if (job && state != JobState::succeeded && !job->spec.workflow.empty() && !job->spec.item.empty() && job->spec.attempt > 0)
+        if (const WorkflowRecord* wf = wfStore.find(job->spec.workflow)) {
+            const std::filesystem::path attemptDir = std::filesystem::path{wf->spec.sandboxDir} / "items" / job->spec.item / ("attempt-" + std::to_string(job->spec.attempt));
+            const std::string have = harnessutil::attemptFailureJson(attemptDir);
+            const std::string role = job->spec.role == "gate" ? "gate" : job->spec.role == "agent" ? "agent" : job->spec.role;
+            if (have.find("\"role\":\"" + role + "\"") == std::string::npos)
+                harnessutil::recordAttemptFailure(attemptDir, role, "exit", std::string{toString(state)} + (finalNote.empty() ? std::string{} : ": " + finalNote) + " (" + job->spec.tool + ")");
+        }
     logf("job %s finished: %s (%s)", id.c_str(), std::string{toString(state)}.c_str(), note.c_str());
     auto it = running.find(id);
     if (it != running.end()) {

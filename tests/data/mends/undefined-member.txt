@@ -1,0 +1,6 @@
+GATE FAIL: INTERFACE MISMATCH: the build failed:
+  /mnt/development/GitHub/Sub0Squad/out/run-v11/state/workflows/w-000001/items/dev-engine/attempt-7/ws/src/calc.cpp:53:(.text+0x47): undefined reference to `calc::Parser::Parser(std::__cxx11::basic_string<char, std::char_traits<char>, std::al
+  /usr/bin/x86_64-linux-gnu-ld.bfd: /mnt/development/GitHub/Sub0Squad/out/run-v11/state/workflows/w-000001/items/dev-engine/attempt-7/ws/src/calc.cpp:53:(.text+0x53): undefined reference to `calc::Parser::parse()'
+  collect2: error: ld returned 1 exit status
+  ninja: build stopped: subcommand failed.
+

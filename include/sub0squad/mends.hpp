@@ -11,8 +11,9 @@
 ///                    accepted section and the canvas are kept, ONLY the new section is written (one model session), then the gate runs again
 ///   silence-unused   the unused variable or parameter is marked `[[maybe_unused]]` where it is declared: a code edit by the harness, no model at all
 ///
-/// What a signature may require: `contract` (the captured name is a function the item's contract obliges it to define), `prototype` (the name is declared in
-/// the file), `location` (the error names file, line and column).
+/// What a signature may require: `contract` (the captured name is a function the item's contract obliges it to define), `declared` (the name is a member
+/// function a class of the item's own file declares and nothing defines: catalogue row 71), `prototype` (the name is declared in the file), `location` (the
+/// error names file, line and column). Mends are tried in table order; the first whose pattern matches AND whose requirement holds is the one reported.
 
 #include <expected>
 #include <optional>
@@ -27,7 +28,7 @@ struct Mend
     std::string name;                  ///< the signature's name: what the decision and the status show (`healed: NAME`)
     std::string errorClass;            ///< the catalogue's class letter (M: mechanical)
     std::vector<std::string> match;    ///< ECMAScript patterns, tried in order against the first error line (quotes normalised to '); group 1 is the name
-    std::string requires_;             ///< contract | prototype | location
+    std::string requires_;             ///< contract | declared | prototype | location
     std::string action;                ///< add-section | silence-unused
     int maxPerItem = 2;
     std::string fixture;               ///< a gate output under tests/data/mends that this mend must match (a test holds the table to it)

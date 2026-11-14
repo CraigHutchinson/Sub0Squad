@@ -1,0 +1,45 @@
+=== FILE: tests/cli.test.cpp ===
+#include "calc/calc.hpp"
+#include "helpers/check.hpp"
+#include "helpers/app.hpp"
+
+TEST(cli_basic_result) {
+    auto res = app::run("2+3");
+    CHECK_EQ(res.code, 0);
+    CHECK(res.output.find("5") != std::string::npos);
+}
+
+TEST(cli_joined_arguments) {
+    auto res = app::run("10", "*", "10");
+    CHECK_EQ(res.code, 0);
+    CHECK(res.output.find("100") != std::string::npos);
+}
+
+TEST(cli_floating_point_noise) {
+    auto res = app::run("0.1+0.2");
+    CHECK_EQ(res.code, 0);
+    // Should print 0.3, not 0.30000000000000004
+    CHECK(res.output.find("0.3") != std::string::npos);
+}
+
+TEST(cli_degrees_mode) {
+    auto res = app::run("--degrees", "sin(90)");
+    CHECK_EQ(res.code, 0);
+    // sin(90 degrees) is 1
+    CHECK(res.output.find("1") != std::string::npos);
+}
+
+TEST(cli_error_message) {
+    auto res = app::run("1/0");
+    CHECK(res.code != 0);
+    CHECK(res.output.find("Error:") != std::string::npos);
+}
+
+TEST(cli_screen_mode) {
+    auto res = app::run("--screen", "2+2");
+    CHECK_EQ(res.code, 0);
+    CHECK(res.output.find("+--------------------------------------+") != std::string::npos);
+    CHECK(res.output.find("| 2+2                                  |") != std::string::npos);
+    CHECK(res.output.find("| = 4                                  |") != std::string::npos);
+}
+=== END FILE ===

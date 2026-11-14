@@ -39,6 +39,31 @@ struct ContractFunction
 /// The declaration of `name` in `text` as a signature (`static double helper(int x)`): its prototype line without the `;`. "" when there is none.
 [[nodiscard]] std::string prototypeOf(const std::string& text, const std::string& name);
 
+/// A member function a class of the file DECLARES (catalogue row 71: `calc::Parser::Parser` and `Parser::parse` were declared by a skeleton, defined by
+/// nobody, and the link failed). C and C++ only.
+struct MemberDeclaration
+{
+    std::string className, name;   ///< `Parser`, `parse` (a constructor's name is the class's)
+    std::string signature;         ///< as its out-of-class definition has it: `double Parser::parse()`, no default arguments, no `virtual`/`static`/`override`
+    std::string scope;             ///< the namespace the class is declared in, "" for none
+    [[nodiscard]] std::string qualified() const { return className + "::" + name; }
+};
+
+/// Every member function a class or struct of `text` declares without a body (operators, defaulted, deleted and pure virtual ones are not counted), in
+/// file order. `text` may be a declared skeleton or a complete file.
+[[nodiscard]] std::vector<MemberDeclaration> memberDeclarations(const std::string& text, const std::string& path);
+
+/// The declared members `text` does not define: no function `Class::name` in it, and no `@@` line of a skeleton that declares one.
+[[nodiscard]] std::vector<MemberDeclaration> undefinedMembers(const std::string& text, const std::string& path);
+
+/// A declared skeleton with one `@@` line added for every member function a class declares and nothing defines, so each becomes a section with a
+/// generated stub (inside the class's namespace when the skeleton opens it). A member declared twice (overloads) gets one line: the skeleton check
+/// (`overloadedMembers`) refuses such a class.
+[[nodiscard]] std::string withMemberDeclarations(const std::string& declared, const std::string& path);
+
+/// `Class::name` of every member a class declares more than once without a body: two sections cannot share a name, so the skeleton check refuses them.
+[[nodiscard]] std::vector<std::string> overloadedMembers(const std::string& text, const std::string& path);
+
 /// The namespace open at the prototype of `name` in `text` ("" for none): where its definition belongs.
 [[nodiscard]] std::string prototypeScope(const std::string& text, const std::string& name);
 

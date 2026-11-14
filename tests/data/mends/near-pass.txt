@@ -1,0 +1,4 @@
+GATE FAIL: 2 of 22 tests failed
+FAIL 6 - basic_power_right_associativity: unexpected exception: Unexpected characters after expression
+FAIL 7 - precedence_and_unary_minus: unexpected exception: Unexpected characters after expression
+

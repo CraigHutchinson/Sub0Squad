@@ -148,6 +148,37 @@ Tap parseTap(const std::string& out)
     return t;
 }
 
+void recordAttemptFailure(const fs::path& attemptDir, const std::string& role, const std::string& kind, const std::string& reason)
+{
+    const auto escaped = [](const std::string& text) {
+        std::string out;
+        for (const char c : text) {
+            if (c == '"' || c == '\\') { out += '\\'; out += c; }
+            else if (c == '\n') out += "\\n";
+            else if (static_cast<unsigned char>(c) < 0x20) out += ' ';
+            else out += c;
+        }
+        return out;
+    };
+    std::string why = reason.substr(0, 700);
+    while (!why.empty() && (static_cast<unsigned char>(why.back()) & 0xC0) == 0x80) why.pop_back();   // never cut inside a UTF-8 sequence
+    if (!why.empty() && (static_cast<unsigned char>(why.back()) & 0x80) != 0 && why.size() == 700) why.pop_back();
+    writeFile(attemptDir / "failure.json", "{\"schema\":\"attempt-failure-1\",\"role\":\"" + escaped(role) + "\",\"kind\":\"" + escaped(kind) + "\",\"reason\":\"" + escaped(why) + "\"}\n");
+}
+
+void clearAttemptFailure(const fs::path& attemptDir)
+{
+    std::error_code ec;
+    fs::remove(attemptDir / "failure.json", ec);
+}
+
+std::string attemptFailureJson(const fs::path& attemptDir)
+{
+    std::string text = slurp(attemptDir / "failure.json");
+    while (!text.empty() && (text.back() == '\n' || text.back() == ' ')) text.pop_back();
+    return text;
+}
+
 void copyTree(const fs::path& from, const fs::path& to)
 {
     std::error_code ec;
@@ -296,27 +327,41 @@ int runGateFlow(const GateHooks& hooks, const std::vector<std::string>& args)
         if (item->persona != "developer") return;
         std::vector<Mend> table = builtinMends();
         if (const std::string own = slurp(dir / "mends.json"); !own.empty()) { if (auto extra = parseMends(own)) table = mergedMends(std::move(table), *extra); else std::printf("note: %s is ignored: %s\n", (dir / "mends.json").c_str(), extra.error().c_str()); }
-        auto m = matchMend(table, msg);
-        if (!m) return;
         const auto leafOf = [](const std::string& n) { const auto c = n.find_last_of(":."); return c == std::string::npos ? n : n.substr(c + 1); };
-        bool holds = false;
-        if (m->requires_ == "contract") {
+        // Table order; the first mend whose pattern matches the first error AND whose requirement holds (two mends may share a pattern: an undefined
+        // reference is a contract function, or a member the file's own class declares).
+        std::optional<MendMatch> m;
+        for (const Mend& candidate : table) {
+            m = matchMend({candidate}, msg);
+            if (!m) continue;
+            bool holds = false;
             // The gate clips long output lines, and a long workspace path can cut the line INSIDE the name (`calc::ev`): a name that ends where the line
-            // ends is a prefix, and it holds when exactly one contract function begins with it.
+            // ends is a prefix, and it holds when exactly one candidate begins with it.
             const bool cut = m->error.size() >= m->symbol.size() && m->error.compare(m->error.size() - m->symbol.size(), m->symbol.size(), m->symbol) == 0;
-            int candidates = 0;
-            std::string full, file;
-            for (const auto& f : item->files) for (const auto& c : contractOf(findHarness(plan->harness), f)) {
-                const std::string qualified = c.scope.empty() ? c.name : c.scope + "::" + c.name;
-                if (c.name == leafOf(m->symbol) || (cut && (qualified.rfind(m->symbol, 0) == 0 || c.name.rfind(m->symbol, 0) == 0))) { ++candidates; full = qualified; file = f; }
+            if (m->requires_ == "contract") {
+                int candidates = 0;
+                std::string full, file;
+                for (const auto& f : item->files) for (const auto& c : undefinedContract(slurp(attemptDir / "out" / f), f, contractOf(findHarness(plan->harness), f))) {   // only one the file does NOT define can be the missing one
+                    const std::string qualified = c.scope.empty() ? c.name : c.scope + "::" + c.name;
+                    if (m->symbol == qualified || m->symbol == c.name || (cut && (qualified.rfind(m->symbol, 0) == 0 || c.name.rfind(m->symbol, 0) == 0))) { ++candidates; full = qualified; file = f; }
+                }
+                if (candidates == 1) { holds = true; m->file = file; m->symbol = full; }
+            } else if (m->requires_ == "declared") {
+                const auto endsWith = [](const std::string& s, const std::string& tail) { return s == tail || (s.size() > tail.size() + 2 && s.compare(s.size() - tail.size() - 2, 2, "::") == 0 && s.compare(s.size() - tail.size(), tail.size(), tail) == 0); };
+                for (const auto& f : item->files) for (const auto& member : undefinedMembers(slurp(attemptDir / "out" / f), f)) {
+                    const std::string full = (member.scope.empty() ? std::string{} : member.scope + "::") + member.qualified();
+                    if (holds || !(endsWith(full, m->symbol) || endsWith(m->symbol, member.qualified()) || (cut && full.rfind(m->symbol, 0) == 0))) continue;
+                    holds = true; m->file = f; m->symbol = full;
+                }
+            } else if (m->requires_ == "prototype") {
+                for (const auto& f : item->files) if (!prototypeOf(slurp(attemptDir / "out" / f), leafOf(m->symbol)).empty()) { holds = true; m->file = f; }
+            } else if (m->requires_ == "location" && m->line > 0) {
+                for (const auto& f : item->files) if (m->file == f || (m->file.size() > f.size() && m->file.compare(m->file.size() - f.size() - 1, f.size() + 1, "/" + f) == 0)) { holds = true; m->file = f; }
             }
-            if (candidates == 1) { holds = true; m->file = file; m->symbol = full; }
-        } else if (m->requires_ == "prototype") {
-            for (const auto& f : item->files) if (!prototypeOf(slurp(attemptDir / "out" / f), leafOf(m->symbol)).empty()) { holds = true; m->file = f; }
-        } else if (m->requires_ == "location" && m->line > 0) {
-            for (const auto& f : item->files) if (m->file == f || (m->file.size() > f.size() && m->file.compare(m->file.size() - f.size() - 1, f.size() + 1, "/" + f) == 0)) { holds = true; m->file = f; }
+            if (holds) break;
+            m.reset();
         }
-        if (!holds) return;
+        if (!m) return;
         const std::string result = "{\"mend\":" + m->toJson() + "}\n";
         writeFile(mendFile, result);
         if (const char* runDir = std::getenv("SUB0SQUAD_RUN_DIR"); runDir && *runDir && one(a, "no-publish", "").empty()) writeFile(fs::path{runDir} / "result.json", result);   // only the gate JOB reports; an agent's self-check does not
@@ -327,6 +372,10 @@ int runGateFlow(const GateHooks& hooks, const std::vector<std::string>& args)
         writeFile(attemptDir / "gate.txt", msg);
         std::fputs(msg.c_str(), stdout);
         reportMend(msg);
+        if (one(a, "no-publish", "").empty()) {   // the gate JOB: why this attempt failed, in a few lines (an agent's self-check leaves that to the agent)
+            const std::string first = firstErrorLine(msg);
+            recordAttemptFailure(attemptDir, "gate", "gate", msg.substr(0, msg.find('\n')) + (first.empty() || msg.rfind(first, 0) == 0 ? std::string{} : "\n" + first));
+        }
         return 1;
     };
 
@@ -380,7 +429,11 @@ int runGateFlow(const GateHooks& hooks, const std::vector<std::string>& args)
         if (attempt > 1) {
             const auto now = failLines(slurp(attemptDir / "gate.txt"));
             const auto before = failLines(slurp(dir / "items" / itemId / ("attempt-" + std::to_string(attempt - 1)) / "gate.txt"));
-            if (!now.empty() && now == before && tap.tests >= 5 && tap.fail * 100 <= tap.tests * 40) return 5;  // the same few tests fail the same way: the tests are suspect
+            // The same few tests fail the same way after a repair: the tests are suspect. Not when the FILES are the same too (an attempt whose rounds were
+            // undone ends on the best earlier state, catalogue row 70): the same failure of the same code says nothing new about the tests.
+            bool sameFiles = true;
+            for (const auto& f : item->files) if (slurp(out / f) != slurp(dir / "items" / itemId / ("attempt-" + std::to_string(attempt - 1)) / "out" / f)) sameFiles = false;
+            if (!sameFiles && !now.empty() && now == before && tap.tests >= 5 && tap.fail * 100 <= tap.tests * 40) return 5;
         }
         return tap.tests >= 10 && tap.fail * 100 <= tap.tests * 15 ? 3 : code;  // 3: a near pass, repaired rather than divided
     }
@@ -393,6 +446,7 @@ int runGateFlow(const GateHooks& hooks, const std::vector<std::string>& args)
     char passLine[200];
     std::snprintf(passLine, sizeof passLine, "GATE PASS: %s attempt %d (%d tests, %d failing against stubs where expected)\n", itemId.c_str(), attempt, tap.tests, tap.fail);
     writeFile(attemptDir / "gate.txt", passLine);
+    if (publish) clearAttemptFailure(attemptDir);
     events::progress(4, 4, "accepted");
     std::fputs(passLine, stdout);
     return 0;

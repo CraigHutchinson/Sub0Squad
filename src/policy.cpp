@@ -26,6 +26,7 @@ std::string toJson(const DecisionContext& c, const Decision& d)
     const std::pair<const char*, bool> rungs[] = {{"decompose", c.allowDecompose}, {"sections", c.allowSections}, {"reviseTests", c.allowReviseTests}, {"rearchitect", c.allowRearchitect}, {"escalate", c.allowEscalate}};
     bool lacks = false;
     for (const auto& [name, allowed] : rungs) lacks = lacks || !allowed;
+    if (c.forked) w.kvBool("forked", true);   // written only when it holds, like `processLacks`
     if (lacks) { w.key("processLacks").beginArray(); for (const auto& [name, allowed] : rungs) if (!allowed) w.str(name); w.endArray(); }
     w.endObject().endObject();
     return w.take();
@@ -82,7 +83,7 @@ Decision RulePolicy::decide(const DecisionContext& c) const
         return d;
     }
     const bool developer = c.persona == "developer";   // a tester's item is never divided (row 44)
-    if (c.oversize && developer && c.divideBySections && !c.sectionsTried && c.allowSections) {
+    if (c.oversize && developer && c.divideBySections && !c.sectionsTried && !c.forked && c.allowSections) {
         d.action = Action::sections;
         d.tier = "local";
         d.reasons.push_back("plan phase: the item is estimated too big for one reply; this platform divides by sections of a file, so the next attempt writes it as forked sections (a skeleton, then one function per session)");
@@ -107,7 +108,8 @@ Decision RulePolicy::decide(const DecisionContext& c) const
         return d;
     }
     d.reasons.push_back("local attempts exhausted (" + std::to_string(c.localAttempts) + ")");
-    if (developer && c.divideBySections && !c.sectionsTried && c.allowSections) {
+    if (developer && c.divideBySections && !c.sectionsTried && c.forked && c.allowSections) d.reasons.push_back("the failed attempt already ran as forked sections: the `sections` rung would repeat it, so it is skipped");
+    if (developer && c.divideBySections && !c.sectionsTried && !c.forked && c.allowSections) {
         d.action = Action::sections;
         d.tier = "local";
         d.reasons.push_back("first rung: this platform divides by sections of a file (a new module would need a header no item owns), so the next attempt writes the item as forked sections");

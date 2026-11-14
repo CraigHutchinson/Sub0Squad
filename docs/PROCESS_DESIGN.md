@@ -589,7 +589,7 @@ a model or to a card rewrite. Evidence: run-v10 (catalogue rows 59 to 64). What 
 
 **The table** (`registry/mends.json`, schema `mends-1`, compiled in; `include/sub0squad/mends.hpp`): each mend is a name, patterns matched against the FIRST
 error line of a gate's output (group 1 captures the name the error is about), a requirement, a named action, a limit per item and the fixture that proves it.
-Three mends today:
+Four mends today (the fourth, `undefined-declared-member`, is described under "Added in the seventh pass" below):
 
 | Mend | Signature (first error) | Requires | Action |
 |---|---|---|---|
@@ -638,6 +638,24 @@ hand-written from a catalogue row, and `maxPerItem` is the only feedback; (5) a 
 still goes to the sections the text names, else to all; (6) rows 10 and 12 are mended where they arise (`completeDivision`, at division acceptance), so they
 have no table entry; row 25 is a contract defect (a name the tests import that the contract does not declare), which the ladder's `rearchitect` is right
 for: it is mechanical only when the name IS in the contract, and that case is `undefined-contract-symbol`.
+
+**Added in the seventh pass (from run-v11, catalogue rows 70 to 73):**
+* **Four mends.** `undefined-declared-member` (requires `declared`: the undefined name is a member function a class of the item's own file declares and
+  nothing defines; action `add-section`, which makes EVERY such member a section). Two mends may now share a pattern: the gate reports the first, in table
+  order, whose pattern matches the first error AND whose requirement holds. `contract` holds only for a contract function the file does not define.
+* **Members are sections** (prevention): for each member function declared without a body the harness adds the `@@` line itself; stubs and sections of
+  members carry their class (`Parser::parse`), so a member and a free function may share a last name. The skeleton check refuses a declared member with no
+  section, and overloads (two sections cannot share a name). `leaf.contractSections=false` switches this off with the contract sections, to reproduce the defects.
+* **The best state is never lost.** Inside a fork attempt the state the tests last judged best is kept; a round that leaves more tests failing, or a file
+  that no longer compiles, is undone. The attempt ends on that state; `fork.json` records `testsTotal`, `testsFailed`, `nearPass`, `reverted`. A later attempt
+  resumes the best earlier attempt (the largest share of tests passed, at least half), not merely the one before it. So the gate job judges the best state
+  and its exit 3 (near pass) reaches the policy on every attempt. The gate does not answer exit 5 (tests suspect) for files identical to the last attempt's.
+* **A rung never repeats the failing attempt.** The policy skips `sections` for an item whose attempts already ran as `llm-fork` (`forked`, recorded in
+  the decision); the `think` strategy changes the fork's parameters (reasoning on).
+* **A gate failure the table knows ends the fork at once** (`failure: mendable`): no section is asked again about a link error.
+* **Every failed attempt says why:** `attempt-N/failure.json` (role, kind, reason), shown by `project status` as `lastFailure`.
+* **Limits, stated:** a wrong value with no message still has no owning section (row 64 b); the best-state rule is the fork's (the session and canvas
+  executors had theirs already); the daemon's fallback failure record has no test; nothing of this has run on a real model.
 
 ## 10. Migration after the slice
 

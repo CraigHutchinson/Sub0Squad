@@ -118,6 +118,22 @@ int main()
         if (std::string(p.harness) == "cpp-cmake") {
             put(d / "items" / "dev-engine" / "attempt-6" / "out" / h->mockBugTarget("dev-engine"), "double broken() { throw std::runtime_error(\"unterminated); }\nint x = nothing_declared;\n");
             CHECK_EQ(gate(p, d, "dev-engine", 6), 1);
+            // Every failed attempt says why in its own directory (catalogue row 72): the gate job's record, with the first error.
+            const std::string why = slurp(d / "items" / "dev-engine" / "attempt-6" / "failure.json");
+            CHECK(why.find("\"schema\":\"attempt-failure-1\",\"role\":\"gate\",\"kind\":\"gate\"") != std::string::npos && why.find("does not compile") != std::string::npos);
+            // Why run-v11's tester failed five attempts (row 72): it called `app::run("10", "*", "10")`, one string per argument, and the helper took one
+            // string only, so every reply was refused by the compile check. The helper now takes both forms: that tester's REAL reply compiles, and each
+            // argument reaches the program exactly as given (`*` is not expanded by the shell).
+            std::string reply = slurp(std::filesystem::path{SUB0SQUAD_SOURCE_DIR} / "tests" / "data" / "replies" / "run-v11-test-app-reply.txt");
+            CHECK(reply.rfind("=== FILE: tests/cli.test.cpp ===\n", 0) == 0 && reply.find("app::run(\"10\", \"*\", \"10\")") != std::string::npos);
+            reply = reply.substr(reply.find('\n') + 1);
+            reply = reply.substr(0, reply.find("=== END FILE ==="));
+            put(d / "items" / "test-app" / "attempt-7" / "out" / "tests/cli.test.cpp", reply);
+            const int tester = runCppGate({"--workflow-dir", d.string(), "--item", "test-app", "--attempt", "7", "--no-publish", "1"});
+            const std::string said = slurp(d / "items" / "test-app" / "attempt-7" / "gate.txt");
+            if (tester != 0) std::fprintf(stderr, "the run-v11 tester reply: gate %d: %.600s\n", tester, said.c_str());
+            CHECK(said.find("does not compile") == std::string::npos && said.find("too many arguments") == std::string::npos);
+            CHECK_EQ(tester, 0);
         }
         // An edit outside the allowlist is refused.
         put(d / "items" / "dev-app" / "attempt-3" / "out" / appFile, h->mockFile(appFile, false));

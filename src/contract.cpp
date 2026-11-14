@@ -183,6 +183,118 @@ std::string withStubFunction(const std::string& text, const std::string& path, c
     return joined(v);
 }
 
+std::vector<MemberDeclaration> memberDeclarations(const std::string& text, const std::string& path)
+{
+    std::vector<MemberDeclaration> out;
+    const auto ext = path.rfind('.') == std::string::npos ? std::string{} : path.substr(path.rfind('.'));
+    if (ext != ".cpp" && ext != ".cc" && ext != ".cxx" && ext != ".hpp" && ext != ".h" && ext != ".c") return out;
+    const auto v = linesOf(text);
+    struct Open { std::string name; int depth; std::size_t line; };
+    std::vector<Open> classes;   // the classes open at this line, innermost last, with the brace depth their members are at
+    std::string pending;         // a `class X` line whose `{` is on a later line
+    std::size_t pendingLine = 0;
+    int depth = 0;
+    const auto without = [](std::string s, const char* word) {
+        const std::string w{word};
+        for (std::size_t at = s.find(w); at != std::string::npos; at = s.find(w, at)) {
+            const bool whole = (at == 0 || !isIdent(s[at - 1])) && (at + w.size() >= s.size() || !isIdent(s[at + w.size()]));
+            if (whole) s.erase(at, w.size()); else ++at;
+        }
+        return trimmed(s);
+    };
+    for (std::size_t i = 0; i < v.size(); ++i) {
+        const std::string t = trimmed(v[i]);
+        const bool classLine = (t.rfind("class ", 0) == 0 || t.rfind("struct ", 0) == 0) && (t.empty() || t.back() != ';' || t.find('{') != std::string::npos);
+        if (classLine) {
+            std::size_t b = t.find(' ') + 1, e = b;
+            while (e < t.size() && isIdent(t[e])) ++e;
+            pending = t.substr(b, e - b);
+            pendingLine = i;
+        }
+        if (!classes.empty() && depth == classes.back().depth && !classLine && !t.empty() && t.back() == ';' && t.find('{') == std::string::npos) {
+            // A member line that ends in `;`: a function declaration when an identifier stands before its first `(` and nothing before that says otherwise.
+            const auto paren = t.find('(');
+            std::size_t e = paren;
+            while (e != std::string::npos && e > 0 && t[e - 1] == ' ') --e;
+            std::size_t b = e;
+            while (b != std::string::npos && b > 0 && (isIdent(t[b - 1]) || t[b - 1] == '~')) --b;
+            const std::string prefix = paren == std::string::npos ? std::string{} : t.substr(0, b);
+            int close = -1, level = 0;
+            if (paren != std::string::npos) for (std::size_t k = paren; k < t.size(); ++k) { if (t[k] == '(') ++level; else if (t[k] == ')' && --level == 0) { close = static_cast<int>(k); break; } }
+            const std::string tail = close < 0 ? std::string{} : t.substr(static_cast<std::size_t>(close) + 1);
+            const bool function = paren != std::string::npos && b < e && close > 0 && prefix.find_first_of("=(<") == std::string::npos && prefix.find("operator") == std::string::npos &&
+                                  t.rfind("friend ", 0) != 0 && t.rfind("using ", 0) != 0 && t.rfind("typedef ", 0) != 0 && t.rfind("return", 0) != 0 && t[0] != '/' &&
+                                  tail.find('=') == std::string::npos;   // `= default`, `= delete`, `= 0`: nothing to define
+            if (function) {
+                MemberDeclaration m;
+                m.className = classes.back().name;
+                m.name = t.substr(b, e - b);
+                std::string ret = prefix;
+                for (const char* word : {"virtual", "static", "explicit", "inline", "[[nodiscard]]"}) ret = without(ret, word);
+                std::string after = tail.substr(0, tail.find(';'));
+                for (const char* word : {"override", "final"}) after = without(after, word);
+                m.signature = (ret.empty() ? std::string{} : ret + " ") + m.className + "::" + m.name + withoutDefaults(t.substr(paren, static_cast<std::size_t>(close) - paren + 1)) + (after.empty() ? std::string{} : " " + after);
+                m.scope = namespaceBefore(v, classes.back().line);
+                out.push_back(std::move(m));
+            }
+        }
+        for (const char c : v[i]) {
+            if (c == '{') { ++depth; if (!pending.empty()) { classes.push_back({pending, depth, pendingLine}); pending.clear(); } }
+            else if (c == '}') { --depth; while (!classes.empty() && depth < classes.back().depth) classes.pop_back(); }
+            else if (c == ';' && !pending.empty()) pending.clear();   // a forward declaration
+        }
+    }
+    return out;
+}
+
+std::vector<MemberDeclaration> undefinedMembers(const std::string& text, const std::string& path)
+{
+    std::vector<std::string> defined;
+    for (const auto& r : foldRegions(text, false, true)) if (!r.name.empty()) defined.push_back(r.name);
+    for (const auto& l : linesOf(text)) {
+        const std::string t = trimmed(l);
+        if (t.rfind("@@", 0) != 0) continue;
+        const auto paren = t.find('(');
+        std::size_t b = paren == std::string::npos ? 0 : paren;
+        while (b > 0 && (isIdent(t[b - 1]) || t[b - 1] == ':' || t[b - 1] == '~')) --b;
+        if (paren != std::string::npos) defined.push_back(t.substr(b, paren - b));
+    }
+    std::vector<MemberDeclaration> missing;
+    for (auto& m : memberDeclarations(text, path)) {
+        const std::string q = m.qualified();
+        const bool has = std::any_of(defined.begin(), defined.end(), [&](const std::string& d) { return d == q || (d.size() > q.size() + 2 && d.compare(d.size() - q.size() - 2, 2, "::") == 0 && d.compare(d.size() - q.size(), q.size(), q) == 0); });
+        if (!has) missing.push_back(std::move(m));
+    }
+    return missing;
+}
+
+std::vector<std::string> overloadedMembers(const std::string& text, const std::string& path)
+{
+    std::vector<std::string> seen, twice;
+    for (const auto& m : memberDeclarations(text, path)) {
+        const std::string q = m.qualified();
+        if (std::find(seen.begin(), seen.end(), q) == seen.end()) seen.push_back(q);
+        else if (std::find(twice.begin(), twice.end(), q) == twice.end()) twice.push_back(q);
+    }
+    return twice;
+}
+
+std::string withMemberDeclarations(const std::string& declared, const std::string& path)
+{
+    auto v = linesOf(declared);
+    std::vector<std::string> added;
+    for (const auto& m : undefinedMembers(declared, path)) {
+        if (std::find(added.begin(), added.end(), m.qualified()) != added.end()) continue;
+        added.push_back(m.qualified());
+        const std::size_t at = insertionLine(v, m.scope, false);
+        const bool inScope = at < v.size() || m.scope.empty();
+        std::string signature = m.signature;
+        if (const auto c = signature.find(m.className + "::"); !inScope && c != std::string::npos) signature.insert(c, m.scope + "::");
+        v.insert(v.begin() + static_cast<std::ptrdiff_t>(at), "@@ " + signature);
+    }
+    return joined(v);
+}
+
 std::string prototypeScope(const std::string& text, const std::string& name)
 {
     const std::string proto = prototypeOf(text, name);

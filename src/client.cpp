@@ -414,7 +414,7 @@ void printWorkflows(const std::string& text)
                         else if (k == "reasons") { for (auto r : v.get_array()) reasons.push_back(json::toString(r.value())); }
                         else if (k == "items") {
                             for (auto iv : v.get_array()) {
-                                std::string iid, title, status, tier, builtBy; std::int64_t attempts = 0;
+                                std::string iid, title, status, tier, builtBy, whyKind, whyRole, why; std::int64_t attempts = 0, whyAttempt = 0;
                                 for (auto g : iv.get_object()) {
                                     const std::string_view gk = g.unescaped_key();
                                     auto gv = g.value();
@@ -422,11 +422,19 @@ void printWorkflows(const std::string& text)
                                     else if (gk == "status") status = json::toString(gv); else if (gk == "tier") tier = json::toString(gv);
                                     else if (gk == "attempts") attempts = gv.get_int64();
                                     else if (gk == "builtBy") builtBy = json::toString(gv);
+                                    else if (gk == "lastFailureAttempt") whyAttempt = gv.get_int64();
+                                    else if (gk == "lastFailure") {   // why the latest failed attempt failed (its agent, its gate or the daemon recorded it)
+                                        for (auto f : gv.get_object()) {
+                                            const std::string_view fk = f.unescaped_key();
+                                            if (fk == "role") whyRole = json::toString(f.value()); else if (fk == "kind") whyKind = json::toString(f.value()); else if (fk == "reason") why = json::toString(f.value());
+                                        }
+                                    }
                                 }
                                 char buf[256];
                                 std::snprintf(buf, sizeof buf, "  %-11s %-10s attempts %lld  last tier %-13s %s%s", iid.c_str(), status.c_str(), static_cast<long long>(attempts), tier.empty() ? "-" : tier.c_str(), title.c_str(),
                                               builtBy == "stub" ? "  [NOT model-built: frontier stub]" : builtBy == "mock" ? "  [mock agent]" : "");
                                 items.push_back(buf);
+                                if (!why.empty()) items.push_back("              attempt " + std::to_string(whyAttempt) + " failed in its " + whyRole + " (" + whyKind + "): " + why.substr(0, why.find('\n')).substr(0, 180));
                             }
                         } else if (k == "decisions") {
                             for (auto dv : v.get_array()) {

@@ -144,7 +144,8 @@ Skeleton expandSkeleton(const std::string& declared, const std::string& path)
         d.signature.erase(0, d.signature.find_first_not_of(" \t"));
         while (!d.signature.empty() && (std::isspace(static_cast<unsigned char>(d.signature.back())) || d.signature.back() == '{' || d.signature.back() == ';' || (python && d.signature.back() == ':'))) d.signature.pop_back();
         d.name = nameBefore(d.signature);
-        if (const auto c = d.name.rfind(':'); c != std::string::npos) d.name = d.name.substr(c + 1);
+        // A member defined outside its class keeps its class (`Parser::parse`): a file may hold `Parser::evaluate` and a free `evaluate` (catalogue row 71).
+        if (python || script) { if (const auto c = d.name.rfind(':'); c != std::string::npos) d.name = d.name.substr(c + 1); }
         if (d.name.empty()) { out.error = "line " + std::to_string(i + 1) + " is not a function signature (`@@ " + d.signature.substr(0, 60) + "`): write `@@` then the signature with its parameter list, on one line"; return out; }
         for (const auto& e : decls) if (e.name == d.name && e.indent == d.indent) { out.error = "the function `" + d.name + "` is declared twice (lines " + std::to_string(e.line + 1) + " and " + std::to_string(i + 1) + ")"; return out; }
         decls.push_back(std::move(d));

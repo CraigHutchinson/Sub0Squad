@@ -15,6 +15,7 @@ namespace {
 // The text of registry/mends.json (test_mends holds the file and this equal, byte for byte).
 const char* const kBuiltin = R"JSON({"schema":"mends-1","mends":[
 {"name":"undefined-contract-symbol","class":"M","match":["undefined reference to '([A-Za-z_][A-Za-z0-9_:]*)","'([A-Za-z_][A-Za-z0-9_:]*)' was not declared in this scope","cannot import name '([A-Za-z_][A-Za-z0-9_]*)'","has no attribute '([A-Za-z_][A-Za-z0-9_]*)'"],"requires":"contract","action":"add-section","maxPerItem":2,"fixture":"tests/data/mends/undefined-reference.txt"},
+{"name":"undefined-declared-member","class":"M","match":["undefined reference to '([A-Za-z_~][A-Za-z0-9_:~]*)"],"requires":"declared","action":"add-section","maxPerItem":2,"fixture":"tests/data/mends/undefined-member.txt"},
 {"name":"helper-never-defined","class":"M","match":["'([^']+)' (?:declared 'static'|used) but never defined"],"requires":"prototype","action":"add-section","maxPerItem":2,"fixture":"tests/data/mends/never-defined.txt"},
 {"name":"unused-entity","class":"M","match":["variable '([A-Za-z_][A-Za-z0-9_]*)' set but not used","unused variable '([A-Za-z_][A-Za-z0-9_]*)'","unused parameter '([A-Za-z_][A-Za-z0-9_]*)'"],"requires":"location","action":"silence-unused","maxPerItem":2,"fixture":"tests/data/mends/unused-but-set.txt"}
 ]}
@@ -113,7 +114,7 @@ std::expected<std::vector<Mend>, std::string> parseMends(std::string_view text)
         if (m.name.empty() || m.name.size() > 40 || !std::all_of(m.name.begin(), m.name.end(), [](char c) { return std::islower(static_cast<unsigned char>(c)) || std::isdigit(static_cast<unsigned char>(c)) || c == '-'; })) return std::unexpected("mend " + std::to_string(i + 1) + ": the name '" + m.name + "' must be 1 to 40 characters of a-z, 0-9 and '-'");
         for (std::size_t e = 0; e < i; ++e) if (out[e].name == m.name) return std::unexpected(where + "the name is used twice");
         if (m.action != "add-section" && m.action != "silence-unused") return std::unexpected(where + "action '" + m.action + "' is not a mend action (add-section, silence-unused)");
-        if (m.requires_ != "contract" && m.requires_ != "prototype" && m.requires_ != "location") return std::unexpected(where + "requires '" + m.requires_ + "' must be contract, prototype or location");
+        if (m.requires_ != "contract" && m.requires_ != "prototype" && m.requires_ != "location" && m.requires_ != "declared") return std::unexpected(where + "requires '" + m.requires_ + "' must be contract, declared, prototype or location");
         if (m.action == "silence-unused" && m.requires_ != "location") return std::unexpected(where + "silence-unused edits a place in a file, so it requires location");
         if (m.maxPerItem < 1 || m.maxPerItem > 5) return std::unexpected(where + "maxPerItem must be 1..5");
         if (m.match.empty()) return std::unexpected(where + "needs at least one pattern");

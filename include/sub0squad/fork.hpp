@@ -43,7 +43,9 @@ struct ForkOptions
     int wallPerSectionSec = 150;        ///< ... plus this for every section, so a file of 14 functions is not given the time of a file of 4
     bool fresh = false;                 ///< never resume the previous attempt's canvas: start from a new skeleton
     /// The sections start from the item's CONTRACT (contract.hpp, catalogue row 59): every function the harness's stub of a file defines is a mandatory
-    /// section with the contract's signature, added by the harness to the skeleton and to a resumed canvas that lacks it. Off only to reproduce the defect.
+    /// section with the contract's signature, added by the harness to the skeleton and to a resumed canvas that lacks it. The same holds for every member
+    /// function a class of the file declares without a body (row 71), and a skeleton that leaves one without a section is refused. Off only to reproduce
+    /// the defects.
     bool contractSections = true;
     /// The mend `add-section` (mends.hpp): continue the previous attempt's files whatever it failed on, add `mendSection` (in `mendFile`) as a stubbed
     /// section with the contract's signature (or the file's own prototype of it), put back sections an earlier assembly removed as uncalled, and write ONLY
@@ -69,10 +71,11 @@ struct ForkSection
 
 struct ForkResult
 {
-    int exitCode = 1;                   ///< 0 the merged file passes its gate; 1 it does not; 2 no usable skeleton
+    int exitCode = 1;                   ///< 0 the merged file passes its gate; 1 it does not; 2 no usable skeleton; 3 a NEAR PASS (it compiles and at most 15 % of at least 10 tests fail: the gate's own rule)
     bool passed = false;
     /// Why it did not pass: "" (passed) | "skeleton" | "budget" (the wall budget ran out) | "sections-missing" (a section was never accepted) |
-    /// "compile" (errors remain in sections) | "compile-outside-sections" (errors in the declared structure itself) | "tests".
+    /// "compile" (errors remain in sections) | "compile-outside-sections" (errors in the declared structure itself) | "tests" | "mendable" (the gate failed on an error the mends table
+    /// knows: the attempt stops, the engine applies the mend).
     std::string failure;
     int resumedFrom = 0;                ///< the attempt whose canvas this one continued (0: a new skeleton)
     int width = 1;                      ///< sections generated at once
@@ -85,6 +88,10 @@ struct ForkResult
     int targeted = 0;                   ///< targeted sessions in assembly (a finding routed to one section)
     int mechanicalMends = 0;            ///< functions nobody called that the harness removed, and unused names it marked `[[maybe_unused]]`
     int routedByMessage = 0;            ///< sessions sent to a section because a failing test raised a message that section produces (row 64)
+    int memberSections = 0;             ///< member functions a class declared without a body that the harness made sections (row 71)
+    int testsTotal = -1, testsFailed = -1;   ///< of the state the attempt ended on (its best: row 70); -1 when the tests never judged a file
+    bool nearPass = false;
+    int reverted = 0;                   ///< assembly rounds undone because they left the file worse than the best state, or not compiling
     int contractSections = 0;           ///< contract functions the harness added as sections because the skeleton or the resumed file lacked them
     int conflicts = 0;                  ///< commits the canvas refused because another section had changed the same lines
     int lostEdits = 0;                  ///< committed sections whose text is not in the merged file (must be 0)
@@ -108,6 +115,10 @@ struct ForkResult
 /// literals (8 characters or more) occurs in that line. A test that fails with `unexpected exception: Unknown function: sinh` belongs to the function that
 /// holds the text "Unknown function: ". `sections` are (name, the function's text); the result maps a section's name to the failure lines it owns.
 [[nodiscard]] std::map<std::string, std::string> sectionsOwningFailure(const std::string& gateText, const std::vector<std::pair<std::string, std::string>>& sections);
+
+/// The source of every failing test a gate's text names (`FAIL 6 - name: ...`, `not ok 6 - name`), quoted from `testFiles` (path, text): the
+/// assertion a section must satisfy, as written (catalogue rows 25/26). At most 16 lines a test and about 1,600 characters in all; "" when none is found.
+[[nodiscard]] std::string failingTestSources(const std::string& gateText, const std::vector<std::pair<std::string, std::string>>& testFiles);
 
 /// One compiler finding in a file: the 1-based line and the message with its context lines.
 struct CompileFinding { int line = 0; std::string text; bool unusedFunction = false; };
