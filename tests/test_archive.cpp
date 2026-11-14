@@ -66,6 +66,15 @@ int main(int, char** argv)
         CHECK(contains(r.out, "build mismatch") && contains(r.out, "'newer-build'") && contains(r.out, "'" + build + "'") && contains(r.out, "sub0squad down") && contains(r.out, "--allow-build-mismatch"));
     }
     CHECK(!contains(sq.cli({"project", "status", "--json"}).out, "\"id\":\"w-"));    // nothing was started by the refused submits
+    // `up` on a home whose daemon is another build says so and how to fix it (it starts nothing: a daemon is already there); same build: no warning
+    {
+        const Result warned = cliAll(sq, {"up", "--no-portal"});
+        CHECK(contains(warned.out, "ANOTHER BUILD") && contains(warned.out, "'newer-build'") == false && contains(warned.out, "this command is newer-build") && contains(warned.out, "sub0squad down"));
+        ::unsetenv("SUB0SQUAD_BUILD_ID");
+        const Result same = cliAll(sq, {"up", "--no-portal"});
+        CHECK(contains(same.out, "daemon: already running") && !contains(same.out, "ANOTHER BUILD"));
+        ::setenv("SUB0SQUAD_BUILD_ID", "newer-build", 1);
+    }
     // reading is never refused: status and ping work across builds
     CHECK_EQ(sq.cli({"status"}).exitCode, 0);
     CHECK_EQ(sq.cli({"ping"}).exitCode, 0);
@@ -105,6 +114,21 @@ int main(int, char** argv)
         const Result reader = cliAll(sq, {"process", "add", "broken", "--without", "build"});
         CHECK(reader.exitCode != 0 && contains(reader.out, "--without build") && contains(reader.out, "stage 'integrate': entry"));
         CHECK(contains(sq.cli({"process", "tools"}).out, "harness:integrate"));
+        // The mends table: listed; a workflow's own table is checked at submit, kept in its spec and written to its sandbox, where the gate reads it.
+        const std::string listed = sq.cli({"process", "mends"}).out;
+        CHECK(contains(listed, "undefined-contract-symbol") && contains(listed, "add-section") && contains(listed, "unused-entity") && contains(listed, "silence-unused"));
+        const fs::path own = sq.home() / "my-mends.json";
+        { std::ofstream(own) << "{\"schema\":\"mends-1\",\"mends\":[{\"name\":\"mine\",\"class\":\"M\",\"match\":[\"no member named '(\\\\w+)'\"],\"requires\":\"contract\",\"action\":\"add-section\",\"maxPerItem\":1,\"fixture\":\"none\"}]}\n"; }
+        CHECK_EQ(cliAll(sq, {"process", "mends", "--check", own.string()}).exitCode, 0);
+        const Result withMends = cliAll(sq, {"project", "submit", "--task", "custom", "--process", "two-jobs", "--mends", own.string()});
+        CHECK(withMends.exitCode == 0 && contains(withMends.out, "w-000003"));
+        CHECK_EQ(sq.cli({"project", "wait", "w-000003", "--timeout", "60"}).exitCode, 0);
+        CHECK(contains(slurp(state / "workflows" / "w-000003" / "mends.json"), "\"name\":\"mine\""));
+        const fs::path wrong = sq.home() / "wrong-mends.json";
+        { std::ofstream(wrong) << "{\"schema\":\"mends-1\",\"mends\":[{\"name\":\"x\",\"match\":[\"a(b)\"],\"requires\":\"contract\",\"action\":\"run-shell\"}]}\n"; }
+        const Result refused = cliAll(sq, {"project", "submit", "--task", "custom", "--process", "two-jobs", "--mends", wrong.string()});
+        CHECK(refused.exitCode != 0 && contains(refused.out, "action 'run-shell' is not a mend action"));
+        CHECK(cliAll(sq, {"process", "mends", "--check", wrong.string()}).exitCode != 0);
     }
 
     // archive: refused while the daemon runs (its journal is open) ...

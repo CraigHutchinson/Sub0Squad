@@ -62,6 +62,22 @@ std::string signatureOfLine(std::string line)
     return line;
 }
 
+/// The innermost NAMED namespace open before line `index` (0-based): braces are counted from the top, and namespaces nest (an anonymous one inside
+/// `namespace calc` closes without closing `calc`).
+std::string namespaceBefore(const std::vector<std::string>& v, std::size_t index)
+{
+    std::vector<std::pair<std::string, int>> open;   // (name, the depth it was opened at)
+    int depth = 0;
+    for (std::size_t i = 0; i < index && i < v.size(); ++i) {
+        const std::string& l = v[i];
+        if (l.rfind("namespace", 0) == 0 && l.find('{') != std::string::npos) { std::string name = l.substr(9, l.find('{') - 9); open.emplace_back(trimmed(name), depth); }
+        for (const char c : l) { if (c == '{') ++depth; else if (c == '}') --depth; }
+        while (!open.empty() && depth <= open.back().second) open.pop_back();
+    }
+    for (auto it = open.rbegin(); it != open.rend(); ++it) if (!it->first.empty()) return it->first;
+    return {};
+}
+
 /// The index (0-based) of the line before which a function is added: the last column-0 `}` when the file opens `namespace scope`, else the end.
 std::size_t insertionLine(const std::vector<std::string>& v, const std::string& scope, bool python)
 {
@@ -95,15 +111,7 @@ std::vector<ContractFunction> contractFunctions(const std::string& path, const s
         if (python) { if (decl.find_first_not_of(" \t") != 0 || f.name[0] == '_' || line.rfind("class ", 0) == 0) continue; }
         else if (line.rfind("static ", 0) == 0 || f.name == "main" || line.rfind("class ", 0) == 0 || line.rfind("struct ", 0) == 0 || line.rfind("namespace", 0) == 0) continue;
         if (std::any_of(out.begin(), out.end(), [&](const ContractFunction& e) { return e.name == f.name; })) continue;
-        if (!python) {   // the namespace still open where the function starts: braces are counted from the top of the stub
-            int depth = 0, openedAt = -1;
-            for (int i = 0; i < r.first - 1; ++i) {
-                const std::string& l = v[static_cast<std::size_t>(i)];
-                if (l.rfind("namespace ", 0) == 0 && l.find('{') != std::string::npos) { f.scope = l.substr(10, l.find_first_of(" {", 10) - 10); openedAt = depth; }
-                for (const char c : l) { if (c == '{') ++depth; else if (c == '}') --depth; }
-                if (openedAt >= 0 && depth <= openedAt) { f.scope.clear(); openedAt = -1; }
-            }
-        }
+        if (!python) f.scope = namespaceBefore(v, static_cast<std::size_t>(r.first) - 1);
         f.signature = signatureOfLine(decl);
         for (const auto& header : headers)
             for (const auto& hl : linesOf(header)) {
@@ -173,6 +181,15 @@ std::string withStubFunction(const std::string& text, const std::string& path, c
         v.insert(last == v.size() ? v.begin() : v.begin() + static_cast<std::ptrdiff_t>(last) + 1, "#include <stdexcept>");
     }
     return joined(v);
+}
+
+std::string prototypeScope(const std::string& text, const std::string& name)
+{
+    const std::string proto = prototypeOf(text, name);
+    if (proto.empty()) return {};
+    const auto v = linesOf(text);
+    for (std::size_t i = 0; i < v.size(); ++i) if (signatureOfLine(v[i]) == proto && trimmed(v[i]).back() == ';') return namespaceBefore(v, i);
+    return {};
 }
 
 std::string prototypeOf(const std::string& text, const std::string& name)

@@ -1,3 +1,9 @@
+> **Read this first (2026-11-14).** This document is the ORIGINAL design (2026-11-09) and is kept as the record of the reasoning. It has not been revised as
+> the code grew, so where it differs from the code, the code and these documents are right: `docs/ITERATION_PROGRESS.md` (what is built and proven),
+> `docs/PROCESS_DESIGN.md` sections 13 and 14 (workflows as stages of data; self-mending), `docs/CANVAS.md` (the canvas and forked sections),
+> `docs/COMPONENTS.md` (layers), `docs/INTERVENTIONS.md` (every defect found and its mend). Not in this document at all: processes and stages, the predicate
+> language, the mends table, the fork executor, contract-first sections, the build id check, capacity classes.
+
 > **Origin:** moved here from Sub0Llm (`docs/design/AGENT_WORKER_FRAMEWORK.md`, branch `docs/agent-worker-framework`) on
 > 2026-11-09 when the framework became its own project. **This copy is now the source of truth**; the Sub0Llm copy is to be
 > reduced to a pointer once this project has a remote. References to `#NN` tickets are Sub0Llm issues until this project has

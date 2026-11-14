@@ -2,6 +2,7 @@
 
 #include "cmd_archive.hpp"
 #include "cmd_process.hpp"
+#include "sub0squad/mends.hpp"
 #include "sub0squad/build_id.hpp"
 
 #include "json_util.hpp"
@@ -80,11 +81,12 @@ constexpr const char* kUsage =
     "  status [ID] [--json]                 jobs and progress (works without the daemon, from the journal)\n"
     "  logs ID [--stderr] [--follow] [--run N]\n"
     "  cancel ID | resume ID | wait ID [--timeout SEC] | ping | stop\n"
+    "  check                                make the daemon run its watchers now (memory pressure, then admission) instead of at its next timer; `ping` changes nothing\n"
     "  archive [--label TEXT]               set the finished runs aside (state -> archive/<UTC time>[-label]/state) and leave a fresh, empty state; the daemon must be stopped\n"
     "  every submit (submit, do, project submit) is refused when the running daemon is another build of this program: restart it, or pass --allow-build-mismatch\n"
     "  do \"<task in words>\" [project options]   triage first, then run: a known blueprint starts at once, otherwise a needs-plan.md handoff is written\n"
     "  project submit --task calculator-web|calculator-cpp|calculator-py (any blueprint of a registered harness starts at once) [--sandbox DIR] [--inject ITEM[:N]]... [--max-local N]\n"
-    "         [--agent mock|llm] [--engine NAME=http://127.0.0.1:PORT/v1[,model=..][,ctx=N][,slots=N]]... [--engine-for PERSONA=NAME]... [--max-tokens N] [--treatment baseline|index|planfirst] [--executor session|canvas|fork] [--process NAME] [--repair-turns N] [--size-budget TOKENS] [--fallback-engine NAME] [--ask]\n"
+    "         [--agent mock|llm] [--engine NAME=http://127.0.0.1:PORT/v1[,model=..][,ctx=N][,slots=N]]... [--engine-for PERSONA=NAME]... [--max-tokens N] [--treatment baseline|index|planfirst] [--executor session|canvas|fork] [--process NAME] [--mends FILE (a mends-1 table of this workflow's own, merged over the built-in one: `process mends`)] [--repair-turns N] [--size-budget TOKENS] [--fallback-engine NAME] [--ask]\n"
     "  project plan ID --file plan.json     supply the plan a workflow is awaiting (the deferred architect's answer)\n"
     "  request list [WF] | raise WF --kind K [--scope a,b] [--blocking] [--title T] [--detail D] [--option O]... | answer WF RID [--resolution retry|stop] [--answer TEXT]\n"
     "                                       the inbox: questions, clarifications, requirements, blockers, proposals, escalations\n"
@@ -531,6 +533,13 @@ int parseWorkflowFlags(int argc, char** argv, int from, WorkflowSpec& spec)
         else if (a == "--ask") spec.ask = true;
         else if (a == "--fallback-engine") spec.fallbackEngine = val();
         else if (a == "--max-tokens") spec.maxTokens = std::atoi(val().c_str());
+        else if (a == "--mends") {
+            const std::string file = val();
+            std::string text = slurpFile(file);
+            while (!text.empty() && (text.back() == '\n' || text.back() == ' ')) text.pop_back();
+            if (auto t = parseMends(text); !t) { std::fprintf(stderr, "--mends %s: %s\n", file.c_str(), text.empty() ? "cannot read the file" : t.error().c_str()); return 2; }
+            spec.mends = text;
+        }
         else if (a == "--treatment") spec.treatment = val();
         else if (a == "--executor") spec.executor = val();
         else if (a == "--process") {
@@ -880,6 +889,7 @@ int runCli(int argc, char** argv)
         return simpleCommand(paths, cmd.c_str(), argv[2], true);
     }
     if (cmd == "ping") return simpleCommand(paths, "ping", "", true);
+    if (cmd == "check") return simpleCommand(paths, "check", "", true);
     if (cmd == "stop") return simpleCommand(paths, "shutdown", "", false);
     std::fputs(kUsage, stderr);
     return 2;

@@ -393,7 +393,7 @@ const BlockDef kBlocks[] = {
     {6, "parallel sections", "here", "sub0squad block run --block 6   (model-free harness; the real measurement: docs/BLOCK_PROVING_GROUNDS.md, block 6 commands)"},
     {7, "section integration", "not built", "the seam scenario (docs/BLOCK_PROVING_GROUNDS.md)"},
     {8, "division", "not built", "the division validator over known divisions"},
-    {9, "decision policy and the ladder", "by ctest", "ctest -R test_workflow   (golden decision logs not recorded)"},
+    {9, "decision policy and the ladder", "by ctest", "ctest -R test_workflow   (golden logs: every decision of 33 scenarios is in tests/data/actions and compared byte for byte)"},
     {10, "process as data", "by ctest", "ctest -R 'test_predicate|test_process|test_workflow'   (stages as data; the goldens of the engine before the refactor are reproduced: docs/PROCESS_DESIGN.md section 13)"},
     {11, "the whole on a platform", "needs model", "a workflow run with --frontier off on the 35B"},
     {12, "the whole at scale", "needs model", "docs/KNOWLEDGE_STORE_SCOPE.md"},

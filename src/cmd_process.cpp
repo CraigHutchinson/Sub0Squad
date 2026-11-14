@@ -1,5 +1,6 @@
 #include "cmd_process.hpp"
 
+#include "sub0squad/mends.hpp"
 #include "sub0squad/process.hpp"
 
 #include <cstdio>
@@ -15,7 +16,7 @@ int runProcessCommand(const std::vector<std::string>& args, const fs::path& stat
 {
     const fs::path dir = stateDir / "processes";
     const auto usage = [] {
-        std::fputs("process list | show NAME | tools | check FILE\n"
+        std::fputs("process list | show NAME | tools | check FILE | mends [--json | --check FILE]\n"
                    "process add NAME [--from BASE] [--without STAGE]... [--set STAGE.PARAMETER=VALUE]... [--describe TEXT]\n"
                    "process add NAME --file FILE\n"
                    "  a process is a workflow as data: an ordered list of stages. A stage of kind `job` runs one registered tool (`process tools`); the stage of kind\n"
@@ -27,6 +28,7 @@ int runProcessCommand(const std::vector<std::string>& args, const fs::path& stat
     };
     if (args.empty()) return usage();
     const std::string& sub = args[0];
+    const auto readText = [](const std::string& path) { std::ifstream in(path, std::ios::binary); std::stringstream ss; ss << in.rdbuf(); std::string t = ss.str(); while (!t.empty() && (t.back() == '\n' || t.back() == ' ')) t.pop_back(); return t; };
     if (sub == "list") {
         for (const auto& name : processNames(dir)) {
             const auto p = findProcess(name, dir);
@@ -39,6 +41,22 @@ int runProcessCommand(const std::vector<std::string>& args, const fs::path& stat
         const auto p = findProcess(args[1], dir);
         if (!p) { std::fprintf(stderr, "%s\n", p.error().c_str()); return 1; }
         std::printf("%s\n", p->toJson().c_str());
+        return 0;
+    }
+    if (sub == "mends") {   // the self-mending table: which known errors the harness repairs itself, and how (mends.hpp)
+        if (args.size() >= 3 && args[1] == "--check") {
+            const auto t = readText(args[2]);
+            const auto parsed = parseMends(t);
+            if (t.empty() || !parsed) { std::fprintf(stderr, "%s: %s\n", args[2].c_str(), t.empty() ? "cannot read the file" : parsed.error().c_str()); return 1; }
+            std::printf("%s: %zu mend(s), valid; use it with `project submit --mends %s`\n", args[2].c_str(), parsed->size(), args[2].c_str());
+            return 0;
+        }
+        if (args.size() >= 2 && args[1] == "--json") { std::fputs(builtinMendsJson().c_str(), stdout); return 0; }
+        for (const Mend& m : builtinMends()) {
+            std::printf("%-28s %-15s requires %-9s at most %d per item   (fixture %s)\n", m.name.c_str(), m.action.c_str(), m.requires_.c_str(), m.maxPerItem, m.fixture.c_str());
+            for (const auto& p : m.match) std::printf("    first error matches: %s\n", p.c_str());
+        }
+        std::printf("a process turns mends off with build.leaf.mends.enabled=false or lists names in leaf.mends.disabled; a workflow adds its own with --mends FILE (`process mends --json` is the format)\n");
         return 0;
     }
     if (sub == "tools") {

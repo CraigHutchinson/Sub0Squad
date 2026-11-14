@@ -3,7 +3,30 @@
 Branch `worktree-agent-a507f5df083b20ce3`, from tag `parked-v1`. Newest state first. Every "passes" below was observed in `out/build/fable`, run sequentially under a
 process cap; nothing here has run on a real model.
 
-## WHERE IT STANDS (2026-11-14, fifth pass: self-healing, from run-v10)
+## WHERE IT STANDS (2026-11-14, sixth pass: "complete all the major work"; read this first)
+
+The owner's list of six groups is NOT complete. Done and committed in this pass, each with tests:
+* **Group 1:** row 64 (a) routing of a failing test by the message it raised; `process mends`; `project submit --mends FILE` (a workflow's own table, in its
+  spec, written to its sandbox); the portal's `healed` / `mending` text; the missing mend tests at the executor (Python `add-section`, the put-back of removed
+  sections, `helper-never-defined`), which found and fixed a nested-namespace bug. Rows 10, 12 and 25 got no table entry, for the reasons in
+  `docs/PROCESS_DESIGN.md` section 14 (limits, point 6).
+* **Group 2:** `up` warns when the running daemon is another build; row 22 (a `ping` runs the memory watcher's check, so the shed test waits on no timer);
+  row 19 (capacity classes: structural jobs without a lease have a reserve of two job slots, and go first among startable jobs).
+* **Group 6:** block 9's golden decision logs are the action goldens (33 scenarios, mend decisions included).
+
+**Full suite:** `ctest -j1` under a process cap at `2166544`: **28 of 28 pass** (observed, with the lead session's real run loading the host). The commit after it changes documents only.
+
+**NOT done (in the owner's order), nothing started unless said:**
+* Group 2: rows 25/26 beyond what row 64 (a) quotes; the six remaining scenarios of `docs/SCENARIOS.md`.
+* Group 3: components cleanup (split `test_workflow.cpp`, `client.cpp`, `portal.cpp`; one CMake library per layer). `KNOWN_VIOLATIONS` is empty and layering passes.
+* Group 4: `DESIGN.md`, `M1_PLAN.md`, `WORK_GRAPH.md` section 23 and `SCENARIOS.md` now carry a dated note that says what superseded them and where the present is described; they were NOT rewritten. No sweep for legacy and dead code was made.
+* Group 5: the planning stage that asks clarifying questions through the inbox; `sub0squad wizard`.
+* Group 6: block 7 (section integration seams); the final docs consistency pass.
+
+**Resume:** the commands at the end of the fourth-pass section below still apply. Two helper scripts used in this pass are not in the repository; they only
+wrap: `. scripts/dev-env.sh; nice cmake --build out/build/fable -j2`, then `ulimit -u <threads + 800>; ctest --test-dir out/build/fable -j1 [-R regex]`.
+
+## Fifth pass (2026-11-14): self-healing, from run-v10
 
 **Built and committed** (each with tests; design: `docs/PROCESS_DESIGN.md` section 14; findings: catalogue rows 59 to 64):
 * **Prevent (row 59):** a fork's sections start from the CONTRACT (what the harness's own stub of the file defines): the harness declares every contract
@@ -16,7 +39,7 @@ process cap; nothing here has run on a real model.
 * **Found on the way:** the gate's line clipping cut the captured name under a long path and silently disabled the mend (row 63, fixed); the uncalled-function
   removal deleted `tokenize` in run-v10 because its caller was the missing function (row 62).
 
-**Full suite:** FULLSUITE
+**Full suite:** `ctest -j1` under a process cap at `ab73f11` plus the `mend-apply` unit test: **28 of 28 pass** (observed twice; the lead session saw the same at the merge `4981693`).
 
 **Not done, stated:** routing a failing test to the section that owns the behaviour (row 64: designed, not built); the portal page does not show `healed`
 (the status JSON does); no command installs a per-workflow mends table; Python `add-section` and `helper-never-defined` have no end-to-end test; the put-back

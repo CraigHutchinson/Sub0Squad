@@ -5,6 +5,7 @@
 
 #include <set>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace sub0squad {
@@ -71,6 +72,21 @@ struct Decision
 /// never at or under the soft budget; in between only when the time saved on the critical path, `estimate x (1 - 1/parallelism)` with the parallelism the
 /// engine's idle slots allow (at most 4), is more than the division costs. On a slow engine this is nearly the ceiling alone; on a fast one it divides
 /// more. An unknown engine state counts as no spare capacity.
+/// Capacity classes of the daemon's job slots (catalogue row 19). A workflow's STRUCTURAL jobs (everything that is not an agent's attempt: gates, the planner,
+/// integration, the architect) decide what the workers do next, and most of them are short and need no engine. Queued behind workers that hold every job
+/// slot for an hour each, a ten-second gate kept an accepted item from being accepted and its dependants from starting.
+///   * a structural job that holds no engine lease may use one of `kStructuralReserve` slots of its own, beyond `--max-jobs`;
+///   * among the jobs that may start, structural ones go first (so the architect gets the next free engine slot), then the oldest.
+/// It is a reserve and an order, not strict priority: a running worker is never stopped for a structural job.
+/// Decided (lead, 2026-11-14): the reserve stays two slots, and a job that needs the engine (the architect) gets NO reserved engine slot: for it the class
+/// is an order only.
+inline constexpr int kStructuralReserve = 2;
+/// Whether a job is structural: it belongs to a workflow and its step is not an agent's attempt.
+[[nodiscard]] bool isStructuralJob(std::string_view workflow, std::string_view role);
+/// Whether a queued job may start now. `structuralUnleased`: the candidate is structural and holds no lease. `activeNormal`: running jobs that count against
+/// `maxJobs` in the ordinary way; `activeReserved`: running structural jobs without a lease.
+[[nodiscard]] bool admitsJob(bool structuralUnleased, int activeNormal, int activeReserved, int maxJobs);
+
 [[nodiscard]] bool shouldDivide(long estimate, long softBudget, long ceiling, int idleSlots, int totalSlots, long divisionCost = 2700);
 
 /// Which slot of a lease a starting job takes: the one its node used last time when it is free (the server keeps that slot's cache, so a retry

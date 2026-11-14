@@ -620,15 +620,24 @@ harness whatever the model listed, a resumed canvas that lacks one gets it as a 
 4. `project status --json` shows per item `mends` (applied) and `healed` (applied, and the item is now accepted).
 
 **In a process file** (items stage, `leaf`): `contractSections` (default true; false only reproduces the defect), `mends.enabled` (default true),
-`mends.disabled` (a list of mend names). **Adding a mend** is a table, not a process parameter: `<workflow>/mends.json` (same schema) is merged over the
+`mends.disabled` (a list of mend names). **A process file can only DISABLE mends** (all of them, or by name); it cannot add or change one (decided by the
+lead, 2026-11-14). **A workflow's own mends are installed with `sub0squad project submit --mends FILE`** (a `mends-1` table, checked at submit, kept in the
+workflow's spec and written to its sandbox). **Adding a mend** is therefore a table, not a process parameter: `<workflow>/mends.json` (same schema) is merged over the
 built-in table by the gate, a mend of the same name replacing the built-in one. This departs from "a process file can add mends": a mend is a pattern, a
 requirement and an action, which the flat parameter table of a stage does not hold; the per-workflow registry file of section 4.1 does.
 
-**Limits, stated:** (1) no command copies a mends table into a workflow, and the per-workflow table is covered by the merge's unit test only, not through a
-daemon; (2) `silence-unused` is C and C++ only; (3) the Python side of `add-section` is unit-tested (contract, stub, matcher) but not end to end; (4)
-`helper-never-defined` and the put-back of removed sections have no end-to-end fixture; (5) the portal page does not show `healed` yet (the status JSON it
-reads has it); (6) the ledger has no learned entries: every mend is hand-written from a catalogue row, and `maxPerItem` is the only feedback; (7) routing a
-failing TEST to the section that owns the behaviour (row 64) is not built.
+**Added in the sixth pass:** `sub0squad process mends [--json | --check FILE]` lists and checks tables; `project submit --mends FILE` puts a workflow's own
+table into its spec (so the journal has it) and the daemon writes it to the sandbox for the gate; the portal shows `healed` and `mending` on an item. A failing
+TEST is routed by the message it raised (row 64 a): the section whose own string literal occurs in the failure line owns it, in any assembly round, with the
+line quoted (`sectionsOwningFailure`). Tested at the executor: the Python `add-section` from the gate's real import error, the put-back of a removed helper,
+and `helper-never-defined` (which found that a prototype's namespace was lost behind a nested anonymous namespace: namespaces are now tracked as a stack).
+
+**Limits, stated:** (1) `silence-unused` is C and C++ only; (2) the per-workflow table reaches the sandbox through a daemon (`test_archive`) but no test makes
+a gate MATCH a workflow-added mend end to end; (3) the portal's badge is not covered by a test; (4) the ledger has no learned entries: every mend is
+hand-written from a catalogue row, and `maxPerItem` is the only feedback; (5) a failing test with a wrong VALUE and no message (row 64 b) has no owner and
+still goes to the sections the text names, else to all; (6) rows 10 and 12 are mended where they arise (`completeDivision`, at division acceptance), so they
+have no table entry; row 25 is a contract defect (a name the tests import that the contract does not declare), which the ladder's `rearchitect` is right
+for: it is mechanical only when the name IS in the contract, and that case is `undefined-contract-symbol`.
 
 ## 10. Migration after the slice
 

@@ -36,6 +36,9 @@ struct WorkflowSpec
     std::string executor;
     /// The process this workflow runs (docs/PROCESS_DESIGN.md): resolved when the workflow is submitted and kept in the spec, so the journal says what ran.
     Process process = standardProcess();
+    /// A mends table of this workflow's own (`mends-1` JSON, mends.hpp), "" for none: kept in the spec so the journal says which mends could apply, and
+    /// written by the daemon to `<sandbox>/mends.json`, where the gate merges it over the built-in table.
+    std::string mends;
     std::string treatment = "baseline";           ///< prompt treatment of llm agents: baseline | index | planfirst (see docs/OPTIMIZATION.md)
     int repairTurns = 2;                          ///< extra turns an llm agent takes to run the tests and fix failures before it says done
     int sizeBudget = 1800;                        ///< estimated completion tokens above which an item that has tests is divided BEFORE the first attempt (0 = never)

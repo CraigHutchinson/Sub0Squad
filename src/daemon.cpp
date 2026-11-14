@@ -66,9 +66,19 @@ void Daemon::Impl::handle(Client& c, const std::string& text)
     if (req->version != 1) { send(c, errorReply("protocol version " + std::to_string(req->version) + " not supported (daemon speaks 1)")); return; }
     const std::string& cmd = req->cmd;
     if (cmd == "ping") {
+        // Pure: a ping reads and answers, it never changes anything (the watchers are run by `check`).
         json::Writer w;
         w.beginObject().kvBool("ok", true).kv("v", 1).kv("pid", static_cast<std::int64_t>(::getpid())).kv("maxJobs", opts.maxJobs)
             .kvBool("journalOk", journalOk).kv("build", buildId()).endObject();
+        send(c, w.take());
+    } else if (cmd == "check") {
+        // Run the watchers NOW (what the timer does every 1 to 5 seconds: the memory watcher's shed decision, then admission) and answer after them, so
+        // their decisions can be observed without waiting on a clock (catalogue row 22: the shed test waited up to 12 s for a 5 s timer on a loaded host).
+        const int before = activeCount();
+        shedIfPressured();
+        scheduleQueued();
+        json::Writer w;
+        w.beginObject().kvBool("ok", true).kv("activeBefore", before).kv("active", activeCount()).endObject();
         send(c, w.take());
     } else if ((cmd == "submit" || cmd == "workflowSubmit") && !req->build.empty() && req->build != buildId() && !req->allowBuildMismatch) {
         // Row 20: the daemon is still the binary it was started from. Work submitted by a newer (or older) command line would run on this one and be read as that one's.

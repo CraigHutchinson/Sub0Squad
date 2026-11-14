@@ -104,7 +104,11 @@ void Daemon::Impl::scheduleQueued()
     if (stopping || !journalOk) return;
     if (underPressure()) return;  // admit nothing while memory is short; the periodic check retries
     for (;;) {
-        if (activeCount() >= opts.maxJobs) return;
+        // Capacity classes (row 19, policy.hpp): structural jobs without an engine lease have a small reserve of their own beyond --max-jobs.
+        const auto reservedClass = [](const JobSpec& s) { return isStructuralJob(s.workflow, s.role) && s.leaseResource.empty(); };
+        int activeReserved = 0;
+        for (const auto& [id, r] : running) if (!r->finalized) if (const JobRecord* jr = store.find(id); jr && !jr->spec.service && reservedClass(jr->spec)) ++activeReserved;
+        const int activeNormal = activeCount() - activeReserved;
         // Lease occupancy of the jobs that are running now: a queued job whose shared resource (an engine's slots) is full waits
         // without blocking later jobs that need nothing or a different resource.
         std::map<std::string, std::int64_t> held;
@@ -118,7 +122,9 @@ void Daemon::Impl::scheduleQueued()
         for (const auto& j : store.jobs()) {
             if (j.state != JobState::queued || running.count(j.id)) continue;
             if (!j.spec.leaseResource.empty() && held[j.spec.leaseResource] >= std::max<std::int64_t>(1, j.spec.leaseCap)) continue;
-            if (!next || j.submittedAt < next->submittedAt) next = &j;
+            if (!j.spec.service && !admitsJob(reservedClass(j.spec), activeNormal, activeReserved, opts.maxJobs)) continue;
+            const bool structural = isStructuralJob(j.spec.workflow, j.spec.role), nextStructural = next && isStructuralJob(next->spec.workflow, next->spec.role);
+            if (!next || (structural && !nextStructural) || (structural == nextStructural && j.submittedAt < next->submittedAt)) next = &j;
         }
         if (!next) return;
         int idx = -1;

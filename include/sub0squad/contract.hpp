@@ -39,4 +39,7 @@ struct ContractFunction
 /// The declaration of `name` in `text` as a signature (`static double helper(int x)`): its prototype line without the `;`. "" when there is none.
 [[nodiscard]] std::string prototypeOf(const std::string& text, const std::string& name);
 
+/// The namespace open at the prototype of `name` in `text` ("" for none): where its definition belongs.
+[[nodiscard]] std::string prototypeScope(const std::string& text, const std::string& name);
+
 }  // namespace sub0squad

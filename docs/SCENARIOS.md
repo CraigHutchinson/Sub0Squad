@@ -63,6 +63,13 @@ so measure a scenario at the parallelism you intend to run with. One CPU-heavy j
 
 ## Next scenarios (not built)
 
+Status 2026-11-14: still not built as `scenario run` entries. Three of the six are, however, proven WITHOUT a model at the level below, by tests that drive the
+real executor or engine with a fake engine or recorded outcomes: *interface gap* (`test_heal`: an undefined contract function is mended by the harness, one
+`mend` decision, no `rearchitect`; `test_workflow` `interface-gap-rearchitects` for the ladder's rule), *reviseTests* (`test_workflow`
+`repeated-failure-sends-tests-back`), *integrate* (`test_fork`: assembly by routed findings; `test_workflow` `v-ascent`). *decompose*, *read-then-edit* and
+*length continuation* have unit tests (`test_workflow`, `test_agent`, `test_canvas_agent`) and no scenario. What a scenario adds, and these tests cannot, is a
+pass RATE on a real model: that needs the fixtures below and a model run.
+
 `interface-gap` (the gap is named, the rewritten card names every export, the next attempt passes), `decompose` (the architect's division is valid and covers every
 file), `reviseTests` (a disputed tester fixes the wrong expectation and agrees with the reference), `read-then-edit` (a draft too large to show whole; reads used),
 `integrate` (a coordinator's tests over merged parts), and a timeout/length scenario (the reply is cut off and continued). The knowledge store (docs/KNOWLEDGE_STORE.md)

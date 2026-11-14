@@ -26,7 +26,9 @@ std::string WorkflowSpec::toJson() const
     for (const auto& e : engines) w.str(e);
     w.endArray().key("route").beginObject();
     for (const auto& [persona, name] : route) w.kv(persona, name);
-    w.endObject().endObject();
+    w.endObject();
+    if (!mends.empty()) w.kvRaw("mends", mends);
+    w.endObject();
     return w.take();
 }
 
@@ -54,6 +56,7 @@ std::expected<WorkflowSpec, std::string> WorkflowSpec::fromJson(std::string_view
                     s.process = std::move(*p);
                 }
                 else if (k == "repairTurns") s.repairTurns = static_cast<int>(v.get_int64());
+                else if (k == "mends") { std::string_view r = v.raw_json(); s.mends.assign(r); if (auto t = parseMends(s.mends); !t) throw std::runtime_error(t.error()); }
                 else if (k == "sizeBudget") s.sizeBudget = static_cast<int>(v.get_int64());
                 else if (k == "maxTokens") s.maxTokens = static_cast<int>(v.get_int64());
                 else if (k == "ask") s.ask = v.get_bool();

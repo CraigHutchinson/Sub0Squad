@@ -277,5 +277,115 @@ int main()
         CHECK(sawRouted);
         CHECK(stats.find("\"targeted\":2") != std::string::npos && stats.find("\"rounds\":2") != std::string::npos);   // two targeted sessions in assembly: term, unary
     }
+    {   // Row 64: a failing test that names no function is routed by the MESSAGE it raised: the section that holds that text owns it. run-v10 attempt 6's gate.
+        const std::string gate = "GATE FAIL: 4 of 17 tests failed\nFAIL 9 - unary_minus_precedence: CHECK_NEAR failed: calc::evaluate(\"-2 ^ 2\") ~ -4.0\n  the test expected -4 but the code gave 4 (eval.test.cpp:51)\n"
+                                 "FAIL 11 - decimals_and_constants: unexpected exception: Expected '(' after function name\nFAIL 14 - logarithms: unexpected exception: Expected '(' after function name\nFAIL 15 - math_functions: unexpected exception: Unknown function: sinh\n";
+        const std::vector<std::pair<std::string, std::string>> sections = {
+            {"parsePrimary", "static double parsePrimary(It& pos, It end)\n{\n    if (pos == end) throw std::runtime_error(\"Expected '(' after function name\");\n    return 0;\n}\n"},
+            {"applyFunc", "static double applyFunc(const std::string& name, double x)\n{\n    throw std::runtime_error(\"Unknown function: \" + name);\n}\n"},
+            {"parseUnary", "static double parseUnary(It& pos, It end)\n{\n    if (*pos == \"-\") return -parseUnary(++pos, end);\n    return parsePostfix(pos, end);\n}\n"},
+            {"tokenize", "#include \"calc/calc.hpp\"\nstatic std::vector<Token> tokenize(const std::string& expr)\n{\n    throw std::runtime_error(\"bad\");\n}\n"}};
+        const auto owners = sectionsOwningFailure(gate, sections);
+        CHECK_EQ(owners.size(), static_cast<std::size_t>(2));                                           // three of the four failures have an owner; the wrong VALUE has none
+        CHECK(owners.count("parsePrimary") && owners.at("parsePrimary").find("FAIL 11") != std::string::npos && owners.at("parsePrimary").find("FAIL 14") != std::string::npos && owners.at("parsePrimary").find("FAIL 15") == std::string::npos);
+        CHECK(owners.count("applyFunc") && owners.at("applyFunc") == "FAIL 15 - math_functions: unexpected exception: Unknown function: sinh\n");
+        CHECK(!owners.count("parseUnary") && !owners.count("tokenize"));                                // a short literal ("-", "bad") and an include path own nothing
+        CHECK(sectionsOwningFailure("GATE PASS: x\n", sections).empty());
+    }
+    {   // The mend `add-section` on Python (rows 59 and 60): the file lacks `evaluate`; the gate's own text is the import error; the mend attempt keeps the
+        // file, adds the function with the contract's signature, and ONE session writes it.
+        const fs::path d = workflow("mend-py");
+        const std::string ref = reference();
+        std::string broken, evaluateText;
+        {
+            const auto v = lines(ref);
+            int from = 0, to = 0;
+            for (const auto& r : foldRegions(ref, true, true)) if (r.name == "evaluate") { from = r.first; to = r.bodyTo; }
+            CHECK(from > 0);
+            for (int k = 1; k <= static_cast<int>(v.size()); ++k) (k >= from && k <= to ? evaluateText : broken) += v[static_cast<std::size_t>(k) - 1] + "\n";
+        }
+        failedAttempt(d, 1, broken);
+        const std::string mend = slurp(attemptDir(d, 1) / "mend.json");
+        CHECK(mend.find("\"name\":\"undefined-contract-symbol\"") != std::string::npos && mend.find("\"symbol\":\"evaluate\"") != std::string::npos && mend.find(std::string{"\"file\":\""} + kFile + "\"") != std::string::npos);
+        if (mend.empty()) std::fprintf(stderr, "the Python gate reported no mend for:\n%s\n", slurp(attemptDir(d, 1) / "gate.txt").c_str());
+        fake::Engine engine([&](const fake::Request& rq, int) {
+            CHECK(rq.last().find("You own `evaluate`") != std::string::npos && rq.last().find("This function was MISSING from the file") != std::string::npos);
+            return fake::Reply{std::string{"=== EDIT: "} + kFile + " SYMBOL evaluate ===\n" + evaluateText + "=== END EDIT ===\n"};
+        });
+        CHECK_EQ(runLlmFork({"--workflow-dir", d.string(), "--item", kItem, "--attempt", "2", "--engine", engine.profile(), "--max-tokens", "3000", "--timeout", "60", "--repair-turns", "1", "--mend-section", "evaluate", "--mend-file", kFile}), 0);
+        CHECK_EQ(engine.requestCount(), static_cast<std::size_t>(1));
+        const std::string stats = slurp(attemptDir(d, 2) / "fork.json");
+        CHECK(stats.find("\"passed\":true") != std::string::npos && stats.find("\"resumedFrom\":1") != std::string::npos && stats.find("\"contractSections\":1") != std::string::npos);
+        CHECK(slurp(attemptDir(d, 2) / "out" / kFile).find("def evaluate(") != std::string::npos);
+        // a name that is neither in the contract nor declared has no signature: the mend refuses instead of guessing
+        CHECK_EQ(runLlmFork({"--workflow-dir", d.string(), "--item", kItem, "--attempt", "2", "--engine", engine.profile(), "--mend-section", "no_such_function", "--mend-file", kFile}), 2);
+        removeTree(d);
+    }
+    {   // The C++ mends end to end at the executor (real compiles): (1) `add-section` puts back a helper an earlier assembly removed as uncalled, because the
+        // new section calls it (row 62); (2) `helper-never-defined`: a prototype with no definition becomes a section, defined in the prototype's namespace.
+        const Harness* cpp = findHarness("cpp-cmake");
+        const std::string file = "src/calc.cpp", cref = cpp->mockFile(file, false);
+        const auto newDir = [&](const char* tag) {
+            const fs::path d = makeTempDir(tag);
+            CHECK_EQ(runMockPlanner({"--task", "calculator-cpp", "--out", (d / "plan.json").string()}), 0);
+            CHECK_EQ(runMockAgent({"--workflow-dir", d.string(), "--item", "test-engine", "--tier", "local", "--attempt", "1", "--delay-ms", "0"}), 0);
+            CHECK_EQ(cpp->gate({"--workflow-dir", d.string(), "--item", "test-engine", "--attempt", "1"}), 0);
+            return d;
+        };
+        std::string withoutEvaluate, evaluateText;
+        {
+            const auto v = lines(cref);
+            int from = 0, to = 0;
+            for (const auto& r : foldRegions(cref, false, true)) if (r.name == "evaluate") { from = r.first; to = r.bodyTo; }
+            CHECK(from > 0);
+            for (int k = 1; k <= static_cast<int>(v.size()); ++k) (k >= from && k <= to ? evaluateText : withoutEvaluate) += v[static_cast<std::size_t>(k) - 1] + "\n";
+        }
+        const auto withCall = [&](const std::string& call) { std::string t = evaluateText; t.insert(t.find("{\n") + 2, "    " + call + "\n"); return t; };
+        {   // (1) the put-back
+            const fs::path d = newDir("mend-putback");
+            const fs::path a1 = d / "items" / "dev-engine" / "attempt-1";
+            put(a1 / "out" / file, withoutEvaluate);
+            std::string older = withoutEvaluate;                                    // an earlier revision of the canvas still had the helper
+            older.insert(older.find("class Parser"), "static double spare(double x)\n{\n    return x * 2;\n}\n\n");
+            put(a1 / "canvas" / "src_calc.cpp.r3", older);
+            put(a1 / "canvas" / "src_calc.cpp.r4", withoutEvaluate);
+            put(a1 / "fork.json", "{\"failure\":\"tests\",\"sections\":[{\"name\":\"spare\",\"file\":\"src/calc.cpp\",\"symbol\":\"spare\",\"signature\":\"static double spare(double x)\",\"indent\":\"\",\"removed\":true}]}\n");
+            CHECK(cpp->gate({"--workflow-dir", d.string(), "--item", "dev-engine", "--attempt", "1", "--no-publish", "1"}) != 0);
+            CHECK(slurp(a1 / "mend.json").find("\"name\":\"undefined-contract-symbol\"") != std::string::npos);
+            fake::Engine engine([&](const fake::Request& rq, int) {
+                CHECK_EQ(ownerOf(rq), std::string("evaluate"));
+                CHECK(rq.last().find("static double spare(double x)") != std::string::npos);     // the section sees the helper that came back
+                return fake::Reply{"=== EDIT: " + file + " SYMBOL evaluate ===\n" + withCall("(void)spare(1.0);") + "=== END EDIT ===\n"};
+            });
+            CHECK_EQ(runLlmFork({"--workflow-dir", d.string(), "--item", "dev-engine", "--attempt", "2", "--engine", engine.profile(), "--max-tokens", "3000", "--timeout", "60", "--repair-turns", "1", "--mend-section", "calc::evaluate", "--mend-file", file}), 0);
+            const std::string merged = slurp(d / "items" / "dev-engine" / "attempt-2" / "out" / file);
+            CHECK(merged.find("static double spare(double x);\n") != std::string::npos && merged.find("static double spare(double x)\n{\n    return x * 2;\n}\n") != std::string::npos && merged.find("(void)spare(1.0);") != std::string::npos);
+            const std::string stats = slurp(d / "items" / "dev-engine" / "attempt-2" / "fork.json");
+            CHECK(stats.find("\"passed\":true") != std::string::npos && stats.find("\"mechanicalMends\":0") != std::string::npos);   // it is called now, so nothing removes it again
+            CHECK_EQ(engine.requestCount(), static_cast<std::size_t>(1));
+            removeTree(d);
+        }
+        {   // (2) a helper that is declared and used but never defined
+            const fs::path d = newDir("mend-helper");
+            const fs::path a1 = d / "items" / "dev-engine" / "attempt-1";
+            std::string text = cref;
+            text.insert(text.find(evaluateText), "static double twice(double x);\n\n");
+            text.replace(text.find(evaluateText), evaluateText.size(), withCall("(void)twice(1.0);"));
+            put(a1 / "out" / file, text);
+            CHECK(cpp->gate({"--workflow-dir", d.string(), "--item", "dev-engine", "--attempt", "1", "--no-publish", "1"}) != 0);
+            const std::string mend = slurp(a1 / "mend.json");
+            CHECK(mend.find("\"name\":\"helper-never-defined\"") != std::string::npos && mend.find("twice") != std::string::npos && mend.find("\"action\":\"add-section\"") != std::string::npos);
+            if (mend.empty()) std::fprintf(stderr, "the C++ gate reported no mend for:\n%s\n", slurp(a1 / "gate.txt").c_str());
+            fake::Engine engine([&](const fake::Request& rq, int) {
+                CHECK_EQ(ownerOf(rq), std::string("twice"));
+                return fake::Reply{"=== EDIT: " + file + " SYMBOL twice ===\nstatic double twice(double x)\n{\n    return x * 2;\n}\n=== END EDIT ===\n"};
+            });
+            CHECK_EQ(runLlmFork({"--workflow-dir", d.string(), "--item", "dev-engine", "--attempt", "2", "--engine", engine.profile(), "--max-tokens", "3000", "--timeout", "60", "--repair-turns", "1", "--mend-section", "calc::twice", "--mend-file", file}), 0);
+            const std::string stats = slurp(d / "items" / "dev-engine" / "attempt-2" / "fork.json");
+            CHECK(stats.find("\"passed\":true") != std::string::npos);
+            CHECK_EQ(engine.requestCount(), static_cast<std::size_t>(1));
+            removeTree(d);
+        }
+    }
     return finish();
 }
