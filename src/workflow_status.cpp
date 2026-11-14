@@ -1,7 +1,7 @@
 #include "sub0squad/workflow_status.hpp"
 
 #include "json_util.hpp"
-#include "sub0squad/harness_common.hpp"
+#include "sub0squad/attempt_failure.hpp"
 
 #include <filesystem>
 
@@ -63,7 +63,7 @@ std::string workflowStatusJson(const RuntimePaths& paths, const WorkflowStore& w
             std::string why;
             int whyAttempt = 0;
             if (it.status != "accepted")
-                for (int n = it.attempts; n >= 1 && why.empty(); --n) { why = harnessutil::attemptFailureJson(std::filesystem::path{wf.spec.sandboxDir} / "items" / it.id / ("attempt-" + std::to_string(n))); whyAttempt = n; }
+                for (int n = it.attempts; n >= 1 && why.empty(); --n) { why = attemptFailureJson(std::filesystem::path{wf.spec.sandboxDir} / "items" / it.id / ("attempt-" + std::to_string(n))); whyAttempt = n; }
             if (!why.empty()) w.endArray().kv("lastFailureAttempt", whyAttempt).kvRaw("lastFailure", why).key("healed").beginArray();
             else w.endArray().key("healed").beginArray();
             if (it.status == "accepted") for (const auto& d : wf.decisions) if (d.item == it.id && d.action == "mend") w.str(d.tier);

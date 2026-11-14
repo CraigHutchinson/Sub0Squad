@@ -8,6 +8,7 @@
 #include "sub0squad/contract.hpp"
 #include "sub0squad/fork.hpp"
 #include "sub0squad/harness.hpp"
+#include "sub0squad/attempt_failure.hpp"
 #include "sub0squad/harness_common.hpp"
 #include "sub0squad/mends.hpp"
 #include "sub0squad/outline.hpp"
@@ -222,10 +223,10 @@ int main()
                  std::string("Parser::Parser(const std::string& expr, bool degrees)\n    : expr_(e), pos_{0}, degrees_(d)\n{\n}\n"));
         // every failed attempt says why (row 72): the record round-trips, quotes and newlines included, and is gone when cleared
         const fs::path dir = makeTempDir("why");
-        harnessutil::recordAttemptFailure(dir, "agent", "format", "no reply was kept: 6 call(s)\nthe last refusal: too many arguments to function 'app::Result app::run(const std::string&)' \"x\"");
-        CHECK_EQ(harnessutil::attemptFailureJson(dir), std::string("{\"schema\":\"attempt-failure-1\",\"role\":\"agent\",\"kind\":\"format\",\"reason\":\"no reply was kept: 6 call(s)\\nthe last refusal: too many arguments to function 'app::Result app::run(const std::string&)' \\\"x\\\"\"}"));
-        harnessutil::clearAttemptFailure(dir);
-        CHECK(harnessutil::attemptFailureJson(dir).empty());
+        recordAttemptFailure(dir, "agent", "format", "no reply was kept: 6 call(s)\nthe last refusal: too many arguments to function 'app::Result app::run(const std::string&)' \"x\"");
+        CHECK_EQ(attemptFailureJson(dir), std::string("{\"schema\":\"attempt-failure-1\",\"role\":\"agent\",\"kind\":\"format\",\"reason\":\"no reply was kept: 6 call(s)\\nthe last refusal: too many arguments to function 'app::Result app::run(const std::string&)' \\\"x\\\"\"}"));
+        clearAttemptFailure(dir);
+        CHECK(attemptFailureJson(dir).empty());
         removeTree(dir);
     }
     // `mend-apply`, the job the engine starts for `silence-unused`: attempt N is attempt N-1's output with the one edit, everything else kept; a place the

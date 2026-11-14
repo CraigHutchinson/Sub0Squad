@@ -1,5 +1,7 @@
 #include "sub0squad/harness_common.hpp"
 
+#include "sub0squad/attempt_failure.hpp"
+
 #include "sub0squad/contract.hpp"
 #include "sub0squad/event_channel.hpp"
 #include "sub0squad/harness.hpp"
@@ -146,37 +148,6 @@ Tap parseTap(const std::string& out)
     }
     if (t.excerpt.empty() && !failures.empty()) t.excerpt = "FAIL " + failures.front().name + "\n";
     return t;
-}
-
-void recordAttemptFailure(const fs::path& attemptDir, const std::string& role, const std::string& kind, const std::string& reason)
-{
-    const auto escaped = [](const std::string& text) {
-        std::string out;
-        for (const char c : text) {
-            if (c == '"' || c == '\\') { out += '\\'; out += c; }
-            else if (c == '\n') out += "\\n";
-            else if (static_cast<unsigned char>(c) < 0x20) out += ' ';
-            else out += c;
-        }
-        return out;
-    };
-    std::string why = reason.substr(0, 700);
-    while (!why.empty() && (static_cast<unsigned char>(why.back()) & 0xC0) == 0x80) why.pop_back();   // never cut inside a UTF-8 sequence
-    if (!why.empty() && (static_cast<unsigned char>(why.back()) & 0x80) != 0 && why.size() == 700) why.pop_back();
-    writeFile(attemptDir / "failure.json", "{\"schema\":\"attempt-failure-1\",\"role\":\"" + escaped(role) + "\",\"kind\":\"" + escaped(kind) + "\",\"reason\":\"" + escaped(why) + "\"}\n");
-}
-
-void clearAttemptFailure(const fs::path& attemptDir)
-{
-    std::error_code ec;
-    fs::remove(attemptDir / "failure.json", ec);
-}
-
-std::string attemptFailureJson(const fs::path& attemptDir)
-{
-    std::string text = slurp(attemptDir / "failure.json");
-    while (!text.empty() && (text.back() == '\n' || text.back() == ' ')) text.pop_back();
-    return text;
 }
 
 void copyTree(const fs::path& from, const fs::path& to)

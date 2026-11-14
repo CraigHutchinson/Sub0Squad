@@ -3,7 +3,7 @@
 
 #include "daemon_impl.hpp"
 
-#include "sub0squad/harness_common.hpp"
+#include "sub0squad/attempt_failure.hpp"
 
 namespace sub0squad {
 
@@ -220,10 +220,10 @@ void Daemon::Impl::finalizeWith(const std::string& id, JobState state, const std
     if (job && state != JobState::succeeded && !job->spec.workflow.empty() && !job->spec.item.empty() && job->spec.attempt > 0)
         if (const WorkflowRecord* wf = wfStore.find(job->spec.workflow)) {
             const std::filesystem::path attemptDir = std::filesystem::path{wf->spec.sandboxDir} / "items" / job->spec.item / ("attempt-" + std::to_string(job->spec.attempt));
-            const std::string have = harnessutil::attemptFailureJson(attemptDir);
+            const std::string have = attemptFailureJson(attemptDir);
             const std::string role = job->spec.role == "gate" ? "gate" : job->spec.role == "agent" ? "agent" : job->spec.role;
             if (have.find("\"role\":\"" + role + "\"") == std::string::npos)
-                harnessutil::recordAttemptFailure(attemptDir, role, "exit", std::string{toString(state)} + (finalNote.empty() ? std::string{} : ": " + finalNote) + " (" + job->spec.tool + ")");
+                recordAttemptFailure(attemptDir, role, "exit", std::string{toString(state)} + (finalNote.empty() ? std::string{} : ": " + finalNote) + " (" + job->spec.tool + ")");
         }
     logf("job %s finished: %s (%s)", id.c_str(), std::string{toString(state)}.c_str(), note.c_str());
     auto it = running.find(id);

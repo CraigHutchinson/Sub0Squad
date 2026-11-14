@@ -4,6 +4,7 @@
 // then do the item's tests run. A rejected transaction changes nothing and says why; a commit that makes the tests worse is reverted. Reads are bounded,
 // a runaway reply is cancelled while it streams, a reply cut off at the token limit is continued by appending. Off by default (`--canvas 1`).
 #include "agent_impl.hpp"
+#include "sub0squad/attempt_failure.hpp"
 #include "sub0squad/harness_common.hpp"
 
 #include "sub0squad/canvas.hpp"
@@ -200,7 +201,7 @@ int runCanvasAttempt(const AttemptContext& a)
         if (!reply) {
             traceVerdict(tracePath, call, "the engine call failed: " + reply.error());
             std::fprintf(stderr, "llm-agent: engine call failed: %s\n", reply.error().c_str());
-            if (!haveFiles) { harnessutil::recordAttemptFailure(attemptDir, "agent", "engine", "the engine call of turn " + std::to_string(call) + " failed: " + reply.error()); return 2; }
+            if (!haveFiles) { recordAttemptFailure(attemptDir, "agent", "engine", "the engine call of turn " + std::to_string(call) + " failed: " + reply.error()); return 2; }
             break;
         }
         traceReply(tracePath, call, *reply);
@@ -352,13 +353,13 @@ int runCanvasAttempt(const AttemptContext& a)
     }
     if (!haveFiles) {
         std::fprintf(stderr, "llm-agent: no turn produced the requested files\n");
-        harnessutil::recordAttemptFailure(attemptDir, "agent", "format", "no reply was kept: " + std::to_string(calls) + " call(s), " + std::to_string(rejects) + " transaction(s) refused" + (sameRefusals >= 3 ? ", the same refusal three times running" : "") +
+        recordAttemptFailure(attemptDir, "agent", "format", "no reply was kept: " + std::to_string(calls) + " call(s), " + std::to_string(rejects) + " transaction(s) refused" + (sameRefusals >= 3 ? ", the same refusal three times running" : "") +
                                                                            (lastRefusal.empty() ? std::string{"; last finish "} + lastFinish : ". The last refusal: " + lastRefusal));
         return 3;
     }
     events::progress(a.repairTurns + 1, a.repairTurns + 1, "written");
     if (!verified && lastFinish == "length") {
-        harnessutil::recordAttemptFailure(attemptDir, "agent", "oversize", "the reply was cut off at the " + std::to_string(a.maxTokens) + " token limit and the item's tests do not pass: it does not fit one attempt");
+        recordAttemptFailure(attemptDir, "agent", "oversize", "the reply was cut off at the " + std::to_string(a.maxTokens) + " token limit and the item's tests do not pass: it does not fit one attempt");
         events::note("reply cut off at the token limit: the item is too big for one attempt");
         std::printf("size verdict: split (the reply was cut off at the %d token limit)\n", a.maxTokens);
         return 4;

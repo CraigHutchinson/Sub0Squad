@@ -45,16 +45,6 @@ struct Cmd { int exitCode = -1; bool timedOut = false; std::string output; };
 struct Tap { int tests = -1, pass = 0, fail = 0; std::string excerpt; std::string note; /* extra runner output shown when too few tests ran */ };
 [[nodiscard]] Tap parseTap(const std::string& out);
 
-/// WHY an attempt failed (catalogue row 72: a tester failed five attempts and nothing in its directory said why). `attempt-N/failure.json` is written by
-/// whoever knows: the agent on a failing exit (`role` "agent"; `kind` engine | format | oversize | skeleton | budget | sections-missing | compile |
-/// compile-outside-sections | tests), the gate job (`role` "gate", `kind` gate) and, when a job ended without either, the daemon (`kind` exit, with the
-/// exit record's note). `reason` is the evidence in a few lines. The status shows the latest attempt's record as the item's `lastFailure`.
-void recordAttemptFailure(const std::filesystem::path& attemptDir, const std::string& role, const std::string& kind, const std::string& reason);
-/// Remove the record (the attempt went on to pass).
-void clearAttemptFailure(const std::filesystem::path& attemptDir);
-/// The record as JSON text, "" when the attempt has none.
-[[nodiscard]] std::string attemptFailureJson(const std::filesystem::path& attemptDir);
-
 /// Recursive copy that overwrites; a missing source is not an error.
 void copyTree(const std::filesystem::path& from, const std::filesystem::path& to);
 /// Who built an ACCEPTED item (catalogue row 31: an item accepted by the frontier stub says nothing about the model): "model" (a model-driven attempt),

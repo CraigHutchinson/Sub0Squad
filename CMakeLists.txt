@@ -78,6 +78,7 @@ add_library(sub0squad_core STATIC
   src/policy.cpp
   src/predicate.cpp
   src/mends.cpp
+  src/attempt_failure.cpp
   src/contract.cpp
   src/scenario_compare.cpp
   src/build_id.cpp

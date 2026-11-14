@@ -1,4 +1,5 @@
 #include "agent_impl.hpp"
+#include "sub0squad/attempt_failure.hpp"
 #include "sub0squad/harness_common.hpp"
 
 #include "sub0squad/edits.hpp"
@@ -137,7 +138,7 @@ int runLlmAgent(const std::vector<std::string>& args)
         writeFile(dir / "items" / itemId / "attempt-1" / "gate.txt", "PLAN PHASE: not attempted. Estimated " + std::to_string(estimate) + " completion tokens for " + std::to_string(testCount) + " tests, over the budget of " + std::to_string(sizeBudget) + ". Divide the item so each part is small.\n");
         events::note("plan phase: estimated " + std::to_string(estimate) + " tokens against a budget of " + std::to_string(budget) + (capacity.empty() ? std::string{} : " (" + capacity + ")") + ": split before implementing");
         std::printf("size verdict: split (estimate %ld tokens for %ld tests, budget %ld; %s)\n", estimate, testCount, budget, capacity.empty() ? "capacity unknown" : capacity.c_str());
-        harnessutil::recordAttemptFailure(dir / "items" / itemId / "attempt-1", "agent", "oversize", "plan phase: not attempted; estimated " + std::to_string(estimate) + " completion tokens against a budget of " + std::to_string(budget));
+        recordAttemptFailure(dir / "items" / itemId / "attempt-1", "agent", "oversize", "plan phase: not attempted; estimated " + std::to_string(estimate) + " completion tokens against a budget of " + std::to_string(budget));
         return 4;
     }
     const std::string executor = arg(args, "executor", "session");
@@ -231,7 +232,7 @@ int runLlmAgent(const std::vector<std::string>& args)
         if (!reply) {
             traceVerdict(tracePath, turn, "the engine call failed: " + reply.error());
             std::fprintf(stderr, "llm-agent: engine call failed: %s\n", reply.error().c_str());
-            if (!haveFiles) { harnessutil::recordAttemptFailure(attemptDir, "agent", "engine", "the engine call of turn " + std::to_string(turn) + " failed: " + reply.error()); return 2; }
+            if (!haveFiles) { recordAttemptFailure(attemptDir, "agent", "engine", "the engine call of turn " + std::to_string(turn) + " failed: " + reply.error()); return 2; }
             break;  // keep the files of the earlier turn
         }
         ++turns;
@@ -404,7 +405,7 @@ int runLlmAgent(const std::vector<std::string>& args)
     std::printf("done after %d turn(s): %sself-check %s, finish=%s, %zu file(s), %zu rejected chars\n", turns, stagnated ? "stagnated, " : "", verified ? "passed" : "not passed", lastFinish.c_str(), lastFiles, lastRejected);
     if (!haveFiles) {
         std::fprintf(stderr, "llm-agent: no turn produced the requested files\n");
-        harnessutil::recordAttemptFailure(attemptDir, "agent", "format", "no reply held the requested files in the reply format: " + std::to_string(turns) + " turn(s), last finish " + lastFinish);
+        recordAttemptFailure(attemptDir, "agent", "format", "no reply held the requested files in the reply format: " + std::to_string(turns) + " turn(s), last finish " + lastFinish);
         return 3;
     }
     events::progress(turnLimit + 1, turnLimit + 1, "written");
@@ -418,7 +419,7 @@ int runLlmAgent(const std::vector<std::string>& args)
     if (!verified && lastFinish == "length") {   // cut off at the token limit and not passing: it does not fit one attempt, so hand it back to be divided at once
         events::note("reply cut off at the token limit: the item is too big for one attempt");
         std::printf("size verdict: split (the reply was cut off at the %d token limit)\n", maxTokens);
-        harnessutil::recordAttemptFailure(attemptDir, "agent", "oversize", "the reply was cut off at the " + std::to_string(maxTokens) + " token limit and the item's tests do not pass: it does not fit one attempt");
+        recordAttemptFailure(attemptDir, "agent", "oversize", "the reply was cut off at the " + std::to_string(maxTokens) + " token limit and the item's tests do not pass: it does not fit one attempt");
         return 4;
     }
     return 0;

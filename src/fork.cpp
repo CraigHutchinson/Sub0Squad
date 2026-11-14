@@ -18,6 +18,7 @@
 #include "json_util.hpp"
 #include "sub0squad/canvas.hpp"
 #include "sub0squad/contract.hpp"
+#include "sub0squad/attempt_failure.hpp"
 #include "sub0squad/harness_common.hpp"
 #include "sub0squad/mends.hpp"
 #include "sub0squad/event_channel.hpp"
@@ -432,8 +433,8 @@ ForkResult runCanvasFork(const ForkOptions& o)
         res.wallSec = since(t0);
         for (const auto& [path, text] : canvas.files()) (void)writeFile(out / path, text);   // what stands, always: the next attempt continues from it
         (void)writeFile(attemptDir / "fork.json", res.toJson() + "\n");
-        if (code == 0) harnessutil::clearAttemptFailure(attemptDir);
-        else harnessutil::recordAttemptFailure(attemptDir, "agent", failure, res.error + (res.testsTotal > 0 ? " (best state: " + std::to_string(res.testsFailed) + " of " + std::to_string(res.testsTotal) + " tests failing)" : std::string{}));
+        if (code == 0) clearAttemptFailure(attemptDir);
+        else recordAttemptFailure(attemptDir, "agent", failure, res.error + (res.testsTotal > 0 ? " (best state: " + std::to_string(res.testsFailed) + " of " + std::to_string(res.testsTotal) + " tests failing)" : std::string{}));
         return res;
     };
 
