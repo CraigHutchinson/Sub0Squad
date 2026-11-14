@@ -105,6 +105,21 @@ int main(int, char** argv)
         const Result reader = cliAll(sq, {"process", "add", "broken", "--without", "build"});
         CHECK(reader.exitCode != 0 && contains(reader.out, "--without build") && contains(reader.out, "stage 'integrate': entry"));
         CHECK(contains(sq.cli({"process", "tools"}).out, "harness:integrate"));
+        // The mends table: listed; a workflow's own table is checked at submit, kept in its spec and written to its sandbox, where the gate reads it.
+        const std::string listed = sq.cli({"process", "mends"}).out;
+        CHECK(contains(listed, "undefined-contract-symbol") && contains(listed, "add-section") && contains(listed, "unused-entity") && contains(listed, "silence-unused"));
+        const fs::path own = sq.home() / "my-mends.json";
+        { std::ofstream(own) << "{\"schema\":\"mends-1\",\"mends\":[{\"name\":\"mine\",\"class\":\"M\",\"match\":[\"no member named '(\\\\w+)'\"],\"requires\":\"contract\",\"action\":\"add-section\",\"maxPerItem\":1,\"fixture\":\"none\"}]}\n"; }
+        CHECK_EQ(cliAll(sq, {"process", "mends", "--check", own.string()}).exitCode, 0);
+        const Result withMends = cliAll(sq, {"project", "submit", "--task", "custom", "--process", "two-jobs", "--mends", own.string()});
+        CHECK(withMends.exitCode == 0 && contains(withMends.out, "w-000003"));
+        CHECK_EQ(sq.cli({"project", "wait", "w-000003", "--timeout", "60"}).exitCode, 0);
+        CHECK(contains(slurp(state / "workflows" / "w-000003" / "mends.json"), "\"name\":\"mine\""));
+        const fs::path wrong = sq.home() / "wrong-mends.json";
+        { std::ofstream(wrong) << "{\"schema\":\"mends-1\",\"mends\":[{\"name\":\"x\",\"match\":[\"a(b)\"],\"requires\":\"contract\",\"action\":\"run-shell\"}]}\n"; }
+        const Result refused = cliAll(sq, {"project", "submit", "--task", "custom", "--process", "two-jobs", "--mends", wrong.string()});
+        CHECK(refused.exitCode != 0 && contains(refused.out, "action 'run-shell' is not a mend action"));
+        CHECK(cliAll(sq, {"process", "mends", "--check", wrong.string()}).exitCode != 0);
     }
 
     // archive: refused while the daemon runs (its journal is open) ...

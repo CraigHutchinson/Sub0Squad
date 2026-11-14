@@ -164,6 +164,7 @@ std::string Daemon::Impl::doWorkflowSubmit(const std::string& specJson)
     std::error_code ec;
     std::filesystem::create_directories(spec->sandboxDir, ec);
     if (ec) return errorReply("cannot create the sandbox " + spec->sandboxDir + ": " + ec.message());
+    if (!spec->mends.empty()) std::ofstream(std::filesystem::path{spec->sandboxDir} / "mends.json") << spec->mends << "\n";   // the gate reads the workflow's own mends from its sandbox
     record("workflowSubmitted", wfbody::submitted(id, *spec));
     logf("workflow %s submitted: task '%s', sandbox %s", id.c_str(), spec->task.c_str(), spec->sandboxDir.c_str());
     if (!isKnownTask(spec->task) && spec->process.producesPlan()) {  // the process plans, and no blueprint exists: the architect role is deferred as a file handoff
