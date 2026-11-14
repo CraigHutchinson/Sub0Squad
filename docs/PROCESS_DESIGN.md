@@ -751,3 +751,30 @@ of answers is one per state directory ("the project" is the daemon's home), not 
 calculator blueprints' (`clarify.cpp` names them); a second blueprint family needs the choices to come from the harness registry. (4) Proven with the
 mock agent only: `test_clarify` (rules; a real daemon: asked once, wrong answer refused, Python built, remembered, an answered request and
 `--defaults` ask nothing, `go` is one answer), the golden `stages-clarified-asks-once`, `test_process`, `test_predicate`.
+
+## 16. The wizard, and why it is not a process (eighth pass)
+
+`sub0squad wizard` (`src/wizard.cpp`) is the guided first use of `docs/BACKLOG.md`: a checklist (this program, memory and disk, a project toolchain,
+the portal's port, a model or the mock agent, the daemon, the portal, a project) whose states come from the `doctor` checks as data
+(`doctorChecks()`: `doctor` prints the same list), with the next step offered at each point and every action an existing command run as a child:
+`up --frontier off`, `do TEXT --process clarified`, `request answer`, `project wait`, `down`. Answers come from the terminal, from `--yes` (every
+default) or from `--script FILE` (recorded keystrokes, one per line), which is how `test_wizard` drives it.
+
+**Bounds, each held by a test:** nothing is started without a yes (declining starts nothing; a script that runs out STOPS the wizard, it does not fall
+back to defaults); it never downloads, installs, changes a setting or starts a model server; the daemon it starts has the frontier off; an engine
+address that is not loopback is refused unless confirmed, and is not contacted before that; the model may only explain the checklist's notes, on
+request, and its text is printed as advice (the test's fake model "advises" three commands: none runs, and exactly one request reaches the engine).
+
+**Where the process language does not fit, honestly.** The backlog asks for the wizard to be "a registered process like any other workflow". It is not,
+for three reasons the design should keep visible rather than paper over:
+1. **A process needs a daemon; the wizard exists to get one.** Stages are derived from a journal the daemon writes, and jobs are run by it. The first
+   half of the wizard (checks, choosing a model, starting the daemon) happens before either exists.
+2. **Its steps are a conversation, not jobs.** A stage is "run a registered tool, then a predicate over journal facts". "Ask the person at this terminal
+   and wait for a line" has no tool and no fact; the inbox is the engine's way to ask, and it is used for the one question that belongs to a workflow
+   (the planning question of `clarified`, which the wizard shows and answers in its console).
+3. **Its actions change the host** (start and stop a daemon and a portal). A job of a process runs in a sandbox under limits and may not.
+What IS data: the checklist's items and order (one table), the checks (the doctor's list), and the project half, which is a registered process. The
+remaining gap to the backlog's wording is stated, not closed: adding a wizard step is a code change in one function.
+
+**Not built, stated:** building or supervising `llama-server`, offering models that fit the host, fetching a model (each needs the owner's go-ahead:
+a download or an install); showing and editing a plan before it runs; choosing among blueprints from a list; opening the portal in a browser.

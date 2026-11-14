@@ -197,22 +197,22 @@ int runDown(const std::vector<std::string>&)
     return rc;
 }
 
-int runDoctor(const std::vector<std::string>& args, const std::string& exe, const std::string& version)
+std::vector<DoctorCheck> doctorChecks(const std::vector<std::string>& args, const std::string& exe, const std::string& version)
 {
-    int fixes = 0;
-    const auto ok = [](const std::string& what) { std::printf("ok    %s\n", what.c_str()); };
-    const auto note = [](const std::string& what) { std::printf("note  %s\n", what.c_str()); };
-    const auto fix = [&](const std::string& what) { std::printf("FIX   %s\n", what.c_str()); ++fixes; };
+    std::vector<DoctorCheck> checks;
+    const auto ok = [&](const char* id, const std::string& what) { checks.push_back({id, "ok", what}); };
+    const auto note = [&](const char* id, const std::string& what) { checks.push_back({id, "note", what}); };
+    const auto fix = [&](const char* id, const std::string& what) { checks.push_back({id, "fix", what}); };
 
-    ok("sub0squad " + version + (exe.empty() ? std::string{} : " at " + exe));
+    ok("binary", "sub0squad " + version + (exe.empty() ? std::string{} : " at " + exe));
     const RuntimePaths paths = RuntimePaths::fromEnvironment();
-    if (const std::string err = paths.ensureDirectories(); err.empty()) ok("state in " + paths.stateDir.string()); else fix("the state directory cannot be created: " + err + " (set SUB0SQUAD_HOME to a writable directory)");
-    if (daemonAnswers(paths)) ok("the daemon is running"); else note("the daemon is not running: start it with `sub0squad up`");
+    if (const std::string err = paths.ensureDirectories(); err.empty()) ok("state", "state in " + paths.stateDir.string()); else fix("state", "the state directory cannot be created: " + err + " (set SUB0SQUAD_HOME to a writable directory)");
+    if (daemonAnswers(paths)) ok("daemon", "the daemon is running"); else note("daemon", "the daemon is not running: start it with `sub0squad up`");
 
     const HostMemory mem = readHostMemory();
-    if (mem.availableMiB >= 2048) ok(std::to_string(mem.availableMiB) + " MiB of memory available (of " + std::to_string(mem.totalMiB) + ")");
-    else fix("only " + std::to_string(mem.availableMiB) + " MiB of memory available: jobs are shed below 1536 MiB; close something before starting a model");
-    if (const auto disk = freeDiskMiB(paths.stateDir); disk >= 1024 || disk < 0) ok("disk space for the state directory"); else fix("less than 1 GiB free where the state lives (" + paths.stateDir.string() + ")");
+    if (mem.availableMiB >= 2048) ok("memory", std::to_string(mem.availableMiB) + " MiB of memory available (of " + std::to_string(mem.totalMiB) + ")");
+    else fix("memory", "only " + std::to_string(mem.availableMiB) + " MiB of memory available: jobs are shed below 1536 MiB; close something before starting a model");
+    if (const auto disk = freeDiskMiB(paths.stateDir); disk >= 1024 || disk < 0) ok("disk", "disk space for the state directory"); else fix("disk", "less than 1 GiB free where the state lives (" + paths.stateDir.string() + ")");
 
     // Each project harness needs its toolchain; at least one must be usable for any project to run.
     struct Tools { const char* harness; std::vector<const char*> programs; };
@@ -221,25 +221,34 @@ int runDoctor(const std::vector<std::string>& args, const std::string& exe, cons
     for (const auto& t : tools) {
         if (!findHarness(t.harness)) continue;
         std::string missing;
-        for (const char* p : t.programs) if (onPath(p).empty()) missing += (missing.empty() ? "" : ", ") + std::string{p};
-        if (missing.empty()) { ok(std::string{"harness "} + t.harness + ": its tools are on PATH"); ++usable; }
-        else note(std::string{"harness "} + t.harness + " cannot run: not on PATH: " + missing);
+        for (const char* program : t.programs) if (onPath(program).empty()) missing += (missing.empty() ? "" : ", ") + std::string{program};
+        if (missing.empty()) { ok("harness", std::string{"harness "} + t.harness + ": its tools are on PATH"); ++usable; }
+        else note("harness", std::string{"harness "} + t.harness + " cannot run: not on PATH: " + missing);
     }
-    if (usable == 0) fix("no project harness has its tools: install a C++ compiler with cmake and ninja, or python3, or node");
+    if (usable == 0) fix("harness", "no project harness has its tools: install a C++ compiler with cmake and ninja, or python3, or node");
 
     const int port = portalPort(args);
-    if (portInUse(port)) note("port " + std::to_string(port) + " is in use (a portal is probably running: http://127.0.0.1:" + std::to_string(port) + "/)");
-    else ok("portal port " + std::to_string(port) + " is free");
+    if (portInUse(port)) note("ports", "port " + std::to_string(port) + " is in use (a portal is probably running: http://127.0.0.1:" + std::to_string(port) + "/)");
+    else ok("ports", "portal port " + std::to_string(port) + " is free");
 
     if (const std::string engine = option(args, "engine"); !engine.empty()) {
         auto profile = EngineProfile::parse(engine.find('=') == std::string::npos ? "engine=" + engine : engine);
-        if (!profile) fix("--engine: " + profile.error());
+        if (!profile) fix("engine", "--engine: " + profile.error());
         else if (const auto r = httpRequest("GET", profile->endpoint + "/models", "", 5); r && r->status == 200) {
             const auto slots = engineSlots(*profile);
-            ok("the engine at " + profile->endpoint + " answers" + (slots ? " (" + std::to_string(slots->idle) + " of " + std::to_string(slots->total) + " slots idle)" : std::string{}));
-        } else fix("the engine at " + profile->endpoint + " does not answer (" + (r ? "HTTP " + std::to_string(r->status) : r.error()) + "): start the model server, or use the mock agent (the default)");
-    } else note("no --engine given: projects run with the mock agent (reference deliverables, no model); pass --engine NAME=http://127.0.0.1:PORT/v1 to check a model server");
+            ok("engine", "the engine at " + profile->endpoint + " answers" + (slots ? " (" + std::to_string(slots->idle) + " of " + std::to_string(slots->total) + " slots idle)" : std::string{}));
+        } else fix("engine", "the engine at " + profile->endpoint + " does not answer (" + (r ? "HTTP " + std::to_string(r->status) : r.error()) + "): start the model server, or use the mock agent (the default)");
+    } else note("engine", "no --engine given: projects run with the mock agent (reference deliverables, no model); pass --engine NAME=http://127.0.0.1:PORT/v1 to check a model server");
+    return checks;
+}
 
+int runDoctor(const std::vector<std::string>& args, const std::string& exe, const std::string& version)
+{
+    int fixes = 0;
+    for (const DoctorCheck& c : doctorChecks(args, exe, version)) {
+        std::printf("%-5s %s\n", c.level == "fix" ? "FIX" : c.level.c_str(), c.text.c_str());
+        if (c.level == "fix") ++fixes;
+    }
     if (fixes) std::printf("\n%d thing(s) to fix before a first run\n", fixes);
     else std::printf("\nready: `sub0squad up`, then `sub0squad do \"write a calculator in C++\"`\n");
     return fixes ? 1 : 0;

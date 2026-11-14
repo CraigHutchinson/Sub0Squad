@@ -16,7 +16,7 @@ The lists live in ONE file, `cmake/Layers.cmake`, read by both the include check
 | 3 | `sub0squad_harnesses` | harness_registry (`registerBuiltinHarnesses`), harness_common, harness_web, harness_cpp, harness_py, cpp_templates, py_templates, web_templates, calculator_spec, sandbox | what a project type provides: scaffold, stubs, gate, integrator, precheck, blueprints, mocks | test_plan, test_policy, test_edits, test_diagnostics, test_workflow, test_workflow_stages, test_workflow_mends, test_platforms |
 | 4 | `sub0squad_agents` | llm_agent, agent_card, canvas_agent, fork, architect, optimizer, replay, scenario, blocks | model-driven workers (session, canvas, forked sections), the scenario suite, the model-free proving grounds | test_agent, test_canvas_agent, test_fork, test_mends, test_blocks, test_scenarios, test_executors, test_heal, test_nearpass, test_thrash |
 | 5 | `sub0squad_orchestration` | daemon (reactor, IPC), daemon_jobs, daemon_workflow, daemon_governance, behind `daemon_impl.hpp` | the event loop, leases and shedding, executing workflow actions, requests | (through the binary) |
-| 6 | `sub0squad_presentation` | client, cli, cli_jobs, cli_project, cli_tools, cmd_process, cmd_archive, first_use, portal, portal_sampler, portal_files, portal_page (and the embedded `web/portal.html`, `web/portal.js`) | the CLI, the first-use commands, the portal | test_portal, test_portal_page (node) |
+| 6 | `sub0squad_presentation` | client, cli, cli_jobs, cli_project, cli_tools, cmd_process, cmd_archive, first_use (doctor, up, down), wizard, portal, portal_sampler, portal_files, portal_page (and the embedded `web/portal.html`, `web/portal.js`) | the CLI, the first-use commands, the wizard, the portal | test_portal, test_wizard, test_portal_page (node) |
 
 `src/sub0squad.cpp` is `main()`: the **composition root**. It is in no library. It registers the built-in harnesses and dispatches every command.
 
@@ -42,7 +42,7 @@ A test links the highest layer it needs (`sub0squad_add_test(name layer)`), neve
 ## Private headers
 
 `src/*.hpp` are private to a layer: `daemon_impl.hpp` (5), `agent_impl.hpp` (4), `portal_impl.hpp`, `cli_impl.hpp`, `cmd_process.hpp`,
-`cmd_archive.hpp`, `first_use.hpp` (6), and `json_util.hpp` (the JSON writer and reader helpers, used by every layer; it includes nothing of
+`cmd_archive.hpp`, `first_use.hpp`, `wizard.hpp` (6), and `json_util.hpp` (the JSON writer and reader helpers, used by every layer; it includes nothing of
 the project).
 
 ## Rules for a new unit

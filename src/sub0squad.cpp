@@ -14,6 +14,7 @@
 #include "sub0squad/harness_cpp.hpp"
 #include "sub0squad/harness_registry.hpp"
 #include "first_use.hpp"
+#include "wizard.hpp"
 #include "sub0squad/blocks.hpp"
 #include "sub0squad/scenario.hpp"
 #include "sub0squad/harness_py.hpp"
@@ -129,11 +130,12 @@ int main(int argc, char** argv)
         if (std::strcmp(argv[1], "cpp-gate") == 0) return sub0squad::runCppGate(rest);
         if (std::strcmp(argv[1], "cpp-integrate") == 0) return sub0squad::runCppIntegrate(rest);
     }
-    if (argc > 1 && (std::strcmp(argv[1], "up") == 0 || std::strcmp(argv[1], "down") == 0 || std::strcmp(argv[1], "doctor") == 0)) {
+    if (argc > 1 && (std::strcmp(argv[1], "up") == 0 || std::strcmp(argv[1], "down") == 0 || std::strcmp(argv[1], "doctor") == 0 || std::strcmp(argv[1], "wizard") == 0)) {
         const std::vector<std::string> rest(argv + 2, argv + argc);
         const std::string exe = sub0squad::resolveProgram(argv[0]);
         if (std::strcmp(argv[1], "up") == 0) return sub0squad::runUp(rest, exe);
         if (std::strcmp(argv[1], "down") == 0) return sub0squad::runDown(rest);
+        if (std::strcmp(argv[1], "wizard") == 0) return sub0squad::runWizard(rest, exe, std::string(sub0squad::version::version_full));
         return sub0squad::runDoctor(rest, exe, std::string(sub0squad::version::version_full));
     }
     if (argc > 1 && std::strcmp(argv[1], "--selftest") == 0) return selftest();

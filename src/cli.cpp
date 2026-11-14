@@ -41,6 +41,7 @@ namespace cli {
 
 const char* const kUsage =
     "usage: sub0squad <command> [options]\n"
+    "  GUIDED:     wizard [--yes] [--script FILE] [--engine NAME=URL] [--portal-port N] [--no-portal]   a checklist console from here to a first finished project\n"
     "  FIRST USE:  doctor  |  up  |  do \"write a calculator in C++\"  |  project wait w-000001  |  down      (README.md, \"First use\")\n"
     "  doctor [--engine NAME=URL]           check what a first run needs (memory, tools, ports, the engine) and say what to fix\n"
     "  up [--max-jobs N] [--frontier off|stub] [--portal-port N] [--no-portal]   start the daemon and the portal in the background; `down` stops them\n"

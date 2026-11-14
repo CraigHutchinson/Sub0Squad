@@ -161,6 +161,11 @@ private:
             req.append(buf, static_cast<std::size_t>(n));
         }
         const std::string line = req.substr(0, req.find("\r\n"));
+        if (line.find("/models") != std::string::npos) {   // what `doctor` asks to see that a server answers
+            const std::string body = "{\"data\":[{\"id\":\"m\"}]}";
+            sendAll(fd, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: " + std::to_string(body.size()) + "\r\nConnection: close\r\n\r\n" + body);
+            return;
+        }
         if (line.find("/chat/completions") == std::string::npos) {   // /tokenize, /slots: not offered; the client falls back to its own estimate
             sendAll(fd, "HTTP/1.1 404 Not Found\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}");
             return;

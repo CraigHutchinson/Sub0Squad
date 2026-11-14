@@ -34,6 +34,11 @@ See [docs/DEV_SETUP.md](docs/DEV_SETUP.md) for the local-source override (`CPM_<
 
 ## First use
 
+**The shortest path is the wizard:** run `sub0squad wizard` (by its path in the build directory, as below) for a checklist console that takes you from
+here to a first finished project: it shows what is needed, starts nothing without your yes, uses the mock agent unless you give it a model server that
+is already running, and asks the one planning question a vague request leaves open. `--yes` takes every default; `--script FILE` replays recorded
+answers. The plain commands below do the same by hand and are the ones to script.
+
 <!-- first-use:begin -->
 From a clean checkout to a finished project, with **no model**: the mock agent writes the reference deliverables, and everything else is
 real (the plan, the scheduler, the gates that compile and test each item, the integration build). The commands below are run, exactly as written, by the
