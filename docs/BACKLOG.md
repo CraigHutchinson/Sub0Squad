@@ -144,3 +144,12 @@ hand-written Sugiyama pass; how it works with the retained-mode patching in `por
   Host header against loopback, so it must not simply bind a LAN address. If remote viewing is wanted: an explicit opt-in flag (never the default), read-only (the action endpoints off), a shared token in the URL or a
   header, the Host check extended to the chosen name, and the address printed by `up`; until then use an SSH tunnel (`ssh -L 8780:127.0.0.1:8780 USER@HOST`). Needs the owner's go-ahead before it is built.
 - **A `doctor` command** that checks the first-use prerequisites (binary version, engine reachable, memory guard, ports, cgroup limits) and says what to fix.
+
+## Metrics and ways of working (owner request, 2026-11-14; design in `docs/METRICS.md`)
+
+- **Accounting that reconciles with the engine (first, and a blocker for every efficiency figure).** The ledger records a fraction of a forked run's tokens (1.4k, 38k and 40k against 397k, 221k and 273k in the fork
+  attempts' own records for runs v9 to v11): per-session usage records with a `purpose`, ledger rows per session, a reconciliation check against the engine's counters, and `--metrics` on the engine start line.
+- **Engine ticks as the load-independent clock**: counter snapshots by the daemon, decode ticks, concurrency factor, tick latency to quality, critical path.
+- **A scorecard per run** (`sub0squad metrics WORKFLOW`, the report, `metrics.json` in the archive, a portal panel) and `metrics backfill` for the archived runs; **`metrics compare`** with confidence intervals and a regression gate in `block run`.
+- **Independent quality capture** at integration (the reference suite the model never sees; seeded defects against the model's tests).
+- **The fork experiment**: session, canvas and fork executors on the same task and seeds, judged by quality per token and ticks to the accepted whole; its result decides the default executor.
