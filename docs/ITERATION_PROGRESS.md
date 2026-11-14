@@ -16,7 +16,7 @@ process cap; nothing here has run on a real model.
 * **Found on the way:** the gate's line clipping cut the captured name under a long path and silently disabled the mend (row 63, fixed); the uncalled-function
   removal deleted `tokenize` in run-v10 because its caller was the missing function (row 62).
 
-**Full suite:** FULLSUITE
+**Full suite:** `ctest -j1` under a process cap at `ab73f11` plus the `mend-apply` unit test: **28 of 28 pass** (observed twice; the lead session saw the same at the merge `4981693`).
 
 **Not done, stated:** routing a failing test to the section that owns the behaviour (row 64: designed, not built); the portal page does not show `healed`
 (the status JSON does); no command installs a per-workflow mends table; Python `add-section` and `helper-never-defined` have no end-to-end test; the put-back

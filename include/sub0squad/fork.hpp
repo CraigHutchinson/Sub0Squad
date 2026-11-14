@@ -17,6 +17,7 @@
 #include <expected>
 #include <filesystem>
 #include <functional>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -83,6 +84,7 @@ struct ForkResult
     int rounds = 0;                     ///< assembly rounds used
     int targeted = 0;                   ///< targeted sessions in assembly (a finding routed to one section)
     int mechanicalMends = 0;            ///< functions nobody called that the harness removed, and unused names it marked `[[maybe_unused]]`
+    int routedByMessage = 0;            ///< sessions sent to a section because a failing test raised a message that section produces (row 64)
     int contractSections = 0;           ///< contract functions the harness added as sections because the skeleton or the resumed file lacked them
     int conflicts = 0;                  ///< commits the canvas refused because another section had changed the same lines
     int lostEdits = 0;                  ///< committed sections whose text is not in the merged file (must be 0)
@@ -101,6 +103,11 @@ struct ForkResult
 /// parameters or lost the indentation, and each such slip breaks the file for everyone). `text` is the function as the model wrote it, or only its
 /// body; the result starts with `indent` + `signature` and keeps the model's body. `path` selects the language (braces or indentation).
 [[nodiscard]] std::string applySectionSignature(const std::string& text, const std::string& signature, const std::string& indent, const std::string& path);
+
+/// Which sections a failing TEST points at when it names no function (catalogue row 64): a section owns a failure line when one of its own string
+/// literals (8 characters or more) occurs in that line. A test that fails with `unexpected exception: Unknown function: sinh` belongs to the function that
+/// holds the text "Unknown function: ". `sections` are (name, the function's text); the result maps a section's name to the failure lines it owns.
+[[nodiscard]] std::map<std::string, std::string> sectionsOwningFailure(const std::string& gateText, const std::vector<std::pair<std::string, std::string>>& sections);
 
 /// One compiler finding in a file: the 1-based line and the message with its context lines.
 struct CompileFinding { int line = 0; std::string text; bool unusedFunction = false; };

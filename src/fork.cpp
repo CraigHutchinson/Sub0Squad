@@ -170,6 +170,31 @@ std::string applySectionSignature(const std::string& textIn, const std::string& 
     return script ? indent + signature + " " + body + "\n" : indent + signature + "\n" + indent + body + "\n";
 }
 
+std::map<std::string, std::string> sectionsOwningFailure(const std::string& gateText, const std::vector<std::pair<std::string, std::string>>& sections)
+{
+    std::map<std::string, std::string> owners;
+    std::vector<std::string> failures;
+    for (const auto& l : linesOf(gateText)) if (l.find("FAIL") != std::string::npos || l.find("not ok") != std::string::npos || l.find("xception") != std::string::npos || l.find("Error") != std::string::npos) failures.push_back(l);
+    for (const auto& [name, text] : sections) {
+        std::set<std::string> literals;
+        for (const auto& l : linesOf(text)) {
+            if (trimmed(l).rfind("#include", 0) == 0) continue;
+            for (std::size_t i = 0; i < l.size(); ++i) {
+                if (l[i] != '"' && l[i] != '\'') continue;
+                const char quote = l[i];
+                std::string lit;
+                std::size_t j = i + 1;
+                for (; j < l.size() && l[j] != quote; ++j) { if (l[j] == '\\' && j + 1 < l.size()) ++j; lit += l[j]; }
+                if (j < l.size() && lit.size() >= 8) literals.insert(lit);
+                i = j;
+            }
+        }
+        for (const auto& f : failures)
+            for (const auto& lit : literals) if (f.find(lit) != std::string::npos) { owners[name] += f + "\n"; break; }
+    }
+    return owners;
+}
+
 std::vector<CompileFinding> compileFindings(const std::string& output, const std::string& path)
 {
     std::vector<CompileFinding> found;
@@ -198,7 +223,7 @@ std::string ForkResult::toJson() const
 {
     json::Writer w;
     w.beginObject().kvBool("passed", passed).kv("exitCode", exitCode).kv("failure", failure).kv("resumedFrom", resumedFrom).kv("width", width).kv("widthReason", widthReason).kvBool("shed", shed)
-        .kvBool("budgetSpent", budgetSpent).kv("budgetSec", budgetSec).kv("skeletonTries", skeletonTries).kv("rounds", rounds).kv("targeted", targeted).kv("mechanicalMends", mechanicalMends).kv("contractSections", contractSections)
+        .kvBool("budgetSpent", budgetSpent).kv("budgetSec", budgetSec).kv("skeletonTries", skeletonTries).kv("rounds", rounds).kv("targeted", targeted).kv("mechanicalMends", mechanicalMends).kv("contractSections", contractSections).kv("routedByMessage", routedByMessage)
         .kv("conflicts", conflicts).kv("lostEdits", lostEdits).kv("refused", refused)
         .kv("skeletonTokens", static_cast<std::int64_t>(skeletonTokens)).kv("sectionTokens", static_cast<std::int64_t>(sectionTokens)).kv("integrationTokens", static_cast<std::int64_t>(integrationTokens))
         .kv("wallSec", wallSec).kv("sectionWallSec", sectionWallSec).kv("idleShare", idleShare).kv("error", error).key("sections").beginArray();
@@ -319,7 +344,7 @@ ForkResult runCanvasFork(const ForkOptions& o)
         std::string signature, scope;
         if (!path.empty()) {
             if (const auto c = contract.find(path); c != contract.end()) for (const auto& f : c->second) if (f.name == name) { signature = f.signature; scope = f.scope; }
-            if (signature.empty()) signature = prototypeOf(canvas.text(path), name);
+            if (signature.empty()) { signature = prototypeOf(canvas.text(path), name); scope = prototypeScope(canvas.text(path), name); }
         }
         if (signature.empty()) { res.error = "mend add-section: `" + o.mendSection + "` is neither a contract function nor declared in the file, so it has no signature to add"; return finish(2, "skeleton"); }
         res.sections = e.sections;
@@ -728,14 +753,26 @@ ForkResult runCanvasFork(const ForkOptions& o)
         if (gate(gateText)) { std::printf("RESULT: PASS after %d assembly round(s); width %d, %d refused, %d removed by the harness\n", round, res.width, res.refused, res.mechanicalMends); return finish(0, ""); }
         if (round >= o.rounds || remainingSec() <= 0) { res.budgetSpent = res.budgetSpent || remainingSec() <= 0; res.error = "the assembled file compiles but its tests fail"; return finish(1, remainingSec() <= 0 ? "budget" : "tests"); }
         // A failing test goes to the sections it names; when it names none (or naming them did not help), to all.
+        // First by MESSAGE (row 64): a test that fails with a message one function produces goes to that function, in any round, with the failure quoted.
+        std::vector<std::pair<std::string, std::string>> texts;
+        for (const auto& s : res.sections) {
+            if (s.removed || !canvas.has(s.file)) continue;
+            const auto v = linesOf(canvas.text(s.file));
+            std::string fn;
+            for (const auto& r : foldRegions(canvas.text(s.file), isPythonPath(s.file), true)) if (leaf(r.name) == s.symbol) for (int k = r.first; k <= r.bodyTo && k <= static_cast<int>(v.size()); ++k) fn += v[static_cast<std::size_t>(k) - 1] + "\n";
+            texts.emplace_back(s.name, fn);
+        }
+        const std::map<std::string, std::string> byMessage = sectionsOwningFailure(gateText, texts);
         std::vector<ForkSection*> implicated;
-        if (round == 0) for (auto& s : res.sections) if (!s.removed && namesWord(gateText, s.symbol)) implicated.push_back(&s);
+        for (auto& s : res.sections) if (!s.removed && (byMessage.count(s.name) || (round == 0 && namesWord(gateText, s.symbol)))) implicated.push_back(&s);
+        res.routedByMessage += static_cast<int>(byMessage.size());
         if (implicated.empty()) for (auto& s : res.sections) if (!s.removed) implicated.push_back(&s);
         res.targeted += static_cast<int>(implicated.size());
         std::printf("assembly round %d: the tests failed; %zu section(s) go back\n", round + 1, implicated.size());
         runPool(implicated, [&](ForkSection& s) -> std::vector<ChatMessage> {
             const std::string view = "=== CANVAS: " + s.file + " (revision " + std::to_string(canvas.revision(s.file)) + ") ===\n" + sectionView(canvas.text(s.file), isPythonPath(s.file), {s.symbol}) + "=== END CANVAS ===\n";
             return {{"system", system}, {"user", card + "\nThe functions were written separately and merged. The merged file was checked by running the tests and failed:\n" + clip(gateText, 1500) + "\n" + view +
+                                                     (byMessage.count(s.name) ? "These failures carry a message that YOUR function produces, so the path that fails runs through it:\n" + clip(byMessage.at(s.name), 600) : std::string{}) +
                                                      "You own `" + s.symbol + "` in " + s.file + " (shown open; the others are folded). It may be at fault. Reply with the corrected function:\n=== EDIT: " + s.file + " SYMBOL " + s.symbol + " ===\n<your function>\n=== END EDIT ==="}};
         }, "tests" + std::to_string(round), res.integrationTokens, false);
     }
