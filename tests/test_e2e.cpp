@@ -183,6 +183,26 @@ int main(int, char** argv)
         (void)sq.cli({"cancel", job});
         (void)sq.cli({"cancel", srv});
     }
+    {   // Row 19: with the only job slot held by a worker, a WORKFLOW's structural jobs (no engine lease) still run, from their reserve, and the workflow
+        // finishes; a plain job waits for the slot. (A client cannot label a job as a workflow's: the daemon clears such labels, so a real workflow is used.)
+        Squad sq(exe, "classes");
+        sq.startDaemon(1);
+        const std::string worker = sq.submitWorker("cw", {"--steps", "1200", "--step-ms", "50"});   // a minute: longer than everything below
+        CHECK(sq.waitState(worker, "running"));
+        const std::filesystem::path file = sq.home() / "two-jobs.json";
+        { std::ofstream(file) << "{\"schema\":\"process-1\",\"name\":\"two-jobs\",\"stages\":["
+                                   "{\"name\":\"scan\",\"kind\":\"job\",\"job\":{\"step\":\"scan\",\"tool\":\"qa\",\"args\":[\"${sandbox}\"]}},"
+                                   "{\"name\":\"again\",\"kind\":\"job\",\"entry\":\"stage.scan.done\",\"job\":{\"step\":\"rescan\",\"tool\":\"qa\",\"args\":[\"${sandbox}\"]}}]}\n"; }
+        CHECK_EQ(sq.cli({"process", "add", "two-jobs", "--file", file.string()}).exitCode, 0);
+        CHECK_EQ(sq.cli({"project", "submit", "--task", "custom", "--process", "two-jobs"}).exitCode, 0);
+        const std::string plain = sq.submitWorker("cp", {"--steps", "1", "--step-ms", "5"});
+        CHECK_EQ(sq.cli({"project", "wait", "w-000001", "--timeout", "40"}).exitCode, 0);   // both structural jobs ran while the worker held the only slot
+        CHECK(sq.cli({"project", "status", "w-000001", "--json"}).out.find("\"state\":\"succeeded\"") != std::string::npos);
+        CHECK(sq.statusField(worker, "state") == "running");               // the worker was never disturbed
+        CHECK(sq.statusField(plain, "state") == "queued");                 // a plain job has no reserve: it still waits
+        (void)sq.cli({"cancel", worker});
+        CHECK(sq.waitState(plain, "succeeded", 30000));
+    }
     { // Memory pressure: below the reserve the daemon sheds the newest job and admits nothing; servers only when critically low; it recovers.
         const std::string fake = (std::filesystem::current_path() / "fake-memavail.txt").string();
         { std::ofstream o(fake); o << 100000; }

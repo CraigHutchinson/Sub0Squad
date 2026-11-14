@@ -39,6 +39,15 @@ int chooseLeaseSlot(int cap, const std::set<int>& used, int preferred)
     return i;
 }
 
+bool isStructuralJob(std::string_view workflow, std::string_view role) { return !workflow.empty() && !role.empty() && role != "agent"; }
+
+bool admitsJob(bool structuralUnleased, int activeNormal, int activeReserved, int maxJobs)
+{
+    const int overflow = std::max(0, activeReserved - kStructuralReserve);   // structural jobs beyond their reserve take ordinary slots
+    if (structuralUnleased && activeReserved < kStructuralReserve) return true;
+    return activeNormal + overflow < maxJobs;
+}
+
 bool shouldDivide(long estimate, long softBudget, long ceiling, int idleSlots, int totalSlots, long divisionCost)
 {
     if (softBudget <= 0) return false;

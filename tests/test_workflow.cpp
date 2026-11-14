@@ -1016,6 +1016,17 @@ int main()
             CHECK(!acts.empty() && acts[0].kind == WorkflowAction::Kind::recordDecision && acts[0].decisionAction == "retry");
         }
     }
+    {   // Row 19: capacity classes. A structural job without a lease has a reserve of its own; everything else shares --max-jobs; overflow of the reserve
+        // takes ordinary slots.
+        CHECK(isStructuralJob("w-000001", "gate") && isStructuralJob("w-000001", "planner") && isStructuralJob("w-000001", "decompose") && isStructuralJob("w-000001", "integrator"));
+        CHECK(!isStructuralJob("w-000001", "agent") && !isStructuralJob("", "gate") && !isStructuralJob("w-000001", ""));   // an attempt is a worker; a plain job is nobody's structure
+        CHECK(!admitsJob(false, 2, 0, 2));                     // workers hold both slots: another worker waits
+        CHECK(admitsJob(true, 2, 0, 2) && admitsJob(true, 2, 1, 2));   // ... a gate does not: it has the reserve
+        CHECK(!admitsJob(true, 2, kStructuralReserve, 2));     // the reserve is full and so are the ordinary slots
+        CHECK(admitsJob(true, 1, kStructuralReserve, 2));      // the reserve is full, an ordinary slot is free: it takes that
+        CHECK(!admitsJob(false, 1, kStructuralReserve + 1, 2)); // a structural job beyond the reserve occupies an ordinary slot
+        CHECK(admitsJob(false, 1, kStructuralReserve, 2) && admitsJob(false, 0, 0, 1));
+    }
     { // Divide only when it pays: over the ceiling always, under the soft budget never, in between only when the saving beats the division's cost.
         CHECK(shouldDivide(3000, 1800, 2800, 7, 8));                 // cannot fit one attempt: divide whatever it costs
         CHECK(!shouldDivide(1500, 1800, 2800, 7, 8));                // under the soft budget: never
