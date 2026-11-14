@@ -620,7 +620,9 @@ harness whatever the model listed, a resumed canvas that lacks one gets it as a 
 4. `project status --json` shows per item `mends` (applied) and `healed` (applied, and the item is now accepted).
 
 **In a process file** (items stage, `leaf`): `contractSections` (default true; false only reproduces the defect), `mends.enabled` (default true),
-`mends.disabled` (a list of mend names). **Adding a mend** is a table, not a process parameter: `<workflow>/mends.json` (same schema) is merged over the
+`mends.disabled` (a list of mend names). **A process file can only DISABLE mends** (all of them, or by name); it cannot add or change one (decided by the
+lead, 2026-11-14). **A workflow's own mends are installed with `sub0squad project submit --mends FILE`** (a `mends-1` table, checked at submit, kept in the
+workflow's spec and written to its sandbox). **Adding a mend** is therefore a table, not a process parameter: `<workflow>/mends.json` (same schema) is merged over the
 built-in table by the gate, a mend of the same name replacing the built-in one. This departs from "a process file can add mends": a mend is a pattern, a
 requirement and an action, which the flat parameter table of a stage does not hold; the per-workflow registry file of section 4.1 does.
 

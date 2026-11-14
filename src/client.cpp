@@ -81,6 +81,7 @@ constexpr const char* kUsage =
     "  status [ID] [--json]                 jobs and progress (works without the daemon, from the journal)\n"
     "  logs ID [--stderr] [--follow] [--run N]\n"
     "  cancel ID | resume ID | wait ID [--timeout SEC] | ping | stop\n"
+    "  check                                make the daemon run its watchers now (memory pressure, then admission) instead of at its next timer; `ping` changes nothing\n"
     "  archive [--label TEXT]               set the finished runs aside (state -> archive/<UTC time>[-label]/state) and leave a fresh, empty state; the daemon must be stopped\n"
     "  every submit (submit, do, project submit) is refused when the running daemon is another build of this program: restart it, or pass --allow-build-mismatch\n"
     "  do \"<task in words>\" [project options]   triage first, then run: a known blueprint starts at once, otherwise a needs-plan.md handoff is written\n"
@@ -888,6 +889,7 @@ int runCli(int argc, char** argv)
         return simpleCommand(paths, cmd.c_str(), argv[2], true);
     }
     if (cmd == "ping") return simpleCommand(paths, "ping", "", true);
+    if (cmd == "check") return simpleCommand(paths, "check", "", true);
     if (cmd == "stop") return simpleCommand(paths, "shutdown", "", false);
     std::fputs(kUsage, stderr);
     return 2;

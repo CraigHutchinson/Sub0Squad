@@ -78,6 +78,8 @@ struct Decision
 ///   * a structural job that holds no engine lease may use one of `kStructuralReserve` slots of its own, beyond `--max-jobs`;
 ///   * among the jobs that may start, structural ones go first (so the architect gets the next free engine slot), then the oldest.
 /// It is a reserve and an order, not strict priority: a running worker is never stopped for a structural job.
+/// Decided (lead, 2026-11-14): the reserve stays two slots, and a job that needs the engine (the architect) gets NO reserved engine slot: for it the class
+/// is an order only.
 inline constexpr int kStructuralReserve = 2;
 /// Whether a job is structural: it belongs to a workflow and its step is not an agent's attempt.
 [[nodiscard]] bool isStructuralJob(std::string_view workflow, std::string_view role);
