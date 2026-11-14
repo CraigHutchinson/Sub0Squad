@@ -582,6 +582,54 @@ said after one try; a decision now lists the rungs its process lacks. Seven `sta
 6. The interactive wizard of `docs/BACKLOG.md` is a client-side flow (it runs before a daemon exists), so it is not a workflow process; what it can share is
    the shape (named stages, entry and exit conditions, `waitingOn` as the checklist's "next step") and the predicate code. Not built.
 
+## 14. Self-mending as built (2026-11-14): mends are decisions, the table is data
+
+The owner's rule: a known, mechanical error must self-heal; the error passed into the next iteration must make the HARNESS repair the cause, not leave it to
+a model or to a card rewrite. Evidence: run-v10 (catalogue rows 59 to 64). What is built, and how it fits the process model of section 13:
+
+**The table** (`registry/mends.json`, schema `mends-1`, compiled in; `include/sub0squad/mends.hpp`): each mend is a name, patterns matched against the FIRST
+error line of a gate's output (group 1 captures the name the error is about), a requirement, a named action, a limit per item and the fixture that proves it.
+Three mends today:
+
+| Mend | Signature (first error) | Requires | Action |
+|---|---|---|---|
+| `undefined-contract-symbol` | `undefined reference to X`, `X was not declared in this scope`, `cannot import name X`, `has no attribute X` | `contract`: X is a function the item's contract obliges it to define | `add-section` |
+| `helper-never-defined` | `X declared 'static' but never defined`, `X used but never defined` | `prototype`: X is declared in the file | `add-section` |
+| `unused-entity` | `variable X set but not used`, `unused variable X`, `unused parameter X` | `location`: the error names file, line and column | `silence-unused` |
+
+Actions are a CLOSED set in code (a table names one, it cannot define one): `add-section` (the previous attempt's files are kept; the function becomes a
+stubbed section with the contract's signature or the file's own prototype; sections an earlier assembly removed as uncalled are put back from the canvas
+history; ONLY the new section is written by a model; then the gate) and `silence-unused` (`[[maybe_unused]]` at the declaration: an edit by the harness, no
+model; the job is `mend-apply`).
+
+**The contract** (`include/sub0squad/contract.hpp`): the functions an item's file must define are the non-static functions the harness's OWN stub of that file
+defines (the scaffold every workspace starts from), with the signature the scaffold's header declares. No new description was needed: the stub already is the
+contract, in every language the harness supports. Prevention (row 59) uses the same list: a fork's skeleton gets every contract function declared by the
+harness whatever the model listed, a resumed canvas that lacks one gets it as a section, and the skeleton check refuses a skeleton that leaves one undefined.
+
+**The path of a mend** (nothing in it is derived state that is journaled; one decision is):
+1. The gate fails, matches its first error against the table, checks the requirement, and reports `{"mend": {...}}`: as `attempt-N/mend.json`, and as the JOB's
+   result (`result.json` in its run directory). The shim puts a job's result into its exit record, so it reaches the journal with `jobFinished` (section 1.4:
+   "gate results are in the job's exitJson, which the journal carries"). The engine reads no file.
+2. `advance()`, on a failed gate with no decision yet, reads the mend from the gate job's exit JSON. If the process allows it and the signature was applied
+   to this item fewer than `maxPerItem` times, it records the decision **`mend`** (`tier` = the signature's name; the JSON carries the match) and starts the
+   action as attempt N+1. Otherwise the ladder decides exactly as before.
+3. A mend is NOT a rung: mend attempts are subtracted from `localAttempts` and `totalAttempts` in the next `DecisionContext`. When the same signature comes
+   back after its two mends, the policy sees the failure with its ladder untouched (the interface-gap rule then goes to `rearchitect`, as it should for a
+   cause the harness could not repair).
+4. `project status --json` shows per item `mends` (applied) and `healed` (applied, and the item is now accepted).
+
+**In a process file** (items stage, `leaf`): `contractSections` (default true; false only reproduces the defect), `mends.enabled` (default true),
+`mends.disabled` (a list of mend names). **Adding a mend** is a table, not a process parameter: `<workflow>/mends.json` (same schema) is merged over the
+built-in table by the gate, a mend of the same name replacing the built-in one. This departs from "a process file can add mends": a mend is a pattern, a
+requirement and an action, which the flat parameter table of a stage does not hold; the per-workflow registry file of section 4.1 does.
+
+**Limits, stated:** (1) no command copies a mends table into a workflow, and the per-workflow table is covered by the merge's unit test only, not through a
+daemon; (2) `silence-unused` is C and C++ only; (3) the Python side of `add-section` is unit-tested (contract, stub, matcher) but not end to end; (4)
+`helper-never-defined` and the put-back of removed sections have no end-to-end fixture; (5) the portal page does not show `healed` yet (the status JSON it
+reads has it); (6) the ledger has no learned entries: every mend is hand-written from a catalogue row, and `maxPerItem` is the only feedback; (7) routing a
+failing TEST to the section that owns the behaviour (row 64) is not built.
+
 ## 10. Migration after the slice
 
 Each step is one commit that keeps every test green and adds the test named. Layers: `registry`, `process`, `predicate` at 2; `registry_defaults`, `controller`
