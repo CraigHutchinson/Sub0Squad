@@ -7,7 +7,7 @@
 #
 # Idempotent: units that are already active are left alone; a campaign resumes from its campaign.jsonl. Transient systemd units do not survive a
 # reboot, which is why this script exists: run it after every boot. Nothing leaves the machine (frontier off, engine on 127.0.0.1).
-# Environment overrides: MODEL, ENGINE_PORT, CTX, SLOTS, THREADS, EXECUTOR, PORTAL_PORT, BINARY, ORACLE_MODE (gate | advisory | off).
+# Environment overrides: MODEL, ENGINE_PORT, CTX, SLOTS, THREADS, EXECUTOR, PORTAL_PORT, BINARY.
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -21,7 +21,6 @@ THREADS="${THREADS:-16}"
 EXECUTOR="${EXECUTOR:-fork}"
 PORTAL_PORT="${PORTAL_PORT:-8780}"
 BINARY="${BINARY:-$REPO/out/build/dev/sub0squad}"
-ORACLE_MODE="${ORACLE_MODE:-gate}"
 
 cmd="${1:-run}"
 
@@ -83,10 +82,10 @@ systemctl --user reset-failed sub0-campaign 2>/dev/null || true
 systemd-run --user --unit=sub0-campaign \
   -p MemoryHigh=6G -p MemoryMax=8G -p TasksMax=3000 -p OOMPolicy=continue -p Nice=5 \
   -p "WorkingDirectory=$REPO" \
-  --setenv="PATH=$PATH" --setenv="SUB0_GITHUB_DIR=$GITHUB_DIR" --setenv="SUB0SQUAD_ORACLE_MODE=$ORACLE_MODE" \
+  --setenv="PATH=$PATH" --setenv="SUB0_GITHUB_DIR=$GITHUB_DIR" \
   python3 -I "$REPO/scripts/campaign.py" run --name "$NAME" --runs "$RUNS" --seed-base "$SEED_BASE" \
     --home "$HOME_DIR" --binary "$BINARY" --executor "$EXECUTOR" --portal-port "$PORTAL_PORT" >/dev/null
-echo "campaign: started '$NAME' ($RUNS runs from seed $SEED_BASE, oracle mode $ORACLE_MODE)"
+echo "campaign: started '$NAME' ($RUNS runs from seed $SEED_BASE)"
 echo "  portal:  http://127.0.0.1:$PORTAL_PORT/"
 echo "  report:  $HOME_DIR/campaign-report.md"
 echo "  logs:    journalctl --user -u sub0-campaign -f"

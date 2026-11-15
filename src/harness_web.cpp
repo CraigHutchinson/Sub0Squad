@@ -151,45 +151,10 @@ std::string webBuildAndRun(const fs::path& ws, const std::vector<std::string>& t
     return {};
 }
 
-std::string webOracle(const GateContext& c, const Tap& tap)
-{
-    // Test oracle (off unless SUB0SQUAD_ORACLE_DIR names a reference project): the same tests against an independent implementation. Tests the
-    // reference fails are suspect (the first real runs lost whole ladders to tests that expected positions off by one). Advisory by default,
-    // a gate with SUB0SQUAD_ORACLE_MODE=gate; the verdict is written to oracle.txt for the history either way.
-    (void)tap;
-    const char* od = std::getenv("SUB0SQUAD_ORACLE_DIR");
-    if (!od || !*od || !fs::exists(fs::path(od) / "src")) return {};
-    std::error_code ec;
-    const fs::path ows = c.attemptDir / "oracle-ws";
-    fs::remove_all(ows, ec);
-    for (const auto& f : webScaffold()) writeFile(ows / f.path, f.content);
-    copyTree(fs::path(od) / "src", ows / "src");
-    copyTree(c.out, ows);
-    for (auto& e : fs::recursive_directory_iterator(c.out)) {  // keep the tester's own files, not the reference's (the tests are what is being judged)
-        if (!e.is_regular_file()) continue;
-        const std::string rel = fs::relative(e.path(), c.out).generic_string();
-        if (rel.rfind("src/", 0) == 0) fs::copy_file(fs::path(od) / rel, ows / rel, fs::copy_options::overwrite_existing, ec);
-    }
-    std::vector<std::string> ocmd = {"node", "--test", "--test-reporter=tap"};
-    for (const auto& t : c.item->gate.tests) ocmd.push_back(t);
-    const Cmd o = run(ocmd, ows, 90);
-    const Tap ot = parseTap(o.output);
-    std::string verdict;
-    if (ot.tests > 0 && ot.fail > 0)
-        verdict = "the reference implementation fails " + std::to_string(ot.fail) + " of " + std::to_string(ot.tests) + " of these tests, so they may be wrong:\n" + ot.excerpt;
-    writeFile(c.attemptDir / "oracle.txt", verdict.empty() ? "ORACLE AGREES\n" : "ORACLE DISAGREES: " + verdict);
-    if (!verdict.empty() && ot.fail * 100 > ot.tests * 15) {
-        const char* mode = std::getenv("SUB0SQUAD_ORACLE_MODE");
-        if (mode && std::string(mode) == "gate") return "test oracle: " + verdict + "Correct the expectations the reference contradicts, keep those it confirms.";
-        std::printf("ORACLE NOTE: %s", verdict.c_str());
-    }
-    return {};
-}
-
 }  // namespace
 
 namespace {
-const GateHooks& webHooks() { static const GateHooks hooks = {&webScaffold, &webPrecheck, &webBuildAndRun, &webOracle}; return hooks; }
+const GateHooks& webHooks() { static const GateHooks hooks = {&webScaffold, &webPrecheck, &webBuildAndRun}; return hooks; }
 }  // namespace
 
 int runHarnessGate(const std::vector<std::string>& args) { return runGateFlow(webHooks(), args); }

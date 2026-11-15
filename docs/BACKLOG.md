@@ -1,5 +1,8 @@
 # Backlog
 
+> **PRIORITY (owner, 2026-11-15): the clean-slate sandbox, `docs/CLEAN_SLATE.md`.** No hand-written plan and no reference implementation inside the harness: a planner role plans from the bare request, a plan review and expectation QA check it, and `validation/grade_run.py` judges the result from outside. This comes before further baseline campaigns and before the other items below.
+
+
 Work that is understood but not scheduled. Newest first within a heading; each item says where its design lives. The roadmap ([ROADMAP.md](ROADMAP.md))
 holds milestones; this holds the things noticed on the way.
 

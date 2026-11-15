@@ -32,8 +32,8 @@ The two failures so far both stuck at `dev-engine` with 2 of 4 items accepted. S
 ## Round 1 (built, 2026-11-15)
 
 * Gate failures now show each side's own text and value (`7.0 is 7 but calc::evaluate("2 + 3 * 4") is 14`); no expected/actual; the brief says value under test first. Rows 76.
-* The C++ test oracle (row 77): the tester's tests also run against the sandbox reference; with `SUB0SQUAD_ORACLE_MODE=gate` a disagreeing test set is refused with the reference's verdict. Fixture: seed 1000's real tests.
-* `scripts/start-campaign.sh`: a clean boot to a running campaign (engine service, then campaign service, oracle gate on).
+* A C++ test oracle was built and then REMOVED from the harness (owner direction, same day): a reference implementation is validation-suite equipment, not something a real project has. It now lives in `validation/` and judges runs after the fact (`validation/grade_run.py`); the harness must find wrong tests by itself (expectation QA, backlog).
+* `scripts/start-campaign.sh`: a clean boot to a running campaign (engine service, then campaign service).
 * Seeds 1001 and 1002 failed for a different reason: the model-made skeleton declared a `Parser` class with 19 member sections; the wall budget (3900 s) ran out with `Parser::tokenize` or `Parser::parsePrimary` unwritten. That is decomposition (class D), not tests. Next probe: whole-file versus section granularity.
 
 ## Next
