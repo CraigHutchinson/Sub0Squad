@@ -91,7 +91,7 @@ int main()
         const std::string g1 = slurp(d / "items" / "dev-engine" / "attempt-1" / "gate.txt");
         CHECK(g1.find("GATE FAIL") != std::string::npos);
         CHECK(g1.find("modulo") != std::string::npos);
-        CHECK(g1.find("expected") != std::string::npos);
+        CHECK(g1.find(std::string(p.harness) == "cpp-cmake" ? " but " : "expected") != std::string::npos);
         // The same item passes on the next attempt (the correct file).
         CHECK_EQ(agent(d, "dev-engine", 2), 0);
         CHECK_EQ(gate(p, d, "dev-engine", 2), 0);
@@ -136,6 +136,23 @@ int main()
             if (tester != 0) std::fprintf(stderr, "the run-v11 tester reply: gate %d: %.600s\n", tester, said.c_str());
             CHECK(said.find("does not compile") == std::string::npos && said.find("too many arguments") == std::string::npos);
             CHECK_EQ(tester, 0);
+        }
+        // Catalogue rows 76 and 77: the REAL tests campaign seed 1000's tester wrote (`2 + 3 * 4` expected to be 7, `5 % 2` to be 0, ...). Against the
+        // stubs they fail as a tester's tests should, so only the oracle (the same tests against a reference implementation of the contract) can tell.
+        if (std::string(p.harness) == "cpp-cmake") {
+            put(d / "items" / "test-engine" / "attempt-8" / "out" / "tests/eval.test.cpp", slurp(std::filesystem::path{SUB0SQUAD_SOURCE_DIR} / "tests" / "data" / "replies" / "campaign-seed1000-test-engine-wrong-literals.cpp"));
+            ::setenv("SUB0SQUAD_ORACLE_MODE", "gate", 1);
+            const int refused = runCppGate({"--workflow-dir", d.string(), "--item", "test-engine", "--attempt", "8", "--no-publish", "1"});
+            ::unsetenv("SUB0SQUAD_ORACLE_MODE");
+            const std::string verdict = slurp(d / "items" / "test-engine" / "attempt-8" / "gate.txt");
+            CHECK(refused != 0);
+            CHECK(verdict.find("reference implementation") != std::string::npos && verdict.find("the TESTS are wrong") != std::string::npos);
+            // The failure text names each side with its own value, never "expected"/"actual" (the labels depended on an undocumented argument order).
+            CHECK(verdict.find("7.0 is 7 but calc::evaluate(\"2 + 3 * 4\") is 14") != std::string::npos);
+            CHECK(verdict.find("expected:") == std::string::npos);
+            // Advisory by default: the same tests pass the gate, and the verdict is only recorded.
+            CHECK_EQ(runCppGate({"--workflow-dir", d.string(), "--item", "test-engine", "--attempt", "8", "--no-publish", "1"}), 0);
+            CHECK(slurp(d / "items" / "test-engine" / "attempt-8" / "oracle.txt").find("ORACLE DISAGREES") != std::string::npos);
         }
         // An edit outside the allowlist is refused.
         put(d / "items" / "dev-app" / "attempt-3" / "out" / appFile, h->mockFile(appFile, false));

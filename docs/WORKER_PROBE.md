@@ -29,7 +29,14 @@ The campaign archives show the same test defects in the real runs: seed 1000's t
 
 The two failures so far both stuck at `dev-engine` with 2 of 4 items accepted. Seed 1000 is explained by finding 1 plus 2. Seeds 1001 and 1002 had correct tests, so they need their own reading (the swapped labels and the skeleton split are the suspects). Hypothesis to check on the rest: the dev-engine failures are test and gate defects, not model limits.
 
-## Next (not built; the campaign binary is pinned, so none of these changes it)
+## Round 1 (built, 2026-11-15)
+
+* Gate failures now show each side's own text and value (`7.0 is 7 but calc::evaluate("2 + 3 * 4") is 14`); no expected/actual; the brief says value under test first. Rows 76.
+* The C++ test oracle (row 77): the tester's tests also run against the sandbox reference; with `SUB0SQUAD_ORACLE_MODE=gate` a disagreeing test set is refused with the reference's verdict. Fixture: seed 1000's real tests.
+* `scripts/start-campaign.sh`: a clean boot to a running campaign (engine service, then campaign service, oracle gate on).
+* Seeds 1001 and 1002 failed for a different reason: the model-made skeleton declared a `Parser` class with 19 member sections; the wall budget (3900 s) ran out with `Parser::tokenize` or `Parser::parsePrimary` unwritten. That is decomposition (class D), not tests. Next probe: whole-file versus section granularity.
+
+## Next
 
 * **Neutral, documented gate labels** (`left`/`right`, or one stated argument order in the tester card) and all failures per case: a harness fix, catalogue rows 76 and 77.
 * **A test check before the developer is graded**: run the tests against the contract (a reference implementation written by a different worker, or a mutation check; the cheap first step is a tester-side consistency review) and a spec-check turn for the developer.

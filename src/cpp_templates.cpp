@@ -78,7 +78,7 @@ int main()
 )CPP";
 
 const char* kCheck = R"CPP(#pragma once
-// A tiny test framework. TEST(name) { ... } registers a case; CHECK, CHECK_EQ, CHECK_NEAR and CHECK_THROWS fail it with the expected and the actual value.
+// A tiny test framework. TEST(name) { ... } registers a case; CHECK, CHECK_EQ, CHECK_NEAR and CHECK_THROWS fail it with each side's own text and value (CHECK_NEAR(a, b, tol) reads `a is X but b is Y`: no side is 'expected', so the order does not mislead).
 // The runner (tests/helpers/main.cpp) prints a TAP report and exits non-zero when a case fails.
 #include <cmath>
 #include <functional>
@@ -99,10 +99,10 @@ template <class T> std::string show(const T& v) { std::ostringstream o; o << v; 
 }  // namespace check
 
 #define TEST(name) static void name(); static check::Registrar registrar_##name(#name, name); static void name()
-#define CHECK(cond) do { if (!(cond)) throw check::Failure{"CHECK failed: " #cond, "true", "false", __FILE__, __LINE__}; } while (0)
-#define CHECK_EQ(a, b) do { const auto va_ = (a); const auto vb_ = (b); if (!(va_ == vb_)) throw check::Failure{"CHECK_EQ failed: " #a " == " #b, check::show(vb_), check::show(va_), __FILE__, __LINE__}; } while (0)
-#define CHECK_NEAR(a, b, tol) do { const double va_ = (a); const double vb_ = (b); if (!(std::fabs(va_ - vb_) <= (tol))) throw check::Failure{"CHECK_NEAR failed: " #a " ~ " #b, check::show(vb_), check::show(va_), __FILE__, __LINE__}; } while (0)
-#define CHECK_THROWS(expr) do { bool threw_ = false; try { (void)(expr); } catch (const std::exception&) { threw_ = true; } if (!threw_) throw check::Failure{"CHECK_THROWS failed: " #expr " did not throw", "an exception", "no exception", __FILE__, __LINE__}; } while (0)
+#define CHECK(cond) do { if (!(cond)) throw check::Failure{"CHECK failed: " #cond, "", "", __FILE__, __LINE__}; } while (0)
+#define CHECK_EQ(a, b) do { const auto va_ = (a); const auto vb_ = (b); if (!(va_ == vb_)) throw check::Failure{"CHECK_EQ failed: " #a " is " + check::show(va_) + " but " #b " is " + check::show(vb_), "", "", __FILE__, __LINE__}; } while (0)
+#define CHECK_NEAR(a, b, tol) do { const double va_ = (a); const double vb_ = (b); if (!(std::fabs(va_ - vb_) <= (tol))) throw check::Failure{"CHECK_NEAR failed: " #a " is " + check::show(va_) + " but " #b " is " + check::show(vb_), "", "", __FILE__, __LINE__}; } while (0)
+#define CHECK_THROWS(expr) do { bool threw_ = false; try { (void)(expr); } catch (const std::exception&) { threw_ = true; } if (!threw_) throw check::Failure{"CHECK_THROWS failed: " #expr " did not throw", "", "", __FILE__, __LINE__}; } while (0)
 )CPP";
 
 const char* kAppHelper = R"CPP(#pragma once
@@ -176,7 +176,7 @@ int main()
             std::printf("ok %d - %s\n", n, c.name.c_str());
         } catch (const check::Failure& f) {
             ++fail;
-            std::printf("not ok %d - %s\n  ---\n  error: %s\n  expected: %s\n  actual: %s\n  location: '%s:%d'\n  ...\n", n, c.name.c_str(), one(f.message).c_str(), one(f.expected).c_str(), one(f.actual).c_str(), f.file.c_str(), f.line);
+            std::printf("not ok %d - %s\n  ---\n  error: %s\n  location: '%s:%d'\n  ...\n", n, c.name.c_str(), one(f.message).c_str(), f.file.c_str(), f.line);
         } catch (const std::exception& e) {
             ++fail;
             std::printf("not ok %d - %s\n  ---\n  error: unexpected exception: %s\n  ...\n", n, c.name.c_str(), e.what());
@@ -484,7 +484,7 @@ std::string cppHarnessFacts()
 std::string cppHarnessBrief()
 {
     return "Already in the workspace (do not recreate): CMakeLists.txt, include/calc/calc.hpp (declares double calc::evaluate(const std::string& expr, bool degrees = false); throws std::runtime_error), "
-           "tests/helpers/check.hpp (TEST(name){...}, CHECK, CHECK_EQ, CHECK_NEAR(a,b,tol), CHECK_THROWS) with its runner, and stubs of src/calc.cpp and src/main.cpp. C++20, standard library only, "
+           "tests/helpers/check.hpp (TEST(name){...}, CHECK, CHECK_EQ, CHECK_NEAR(a,b,tol), CHECK_THROWS) with its runner (a failure shows each side's own text and value; write the value under test first, the constant you expect second), and stubs of src/calc.cpp and src/main.cpp. C++20, standard library only, "
            "no warnings allowed (-Wall -Wextra -Werror). A test file includes \"calc/calc.hpp\" and \"helpers/check.hpp\" and defines only TEST cases (no main).";
 }
 

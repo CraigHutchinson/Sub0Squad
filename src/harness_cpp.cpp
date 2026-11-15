@@ -119,9 +119,46 @@ std::string cppBuildAndRun(const fs::path& ws, const std::vector<std::string>& t
 }  // namespace
 
 namespace {
+
+/// The test oracle (catalogue row 77): a tester's tests that already fail against the stubs are also run against a REFERENCE implementation of the contract
+/// (the sandbox blueprints carry one: `cppMockFile`). Tests the reference fails are wrong, not the code: in the first campaign seed 1000's tester expected
+/// `2 + 3 * 4` to be 7 and `5 % 2` to be 0, and ten developer attempts were spent on an unsatisfiable target. Mode from SUB0SQUAD_ORACLE_MODE: `gate`
+/// (the tests are refused with the reference's verdict), `off`, anything else or unset: advisory (the verdict goes to oracle.txt and the log only).
+std::string cppOracle(const GateContext& c, const Tap& tap)
+{
+    (void)tap;
+    const char* m = std::getenv("SUB0SQUAD_ORACLE_MODE");
+    const std::string mode = m ? m : "";
+    if (mode == "off") return {};
+    const std::string refEngine = cppMockFile("src/calc.cpp", false), refMain = cppMockFile("src/main.cpp", false);
+    if (refEngine.empty()) return {};  // no reference for this project: nothing independent to judge the tests with
+    std::error_code ec;
+    const fs::path ows = c.attemptDir / "oracle-ws";
+    fs::remove_all(ows, ec);
+    for (const auto& f : cppScaffold()) writeFile(ows / f.path, f.content);
+    writeFile(ows / "src/calc.cpp", refEngine);
+    if (!refMain.empty()) writeFile(ows / "src/main.cpp", refMain);
+    copyTree(c.out / "tests", ows / "tests");  // the tester's files are what is being judged; the scaffold's helpers stay ours
+    for (const auto& f : cppScaffold()) if (f.path.rfind("tests/helpers/", 0) == 0) writeFile(ows / f.path, f.content);
+    Tap ot;
+    bool timedOut = false;
+    const std::string bad = cppBuildAndRun(ows, c.item->gate.tests, ot, timedOut);
+    std::string verdict;
+    if (!bad.empty()) verdict = "the tests do not build or run against the reference implementation:\n" + bad + "\n";
+    else if (ot.tests > 0 && ot.fail > 0) verdict = "the reference implementation of the contract fails " + std::to_string(ot.fail) + " of " + std::to_string(ot.tests) + " of these tests, so the TESTS are wrong, not the code:\n" + ot.excerpt;
+    writeFile(c.attemptDir / "oracle.txt", verdict.empty() ? "ORACLE AGREES\n" : "ORACLE DISAGREES: " + verdict);
+    if (verdict.empty()) return {};
+    if (mode == "gate") return "test oracle: " + verdict + "Correct exactly the expectations the reference contradicts (check the arithmetic against the contract: each line names the expression and both values) and keep the rest.";
+    std::printf("ORACLE NOTE: %s", verdict.c_str());
+    return {};
+}
+
+}  // namespace
+
+namespace {
 std::string cppPrecheck(const fs::path& out, const fs::path& ws) { return cppCheck(out, ws, false); }
 std::string cppPrecheckPartial(const fs::path& out, const fs::path& ws) { return cppCheck(out, ws, true); }
-const GateHooks& cppHooks() { static const GateHooks hooks = {&cppScaffold, &cppPrecheck, &cppBuildAndRun, nullptr, &cppPrecheckPartial}; return hooks; }
+const GateHooks& cppHooks() { static const GateHooks hooks = {&cppScaffold, &cppPrecheck, &cppBuildAndRun, &cppOracle, &cppPrecheckPartial}; return hooks; }
 }  // namespace
 
 int runCppGate(const std::vector<std::string>& args) { return runGateFlow(cppHooks(), args); }
