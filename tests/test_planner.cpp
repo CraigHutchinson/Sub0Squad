@@ -141,6 +141,20 @@ int main()
         CHECK(blocks.size() == 2 && rest.find("=== FILE") == std::string::npos && rest.find("\"schema\"") != std::string::npos);
         CHECK(slurp(d / "planner.json").find("slot fill") != std::string::npos);   // the plan-lint scalars are kept with the record
     }
+    {   // A long refused reply is not put back into the conversation (no stand-in the model could copy: it did, in the first real probe): the request is
+        // asked again with the reasons, in a conversation of a system and a user message only.
+        const fs::path d = makeTempDir("planner-long");
+        fake::Engine engine({{std::string(3500, 'x')}, {good}});
+        CHECK_EQ(runLlmPlanner(plannerArgs(d, engine)), 0);
+        const auto rq = engine.requests();
+        CHECK_EQ(rq.size(), static_cast<std::size_t>(2));
+        if (rq.size() == 2) {
+            bool assistant = false;
+            for (const auto& m : rq[1].messages) assistant = assistant || m.first == "assistant";
+            CHECK(!assistant && rq[1].messages.size() == 2);
+            CHECK(rq[1].last().find("write a word counting library") != std::string::npos && rq[1].last().find("no JSON object") != std::string::npos);
+        }
+    }
     {   // A planner that never produces a valid plan leaves no plan behind and says so.
         const fs::path d = makeTempDir("planner-fail");
         fake::Engine engine({{"I cannot do that."}, {"{\"schema\":\"plan-2\"}"}});

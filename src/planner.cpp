@@ -198,10 +198,15 @@ int runLlmPlanner(const std::vector<std::string>& args)
         for (const auto& p : problems) fix += "- " + p + "\n";
         conversation += "\n## Turn " + std::to_string(turn) + " (the harness)\n\n" + fix;
         std::fprintf(stderr, "llm-planner: turn %d refused: %zu problem(s); first: %s\n", turn, problems.size(), problems.front().substr(0, 200).c_str());
-        // The refused reply is not repeated when it is long: a small model's slot holds a few thousand tokens (the first real probe overflowed it on the third
-        // turn), and a cut-off or bloated plan is better rewritten than patched.
-        messages.push_back({"assistant", reply->content.size() > 3000 ? "(your previous reply was refused; it is not repeated here)" : reply->content});
-        messages.push_back({"user", fix});
+        // A long refused reply is not repeated: a small model's slot holds a few thousand tokens (the first real probe overflowed it on the third turn), and a
+        // bloated plan is better rewritten than patched. It is also not replaced by a stand-in message: the model copies its own history (the placeholder came
+        // back as the next reply). The request is simply asked again with the reasons attached.
+        if (reply->content.size() > 3000) {
+            messages = {{"system", plannerSystemPrompt(slots)}, {"user", user + "\n\nAn earlier attempt was refused (it is not repeated here) for these reasons; write the COMPLETE plan again, fixing them:\n" + fix.substr(fix.find('\n') + 1)}};
+        } else {
+            messages.push_back({"assistant", reply->content});
+            messages.push_back({"user", fix});
+        }
     }
     record(false, static_cast<int>(problemsByTurn.size()));
     std::fprintf(stderr, "llm-planner: no valid plan in %zu turn(s)\n", problemsByTurn.size());

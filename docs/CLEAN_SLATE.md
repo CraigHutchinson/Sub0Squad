@@ -64,3 +64,23 @@ The planner and every other role must read the window from the profile and budge
 * This is also where wrong tests and thin contracts get corrected: a concern raised against the design reopens the design phase for that entry only.
 
 **Order of work.** (1) finish and record the first probes with the single-phase planner (running now); (2) measure KV memory and decide the window plan; (3) pass `slots` and the window to the planner and feed `plan-lint` into its repair messages; (4) split the planner into design and wave-planning roles on the `planned` process; (5) the plan review and expectation QA; (6) the loop stage kind.
+
+## 7. First probe (the planner on the real 35B-A3B, 2026-11-15)
+
+Method: `sub0squad llm-planner` with the request "write a calculator in C++", 4 slots at 8192 tokens each, at most 4 turns. No blueprint, no reference.
+
+| Batch | Seeds | Valid | Notes |
+|---|---|---|---|
+| probes 1 to 4 (cpp, web, py) | single runs | cpp: 1 of 3 valid after fixes to the harness; web 1 of 1; py 1 of 1 | probe 1 timed out (loaded machine), probe 2 hit the token cap and the slot size |
+| cpp-5 | 1, 2, 3 | 2 of 3 | seed 1 copied a stand-in message from the repair history |
+| cpp-6 (repair protocol fixed: a long refused reply is dropped and the request is re-asked with the reasons) | 1 to 5 | 3 of 5 (seed 3 in 1 turn, seed 5 in 3, seed 2 in 4) | seeds 1 and 4 never got valid JSON out of the `card` of the CLI tester item in 4 turns |
+
+What the repair loop caught (all real, all mechanical): a missing stub for `src/main.cpp`, a stub of more than 30 lines (an implementation, not a stub), a scaffold that did not compile (`-Werror` unused parameters), a missing header, and malformed JSON in one item's `card`.
+
+Plan shape: always 4 items, an engine pair and an app pair. The widest level is 2, so on 4 slots the lint reports 33 to 41 % fill, a speedup of 1.3x to 1.7x, and a backfill rate of 0 %. The warning fires every time. The planner is told the slot count but does not act on it yet; the lint is recorded, not fed back into repair turns.
+
+Plan quality, honestly: the checks make the plans well formed and compilable, not good. Seen so far: hedged contracts, fragile or wrong worked examples (for example `10 / 3 = 3.3333333333333335`, `10 / 0 = Error`), and an over-large last item. Nothing here has been run through the squad yet; no plan from this probe has been built into a project.
+
+Failure classes: (1) JSON structure errors in a deeply nested `card` (2 of 5): a small model loses track of braces; a flatter plan form or a per-item reply would avoid it. (2) Scaffold stubs that do not compile under `-Werror`: caught and repaired in the same run. (3) Under-allocation of ready work: not caught by any check.
+
+Not verified: a build from any of these plans, the success rate over a larger sample (5 seeds is a rough figure), and whether feeding the lint into the repair turn raises fill.
