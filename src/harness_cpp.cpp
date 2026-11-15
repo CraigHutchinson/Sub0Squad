@@ -5,7 +5,10 @@
 #include "sub0squad/harness_common.hpp"
 #include "sub0squad/plan.hpp"
 
+#include <unistd.h>
+
 #include <algorithm>
+#include <cstdint>
 #include <cstdlib>
 #include <filesystem>
 #include <set>
@@ -124,6 +127,24 @@ std::string cppPrecheckPartial(const fs::path& out, const fs::path& ws) { return
 const GateHooks& cppHooks() { static const GateHooks hooks = {&cppScaffold, &cppPrecheck, &cppBuildAndRun, nullptr, &cppPrecheckPartial}; return hooks; }
 }  // namespace
 
+std::string cppCheckPlanScaffold(const std::string& planJson)
+{
+    auto plan = Plan::fromJson(planJson);
+    if (!plan) return "the plan does not parse: " + plan.error();
+    std::error_code ec;
+    const fs::path ws = fs::temp_directory_path(ec) / ("s0q-plan-scaffold-" + std::to_string(::getpid()) + "-" + std::to_string(reinterpret_cast<std::uintptr_t>(&planJson)));
+    fs::remove_all(ws, ec);
+    writeScaffold(*plan, cppScaffold(), ws);
+    std::string bad;
+    for (const auto& f : plan->scaffold) {
+        if (fs::path(f.path).extension() != ".cpp") continue;
+        const Cmd c = run({compiler(), "-std=c++20", "-c", "-o", "/dev/null", "-Wall", "-Wextra", "-Werror", "-Iinclude", "-Isrc", f.path}, ws, 60);
+        if (c.exitCode != 0) bad += "the scaffold file '" + f.path + "' does not compile:\n" + diagnostics(c.output, 4);
+    }
+    fs::remove_all(ws, ec);
+    return bad;
+}
+
 int runCppGate(const std::vector<std::string>& args) { return runGateFlow(cppHooks(), args); }
 std::string runCppPrecheck(const std::vector<std::string>& args) { return runPrecheckFlow(cppHooks(), args); }
 
@@ -138,7 +159,7 @@ int runCppIntegrate(const std::vector<std::string>& args)
     std::error_code ec;
     fs::remove_all(project, ec);
     events::progress(0, 4, "merge");
-    for (const auto& f : cppScaffold()) writeFile(project / f.path, f.content);
+    writeScaffold(*plan, cppScaffold(), project);
     for (const auto& it : plan->items) {
         const fs::path acc = dir / "items" / it.id / "accepted";
         if (!fs::exists(acc)) { std::printf("INTEGRATION FAIL: item '%s' has no accepted output\n", it.id.c_str()); return 1; }

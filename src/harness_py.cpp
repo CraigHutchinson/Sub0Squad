@@ -70,7 +70,7 @@ int runPyIntegrate(const std::vector<std::string>& args)
     std::error_code ec;
     fs::remove_all(project, ec);
     events::progress(0, 3, "merge");
-    for (const auto& f : pyScaffold()) writeFile(project / f.path, f.content);
+    writeScaffold(*plan, pyScaffold(), project);
     for (const auto& it : plan->items) {
         const fs::path acc = dir / "items" / it.id / "accepted";
         if (!fs::exists(acc)) { std::printf("INTEGRATION FAIL: item '%s' has no accepted output\n", it.id.c_str()); return 1; }

@@ -124,7 +124,7 @@ std::string badPlaceholder(const std::string& arg)
     for (std::size_t at = arg.find("${"); at != std::string::npos; at = arg.find("${", at + 2)) {
         const std::size_t close = arg.find('}', at);
         const std::string name = close == std::string::npos ? arg.substr(at) : arg.substr(at, close - at + 1);
-        if (name != "${task}" && name != "${sandbox}" && name != "${workflow}") return "'" + name + "' is not a placeholder (${task}, ${sandbox} and ${workflow} are)";
+        if (name != "${task}" && name != "${sandbox}" && name != "${workflow}" && name != "${engine}" && name != "${request}") return "'" + name + "' is not a placeholder (${task}, ${sandbox}, ${workflow}, ${engine} and ${request} are)";
     }
     return {};
 }
@@ -227,7 +227,8 @@ Stage jobStage(const char* name, const char* entry, const char* exit, JobParams 
 const std::vector<StageTool>& stageTools()
 {
     static const std::vector<StageTool> tools = {
-        {"mock-planner", "write the blueprint plan of a known task to the path after --out", false},
+        {"mock-planner", "write the blueprint plan of a known task to the path after --out (a machinery-test fixture: a real-model run plans with llm-planner)", false},
+        {"llm-planner", "a model plans from the request alone: plan-2 JSON written to <sandbox>/plan.json, refused plans repaired from the validator's messages", false},
         {"harness:integrate", "the integration command of the plan's harness: merge the accepted items into <sandbox>/project and run the whole suite", true},
         {"qa", "quality findings over a source tree: duplicated code, the same helper declared twice, very long functions", false},
         {"plan-lint", "audit a plan file: width, critical path, rough time, serial tails", false},
@@ -435,6 +436,18 @@ const Process& reviewedProcess()
     return p;
 }
 
+const Process& plannedProcess()
+{
+    static const Process p = [] {
+        Process x = standardProcess();
+        x.name = "planned";
+        x.description = "The standard stages with NO blueprint: a planner (a model, from the request alone) writes the plan, the mechanical plan checks and the harness's scaffold check send a refused plan back to it, then build and integrate. The default of a real-model run (docs/CLEAN_SLATE.md).";
+        x.stages[0] = jobStage("plan", "always", "plan.present", {"planner", "planner", "llm-planner", {"--workflow-dir", "${sandbox}", "--engine", "${engine}", "--request", "${request}"}, "local", 7200, 0, "plan"});
+        return x;
+    }();
+    return p;
+}
+
 const Process& clarifiedProcess()
 {
     static const Process p = [] {
@@ -450,7 +463,7 @@ const Process& clarifiedProcess()
 
 const std::vector<const Process*>& builtinProcesses()
 {
-    static const std::vector<const Process*> all = {&standardProcess(), &sectionsProcess(), &reviewedProcess(), &clarifiedProcess()};
+    static const std::vector<const Process*> all = {&standardProcess(), &sectionsProcess(), &reviewedProcess(), &plannedProcess(), &clarifiedProcess()};
     return all;
 }
 

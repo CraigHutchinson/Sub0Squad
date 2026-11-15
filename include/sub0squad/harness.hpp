@@ -43,6 +43,12 @@ struct Harness
     std::string (*scaffoldFile)(const std::string& path) = nullptr;
     /// The paths of every scaffold file.
     std::vector<std::string> (*scaffoldPaths)() = nullptr;
+    /// Whether the scaffold a PLAN carries (its own headers and stubs) is sound on this platform: given the plan as JSON, the problems a planner must fix (a
+    /// stub that does not compile, ...), "" when fine. Null: nothing to check. A plan-time check, run before any worker starts (docs/CLEAN_SLATE.md).
+    std::string (*checkPlanScaffold)(const std::string& planJson) = nullptr;
+    /// The brief for a plan that carries its own scaffold (its interface and stubs): what the harness provides WITHOUT naming any project's files. Also the
+    /// planner's account of the harness. Null: `brief` serves.
+    std::string (*ownScaffoldBrief)() = nullptr;
 };
 
 /// Add `harness` to the registry. The entry must outlive the program's use of the registry (entries are constants). Registering a name twice keeps the

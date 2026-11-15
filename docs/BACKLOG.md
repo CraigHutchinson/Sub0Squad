@@ -6,6 +6,12 @@
 Work that is understood but not scheduled. Newest first within a heading; each item says where its design lives. The roadmap ([ROADMAP.md](ROADMAP.md))
 holds milestones; this holds the things noticed on the way.
 
+## Planning in phases, windows and slots (owner direction, 2026-11-15; design in `docs/CLEAN_SLATE.md` section 6)
+
+- **Measure the KV cost and give roles their own windows**; the planner and others budget against the window read from the engine profile.
+- **Tell the planner the slot goal** (slots, window per slot, tokens per second) and feed `plan-lint` into its repair messages.
+- **Split planning into design (rare, wide window) and execution-wave planning (frequent)**, a looping stage list: design, plan next wave, build, integrate, review, repeat; changes through the consolidation step.
+
 ## Portal
 
 ### Node tree presentation: grouping, ordering and connections (2026-11-10, from a screenshot of the live V run)

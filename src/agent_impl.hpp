@@ -24,7 +24,7 @@ bool writeFile(const std::filesystem::path& p, const std::string& text);
 [[nodiscard]] std::string clip(const std::string& s, std::size_t n);
 
 /// The fixed-system-block description of a project harness (empty when the plan has none).
-[[nodiscard]] std::string harnessBrief(const std::string& name);
+[[nodiscard]] std::string harnessBrief(const Plan& plan);
 /// The system block: persona-neutral text first (shared by the server's prompt cache), the persona sentence last.
 [[nodiscard]] std::string systemBlock(const std::string& persona, const std::string& brief);
 /// An earlier draft as the worker sees it: numbered, whole when it fits `budget`, else folded with the regions the gate named left open.

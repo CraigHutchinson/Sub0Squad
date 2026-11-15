@@ -1,9 +1,12 @@
 #include "sub0squad/plan_lint.hpp"
 
 #include <algorithm>
+#include <cmath>
+#include <cstdint>
 #include <cstdio>
 #include <map>
 #include <set>
+#include <vector>
 
 namespace sub0squad {
 
@@ -13,7 +16,59 @@ double estimateItemTokens(const WorkItem& item)
     return item.persona == "tester" ? 1000.0 + 250.0 * item.complexity : 400.0 + 500.0 * item.complexity;
 }
 
-PlanLint lintPlan(const Plan& plan, double tps)
+namespace {
+
+/// A tiny deterministic generator (splitmix64) and a normal draw from it (Box-Muller): the standard library's distributions are not specified to give the
+/// same numbers on every platform, and a lint figure that changes with the toolchain could not be a test.
+struct Rng
+{
+    std::uint64_t state = 0x9E3779B97F4A7C15ull;
+    std::uint64_t next() { std::uint64_t z = (state += 0x9E3779B97F4A7C15ull); z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9ull; z = (z ^ (z >> 27)) * 0x94D049BB133111EBull; return z ^ (z >> 31); }
+    double uniform() { return (static_cast<double>(next() >> 11) + 0.5) / 9007199254740992.0; }
+    double normal() { return std::sqrt(-2.0 * std::log(uniform())) * std::cos(6.283185307179586 * uniform()); }
+};
+
+struct SlotRun { double makespan = 0, work = 0; int freed = 0, backfilled = 0; };
+
+/// One list schedule: `size[i]` is the work of item i, ready items start in plan order on the first free slot.
+SlotRun scheduleOnce(const Plan& plan, const std::vector<double>& size, int slots)
+{
+    const std::size_t n = plan.items.size();
+    std::map<std::string, std::size_t> index;
+    for (std::size_t i = 0; i < n; ++i) index[plan.items[i].id] = i;
+    std::vector<int> waitingOn(n, 0);
+    std::vector<std::vector<std::size_t>> dependents(n);
+    for (std::size_t i = 0; i < n; ++i)
+        for (const auto& d : plan.items[i].deps) { ++waitingOn[i]; dependents[index[d]].push_back(i); }
+    std::vector<std::size_t> ready;
+    for (std::size_t i = 0; i < n; ++i) if (waitingOn[i] == 0) ready.push_back(i);
+    std::vector<std::pair<double, std::size_t>> running;   // finish time, item
+    SlotRun r;
+    double now = 0;
+    std::size_t done = 0;
+    for (double w : size) r.work += w;
+    while (done < n) {
+        std::sort(ready.begin(), ready.end());
+        while (static_cast<int>(running.size()) < slots && !ready.empty()) {
+            running.push_back({now + size[ready.front()], ready.front()});
+            ready.erase(ready.begin());
+        }
+        if (running.empty()) break;   // cannot happen in a validated (acyclic) plan
+        const auto first = std::min_element(running.begin(), running.end());
+        now = first->first;
+        const std::size_t item = first->second;
+        running.erase(first);
+        ++done;
+        for (std::size_t d : dependents[item]) if (--waitingOn[d] == 0) ready.push_back(d);
+        if (done < n) { ++r.freed; if (ready.size() >= static_cast<std::size_t>(slots) - running.size()) ++r.backfilled; }   // ready work for EVERY idle slot
+    }
+    r.makespan = now;
+    return r;
+}
+
+}  // namespace
+
+PlanLint lintPlan(const Plan& plan, double tps, int slots, double sigma)
 {
     PlanLint r;
     std::map<std::string, int> level;
@@ -59,6 +114,36 @@ PlanLint lintPlan(const Plan& plan, double tps)
     if (r.serialFraction > 0.6 && plan.items.size() >= 4)
         r.warnings.push_back("the critical path holds " + std::to_string(static_cast<int>(100 * r.serialFraction)) + " % of the estimated work: concurrency can speed this plan up by at most " +
                              std::to_string(1.0 / r.serialFraction).substr(0, 4) + "x");
+    if (slots > 0 && !plan.items.empty()) {
+        r.slots = slots;
+        r.boundSpeedup = r.criticalTokens > 0 ? std::min<double>(slots, r.totalTokens / r.criticalTokens) : slots;
+        r.widthRatio = static_cast<double>(r.maxWidth) / slots;
+        Rng rng;
+        constexpr int kTrials = 400;
+        std::vector<double> fills;
+        double speedup = 0;
+        int freed = 0, backfilled = 0;
+        for (int t = 0; t < kTrials; ++t) {
+            std::vector<double> size;
+            for (const auto& it : plan.items) size.push_back(estimateItemTokens(it) * std::exp(sigma * rng.normal() - 0.5 * sigma * sigma));   // mean-preserving
+            const SlotRun run = scheduleOnce(plan, size, slots);
+            fills.push_back(run.makespan > 0 ? run.work / (slots * run.makespan) : 1.0);
+            speedup += run.makespan > 0 ? run.work / run.makespan : 1.0;
+            freed += run.freed; backfilled += run.backfilled;
+        }
+        std::sort(fills.begin(), fills.end());
+        for (double f : fills) r.fill += f;
+        r.fill /= kTrials;
+        r.fillP10 = fills[fills.size() / 10];
+        r.expectedSpeedup = speedup / kTrials;
+        r.backfillRate = freed > 0 ? static_cast<double>(backfilled) / freed : 1.0;
+        char buf[320];
+        if (slots >= 2 && r.fill < 0.7) {
+            std::snprintf(buf, sizeof buf, "on %d slots this plan is expected to keep them %.0f %% busy (a bad draw of sizes: %.0f %%; no schedule can beat %.1fx of the %d): only %d item(s) can be ready at once, so a slot that finishes early finds nothing to take. Make more independent items ready at the start (smaller, with no shared files), aiming at about %.0f.",
+                          slots, 100 * r.fill, 100 * r.fillP10, r.boundSpeedup, slots, r.maxWidth, 1.5 * slots);
+            r.warnings.push_back(buf);
+        }
+    }
     for (const auto& it : plan.items)
         if (it.persona == "developer" && it.files.size() > 2) r.warnings.push_back("'" + it.id + "' writes " + std::to_string(it.files.size()) + " files: a smaller package per file runs in parallel and fits one attempt");
     for (const auto& it : plan.items) {   // the naming convention: role and area, so a node is recognisable by its id (the part after the last '.' for a divided item)
@@ -87,6 +172,11 @@ std::string PlanLint::toText() const
     o += "  critical path:";
     for (std::size_t i = 0; i < criticalPath.size(); ++i) o += (i ? " -> " : " ") + criticalPath[i];
     o += "\n";
+    if (slots > 0) {
+        std::snprintf(buf, sizeof buf, "slot fill on %d slots with unknown item sizes: %.0f %% busy on average (%.0f %% on a bad draw), speedup %.2fx of at most %.2fx, backfill rate %.0f %%, width %.1fx the slots\n",
+                      slots, 100 * fill, 100 * fillP10, expectedSpeedup, boundSpeedup, 100 * backfillRate, widthRatio);
+        o += buf;
+    }
     for (const auto& w : warnings) o += "  warning: " + w + "\n";
     return o;
 }

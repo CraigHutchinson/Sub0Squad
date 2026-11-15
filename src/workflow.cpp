@@ -605,7 +605,10 @@ bool openPlannerQuestion(const WorkflowRecord& wf)
 
 std::string substituted(std::string arg, const WorkflowRecord& wf)
 {
-    const std::pair<const char*, const std::string*> names[] = {{"${task}", &wf.spec.task}, {"${sandbox}", &wf.spec.sandboxDir}, {"${workflow}", &wf.id}};
+    const auto engine = wf.spec.engineFor("planner");
+    const std::string engineArg = engine ? engine->toArg() : std::string{};
+    const std::string& request = wf.spec.taskText.empty() ? wf.spec.task : wf.spec.taskText;
+    const std::pair<const char*, const std::string*> names[] = {{"${task}", &wf.spec.task}, {"${sandbox}", &wf.spec.sandboxDir}, {"${workflow}", &wf.id}, {"${engine}", &engineArg}, {"${request}", &request}};
     for (const auto& [name, value] : names)
         for (std::size_t at = arg.find(name); at != std::string::npos; at = arg.find(name, at + value->size())) arg.replace(at, std::string_view{name}.size(), *value);
     return arg;

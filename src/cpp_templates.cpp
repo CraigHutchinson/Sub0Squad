@@ -26,8 +26,11 @@ file(GLOB LIB_SOURCES CONFIGURE_DEPENDS ${CMAKE_SOURCE_DIR}/src/*.cpp)
 list(FILTER LIB_SOURCES EXCLUDE REGEX "/main\\.cpp$")
 add_library(calc STATIC ${LIB_SOURCES})
 target_include_directories(calc PUBLIC include src)
-add_executable(calc_cli src/main.cpp)
-target_link_libraries(calc_cli calc)
+# The app exists only when the project has a src/main.cpp (a library-only project has none).
+if(EXISTS ${CMAKE_SOURCE_DIR}/src/main.cpp)
+  add_executable(calc_cli src/main.cpp)
+  target_link_libraries(calc_cli calc)
+endif()
 
 file(GLOB TEST_SOURCES CONFIGURE_DEPENDS ${CMAKE_SOURCE_DIR}/tests/*.test.cpp)
 foreach(t ${TEST_SOURCES})
@@ -35,8 +38,10 @@ foreach(t ${TEST_SOURCES})
   add_executable(test_${n} ${t} tests/helpers/main.cpp)
   target_include_directories(test_${n} PRIVATE tests)
   target_link_libraries(test_${n} calc)
-  add_dependencies(test_${n} calc_cli)
-  target_compile_definitions(test_${n} PRIVATE CALC_CLI_PATH="$<TARGET_FILE:calc_cli>")
+  if(TARGET calc_cli)
+    add_dependencies(test_${n} calc_cli)
+    target_compile_definitions(test_${n} PRIVATE CALC_CLI_PATH="$<TARGET_FILE:calc_cli>")
+  endif()
   add_test(NAME ${n} COMMAND test_${n})
 endforeach()
 )CPP";
@@ -486,6 +491,17 @@ std::string cppHarnessBrief()
     return "Already in the workspace (do not recreate): CMakeLists.txt, include/calc/calc.hpp (declares double calc::evaluate(const std::string& expr, bool degrees = false); throws std::runtime_error), "
            "tests/helpers/check.hpp (TEST(name){...}, CHECK, CHECK_EQ, CHECK_NEAR(a,b,tol), CHECK_THROWS) with its runner (a failure shows each side's own text and value; write the value under test first, the constant you expect second), and stubs of src/calc.cpp and src/main.cpp. C++20, standard library only, "
            "no warnings allowed (-Wall -Wextra -Werror). A test file includes \"calc/calc.hpp\" and \"helpers/check.hpp\" and defines only TEST cases (no main).";
+}
+
+std::string cppOwnScaffoldBrief()
+{
+    return "The harness builds C++20 with CMake and Ninja under -Wall -Wextra -Werror (a warning is a failure), standard library only. The library is every src/*.cpp except src/main.cpp; the command-line app is src/main.cpp (built only when it exists); "
+           "every tests/NAME.test.cpp is its own test executable. The harness supplies CMakeLists.txt and tests/helpers/ (do not recreate them): "
+           "tests/helpers/check.hpp gives TEST(name){...}, CHECK(cond), CHECK_EQ(a, b), CHECK_NEAR(a, b, tol) and CHECK_THROWS(expr) (a failure shows each side's own text and value; write the value under test first and the constant you expect second); "
+           "a test file includes the project's own header and \"helpers/check.hpp\" and defines only TEST cases (no main). To test the command-line app a test file includes \"helpers/app.hpp\" and calls app::run(\"ARGS\") "
+           "(or app::run(\"ARG1\", \"ARG2\", ...), one string per argument), which runs the built app and returns .output (stdout and stderr together) and .code (the exit code). "
+           "The project's own interface (headers) and the STUBS of every source file a developer writes (including src/main.cpp when there is an app) come from the plan's scaffold. "
+           "A tester's tests must fail against the stubs (at least 70 % of them); a developer's file must pass every test.";
 }
 
 std::string cppMockFile(const std::string& path, bool buggy)

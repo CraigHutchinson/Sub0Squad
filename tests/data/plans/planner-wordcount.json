@@ -1,0 +1,93 @@
+{
+ "schema": "plan-2",
+ "task": "write a word counting library in C++",
+ "harness": "cpp-cmake",
+ "project": "wordcount",
+ "reasons": [
+  "a one-function library: one tester item, one developer item"
+ ],
+ "scaffold": [
+  {
+   "path": "include/wc/wc.hpp",
+   "content": "#pragma once\n#include <cstddef>\n#include <string>\n\nnamespace wc {\n\n/// The number of words in `text`: maximal runs of characters that are not whitespace (space, tab, newline).\nstd::size_t countWords(const std::string& text);\n\n}  // namespace wc\n"
+  },
+  {
+   "path": "src/wc.cpp",
+   "content": "#include \"wc/wc.hpp\"\n\nnamespace wc {\n\nstd::size_t countWords(const std::string&)\n{\n    return 0;\n}\n\n}  // namespace wc\n"
+  }
+ ],
+ "items": [
+  {
+   "id": "test-wc",
+   "title": "Tests for countWords",
+   "persona": "tester",
+   "goal": "Tests for countWords",
+   "files": [
+    "tests/wc.test.cpp"
+   ],
+   "deps": [],
+   "complexity": 2,
+   "card": {
+    "context": "A small word-count library.",
+    "contract": "std::size_t wc::countWords(const std::string& text), declared in include/wc/wc.hpp and defined in src/wc.cpp. A word is a maximal run of characters that are not whitespace; space, tab and newline are whitespace. Returns 0 for an empty or all-whitespace string. Never throws.",
+    "acceptance": [
+     "at least 5 tests, each checking one behaviour"
+    ],
+    "include": [],
+    "notes": [],
+    "examples": [
+     "countWords(\"hello world\") = 2",
+     "countWords(\"\") = 0",
+     "countWords(\"  a   b  \") = 2",
+     "countWords(\"one\\ntwo\\tthree\") = 3"
+    ]
+   },
+   "gate": {
+    "kind": "ctest",
+    "tests": [
+     "tests/wc.test.cpp"
+    ],
+    "minTests": 5,
+    "mustFailOnStub": true
+   }
+  },
+  {
+   "id": "dev-wc",
+   "title": "Implement countWords",
+   "persona": "developer",
+   "goal": "Implement countWords",
+   "files": [
+    "src/wc.cpp"
+   ],
+   "deps": [
+    "test-wc"
+   ],
+   "complexity": 1,
+   "card": {
+    "context": "A small word-count library.",
+    "contract": "std::size_t wc::countWords(const std::string& text), declared in include/wc/wc.hpp and defined in src/wc.cpp. A word is a maximal run of characters that are not whitespace; space, tab and newline are whitespace. Returns 0 for an empty or all-whitespace string. Never throws.",
+    "acceptance": [
+     "every test in tests/wc.test.cpp passes"
+    ],
+    "include": [
+     "tests/wc.test.cpp"
+    ],
+    "notes": [],
+    "examples": [
+     "countWords(\"hello world\") = 2",
+     "countWords(\"\") = 0",
+     "countWords(\"  a   b  \") = 2",
+     "countWords(\"one\\ntwo\\tthree\") = 3"
+    ]
+   },
+   "gate": {
+    "kind": "ctest",
+    "tests": [
+     "tests/wc.test.cpp"
+    ],
+    "minTests": 5,
+    "mustFailOnStub": false
+   }
+  }
+ ]
+}

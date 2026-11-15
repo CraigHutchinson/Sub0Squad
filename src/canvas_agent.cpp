@@ -130,7 +130,7 @@ int runCanvasAttempt(const AttemptContext& a)
     fs::create_directories(out, ec);
     const std::set<std::string> allowed(a.item->files.begin(), a.item->files.end());
     const Harness* harness = findHarness(a.plan->harness);
-    const std::string system = canvasSystemBlock(a.item->persona, harnessBrief(a.plan->harness));
+    const std::string system = canvasSystemBlock(a.item->persona, harnessBrief(*a.plan));
 
     Canvas canvas;
     for (const auto& [path, text] : a.baselineFiles) canvas.addFile(path, text);

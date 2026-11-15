@@ -197,6 +197,7 @@ int parseWorkflowFlags(int argc, char** argv, int from, WorkflowSpec& spec)
         else if (a == "--inject") spec.inject.push_back(val());
         else if (a == "--max-local") spec.maxLocalAttempts = std::atoi(val().c_str());
         else if (a == "--agent") spec.agent = val();
+        else if (a == "--blueprint") spec.useBlueprint = true;
         else if (a == "--engine") {
             auto p = EngineProfile::parse(val());
             if (!p) { std::fprintf(stderr, "--engine: %s\n", p.error().c_str()); return 2; }
@@ -235,7 +236,11 @@ int cmdDo(const RuntimePaths& paths, int argc, char** argv)
     WorkflowSpec spec;
     if (int rc = parseWorkflowFlags(argc, argv, 1, spec)) return rc;
     const TriageResult t = triage(text);
-    spec.task = t.blueprint.empty() ? "custom" : t.blueprint;
+    // A real-model run plans from the request alone (docs/CLEAN_SLATE.md): no blueprint, the `planned` process, unless the owner asks for a blueprint
+    // (`--blueprint`, a machinery test) or names a process of their own.
+    const bool modelPlans = spec.agent == "llm" && !spec.useBlueprint && spec.process.name == "standard";
+    if (modelPlans) spec.process = plannedProcess();
+    spec.task = t.blueprint.empty() || modelPlans ? "custom" : t.blueprint;
     spec.taskText = text;
     spec.triage = t.toJson();
     std::printf("triage: %s project, complexity %d, %s, architect: %s\n", t.projectType.c_str(), t.complexity, t.split ? "split into items" : "one item", t.architect.c_str());
@@ -249,7 +254,9 @@ int cmdDo(const RuntimePaths& paths, int argc, char** argv)
     if (!r.ok) { std::fprintf(stderr, "error: %s\n", r.error.c_str()); return 1; }
     try { json::withObject(*reply, [&](simdjson::ondemand::object& obj) { for (auto f : obj) if (json::keyOf(f) == "id") std::printf("workflow %s\n", json::toString(f.value()).c_str()); }); }
     catch (const simdjson::simdjson_error&) { return 1; }
-    if (t.blueprint.empty()) std::printf("awaiting a plan: see needs-plan.md in the workflow sandbox, then `sub0squad project plan <id> --file plan.json`\n");
+    const Stage* planStage = spec.process.stage("plan");
+    if (planStage && planStage->job.tool == "llm-planner") std::printf("planning: a model writes the plan from the request (no blueprint); see <sandbox>/planner.json and planner/ for how it went\n");
+    else if (t.blueprint.empty()) std::printf("awaiting a plan: see needs-plan.md in the workflow sandbox, then `sub0squad project plan <id> --file plan.json`\n");
     return 0;
 }
 

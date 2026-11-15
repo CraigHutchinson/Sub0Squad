@@ -444,7 +444,7 @@ ForkResult runCanvasFork(const ForkOptions& o)
 
     // The contract of each file (contract.hpp): the functions the harness's own stub defines. They are sections whatever the model declares.
     std::map<std::string, std::vector<ContractFunction>> contract;
-    for (const auto& f : item.files) if (auto c = contractOf(harness, f); !c.empty()) contract[f] = std::move(c);
+    for (const auto& f : item.files) if (auto c = contractOf(harness, &*plan, f); !c.empty()) contract[f] = std::move(c);
     /// Add `signature` to the canvas as a stubbed section of `path` (a harness transaction, a new revision), with `restored` functions put back before it.
     const auto addSection = [&](const std::string& path, const std::string& name, const std::string& signature, const std::string& scope, const std::string& brief, const std::vector<std::string>& restored, bool member = false) {
         if (!canvas.replaceText(path, withStubFunction(canvas.text(path), path, signature, scope, restored), "harness").ok) return false;
@@ -558,7 +558,7 @@ ForkResult runCanvasFork(const ForkOptions& o)
         }
     }
     if (canvas.paths().empty()) {
-        const std::string primerSystem = "You plan the structure of source files for a small software squad. " + harnessBrief(plan->harness) + "\n";
+        const std::string primerSystem = "You plan the structure of source files for a small software squad. " + harnessBrief(*plan) + "\n";
         std::string contractNote;
         if (o.contractSections)
             for (const auto& [path, fns] : contract) for (const auto& f : fns) contractNote += "  " + path + ": " + f.signature + "\n";
@@ -659,7 +659,7 @@ ForkResult runCanvasFork(const ForkOptions& o)
     std::printf("fork width: %d of %zu section(s) at once (%s)\n", res.width, res.sections.size(), width.reason.c_str());
     events::note("forked sections: " + std::to_string(res.sections.size()) + ", " + std::to_string(res.width) + " at once (" + width.reason + ")");
 
-    const std::string system = forkSystemBlock(item.persona, harnessBrief(plan->harness));
+    const std::string system = forkSystemBlock(item.persona, harnessBrief(*plan));
     std::map<std::string, std::string> committedText;   // section name -> the function text it committed
     /// A stub's marker is still in the file: the section was never written.
     const auto unwritten = [&](const ForkSection& s) {

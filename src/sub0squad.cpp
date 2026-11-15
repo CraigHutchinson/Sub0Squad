@@ -20,6 +20,7 @@
 #include "sub0squad/harness_py.hpp"
 #include "sub0squad/harness_web.hpp"
 #include "sub0squad/host_guard.hpp"
+#include "sub0squad/planner.hpp"
 #include "sub0squad/sandbox.hpp"
 #include "sub0squad/shim.hpp"
 
@@ -111,6 +112,7 @@ int main(int argc, char** argv)
     if (argc > 1) {
         const std::vector<std::string> rest(argv + 2, argv + argc);
         if (std::strcmp(argv[1], "mock-planner") == 0) return sub0squad::runMockPlanner(rest);
+        if (std::strcmp(argv[1], "llm-planner") == 0) return sub0squad::runLlmPlanner(rest);
         if (std::strcmp(argv[1], "plan-questions") == 0) return sub0squad::runPlanQuestions(rest);
         if (std::strcmp(argv[1], "mock-agent") == 0) return sub0squad::runMockAgent(rest);
         if (std::strcmp(argv[1], "guard") == 0) return sub0squad::runGuard(rest);

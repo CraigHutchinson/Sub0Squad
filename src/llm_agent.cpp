@@ -67,7 +67,7 @@ int runLlmAgent(const std::vector<std::string>& args)
     if (!item) { std::fprintf(stderr, "llm-agent: no item '%s'\n", itemId.c_str()); return 1; }
 
     // ---- the prompt: a fixed system block, the work card, included files from accepted dependencies, and the previous failure only ----
-    const std::string system = systemBlock(item->persona, harnessBrief(plan->harness));
+    const std::string system = systemBlock(item->persona, harnessBrief(*plan));
     long testCount = 0;
     std::ostringstream card;
     card << buildCard(dir, *plan, *item, itemId, treatment, testCount);

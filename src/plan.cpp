@@ -19,6 +19,8 @@ std::string Plan::toJson() const
     w.beginObject().kv("schema", "plan-2").kv("task", task).kv("harness", harness).kv("project", project);
     w.key("reasons").beginArray();
     for (const auto& r : reasons) w.str(r);
+    w.endArray().key("scaffold").beginArray();
+    for (const auto& f : scaffold) w.beginObject().kv("path", f.path).kv("content", f.content).endObject();
     w.endArray().key("items").beginArray();
     for (const auto& it : items) {
         w.beginObject().kv("id", it.id).kv("title", it.title).kv("persona", it.persona).kv("goal", it.goal).kv("complexity", it.complexity);
@@ -26,6 +28,7 @@ std::string Plan::toJson() const
         w.key("acceptance").beginArray(); for (const auto& x : it.card.acceptance) w.str(x); w.endArray();
         w.key("include").beginArray(); for (const auto& x : it.card.include) w.str(x); w.endArray();
         w.key("notes").beginArray(); for (const auto& x : it.card.notes) w.str(x); w.endArray();
+        w.key("examples").beginArray(); for (const auto& x : it.card.examples) w.str(x); w.endArray();
         w.endObject();
         w.key("gate").beginObject().kv("kind", it.gate.kind).kv("minTests", it.gate.minTests).kvBool("mustFailOnStub", it.gate.mustFailOnStub);
         w.key("tests").beginArray(); for (const auto& x : it.gate.tests) w.str(x); w.endArray();
@@ -45,6 +48,7 @@ int WorkCard::estimatedTokens() const
     std::size_t n = context.size() + contract.size();
     for (const auto& x : acceptance) n += x.size();
     for (const auto& x : notes) n += x.size();
+    for (const auto& x : examples) n += x.size();
     return static_cast<int>(n / 4);
 }
 
@@ -109,6 +113,19 @@ std::expected<Plan, std::string> Plan::fromJson(std::string_view text, int cardB
                 else if (k == "harness") plan.harness = json::toString(v);
                 else if (k == "project") plan.project = json::toString(v);
                 else if (k == "reasons") { where = "the plan: reasons"; readStrings(v.value(), plan.reasons); }
+                else if (k == "scaffold") {
+                    where = "the plan: scaffold";
+                    for (auto fv : v.get_array()) {
+                        PlanFile pf;
+                        for (auto ff : fv.get_object()) {
+                            const std::string_view fk = ff.unescaped_key();
+                            auto fvv = ff.value();
+                            if (fk == "path") pf.path = json::toString(fvv);
+                            else if (fk == "content") pf.content = json::toString(fvv);
+                        }
+                        plan.scaffold.push_back(std::move(pf));
+                    }
+                }
                 else if (k == "items") {
                     for (auto itv : v.get_array()) {
                         WorkItem it;
@@ -130,6 +147,7 @@ std::expected<Plan, std::string> Plan::fromJson(std::string_view text, int cardB
                                     else if (ck == "acceptance") { where += ".acceptance"; readStrings(cv.value(), it.card.acceptance); }
                                     else if (ck == "include") { where += ".include"; readStrings(cv.value(), it.card.include); }
                                     else if (ck == "notes") { where += ".notes"; readStrings(cv.value(), it.card.notes); }
+                                    else if (ck == "examples") { where += ".examples"; readStrings(cv.value(), it.card.examples); }
                                 }
                             } else if (gk == "gate") {
                                 for (auto cf : gv.get_object()) {
@@ -165,6 +183,18 @@ std::expected<void, std::string> Plan::validate(int cardBudgetTokens) const
     if (!findHarness(plan.harness)) return std::unexpected("unknown project harness '" + plan.harness + "' (known: " + knownHarnesses() + ")");
     if (plan.items.empty()) return std::unexpected("plan has no items");
     if (plan.items.size() > 32) return std::unexpected("plan has more than 32 items");
+    if (plan.scaffold.size() > 8) return std::unexpected("the plan's scaffold has more than 8 files");
+    {
+        std::set<std::string> seen;
+        for (const auto& f : plan.scaffold) {
+            if (!validPath(f.path)) return std::unexpected("scaffold: bad path '" + f.path + "'");
+            // the harness owns the build files and the test helpers: a plan supplies the PROJECT's interface and stubs, never the instruments that judge it
+            if (f.path == "CMakeLists.txt" || f.path.rfind("tests/helpers/", 0) == 0 || f.path.rfind("tests/", 0) == 0)
+                return std::unexpected("scaffold: '" + f.path + "' belongs to the harness or to a tester, not to the plan's scaffold (a plan supplies headers and stubs under include/ and src/)");
+            if (f.content.empty() || f.content.size() > 16384) return std::unexpected("scaffold: '" + f.path + "' must be 1 to 16384 bytes");
+            if (!seen.insert(f.path).second) return std::unexpected("scaffold: '" + f.path + "' is listed twice");
+        }
+    }
     std::set<std::string> ids;
     std::map<std::string, std::string> fileOwner;
     for (const auto& it : plan.items) {

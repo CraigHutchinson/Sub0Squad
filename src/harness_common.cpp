@@ -21,19 +21,40 @@
 
 namespace sub0squad {
 
-std::vector<ContractFunction> contractOf(const Harness* harness, const std::string& path)
+std::vector<ContractFunction> contractOf(const Harness* harness, const Plan* plan, const std::string& path)
 {
-    if (!harness || !harness->scaffoldFile) return {};
-    const std::string stub = harness->scaffoldFile(path);
-    if (stub.empty()) return {};
+    // The scaffold the workspace really starts from: the harness's own files, overlaid by the files the plan supplies (the plan's interface wins).
+    std::map<std::string, std::string> files;
+    if (harness && harness->scaffoldPaths && harness->scaffoldFile)
+        for (const auto& p : harness->scaffoldPaths()) files[p] = harness->scaffoldFile(p);
+    if (plan) for (const auto& f : plan->scaffold) files[f.path] = f.content;
+    const auto stubIt = files.find(path);
+    if (stubIt == files.end() || stubIt->second.empty()) return {};
     std::vector<std::string> headers;
-    if (harness->scaffoldPaths)
-        for (const auto& p : harness->scaffoldPaths()) {
-            const auto dot = p.rfind('.');
-            const std::string ext = dot == std::string::npos ? std::string{} : p.substr(dot);
-            if ((ext == ".hpp" || ext == ".h") && p.rfind("tests/", 0) != 0) headers.push_back(harness->scaffoldFile(p));
-        }
-    return contractFunctions(path, stub, headers);
+    for (const auto& [p, content] : files) {
+        const auto dot = p.rfind('.');
+        const std::string ext = dot == std::string::npos ? std::string{} : p.substr(dot);
+        if ((ext == ".hpp" || ext == ".h") && p.rfind("tests/", 0) != 0) headers.push_back(content);
+    }
+    return contractFunctions(path, stubIt->second, headers);
+}
+
+void writeScaffold(const Plan& plan, const std::vector<HarnessFile>& harnessFiles, const std::filesystem::path& ws)
+{
+    // A plan that carries its own scaffold owns the project's interface: of the harness's files only the instruments stay (the build file and the test
+    // helpers); its calculator-shaped header and stubs would clash with the plan's own. Only the C++ harness separates the two today.
+    const bool selfScaffolded = !plan.scaffold.empty() && plan.harness == "cpp-cmake";
+    for (const auto& f : harnessFiles) {
+        if (selfScaffolded && f.path != "CMakeLists.txt" && f.path.rfind("tests/helpers/", 0) != 0) continue;
+        std::error_code ec;
+        std::filesystem::create_directories((ws / f.path).parent_path(), ec);
+        std::ofstream(ws / f.path, std::ios::binary | std::ios::trunc) << f.content;
+    }
+    for (const auto& f : plan.scaffold) {
+        std::error_code ec;
+        std::filesystem::create_directories((ws / f.path).parent_path(), ec);
+        std::ofstream(ws / f.path, std::ios::binary | std::ios::trunc) << f.content;
+    }
 }
 
 }  // namespace sub0squad
@@ -267,7 +288,7 @@ std::string runPrecheckFlow(const GateHooks& hooks, const std::vector<std::strin
     const fs::path ws = attemptDir / "ws-pre";
     std::error_code ec;
     fs::remove_all(ws, ec);
-    for (const auto& f : hooks.scaffold()) writeFile(ws / f.path, f.content);
+    writeScaffold(*plan, hooks.scaffold(), ws);
     for (const auto& dep : closure(*plan, itemId)) copyTree(dir / "items" / dep / "accepted", ws);
     copyTree(files, ws);
     const bool partial = one(a, "partial", "") == "1";
@@ -312,7 +333,7 @@ int runGateFlow(const GateHooks& hooks, const std::vector<std::string>& args)
             if (m->requires_ == "contract") {
                 int candidates = 0;
                 std::string full, file;
-                for (const auto& f : item->files) for (const auto& c : undefinedContract(slurp(attemptDir / "out" / f), f, contractOf(findHarness(plan->harness), f))) {   // only one the file does NOT define can be the missing one
+                for (const auto& f : item->files) for (const auto& c : undefinedContract(slurp(attemptDir / "out" / f), f, contractOf(findHarness(plan->harness), &*plan, f))) {   // only one the file does NOT define can be the missing one
                     const std::string qualified = c.scope.empty() ? c.name : c.scope + "::" + c.name;
                     if (m->symbol == qualified || m->symbol == c.name || (cut && (qualified.rfind(m->symbol, 0) == 0 || c.name.rfind(m->symbol, 0) == 0))) { ++candidates; full = qualified; file = f; }
                 }
@@ -368,7 +389,7 @@ int runGateFlow(const GateHooks& hooks, const std::vector<std::string>& args)
     const fs::path ws = attemptDir / "ws";
     std::error_code ec;
     fs::remove_all(ws, ec);
-    for (const auto& f : hooks.scaffold()) writeFile(ws / f.path, f.content);
+    writeScaffold(*plan, hooks.scaffold(), ws);
     for (const auto& dep : closure(*plan, itemId)) copyTree(dir / "items" / dep / "accepted", ws);
     if (!coordinator) copyTree(out, ws);
 

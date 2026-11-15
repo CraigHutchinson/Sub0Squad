@@ -34,7 +34,7 @@ struct JobParams
     std::string label;                     ///< how the step is named in the workflow's closing note ("integration failed: ...")
     /// A registered stage tool (`stageTools()`): a sub-command of this program, or `harness:integrate` (the integration command of the plan's harness).
     std::string tool;
-    /// The tool's arguments. `${task}`, `${sandbox}` and `${workflow}` are replaced by the workflow's task name, sandbox directory and id; nothing else is.
+    /// The tool's arguments. `${task}`, `${sandbox}`, `${workflow}`, `${engine}` (the planner's engine profile in command-line form) and `${request}` (the owner's words) are replaced by the workflow's task name, sandbox directory, id, engine and request; nothing else is.
     std::vector<std::string> args;
     std::string tier = "stub";             ///< the job's tier label
     int wallSeconds = 120;
@@ -154,6 +154,9 @@ struct StageTool
 /// The standard stages behind a planning stage that asks the owner what the request leaves open (clarify.hpp): `clarify` runs `plan-questions`, its
 /// questions go to the inbox as one blocking clarification, and `plan` starts when the brief is recorded.
 [[nodiscard]] const Process& clarifiedProcess();
+/// The standard stages with no blueprint: a planner model plans from the request alone (`llm-planner`), the plan checks send a refused plan back to it
+/// (docs/CLEAN_SLATE.md). The default of a real-model run.
+[[nodiscard]] const Process& plannedProcess();
 /// Every built-in process, in registry order.
 [[nodiscard]] const std::vector<const Process*>& builtinProcesses();
 

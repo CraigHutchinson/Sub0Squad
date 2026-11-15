@@ -59,16 +59,21 @@ int cmdServe(const RuntimePaths& paths, int argc, char** argv)
     return (*daemon)->run();
 }
 
-/// audit a plan's parallelism before running it: sub0squad plan-lint FILE [--tps N]
+/// audit a plan's parallelism before running it: sub0squad plan-lint FILE [--tps N] [--slots N [--sigma X]]
 int cmdPlanLint(const RuntimePaths& /*paths*/, int argc, char** argv)
 {
     if (argc < 3) { std::fputs(kUsage, stderr); return 2; }
-    double tps = 5.0;
-    for (int i = 3; i + 1 < argc; ++i) if (std::string_view{argv[i]} == "--tps") tps = std::atof(argv[i + 1]);
+    double tps = 5.0, sigma = 0.6;
+    int slots = 0;
+    for (int i = 3; i + 1 < argc; ++i) {
+        if (std::string_view{argv[i]} == "--tps") tps = std::atof(argv[i + 1]);
+        else if (std::string_view{argv[i]} == "--slots") slots = std::atoi(argv[i + 1]);
+        else if (std::string_view{argv[i]} == "--sigma") sigma = std::atof(argv[i + 1]);
+    }
     const std::string text = slurpFile(argv[2]);
     auto plan = Plan::fromJson(text);
     if (!plan) { std::fprintf(stderr, "plan rejected: %s\n", plan.error().c_str()); return 1; }
-    std::fputs(lintPlan(*plan, tps).toText().c_str(), stdout);
+    std::fputs(lintPlan(*plan, tps, slots, sigma).toText().c_str(), stdout);
     return 0;
 }
 

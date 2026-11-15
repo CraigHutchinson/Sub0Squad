@@ -20,7 +20,10 @@ struct Harness;
 struct ContractFunction;
 /// The contract of the item file `path` on `harness` (contract.hpp): the functions its scaffold stub defines, with the signatures the scaffold's headers
 /// declare. Empty when the harness has no stub for the file.
-[[nodiscard]] std::vector<ContractFunction> contractOf(const Harness* harness, const std::string& path);
+[[nodiscard]] std::vector<ContractFunction> contractOf(const Harness* harness, const Plan* plan, const std::string& path);
+/// Write a workspace's scaffold: the harness's files, and the files the PLAN supplies (its interface headers and stubs) over them. A C++ plan with its own
+/// scaffold keeps only the harness's instruments (CMakeLists.txt, tests/helpers/).
+void writeScaffold(const Plan& plan, const std::vector<HarnessFile>& harnessFiles, const std::filesystem::path& ws);
 
 }  // namespace sub0squad
 

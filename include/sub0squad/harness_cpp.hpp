@@ -18,6 +18,10 @@ namespace sub0squad {
 [[nodiscard]] std::string cppHarnessBrief();
 [[nodiscard]] std::string cppHarnessFacts();
 /// Mock deliverable for `path` (correct, or with the defect that makes its item fail its gate); empty if unknown or the defect no longer matches.
+/// The plan-time check of a plan's own scaffold: every .cpp it carries compiles with the harness's flags (`-Wall -Wextra -Werror`) against its own headers.
+/// What the C++ harness provides to a plan that writes its own interface: the build, the test helpers, the rules of the gates; no project's files named.
+[[nodiscard]] std::string cppOwnScaffoldBrief();
+[[nodiscard]] std::string cppCheckPlanScaffold(const std::string& planJson);
 [[nodiscard]] std::string cppMockFile(const std::string& path, bool buggy);
 [[nodiscard]] std::string cppMockBugTarget(const std::string& item);
 /// Whether lowercase task text names a native C++ project.

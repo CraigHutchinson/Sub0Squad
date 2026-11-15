@@ -211,7 +211,9 @@ std::string Daemon::Impl::doWorkflowSubmit(const std::string& specJson)
     }
     record("workflowSubmitted", wfbody::submitted(id, *spec));
     logf("workflow %s submitted: task '%s', sandbox %s", id.c_str(), spec->task.c_str(), spec->sandboxDir.c_str());
-    if (!isKnownTask(spec->task) && spec->process.producesPlan()) {  // the process plans, and no blueprint exists: the architect role is deferred as a file handoff
+    const Stage* planStage = spec->process.stage("plan");
+    const bool plannedByModel = planStage && planStage->job.tool == "llm-planner";
+    if (!plannedByModel && !isKnownTask(spec->task) && spec->process.producesPlan()) {  // the process plans, and no blueprint exists: the architect role is deferred as a file handoff
         TriageResult t = triage(spec->taskText.empty() ? spec->task : spec->taskText);
         const std::filesystem::path packet = std::filesystem::path{spec->sandboxDir} / "needs-plan.md";
         std::ofstream(packet) << needsPlanPacket(spec->taskText.empty() ? spec->task : spec->taskText, t, id);

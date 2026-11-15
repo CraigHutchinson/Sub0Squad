@@ -17,6 +17,9 @@ struct WorkCard
     std::vector<std::string> acceptance;  ///< observable checks
     std::vector<std::string> include;     ///< files from accepted dependency outputs to inline (size capped)
     std::vector<std::string> notes;
+    /// Worked examples of the contract, one per line (`2 + 3 * 4 = 14`): checkable facts the planner commits to, shown to the tester AND the developer
+    /// (docs/CLEAN_SLATE.md section 3). A real project's author can write them, which a reference implementation is not.
+    std::vector<std::string> examples;
     [[nodiscard]] int estimatedTokens() const;  ///< length/4 over every field
 };
 
@@ -43,6 +46,13 @@ struct WorkItem
     GateSpec gate{};
 };
 
+/// A file the PLAN supplies to every workspace: the project's own interface (a header, the stubs of what developers will write). The harness keeps the
+/// build files and test helpers (CMakeLists.txt, tests/helpers/); the project's contract is the planner's to write (docs/CLEAN_SLATE.md).
+struct PlanFile
+{
+    std::string path, content;
+};
+
 struct Plan
 {
     std::string task;
@@ -50,6 +60,7 @@ struct Plan
     std::string project;               ///< project name
     std::vector<WorkItem> items;
     std::vector<std::string> reasons;  ///< why the planner chose this split (or none), kept with the decision record
+    std::vector<PlanFile> scaffold;    ///< the project's interface and stubs, written into every workspace over the harness's own defaults
 
     [[nodiscard]] std::string toJson() const;
     /// Parse and validate: unique ids, known deps, acyclic, disjoint relative files, 1..32 items, personas write only their own kind

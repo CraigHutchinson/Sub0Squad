@@ -15,7 +15,14 @@ namespace sub0squad::agent {
 
 namespace fs = std::filesystem;
 
-std::string harnessBrief(const std::string& name) { const Harness* h = findHarness(name); return h && h->brief ? h->brief() : std::string{}; }
+std::string harnessBrief(const Plan& plan)
+{
+    const Harness* h = findHarness(plan.harness);
+    if (!h) return {};
+    // A plan that carries its own interface is told what the harness provides without any project's files named (the default brief names the calculator's).
+    if (!plan.scaffold.empty() && h->ownScaffoldBrief) return h->ownScaffoldBrief();
+    return h->brief ? h->brief() : std::string{};
+}
 
 std::string slurp(const fs::path& p) { std::ifstream in(p, std::ios::binary); std::stringstream ss; ss << in.rdbuf(); return ss.str(); }
 bool writeFile(const fs::path& p, const std::string& text)
@@ -146,6 +153,7 @@ std::string buildCard(const fs::path& dir, const Plan& plan, const WorkItem& ite
     for (std::size_t i = 0; i < item->files.size(); ++i) card << (i ? ", " : "") << item->files[i];
     card << "\n\nContext: " << item->card.context << "\n\nContract:\n" << item->card.contract << "\n";
     if (!item->card.acceptance.empty()) { card << "\nAcceptance:\n"; for (const auto& x : item->card.acceptance) card << "- " << x << "\n"; }
+    if (!item->card.examples.empty()) { card << "\nWorked examples (facts the contract commits to: the tests and the code must both agree with them; if a test or an example looks wrong, say so):\n"; for (const auto& x : item->card.examples) card << "- " << x << "\n"; }
     for (const auto& inc : item->card.include) {
         std::string content;
         for (const auto& dep : closure(plan, itemId)) { const fs::path f = dir / "items" / dep / "accepted" / inc; if (fs::exists(f)) { content = slurp(f); break; } }

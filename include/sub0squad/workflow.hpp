@@ -47,6 +47,7 @@ struct WorkflowSpec
     int maxTokens = 3000;                         ///< completion budget of one llm attempt
     std::string fallbackEngine;                   ///< name of a stronger engine profile the manager moves an item to when the ladder is spent (a strategy); empty = none
     bool defaults = false;                        ///< the owner asked for the defaults: a planning stage asks nothing (clarify.hpp)
+    bool useBlueprint = false;                    ///< `--blueprint`: a real-model run may use a hand-written blueprint (a machinery test); by default it plans from the request alone
     bool ask = false;                             ///< governance on: an item the ladder cannot finish is deferred to the owner (a blocking request) instead of failing the workflow
 
     /// The engine profile for a persona (route, else the first engine), or nullopt when none is configured.

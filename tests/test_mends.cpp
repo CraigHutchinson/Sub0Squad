@@ -129,11 +129,11 @@ int main()
     // The contract of a file is what the harness's own stub of it defines, with the header's signature (parameter names, no default arguments).
     {
         const Harness* cpp = findHarness("cpp-cmake");
-        const auto c = contractOf(cpp, "src/calc.cpp");
+        const auto c = contractOf(cpp, nullptr, "src/calc.cpp");
         CHECK_EQ(c.size(), static_cast<std::size_t>(1));
         if (c.size() == 1) CHECK(c[0].name == "evaluate" && c[0].scope == "calc" && c[0].signature == "double evaluate(const std::string& expr, bool degrees)");
-        CHECK(contractOf(cpp, "src/nothing.cpp").empty() && contractOf(nullptr, "src/calc.cpp").empty());
-        const auto py = contractOf(findHarness("py-unittest"), "calc/engine.py");
+        CHECK(contractOf(cpp, nullptr, "src/nothing.cpp").empty() && contractOf(nullptr, nullptr, "src/calc.cpp").empty());
+        const auto py = contractOf(findHarness("py-unittest"), nullptr, "calc/engine.py");
         CHECK(!py.empty());
         bool evaluate = false;
         for (const auto& f : py) { evaluate = evaluate || f.name == "evaluate"; CHECK(f.name[0] != '_' && f.signature.rfind("def ", 0) == 0 && f.scope.empty()); }
