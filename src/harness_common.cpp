@@ -338,16 +338,20 @@ int runGateFlow(const GateHooks& hooks, const std::vector<std::string>& args)
         if (const char* runDir = std::getenv("SUB0SQUAD_RUN_DIR"); runDir && *runDir && one(a, "no-publish", "").empty()) writeFile(fs::path{runDir} / "result.json", result);   // only the gate JOB reports; an agent's self-check does not
         std::printf("mend available: %s (%s) for %s\n", m->name.c_str(), m->action.c_str(), m->symbol.c_str());
     };
+    // A fork that left a section unaccepted (catalogue row 75): its stub stands in the file, so that section is the FIRST cause of whatever fails here.
+    // The gate says so first, answers exit 8, and reports no mend for an error about unused code (a consequence: the only caller is the missing section).
+    const std::string unaccepted = item->persona == "developer" ? unacceptedSections(slurp(attemptDir / "fork.json")) : std::string{};
     const auto fail = [&](const std::string& why) {
-        const std::string msg = "GATE FAIL: " + why + "\n";
+        const std::string msg = "GATE FAIL: " + (unaccepted.empty() ? std::string{} : "FIRST CAUSE: never accepted: " + unaccepted + " (a stub stands in its place; errors about unused code below are consequences)\n") + why + "\n";
         writeFile(attemptDir / "gate.txt", msg);
         std::fputs(msg.c_str(), stdout);
-        reportMend(msg);
+        if (unaccepted.empty() || !isUnusedConsequence(firstErrorLine(msg))) reportMend(msg);
+        else std::printf("no mend: the error is a consequence of the unaccepted section(s) %s\n", unaccepted.c_str());
         if (one(a, "no-publish", "").empty()) {   // the gate JOB: why this attempt failed, in a few lines (an agent's self-check leaves that to the agent)
             const std::string first = firstErrorLine(msg);
             recordAttemptFailure(attemptDir, "gate", "gate", msg.substr(0, msg.find('\n')) + (first.empty() || msg.rfind(first, 0) == 0 ? std::string{} : "\n" + first));
         }
-        return 1;
+        return unaccepted.empty() ? 1 : 8;
     };
 
     const bool coordinator = item->persona == "integrator";  // writes nothing: its tests run over the merged outputs of its parts
@@ -405,6 +409,8 @@ int runGateFlow(const GateHooks& hooks, const std::vector<std::string>& args)
             bool sameFiles = true;
             for (const auto& f : item->files) if (slurp(out / f) != slurp(dir / "items" / itemId / ("attempt-" + std::to_string(attempt - 1)) / "out" / f)) sameFiles = false;
             if (!sameFiles && !now.empty() && now == before && tap.tests >= 5 && tap.fail * 100 <= tap.tests * 40) return 5;
+            // 7: a STUCK near pass. The files are the previous attempt's, so its near pass is this one's: the repair changed nothing that stands.
+            if (sameFiles && tap.tests >= 10 && tap.fail * 100 <= tap.tests * 15) return 7;
         }
         return tap.tests >= 10 && tap.fail * 100 <= tap.tests * 15 ? 3 : code;  // 3: a near pass, repaired rather than divided
     }

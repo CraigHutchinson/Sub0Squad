@@ -1,6 +1,7 @@
 // The workflow engine as a pure function on the standard process: planning, dependency order, gates, retry, escalation, failure, cancel, the V's ascent,
 // requests, governance, attribution, the manager's strategies.
 #include "workflow_sim.hpp"
+#include "sub0squad/harness_registry.hpp"
 #include <sstream>
 #include <filesystem>
 #include <fstream>
@@ -22,6 +23,7 @@
 
 int main()
 {
+    sub0squad::registerBuiltinHarnesses();   // the registry starts empty: this program is its own composition root
     { // happy path: planner, dependency order, gates, integrator
         SCENARIO("happy-path");
         Sim s = startSim();
@@ -313,6 +315,39 @@ int main()
             CHECK(s.wfs.find("w-000001")->state == WorkflowState::succeeded);
             CHECK_EQ(count(s, "retry"), 2);
             CHECK_EQ(count(s, "decompose") + count(s, "escalate") + count(s, "fail"), 0);
+        }
+        {   // gate exit 7 (a near pass on the same files as the attempt before: stuck) on an item graded by a tester's tests: the manager's `think`
+            // strategy is applied FIRST, as a recorded strategy decision; the tests are not sent back and the card is not rewritten
+            SCENARIO("stuck-near-pass-thinks-first");
+            Plan p;
+            p.task = "t"; p.harness = "web-static";
+            WorkItem t; t.id = "t"; t.title = "Tests"; t.goal = "g"; t.persona = "tester"; t.files = {"tests/e.test.mjs"}; t.gate = gate("tests/e.test.mjs", true);
+            WorkItem a; a.id = "a"; a.title = "Work"; a.goal = "g"; a.files = {"src/e.js"}; a.deps = {"t"}; a.gate = gate("tests/e.test.mjs", false);
+            p.items = {t, a};
+            Sim s = startSim(2, FrontierMode::off);
+            s.feed("workflowPlanned", wfbody::planned("w-000001", p));
+            drive(s, [&](const JobRecord& j) {
+                if (j.spec.role != "gate" || j.spec.item != "a") return ok;
+                return j.spec.attempt == 1 ? Outcome{JobState::failed, "{\"code\":3}"} : j.spec.attempt == 2 ? Outcome{JobState::failed, "{\"code\":7}"} : ok;
+            });
+            const WorkflowRecord& wf = *s.wfs.find("w-000001");
+            CHECK(wf.state == WorkflowState::succeeded);
+            CHECK_EQ(count(s, "retry"), 1);      // attempt 1's near pass: an ordinary repair
+            CHECK_EQ(count(s, "strategy"), 1);   // attempt 2 ended on the same files: think, recorded as the strategy it is
+            CHECK_EQ(count(s, "reviseTests") + count(s, "disputed") + count(s, "rearchitect") + count(s, "decompose"), 0);
+            for (const auto& d : wf.decisions) if (d.action == "strategy") { CHECK_EQ(d.tier, std::string("think")); CHECK_EQ(d.attempt, 2); CHECK(d.json.find("\"stuckNearPass\":true") != std::string::npos && d.json.find("stuck near pass") != std::string::npos); }
+        }
+        {   // gate exit 8 (a fork attempt left a section unaccepted: the first cause, row 75): a retry, then `think` when the next attempt ends the
+            // same way, then the item passes; no mend, no whole-file rung
+            SCENARIO("unaccepted-section-is-first-cause");
+            Sim s = startSim(2, FrontierMode::off);
+            s.feed("workflowPlanned", wfbody::planned("w-000001", onePlan()));
+            drive(s, [&](const JobRecord& j) { return j.spec.role == "gate" && j.spec.attempt <= 2 ? Outcome{JobState::failed, "{\"code\":8,\"result\":{\"mend\":{\"name\":\"unused-entity\",\"action\":\"silence-unused\",\"requires\":\"location\",\"symbol\":\"hasExp\",\"file\":\"src/calc.js\",\"line\":3,\"column\":4,\"error\":\"e\",\"maxPerItem\":2}}}"} : ok; });
+            const WorkflowRecord& wf = *s.wfs.find("w-000001");
+            CHECK(wf.state == WorkflowState::succeeded);
+            CHECK_EQ(count(s, "retry"), 1);
+            CHECK_EQ(count(s, "strategy"), 1);
+            CHECK_EQ(count(s, "mend") + count(s, "rearchitect") + count(s, "decompose") + count(s, "reviseTests"), 0);   // even a mend the gate reported is not applied: it is a consequence
         }
         {   // gate exit 5 (the same tests failed the same way twice) on an item graded by a tester's tests: the tests are sent back, once
             SCENARIO("repeated-failure-sends-tests-back");

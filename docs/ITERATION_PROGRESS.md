@@ -3,6 +3,35 @@
 Branch `worktree-agent-a507f5df083b20ce3`, from tag `parked-v1`. Newest state first. Every "passes" below was observed in `out/build/fable`, run sequentially under a
 process cap; nothing here has run on a real model.
 
+## WHERE IT STANDS (2026-11-14, eighth pass, IN PROGRESS: read this first)
+
+Done and committed in this pass, each with tests (observed in `out/build/fable`, sequentially, under a process cap; nothing has run on a real model):
+* **The three decisions of the owner's lead.** (1) The harness registry is kernel code and starts empty; `registerBuiltinHarnesses()` is called by `main`
+  and by each test that needs harnesses. (2) A stuck near pass (gate exit 7: a near pass on the same files as the attempt before) goes to `think` FIRST.
+  (3) `leaf.memberSections` is its own switch.
+* **One library per layer** (`cmake/Layers.cmake` is the one list for the include check and the build; `link_<layer>` targets prove with whole-archive
+  links that no layer calls upward; `KNOWN_VIOLATIONS` is empty; a test links the highest layer it needs). `docs/COMPONENTS.md` is rewritten.
+* **Rows 74 and 75 (run-v12).** `registry/diagnostics.json` (known diagnostics: hint and mechanical edit), thrash detection and the section's turn under
+  `think`, convergence counts in `fork.json`, the unaccepted section as the first cause (gate exit 8, no mend of a consequence, `retry` then `think`).
+  `test_thrash` (real daemon, real builds, fake engine), `test_mends` (run-v12's real texts), `test_policy`, two new goldens.
+* **The planning iteration** (`docs/PROCESS_DESIGN.md` section 15): the `clarified` process, `clarify` unit, `test_clarify`.
+* **`sub0squad wizard`, first slice** (`docs/PROCESS_DESIGN.md` section 16): the checklist console over `doctorChecks()`, `up`, `do --process clarified`,
+  `request answer`, `project wait`, `down`; `--yes`, `--script FILE`; the mock-agent path; the model may only explain; `test_wizard` (recorded
+  keystrokes, a temporary home, the fake engine). It is NOT a registered process, and section 16 says why.
+
+**Full suite:** `ctest -j1` under a process cap after rows 74/75 and before the planning stage: **45 of 45 pass** (observed once, 327 s). After the
+planning stage only the affected tests were run (28 of them, all pass); see the last section of this pass for the final full run, if there is one.
+
+**NOT done, in the lead's order** (see the end of this section for the state of each when the pass stopped):
+1. The wizard's unbuilt half: engine build, start and supervision, model offers and fetches (owner's go-ahead needed), the plan shown and editable.
+2. The six scenarios of `docs/SCENARIOS.md` as `scenario run` entries; rows 25/26 beyond quoting; block 7; row 64 (b).
+3. The docs rewrite (`DESIGN.md`, `M1_PLAN.md`, `WORK_GRAPH.md` section 23, `SCENARIOS.md`), the dead-code sweep, the consistency pass.
+
+**Resume:** build with `. scripts/dev-env.sh; nice cmake --build out/build/fable -j2`; test with
+`ulimit -u <threads + 400>; ctest --test-dir out/build/fable -j1 [-R regex]`. Never put a dollar-brace reference in a shell heredoc here (it is
+expanded to nothing): write such files with the file tool or from a Python script file. Editing a source while the compiler reads it kills the
+compile (SIGBUS): do not edit `src/` during a build.
+
 ## WHERE IT STANDS (2026-11-14, seventh pass: the run-v11 blockers and part of the components cleanup; read this first)
 
 The lead's list of five groups is NOT complete. Done and committed in this pass, each with tests:

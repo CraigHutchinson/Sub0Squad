@@ -1,66 +1,61 @@
-# Components: units and component systems (2026-11-11)
+# Components: units, layers and libraries
 
-Measured from the tree (about 11,000 lines in `src/`, 40 headers). A **unit** is one source file with its header (one responsibility, testable alone). A **component system**
-is a layer of units that is built, tested and changed together; a layer may depend only on layers below it. The rule is enforced by the `layering` test
-(`cmake/CheckLayers.cmake`): any upward include fails the build's test run, and the list of tolerated violations may only shrink (it is empty today).
+This document describes the code as it is. A **unit** is one source file with its header: one responsibility, testable alone. A **layer** is a set of
+units that is built, tested and changed together, and that may depend only on the layers below it. Each layer is **one static library**, and the rule
+"only downward" is enforced twice, by two different mechanisms, because each catches what the other cannot see.
 
-| Layer | Component system | Units | Responsibility | Test home |
+## The layers
+
+The lists live in ONE file, `cmake/Layers.cmake`, read by both the include check and the build. Adding a unit means adding its stem to one list.
+
+| Layer | Library | Units | Responsibility | Tests that link it as their highest layer |
 |---|---|---|---|---|
-| 0 | **Kernel** | paths, frame, unix_socket, journal, job_spec, job_store, process_tree, progress, event_channel, host_guard, harness.hpp (descriptor) | durable events, jobs, sockets, process control, host guards | test_journal, test_job_store, test_job_spec, test_host_guard |
-| 1 | **Runtime** | shim, supervisor, status, mock_worker | running one job safely (session leader, subreaper, resume), status without the daemon | test_shim, test_idle |
-| 2 | **Domain** (workflow model) | engine (profiles, model client), plan, division, policy, plan_lint, ledger, workflow, workflow_status, overseer, briefing, recall, trace, triage, edits, qa | pure rules over data: plans, divisions, the decision ladder, `advance()`, governance records, diagnostics and observation | test_workflow (monolith: to split by unit) |
-| 3 | **Harnesses** | harness_registry (registers entries), harness_web, web_templates, calculator_templates, sandbox | what a project type provides: scaffold, stubs, gate, integrator, mocks | test_sandbox |
-| 4 | **Agents** | llm_agent, architect, optimizer, replay | model-driven workers: card, drafts, repair, fork, division, isolated replay | (covered through test_workflow and manual replays) |
-| 5 | **Orchestration** | daemon | event loop, leases and shedding, executing workflow actions, requests | test_e2e, test_project |
-| 6 | **Presentation** | portal, portal_page, client, sub0squad (main) | CLI, portal, composition root | test_project |
+| 0 | `sub0squad_kernel` | build_id, paths, frame, unix_socket, journal, job_spec, job_store, process_tree, progress, event_channel, host_guard, harness (the descriptor AND the registry) | durable events, jobs, sockets, process control, host guards, the harness registry | test_job_spec, test_journal, test_job_store, test_host_guard, test_adapter; the tests that only drive the binary (test_e2e, test_project, test_archive, test_idle) |
+| 1 | `sub0squad_runtime` | shim, supervisor, status, mock_worker | running one job safely (session leader, subreaper, resume); status without the daemon | test_shim |
+| 2 | `sub0squad_domain` | engine, plan, division, policy, predicate, process, mends, contract, attempt_failure, clarify, plan_lint, ledger, workflow, workflow_status, overseer, briefing, recall, trace, triage, edits, outline, canvas, turn_control, throughput, qa, scenario_compare | pure rules over data: plans, the decision ladder, processes and their predicates, `advance()`, mends and known diagnostics, the planning questions, governance records, diagnostics | test_predicate, test_process, test_stream, test_clarify |
+| 3 | `sub0squad_harnesses` | harness_registry (`registerBuiltinHarnesses`), harness_common, harness_web, harness_cpp, harness_py, cpp_templates, py_templates, web_templates, calculator_spec, sandbox | what a project type provides: scaffold, stubs, gate, integrator, precheck, blueprints, mocks | test_plan, test_policy, test_edits, test_diagnostics, test_workflow, test_workflow_stages, test_workflow_mends, test_platforms |
+| 4 | `sub0squad_agents` | llm_agent, agent_card, canvas_agent, fork, architect, optimizer, replay, scenario, blocks | model-driven workers (session, canvas, forked sections), the scenario suite, the model-free proving grounds | test_agent, test_canvas_agent, test_fork, test_mends, test_blocks, test_scenarios, test_executors, test_heal, test_nearpass, test_thrash |
+| 5 | `sub0squad_orchestration` | daemon (reactor, IPC), daemon_jobs, daemon_workflow, daemon_governance, behind `daemon_impl.hpp` | the event loop, leases and shedding, executing workflow actions, requests | (through the binary) |
+| 6 | `sub0squad_presentation` | client, cli, cli_jobs, cli_project, cli_tools, cmd_process, cmd_archive, first_use (doctor, up, down), wizard, portal, portal_sampler, portal_files, portal_page (and the embedded `web/portal.html`, `web/portal.js`) | the CLI, the first-use commands, the wizard, the portal | test_portal, test_wizard, test_portal_page (node) |
 
-## Findings from measuring them
+`src/sub0squad.cpp` is `main()`: the **composition root**. It is in no library. It registers the built-in harnesses and dispatches every command.
 
-1. **Layer violations found and fixed in this pass:** the workflow, plan, daemon, sandbox, triage and agents compared the string `"web-static"` (8 files); they now ask the harness registry
-   (`harness.hpp`, `harness_registry.cpp`). `engine.hpp` was used from the domain, trace and harness code; it belongs in the domain layer (profiles and the model client), not with the agents.
-   The layer check found one more (triage including the web harness), also fixed.
-2. **`daemon.cpp` (1,060 lines) is one `Impl` struct of about 40 methods** in four concerns that want to be separate units: reactor/IPC (`post`, `epollAdd`, `send`, `flush`,
-   `handle`, `onClient`, `onAccept`); job lifecycle and scheduling (`record`, `reconcileAtStart`, `adopt`, `shedIfPressured`, `scheduleQueued`, `startRun`, `onShimStart`, `onPidfd`,
-   `finalizeWith`); workflow execution (`executeWorkflowAction`, `advanceWorkflows`, `doWorkflowSubmit/Plan/Cancel`); governance (`applyGuidance`, `firstResponder`, `answerRequest`,
-   `raiseRequest`, `doRequestRaise/Answer`). Next cleanup step: a private `daemon_impl.hpp` and one translation unit per concern, behaviour unchanged.
-3. **`llm_agent.cpp` (646)** mixes card building, the attempt/repair loop, continuation, drafts, the fork flow and the plan-phase division; **`client.cpp` (840)** is the CLI dispatch for
-   every command (one function per command family would let each be tested); **`portal.cpp` (661)** mixes the sampler, the HTTP server and the API handlers.
-4. **Tests are thin where the risk is:** `test_workflow.cpp` (553 lines) is one monolith covering a dozen units; the agents layer (llm_agent, architect, replay) has no direct unit tests
-   (they need an engine; they should get a recorded-reply fixture harness, BUILDING_BLOCKS steps 1-2).
-5. **One library, one executable:** everything is `sub0squad_core`. Splitting into one static library per layer makes the link direction a build fact and lets each layer's tests link only what they need;
-   done after the daemon split, because the layer check already guards the include direction in the meantime.
+## How "only downward" is enforced
 
-## State after the Fable iteration (2026-11-12)
+1. **Includes: the `layering` test** (`cmake/CheckLayers.cmake`). A source or header may include only its own layer or a lower one; a file assigned to
+   no layer fails it; the list of tolerated violations is empty and may only shrink. Run by hand it needs its argument:
+   `cmake -DSRC_DIR=<repo> -P cmake/CheckLayers.cmake`. Without `SRC_DIR` it is now an error (it used to check nothing and print "layering ok").
+2. **Calls: the `link_<layer>` targets and tests.** An include check cannot see a function that is DECLARED low and DEFINED high. So for every layer
+   the build links a program (`tests/link_main.cpp`, an empty `main`) from that layer's library with every object forced in (whole-archive) and only
+   the libraries below it. If any unit of the layer calls upward, that program does not link and the build fails. The seven `link_*` tests run them so
+   the report shows them.
 
-* **Units added.** Layer 2 (domain, pure): `turn_control` (runaway detection, overlap trimming), `throughput` (the width rule, the slot model, the block 6 metrics);
-  `canvas` gained the reply parser. Layer 4 (agents): `agent_card` (system block, card, draft view, whole-file parser), `canvas_agent` (the canvas turn loop and the
-  shared applier), `fork` (forked sections), `blocks` (the model-free proving grounds and the `block` command); `llm_agent` is now only the session loop.
-  Layer 6: `first_use` (doctor, up, down), compiled into the executable only. `src/agent_impl.hpp` is the agents layer's private header.
-* **Units removed:** `calculator_templates`, the sandbox gate and integrator in `sandbox` (which now holds only the mock planner and mock agent), the JavaScript-only
-  forked sessions (`fork_agent`).
-* **Cleanup order, honestly:** step 4 is done for `llm_agent` only (`client.cpp` and `portal.cpp` are not split); step 6 (the fixture harness for agents) is done
-  (`tests/fake_engine.hpp`, `tests/agent_bench.hpp`: `test_agent`, `test_canvas_agent`, `test_fork`); steps 3 (split `test_workflow.cpp`) and 5 (a library per layer)
-  are not done. The layer check passes with no tolerated violations.
-* **Test homes:** agents now have direct tests; `test_blocks` covers the pure units of layer 2 added here; `test_readme` runs the README.
+The second mechanism found exactly one upward call when it was introduced: `findHarness` was declared in layer 0, called from layer 2 (`workflow`,
+`plan`, `triage`) and defined in layer 3. The fix is the shape now in the code: **the registry is kernel code and starts empty**
+(`registerHarness`, `findHarness`, `knownGateKind`, `harnessWithBlueprint`, `harnessNames` in `src/harness.cpp`), and the harnesses layer offers one
+call, `registerBuiltinHarnesses()` (`harness_registry.hpp`), made by the composition root and by each test that needs harnesses. Registration is
+explicit rather than by static objects because a static library's unreferenced object is dropped by the linker. Registering twice is harmless; it is
+done at start-up, before any thread.
 
-## State after the seventh pass (2026-11-14)
+A test links the highest layer it needs (`sub0squad_add_test(name layer)`), never the whole program, so a kernel test cannot reach the daemon by accident.
 
-* **Split:** `test_workflow.cpp` by unit (sixth pass); `portal.cpp` into `portal_sampler` (host and engine series, live JSON), `portal_files` (a
-  workflow's files, read only, never outside the sandbox) and `portal` (HTTP server, routes) behind `src/portal_impl.hpp`; the page into
-  `web/portal.html` and `web/portal.js`, compiled in by `cmake/EmbedText.cmake`; `client.cpp` into `client` (the connection), `cli` (dispatch and usage),
-  `cli_jobs`, `cli_project`, `cli_tools` behind `src/cli_impl.hpp`. New layer-2 unit `attempt_failure` (why an attempt failed, as a file).
-* **Test homes added:** `test_portal` (the embedded page, the file view's path rules), `test_portal_page` (the page script rendered with node against a
-  recorded state), `test_nearpass` (rows 70 to 73 through a real daemon).
-* **Not done: one library per layer.** The include direction is clean (`KNOWN_VIOLATIONS` is empty) but the LINK direction is not: `findHarness` is
-  declared in layer 0, defined in layer 3 and called from layer 2. A library per layer needs the registry moved to layer 0 with explicit registration
-  first (`docs/ITERATION_PROGRESS.md`, "NOT done", point 1).
-* **Run the layer check with its argument:** `cmake -DSRC_DIR=<repo> -P cmake/CheckLayers.cmake`. Without `-DSRC_DIR` it checks nothing and says ok.
+## Private headers
 
-## Cleanup order (each step keeps the whole suite green; a failing step is reverted, not patched forward)
-1. Harness registry and the layer check (done in this pass).
-2. Split `daemon.cpp` into its four units behind a private header. **Done 2026-11-11:** `daemon_impl.hpp` (the struct and declarations), `daemon.cpp` (reactor, IPC, create/run, 263 lines), `daemon_jobs.cpp` (278), `daemon_workflow.cpp` (216), `daemon_governance.cpp` (175); mechanical move of 37 methods, behaviour unchanged, 14/14 tests.
-3. Split `test_workflow.cpp` by unit (plan, policy, workflow, division, edits, qa, overseer/briefing/recall).
-4. Split `llm_agent.cpp` (card, attempt loop, fork) and `client.cpp` (command groups); `portal.cpp` (sampler, server, api).
-5. One CMake library per layer, with the layering test retained.
-6. Fixture harness for agents: recorded model replies as inputs, no engine needed (this is the BUILDING_BLOCKS corpus).
-Then the extension work proceeds on this base (docs/PROCESS_DESIGN.md).
+`src/*.hpp` are private to a layer: `daemon_impl.hpp` (5), `agent_impl.hpp` (4), `portal_impl.hpp`, `cli_impl.hpp`, `cmd_process.hpp`,
+`cmd_archive.hpp`, `first_use.hpp`, `wizard.hpp` (6), and `json_util.hpp` (the JSON writer and reader helpers, used by every layer; it includes nothing of
+the project).
+
+## Rules for a new unit
+
+* One responsibility, a header with Doxygen comments, `#pragma once`, `[[nodiscard]]` on what returns a value that matters.
+* Put its stem in the lowest layer whose units it needs. If it wants something from above, the thing above registers itself or is passed in.
+* A test of its own, linked against its layer. A unit that starts processes takes the program's path as an argument; nothing re-executes
+  `/proc/self/exe` (catalogue row 32).
+* A new capability is off by default: a process parameter, a flag, or a registered process of its own.
+
+## Known shape debts (stated, not hidden)
+
+* `fork.cpp` (about 1,000 lines) holds the skeleton, the rounds, the assembly and the mend application of forked sections in one unit.
+* `workflow.cpp` (about 900 lines) holds the journal projection, the stage derivation and the item ladder's bookkeeping.
+* The orchestration layer has no test that links it: it is exercised only through the binary (test_e2e, test_project and the daemon-driven tests).
+* `test_mends` links the agents layer because it exercises the fork's mend application, although `mends` itself is a domain unit.

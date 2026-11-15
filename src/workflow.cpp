@@ -28,6 +28,7 @@ std::string WorkflowSpec::toJson() const
     for (const auto& [persona, name] : route) w.kv(persona, name);
     w.endObject();
     if (!mends.empty()) w.kvRaw("mends", mends);
+    if (defaults) w.kvBool("defaults", true);   // written only when set, like `mends`
     w.endObject();
     return w.take();
 }
@@ -60,6 +61,7 @@ std::expected<WorkflowSpec, std::string> WorkflowSpec::fromJson(std::string_view
                 else if (k == "sizeBudget") s.sizeBudget = static_cast<int>(v.get_int64());
                 else if (k == "maxTokens") s.maxTokens = static_cast<int>(v.get_int64());
                 else if (k == "ask") s.ask = v.get_bool();
+                else if (k == "defaults") s.defaults = v.get_bool();
                 else if (k == "fallbackEngine") s.fallbackEngine = json::toString(v);
                 else if (k == "engines") { for (auto x : v.get_array()) s.engines.push_back(json::toString(x.value())); }
                 else if (k == "route") { for (auto r : v.get_object()) { std::string persona{std::string_view{r.unescaped_key()}}; s.route[persona] = json::toString(r.value()); } }
@@ -101,6 +103,7 @@ std::string decision(const std::string& id, const std::string& item, int attempt
     w.beginObject().kv("id", id).kv("item", item).kv("attempt", attempt).kv("action", action).kv("tier", tier).kvRaw("decision", decisionJson).endObject();
     return w.take();
 }
+std::string briefed(const std::string& id, const std::string& task, const std::string& executor, const std::string& briefJson) { json::Writer w; w.beginObject().kv("id", id).kv("task", task).kv("executor", executor).kvRaw("brief", briefJson).endObject(); return w.take(); }
 std::string awaitingPlan(const std::string& id, const std::string& packetPath) { json::Writer w; w.beginObject().kv("id", id).kv("note", packetPath).endObject(); return w.take(); }
 std::string planAmended(const std::string& id, const std::string& replaced, const Plan& plan) { json::Writer w; w.beginObject().kv("id", id).kv("item", replaced).kvRaw("plan", plan.toJson()).endObject(); return w.take(); }
 std::string amendRejected(const std::string& id, const std::string& item, int attempt, const std::string& reason) { json::Writer w; w.beginObject().kv("id", id).kv("item", item).kv("attempt", attempt).kv("note", reason).endObject(); return w.take(); }
@@ -149,7 +152,7 @@ std::string WorkflowStore::nextId() const
 void WorkflowStore::apply(const JournalRecord& rec)
 {
     if (rec.type.rfind("workflow", 0) != 0) return;
-    std::string id, state, note, item, action, tier, specJson, planJson, decisionJson;
+    std::string id, state, note, item, action, tier, specJson, planJson, decisionJson, task, executor, briefJson;
     RequestRecord rq;
     std::string answer, resolution, by, triage, analysis;
     std::int64_t attempt = 0;
@@ -167,6 +170,9 @@ void WorkflowStore::apply(const JournalRecord& rec)
                 else if (k == "attempt") attempt = v.get_int64();
                 else if (k == "spec") { std::string_view r = v.raw_json(); specJson.assign(r); }
                 else if (k == "plan") { std::string_view r = v.raw_json(); planJson.assign(r); }
+                else if (k == "brief") { std::string_view r = v.raw_json(); briefJson.assign(r); }
+                else if (k == "task") task = json::toString(v);
+                else if (k == "executor") executor = json::toString(v);
                 else if (k == "decision") { std::string_view r = v.raw_json(); decisionJson.assign(r); }
                 else if (k == "rid") rq.id = json::toString(v);
                 else if (k == "kind") rq.kind = json::toString(v);
@@ -196,6 +202,7 @@ void WorkflowStore::apply(const JournalRecord& rec)
     for (auto& x : workflows_) if (x.id == id) w = &x;
     if (!w) return;
     if (rec.type == "workflowPlanned") { if (auto p = Plan::fromJson(planJson)) { w->plan = std::move(*p); if (w->state == WorkflowState::awaitingPlan) w->state = WorkflowState::running; } }
+    else if (rec.type == "workflowBriefed") { w->brief = briefJson; if (!task.empty()) w->spec.task = task; w->spec.executor = executor; }
     else if (rec.type == "workflowPlanAmended") { if (auto p = Plan::fromJson(planJson)) { w->plan = std::move(*p); w->amendedItems.push_back(item); } }
     else if (rec.type == "workflowAmendRejected") w->rejectedAmends.insert(item + "#" + std::to_string(attempt));
     else if (rec.type == "workflowAwaitingPlan") { w->state = WorkflowState::awaitingPlan; w->note = "needs a plan: see " + note; }
@@ -226,6 +233,7 @@ const char* kindName(WorkflowAction::Kind k)
         case WorkflowAction::Kind::sendDown: return "sendDown";
         case WorkflowAction::Kind::raiseRequest: return "raiseRequest";
         case WorkflowAction::Kind::setStrategy: return "setStrategy";
+        case WorkflowAction::Kind::settleBrief: return "settleBrief";
     }
     return "?";
 }
@@ -254,9 +262,29 @@ std::string WorkflowAction::toJson() const
             w.endArray();
             break;
         case Kind::setStrategy: w.kv("item", item).kv("strategy", note); break;
+        case Kind::settleBrief: break;
     }
     w.endObject();
     return w.take();
+}
+
+BriefStep nextBriefStep(const WorkflowRecord& wf, const ClarifyPlan& questions)
+{
+    BriefStep step;
+    const RequestRecord* asked = nullptr;
+    for (const auto& r : wf.requests) if (r.from == "planner" && r.kind == "clarification") asked = &r;
+    if (!questions.questions.empty() && !asked) {
+        step.kind = BriefStep::Kind::ask;
+        step.request.kind = "clarification"; step.request.from = "planner"; step.request.blocking = true;
+        step.request.title = questions.requestTitle(); step.request.detail = questions.requestDetail(); step.request.options = questions.requestOptions();
+        return step;
+    }
+    if (asked && asked->status == "open") return step;   // wait
+    auto brief = resolveBrief(questions, asked ? asked->answer : std::string{});
+    if (!brief) { step.kind = BriefStep::Kind::error; step.error = brief.error(); return step; }
+    step.kind = BriefStep::Kind::brief;
+    step.brief = std::move(*brief);
+    return step;
 }
 
 // ---- engine ---------------------------------------------------------------------------------------------------------
@@ -446,6 +474,8 @@ JobSpec agentJob(const WorkflowRecord& wf, const WorkflowSettings& st, const Wor
             s.argv = {st.exe, "llm-fork", "--workflow-dir", wf.spec.sandboxDir, "--item", it.id, "--attempt", std::to_string(attempt), "--engine", engine->toArg(),
                       "--max-tokens", std::to_string(wf.spec.maxTokens), "--timeout", "1700", "--repair-turns", std::to_string(wf.spec.repairTurns), "--agent-exit", "1"};
             if (!leaf.contractSections) s.argv.insert(s.argv.end(), {"--contract-sections", "0"});
+            if (!leaf.memberSections) s.argv.insert(s.argv.end(), {"--member-sections", "0"});
+            if (!leaf.thrashControl) s.argv.insert(s.argv.end(), {"--thrash-control", "0"});
             if (mend) s.argv.insert(s.argv.end(), {"--mend-section", mend->symbol, "--mend-file", mend->file});   // add-section: only the missing function is written
         }
         else if (executor != "session") s.argv.insert(s.argv.end(), {"--executor", "canvas"});
@@ -533,6 +563,7 @@ Derived derive(const WorkflowRecord& wf, const Mine& mine, const std::vector<Ite
     Derived d;
     Snapshot& snap = d.snapshot;
     snap.planPresent = wf.plan.has_value();
+    snap.briefPresent = !wf.brief.empty();
     snap.openBlocking = anyOpenBlocking(wf);
     for (const ItemView& v : views) {
         const std::string_view state = stateOf(v, wf);
@@ -563,6 +594,13 @@ Derived derive(const WorkflowRecord& wf, const Mine& mine, const std::vector<Ite
         d.stages.push_back(std::move(sv));
     }
     return d;
+}
+
+/// The planning stage's question, while it is open.
+bool openPlannerQuestion(const WorkflowRecord& wf)
+{
+    for (const auto& r : wf.requests) if (r.from == "planner" && r.kind == "clarification" && r.status == "open") return true;
+    return false;
 }
 
 std::string substituted(std::string arg, const WorkflowRecord& wf)
@@ -601,6 +639,8 @@ bool advanceJobStage(const WorkflowRecord& wf, const Mine& mine, const WorkflowS
         // The job is done and the stage is not: either its output is still to be accepted, or the stage's exit asks for more than the job (a stall the
         // status shows, with the atom that is false).
         if (p.accept == "plan" && !wf.plan) { WorkflowAction a; a.kind = WorkflowAction::Kind::loadPlan; out.push_back(std::move(a)); }
+        // A brief: the daemon reads the questions the job wrote and asks them or records the brief; while the owner's answer is awaited, nothing.
+        if (p.accept == "brief" && wf.brief.empty() && !openPlannerQuestion(wf)) { WorkflowAction a; a.kind = WorkflowAction::Kind::settleBrief; out.push_back(std::move(a)); }
     }
     else if (facts.tries < 1 + p.retries) startIt();
     else {
@@ -692,7 +732,9 @@ bool advanceItems(const WorkflowRecord& wf, const std::vector<ItemView>& views, 
             const JobRecord* gate = nullptr;
             for (const JobRecord* g : v.gates) if (g->spec.attempt == n) gate = g;
             const LeafParams& leaf = itemsStageOf(wf).leaf;
-            const auto mend = gate && gate->state != JobState::succeeded && leaf.mendsEnabled ? mendIn(gate->exitJson, "result") : std::nullopt;
+            // No mend while the attempt left a section unaccepted (gate exit 8, row 75): what the gate could report is a consequence of the missing section.
+            const bool firstCauseIsASection = gate && gate->exitJson.find("\"code\":8") != std::string::npos;
+            const auto mend = gate && gate->state != JobState::succeeded && leaf.mendsEnabled && !firstCauseIsASection ? mendIn(gate->exitJson, "result") : std::nullopt;
             const bool runnable = mend && (mend->action == "silence-unused" || (wf.spec.agent == "llm" && !wf.spec.engines.empty()));
             if (runnable && std::find(leaf.mendsDisabled.begin(), leaf.mendsDisabled.end(), mend->name) == leaf.mendsDisabled.end() && mendsApplied(wf, v.item->id, mend->name) < mend->maxPerItem) {
                 const int applied = mendsApplied(wf, v.item->id, mend->name) + 1;
@@ -726,13 +768,16 @@ bool advanceItems(const WorkflowRecord& wf, const std::vector<ItemView>& views, 
             ctx.splittable = v.item->files.size() > 1 || v.item->complexity >= 2;
             for (const JobRecord* g : v.gates) if (g->spec.attempt == n && g->exitJson.find("\"code\":3") != std::string::npos) ctx.nearPass = true;
             for (const JobRecord* g : v.gates) if (g->spec.attempt == n && g->exitJson.find("\"code\":5") != std::string::npos) ctx.repeatedFailure = true;
+            for (const JobRecord* g : v.gates) if (g->spec.attempt == n && g->exitJson.find("\"code\":7") != std::string::npos) ctx.nearPass = ctx.stuckNearPass = true;
+            ctx.thinkTried = hasStrategy(wf, v.item->id, "think");
+            for (const JobRecord* g : v.gates) if (g->exitJson.find("\"code\":8") != std::string::npos) { if (g->spec.attempt == n) ctx.unacceptedSection = true; else if (g->spec.attempt == n - 1) ctx.unacceptedBefore = true; }
             for (const JobRecord* g : v.gates) if (g->spec.attempt == n && g->exitJson.find("\"code\":6") != std::string::npos) ctx.interfaceGap = true;
             if (role == "agent" && latest->exitJson.find("\"code\":4") != std::string::npos) ctx.oversize = true;
             if (const Harness* hs = wf.plan ? findHarness(wf.plan->harness) : nullptr; hs && hs->mockFile) { ctx.frontierHasReference = !v.item->files.empty(); for (const auto& f : v.item->files) if (hs->mockFile(f, false).empty()) ctx.frontierHasReference = false; }
             ctx.persona = v.item->persona;
             const LeafParams& leaf = itemsStageOf(wf).leaf;
             ctx.allowDecompose = leaf.allowDecompose; ctx.allowSections = leaf.allowSections; ctx.allowReviseTests = leaf.allowReviseTests;
-            ctx.allowRearchitect = leaf.allowRearchitect; ctx.allowEscalate = leaf.allowEscalate;
+            ctx.allowRearchitect = leaf.allowRearchitect; ctx.allowEscalate = leaf.allowEscalate; ctx.allowThinkFirst = leaf.allowThinkFirst;
             if (const Harness* hs = findHarness(plan.harness)) ctx.divideBySections = hs->divideBySections;
             for (const auto& dd : wf.decisions) if (dd.item == v.item->id && dd.action == "sections") ctx.sectionsTried = true;
             // What the failing attempt WAS (row 73): the latest agent job of this item. A rung that would run the same executor again is skipped.
@@ -746,26 +791,29 @@ bool advanceItems(const WorkflowRecord& wf, const std::vector<ItemView>& views, 
             const bool restore = dec.action == Action::fail && v.restorable;  // fall back to the accepted version from before the dispute
             const auto order = strategyOrder(wf);
             const int usedStrategies = strategiesUsed(wf, v.item->id);
-            const bool strategy = dec.action == Action::fail && !restore && usedStrategies < static_cast<int>(order.size());  // the manager acts before anyone is asked
+            const bool thinkFirst = dec.action == Action::think;   // the policy chose the first strategy itself (a stuck near pass); recorded as that strategy
+            const bool strategy = thinkFirst || (dec.action == Action::fail && !restore && usedStrategies < static_cast<int>(order.size()));  // the manager acts before anyone is asked
+            const std::string strategyName = thinkFirst ? "think" : strategy ? order[static_cast<std::size_t>(usedStrategies)] : std::string{};
             const bool defer = dec.action == Action::fail && !restore && !strategy && wf.spec.ask;  // governance on and every strategy tried: ask the owner instead of failing
             WorkflowAction rec;
             rec.kind = WorkflowAction::Kind::recordDecision;
-            rec.item = v.item->id; rec.attempt = n; rec.decisionAction = restore ? "restored" : strategy ? "strategy" : defer ? "deferred" : toString(dec.action); rec.decisionTier = strategy ? order[static_cast<std::size_t>(usedStrategies)] : dec.tier;
+            rec.item = v.item->id; rec.attempt = n; rec.decisionAction = restore ? "restored" : strategy ? "strategy" : defer ? "deferred" : toString(dec.action); rec.decisionTier = strategy ? strategyName : dec.tier;
             if (restore) dec.reasons.push_back("the re-run could not pass: the version accepted before the dispute is restored and the work continues with it");
-            if (strategy) dec.reasons.push_back("the ladder is spent: the manager applies strategy '" + order[static_cast<std::size_t>(usedStrategies)] + "' (" + std::to_string(usedStrategies + 1) + " of " + std::to_string(order.size()) + ") and tries again");
+            if (strategy && !thinkFirst) dec.reasons.push_back("the ladder is spent: the manager applies strategy '" + strategyName + "' (" + std::to_string(usedStrategies + 1) + " of " + std::to_string(order.size()) + ") and tries again");
             if (defer) dec.reasons.push_back("the ladder is exhausted: deferred to the owner (a blocking request), who can guide another attempt or stop");
             rec.decisionJson = toJson(ctx, dec);
             out.push_back(std::move(rec));
             switch (dec.action) {
+                case Action::think:
                 case Action::fail:
                     if (strategy) {
                         WorkflowAction ss;
                         ss.kind = WorkflowAction::Kind::setStrategy;
-                        ss.item = v.item->id; ss.note = order[static_cast<std::size_t>(usedStrategies)];
+                        ss.item = v.item->id; ss.note = strategyName;
                         out.push_back(std::move(ss));
                         // the strategy file is written before the job starts, and the engine choice for "engine" is read from the decision just recorded
                         WorkflowRecord shadow = wf;
-                        shadow.decisions.push_back({v.item->id, n, "strategy", order[static_cast<std::size_t>(usedStrategies)], ""});
+                        shadow.decisions.push_back({v.item->id, n, "strategy", strategyName, ""});
                         out.push_back(start(agentJob(shadow, st, *v.item, n + 1, "local")));
                     } else if (defer) {
                         WorkflowAction rq;

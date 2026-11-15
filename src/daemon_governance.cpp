@@ -89,6 +89,12 @@ std::string Daemon::Impl::answerRequest(const std::string& wfId, const std::stri
     if (req->status != "open") return "request " + rid + " is already answered";
     if (answer.size() > 4000) return "answer is too long";
     if (resolution != "" && resolution != "retry" && resolution != "stop") return "resolution must be retry or stop";
+    if (req->from == "planner" && req->kind == "clarification" && resolution != "stop") {   // the planning questions: the answer must be one the brief can be made from
+        std::ifstream in(std::filesystem::path{wf->spec.sandboxDir} / "questions.json");
+        std::stringstream ss;
+        ss << in.rdbuf();
+        if (const auto questions = ClarifyPlan::fromJson(ss.str())) if (const auto brief = resolveBrief(*questions, answer); !brief) return brief.error();
+    }
     const RequestRecord copy = *req;
     record("workflowRequestAnswered", wfbody::requestAnswered(wfId, rid, answer, resolution, by));
     if (const WorkflowRecord* w2 = wfStore.find(wfId); w2 && resolution != "stop")

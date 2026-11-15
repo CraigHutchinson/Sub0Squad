@@ -39,7 +39,10 @@ struct JobParams
     std::string tier = "stub";             ///< the job's tier label
     int wallSeconds = 120;
     int retries = 0;                       ///< a failed job is run again this many times before the workflow fails
-    std::string accept;                    ///< "" or "plan": on success the daemon loads `<sandbox>/plan.json` as the workflow's plan
+    /// What the daemon accepts from the job when it succeeds: "" nothing; "plan" it loads `<sandbox>/plan.json` as the workflow's plan; "brief" it reads
+    /// `<sandbox>/questions.json` (clarify.hpp), puts the open questions to the owner as one blocking clarification, and records the brief once they
+    /// are answered (or at once when nothing is open).
+    std::string accept;
     bool operator==(const JobParams&) const = default;
 };
 
@@ -53,6 +56,9 @@ struct LeafParams
     bool allowReviseTests = true;                ///< a failure that points at the tests sends them back to the tester
     bool allowRearchitect = true;                ///< a dedicated job may rewrite the card
     bool allowEscalate = true;                   ///< the frontier tier may be asked (still subject to the workflow's frontier mode)
+    /// A STUCK near pass (two near-pass attempts ending on the same files, gate exit 7) goes to the `think` strategy first, before the tests are sent
+    /// back or the card rewritten: tests of which nearly all pass are probably right, and a plain repair has just shown it changes nothing.
+    bool allowThinkFirst = true;
     int agentWallLlmSeconds = 10800;             ///< a local model-driven attempt
     int agentWallOtherSeconds = 120;             ///< a mock or stub attempt
     int gateWallSeconds = 120;
@@ -61,6 +67,13 @@ struct LeafParams
     /// A fork's sections start from the CONTRACT: every function the harness's stub of the file defines is a mandatory section, whatever the model's
     /// skeleton declared, and a file that lacks one gets it (catalogue row 59). Off only to reproduce the defect it prevents.
     bool contractSections = true;
+    /// A fork makes every member function a class of the file declares without a body a section with a generated stub, and refuses a skeleton that leaves
+    /// one without a section (catalogue row 71). Its own switch: the contract sections and the member sections prevent different defects, and each can be
+    /// reproduced alone. Off only to reproduce the defect it prevents.
+    bool memberSections = true;
+    /// A fork answers a known diagnostic with its hint and mechanical edit, an identical consecutive reply with the hint instead of the same refusal,
+    /// and three refusals of one section with a turn under `think` (catalogue rows 74 and 75). Off only to reproduce the defect.
+    bool thrashControl = true;
     /// Known mechanical errors are repaired by the harness (mends.hpp): a failed gate that reports a mend gets the decision `mend` and the mend's action as
     /// its next attempt, outside the ladder. `mendsDisabled` names mends this process does not apply.
     bool mendsEnabled = true;
@@ -138,6 +151,9 @@ struct StageTool
 /// The standard stages and one more: after integration a `review` stage runs the quality scan over the integrated project. The smallest process that has a
 /// stage the engine never had.
 [[nodiscard]] const Process& reviewedProcess();
+/// The standard stages behind a planning stage that asks the owner what the request leaves open (clarify.hpp): `clarify` runs `plan-questions`, its
+/// questions go to the inbox as one blocking clarification, and `plan` starts when the brief is recorded.
+[[nodiscard]] const Process& clarifiedProcess();
 /// Every built-in process, in registry order.
 [[nodiscard]] const std::vector<const Process*>& builtinProcesses();
 

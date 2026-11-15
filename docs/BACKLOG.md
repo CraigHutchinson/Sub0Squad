@@ -112,6 +112,10 @@ hand-written Sugiyama pass; how it works with the retained-mode patching in `por
 
 - **An end-to-end first-use sample on the root README with minimal setup.** Today the README has Build and Licence but no first use, and the commands live scattered across `docs/RUNNING_PROJECTS.md`, `docs/HANDOFF.md` and the CLI help; the owner could not find how to start a job by hand. Wanted: one short path from a clean checkout to a finished project, copy-pasteable, each step verified by CI or a test so it cannot rot: (1) build; (2) one command that starts everything needed (daemon, portal, and an engine: either the mock agent or a local model, with the memory guard); (3) `sub0squad do "write a calculator in C++"` (triage picks the blueprint, the plan loads itself, no `project plan` step); (4) open the portal and watch a node's transcript live; (5) where the finished project and the report are; (6) how to stop. Plus a mock-agent variant that runs in a minute with no model at all, and a second sample that adds a new workflow (a registered process) to show the toolbox. Acceptance: a test runs the mock sample from a temporary checkout; the README commands are the commands the test runs.
 - **Blueprint tasks should start without a hand-supplied plan.** `project submit --task calculator-cpp` ends at `needs a plan` because only triage on task text loads a known blueprint; submit should consult the harness registry (`harnessWithBlueprint`) so any registered blueprint starts at once.
+- **BUILT, first slice (eighth pass; `docs/PROCESS_DESIGN.md` section 16, `src/wizard.cpp`, `test_wizard`): the checklist console of points 3, 4 (explain
+  only), 5 (existing commands, `--yes`, `--script`; NOT a registered process, for the reasons given there) and 6 below. NOT built: points 1 and 2 (building,
+  starting and supervising `llama-server`, offering and fetching models: each is a download, an install or a service, which need the owner's go-ahead),
+  the plan shown and editable before it runs, a blueprint picker.**
 - **`sub0squad wizard`: streamlined, guided onboarding (owner request, 2026-11-13).** From a clean checkout to a first finished project with the fewest decisions, in one
   interactive console, driven by the harness rather than by prose instructions. Wanted:
   1. **Build includes the engine.** llama.cpp is built by default as part of the build (a pinned revision, fetched through the same dependency mechanism as the Sub0 libraries, an
@@ -133,6 +137,9 @@ hand-written Sugiyama pass; how it works with the retained-mode patching in `por
      states, the confirmations, that nothing is changed without approval, and that the project it starts finishes with the mock agent. The README's first-use section points at the wizard as the
      shortest path and keeps the plain commands for scripting.
   Depends on: process-as-data, `doctor`, `up` and `down` (built), engine service management, the fake-engine test harness (built). Out of scope for a first slice: a graphical front end, remote hosts.
+- **BUILT (eighth pass; `docs/PROCESS_DESIGN.md` section 15, the `clarified` process, `test_clarify`): the planning iteration below, for the two topics an
+  answer can change (platform, executor); the other topics are settled as "not asked" with the reason. Open: the bar for done and the engine as questions
+  (they need the process and the engines to be replaceable after submission), choices from the harness registry instead of the calculator's three.**
 - **A planning iteration that asks clarifying questions (owner direction, 2026-11-13).** Today an underspecified request gets silent defaults: an unspecified calculator goes to the C++ blueprint,
   the executor is `session` until the real-model comparison exists, the frontier tier is off. These defaults are accepted for now. The planning step (a stage of a registered process, and the first step of the
   wizard) should instead ask the owner the few questions that change the outcome before any work starts, through the inbox (`request raise --kind clarification`, the answer comes back as data): which platform

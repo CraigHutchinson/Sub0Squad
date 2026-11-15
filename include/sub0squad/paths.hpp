@@ -22,6 +22,8 @@ struct RuntimePaths
     [[nodiscard]] std::filesystem::path instanceLock() const { return runtimeDir / "daemon.lock"; }
     [[nodiscard]] std::filesystem::path ledgerFile() const { return stateDir / "ledger.ndjson"; }
     [[nodiscard]] std::filesystem::path workflowsDir() const { return stateDir / "workflows"; }
+    /// The project's record of answered planning questions (clarify.hpp): asked once, then remembered.
+    [[nodiscard]] std::filesystem::path projectAnswersFile() const { return stateDir / "project-answers.json"; }
     [[nodiscard]] std::filesystem::path journalDir() const { return stateDir / "journal"; }
     [[nodiscard]] std::filesystem::path jobsDir() const { return stateDir / "jobs"; }
     [[nodiscard]] std::filesystem::path jobDir(const std::string& id) const { return jobsDir() / id; }

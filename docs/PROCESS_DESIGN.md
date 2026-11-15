@@ -645,7 +645,7 @@ for: it is mechanical only when the name IS in the contract, and that case is `u
   order, whose pattern matches the first error AND whose requirement holds. `contract` holds only for a contract function the file does not define.
 * **Members are sections** (prevention): for each member function declared without a body the harness adds the `@@` line itself; stubs and sections of
   members carry their class (`Parser::parse`), so a member and a free function may share a last name. The skeleton check refuses a declared member with no
-  section, and overloads (two sections cannot share a name). `leaf.contractSections=false` switches this off with the contract sections, to reproduce the defects.
+  section, and overloads (two sections cannot share a name). `leaf.memberSections=false` switches this off (its own switch since the eighth pass), to reproduce the defect.
 * **The best state is never lost.** Inside a fork attempt the state the tests last judged best is kept; a round that leaves more tests failing, or a file
   that no longer compiles, is undone. The attempt ends on that state; `fork.json` records `testsTotal`, `testsFailed`, `nearPass`, `reverted`. A later attempt
   resumes the best earlier attempt (the largest share of tests passed, at least half), not merely the one before it. So the gate job judges the best state
@@ -656,6 +656,23 @@ for: it is mechanical only when the name IS in the contract, and that case is `u
 * **Every failed attempt says why:** `attempt-N/failure.json` (role, kind, reason), shown by `project status` as `lastFailure`.
 * **Limits, stated:** a wrong value with no message still has no owning section (row 64 b); the best-state rule is the fork's (the session and canvas
   executors had theirs already); the daemon's fallback failure record has no test; nothing of this has run on a real model.
+
+**Added in the eighth pass (decisions of the owner's lead; run-v12, catalogue rows 74 and 75):**
+* **A stuck near pass thinks first.** The gate answers exit 7 for a near pass whose files are byte for byte the previous attempt's; the policy answers
+  `think` (recorded as the strategy `think`, so the manager's strategy count includes it) before `reviseTests` and `rearchitect`, once: tests of which
+  nearly all pass are probably right, and a plain repair has just changed nothing. Rung switch: `leaf.allow.thinkFirst`.
+* **Member sections have their own switch** (`leaf.memberSections`), separate from `leaf.contractSections`.
+* **Known diagnostics** (`registry/diagnostics.json`, `mends.hpp`): a diagnostic a small model does not map to its remedy has a hint and, where the fix
+  is mechanical, an edit from a closed set (`const-iterators`). In a fork's section turn the harness applies the edit and keeps it only when the
+  function then passes; otherwise the hint goes with the refusal.
+* **Thrash is measured and answered.** Each refused turn of a section is progress (the first error, without its place, changed) or thrash (it repeated);
+  an identical reply is told so instead of being refused the same way; three refusals earn one turn under `think`. `fork.json` carries the counts
+  (the convergence figures of `docs/METRICS.md` section 4a).
+* **An unaccepted section is the first cause.** Gate exit 8; no mend of a `-Wunused` consequence; the ladder retries the one section, then thinks.
+* **Gate exit codes, complete:** 1 failed; 3 near pass; 5 the same failures on changed files (tests suspect); 6 interface gap; 7 stuck near pass;
+  8 a section of the fork was never accepted. Agent exit 4: oversize.
+* **Limits, stated:** the diagnostics table has one entry, written from GCC's wording; the edit is applied inside the fork only (not as a gate-level
+  mend); the `think` turn of a section is one per section and attempt; nothing of this has run on a real model.
 
 ## 10. Migration after the slice
 
@@ -697,3 +714,67 @@ Each step is one commit that keeps every test green and adds the test named. Lay
 | `Plan::extended` and 48-item processes stay within the plan parser's limits and the card budget | unproven | spike-first on a real plan: item count, card tokens, validation time |
 | Two stages active at once is sound | legal in the model, untested | a scenario with overlapping `build` and `productionise`; the first presets stay sequential until it passes |
 | The cost of building the snapshot every pass | unmeasured | `Sub0Squad_Bench` gains a case: `advanceProcess` on the recorded `w-000001` snapshot; the budget is the current `advance()` cost times two |
+
+## 15. The planning iteration: a stage that asks (eighth pass)
+
+**What it is.** Before any work starts, the questions whose answers change the outcome are put to the owner through the inbox, once, with the current
+default first. Unit: `clarify` (domain, pure). Process: `clarified` (`registry/processes/clarified@1.json`), the standard stages behind one more:
+
+```
+clarify   job    tool plan-questions --workflow-dir ${sandbox}   accept: brief   exit: brief.present
+plan      job    entry: stage.clarify.done                        (as in standard)
+build, integrate                                                  (as in standard)
+```
+
+**How it runs.** At submission the daemon writes the facts it knows (`clarify-input.json`: the owner's words, the task triage chose, agent, executor
+flag, `--defaults`, the project's remembered answers). The `plan-questions` job is a pure function of that file and writes `questions.json`
+(`clarify-1`): the open questions and, for every other topic, how it was settled. When the job has succeeded the engine emits `settleBrief`; the
+daemon asks the open questions as ONE blocking clarification from `planner` (`request list` shows it; the portal's inbox does too), and while it is
+open the engine emits nothing. The answer (`go`, or `key=value ...`) is validated when it is given (a wrong one is refused and the request stays
+open). Then `settleBrief` records `workflowBriefed`: the task (so `${task}` of the planner is the answered platform's blueprint), the executor, and
+the whole brief (`brief.json`, `brief-1`: every topic, its value and its source). Answers given here are written to the project's record
+(`<state>/project-answers.json`), which the next submission reads: asked once, then remembered. `project answers [--forget]` shows or clears it.
+
+**Where a topic is settled** (first source that has it): `request` (the words name a platform; `--executor`), `harness` (the mock agent has no
+executor), `remembered`, `default` (`--defaults`), otherwise it is a question. **Only two topics are ever questions: platform and executor.** The
+other topics of the specification are settled as `not-asked`, each with the reason and where it IS decided, because no answer could change the run:
+scope (a blueprint fixes it; another scope is another plan), engine (given with the request), the bar for done (the process; a higher bar is
+`--process reviewed`), frontier (the daemon's setting, never changed by a question).
+
+**What the language needed:** one tool (`plan-questions`), one `accept` value (`brief`), one predicate atom (`brief.present`), one action
+(`settleBrief`) and one journal record (`workflowBriefed`). No new stage kind: a question is a job whose output the daemon accepts, exactly as a plan is.
+
+**Where the language does not fit, stated.** (1) A brief can change only what the engine reads AFTER the stage: the task and the executor. It cannot
+change the process (the process is resolved into the spec at submission), so "the bar for done" cannot be a question until a workflow can be
+re-submitted under another process, and the engine choice cannot be one until engines are a workflow fact that a record may replace. (2) The record
+of answers is one per state directory ("the project" is the daemon's home), not per repository or per task family. (3) The platform choices are the
+calculator blueprints' (`clarify.cpp` names them); a second blueprint family needs the choices to come from the harness registry. (4) Proven with the
+mock agent only: `test_clarify` (rules; a real daemon: asked once, wrong answer refused, Python built, remembered, an answered request and
+`--defaults` ask nothing, `go` is one answer), the golden `stages-clarified-asks-once`, `test_process`, `test_predicate`.
+
+## 16. The wizard, and why it is not a process (eighth pass)
+
+`sub0squad wizard` (`src/wizard.cpp`) is the guided first use of `docs/BACKLOG.md`: a checklist (this program, memory and disk, a project toolchain,
+the portal's port, a model or the mock agent, the daemon, the portal, a project) whose states come from the `doctor` checks as data
+(`doctorChecks()`: `doctor` prints the same list), with the next step offered at each point and every action an existing command run as a child:
+`up --frontier off`, `do TEXT --process clarified`, `request answer`, `project wait`, `down`. Answers come from the terminal, from `--yes` (every
+default) or from `--script FILE` (recorded keystrokes, one per line), which is how `test_wizard` drives it.
+
+**Bounds, each held by a test:** nothing is started without a yes (declining starts nothing; a script that runs out STOPS the wizard, it does not fall
+back to defaults); it never downloads, installs, changes a setting or starts a model server; the daemon it starts has the frontier off; an engine
+address that is not loopback is refused unless confirmed, and is not contacted before that; the model may only explain the checklist's notes, on
+request, and its text is printed as advice (the test's fake model "advises" three commands: none runs, and exactly one request reaches the engine).
+
+**Where the process language does not fit, honestly.** The backlog asks for the wizard to be "a registered process like any other workflow". It is not,
+for three reasons the design should keep visible rather than paper over:
+1. **A process needs a daemon; the wizard exists to get one.** Stages are derived from a journal the daemon writes, and jobs are run by it. The first
+   half of the wizard (checks, choosing a model, starting the daemon) happens before either exists.
+2. **Its steps are a conversation, not jobs.** A stage is "run a registered tool, then a predicate over journal facts". "Ask the person at this terminal
+   and wait for a line" has no tool and no fact; the inbox is the engine's way to ask, and it is used for the one question that belongs to a workflow
+   (the planning question of `clarified`, which the wizard shows and answers in its console).
+3. **Its actions change the host** (start and stop a daemon and a portal). A job of a process runs in a sandbox under limits and may not.
+What IS data: the checklist's items and order (one table), the checks (the doctor's list), and the project half, which is a registered process. The
+remaining gap to the backlog's wording is stated, not closed: adding a wizard step is a code change in one function.
+
+**Not built, stated:** building or supervising `llama-server`, offering models that fit the host, fetching a model (each needs the owner's go-ahead:
+a download or an install); showing and editing a plan before it runs; choosing among blueprints from a list; opening the portal in a browser.

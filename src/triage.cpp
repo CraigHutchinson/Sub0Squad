@@ -49,7 +49,7 @@ TriageResult triage(const std::string& original)
     if (calc && python) { r.blueprint = "calculator-py"; r.personas = {"tester", "developer"}; r.split = true; }
     else if (calc && native) { r.blueprint = "calculator-cpp"; r.personas = {"tester", "developer"}; r.split = true; }
     else if (calc && web) { r.blueprint = "calculator-web"; r.personas = {"tester", "developer"}; r.split = true; }
-    else if (calc) { r.blueprint = "calculator-cpp"; r.personas = {"tester", "developer"}; r.split = true; }   // no platform named: the native one
+    else if (calc) { r.blueprint = "calculator-cpp"; r.personas = {"tester", "developer"}; r.split = true; r.platformAssumed = true; }   // no platform named: the native one
     if (!r.blueprint.empty()) {
         r.architect = "not needed";
         r.reasons.push_back("a known blueprint ('" + r.blueprint + "') covers this task: no architect, no project manager, no frontier");

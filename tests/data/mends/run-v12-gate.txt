@@ -1,0 +1,14 @@
+GATE FAIL: does not compile: src/calc.cpp
+  src/calc.cpp:47:18: error: variable ‘hasDot’ set but not used [-Werror=unused-but-set-variable]
+     47 |             bool hasDot = false;
+        |                  ^~~~~~
+  src/calc.cpp:48:18: error: variable ‘hasExp’ set but not used [-Werror=unused-but-set-variable]
+     48 |             bool hasExp = false;
+        |                  ^~~~~~
+  src/calc.cpp:269:15: error: ‘double calc::parsePrimary(std::vector<Token>::const_iterator&, const std::vector<Token>::const_iterator&, bool)’ defined but not used [-Werror=unused-function]
+    269 | static double parsePrimary(std::vector<Token>::const_iterator& pos, const std::vector<Token>::const_iterator& end, bool degrees)
+        |               ^~~~~~~~~~~~
+  src/calc.cpp:29:27: error: ‘std::vector<calc::Token> calc::tokenize(const std::string&)’ defined but not used [-Werror=unused-function]
+     29 | static std::vector<Token> tokenize(const std::string& expr)
+        |                           ^~~~~~~~
+The code does not compile, so no test could run. Fix the errors first.

@@ -1,7 +1,7 @@
 #pragma once
 /// @file first_use.hpp
 /// The first-use path (README "First use"): `up` starts the daemon and the portal in the background, `down` stops them, `doctor` checks what a first
-/// run needs and says what to fix. Part of the sub0squad executable only (never the core library): `up` starts other processes of this binary, so the
+/// run needs and says what to fix. Presentation layer. `up` starts other processes of this binary, so the
 /// binary's path is passed in by main and verified, and a nested `up` is refused (docs/INTERVENTIONS.md row 32).
 
 #include <string>
@@ -15,6 +15,10 @@ namespace sub0squad {
 [[nodiscard]] int runUp(const std::vector<std::string>& args, const std::string& exe);
 /// `down`: stop the daemon and the portal that `up` started.
 [[nodiscard]] int runDown(const std::vector<std::string>& args);
+/// One check of a first run. `id` says what it is about (binary, state, daemon, memory, disk, harness, ports, engine); `level` is ok | note | fix.
+struct DoctorCheck { std::string id, level, text; };
+/// The checks `doctor` prints, as data: the wizard's checklist is made from the same list (wizard.hpp). Arguments as for `doctor`.
+[[nodiscard]] std::vector<DoctorCheck> doctorChecks(const std::vector<std::string>& args, const std::string& exe, const std::string& version);
 /// `doctor [--engine URL]`: the checks of a first run, one line each (`ok`, `note` or `FIX`); exit 1 when something must be fixed.
 [[nodiscard]] int runDoctor(const std::vector<std::string>& args, const std::string& exe, const std::string& version);
 

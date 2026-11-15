@@ -2,6 +2,7 @@
 // have the same shape), then runs the real toolchains without a model: correct files pass every gate and integrate, each injected defect fails its
 // own gate with feedback that names the failing test and the values, and a file that does not compile or parse is reported with its location.
 #include "check.hpp"
+#include "sub0squad/harness_registry.hpp"
 #include "sub0squad/harness.hpp"
 #include "sub0squad/harness_cpp.hpp"
 #include "sub0squad/harness_py.hpp"
@@ -34,6 +35,7 @@ static int gate(const Platform& p, const fs::path& d, const std::string& item, i
 
 int main()
 {
+    sub0squad::registerBuiltinHarnesses();   // the registry starts empty: this program is its own composition root
     const Platform platforms[] = {{"calculator-cpp", "cpp-cmake", "cpp-gate", "cpp-integrate"}, {"calculator-py", "py-unittest", "py-gate", "py-integrate"}};
 
     // The abstraction: both blueprints are valid and have the same items, personas, dependencies and thresholds.

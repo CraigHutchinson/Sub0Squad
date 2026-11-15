@@ -6,11 +6,13 @@
 //            gate passes. The workflow succeeds and the status shows `healed`.
 //   prevent  the standard process: the harness declares the contract function itself, so the SAME skeleton passes in attempt 1 with no mend at all.
 #include "calculator_fake.hpp"
+#include "sub0squad/harness_registry.hpp"
 
 using namespace calcfake;
 
 int main(int, char** argv)
 {
+    sub0squad::registerBuiltinHarnesses();   // the registry starts empty: this program is its own composition root
     const std::string exe = argv[1];
     {   // ---- heal: the prevention is off, the defect happens, and the harness repairs it ----
         Squad sq(exe, "heal");

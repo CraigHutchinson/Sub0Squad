@@ -5,6 +5,7 @@
 // run-v10 (attempts 1, 3 and 6, the workflow path shortened); never-defined.txt is written by hand in GCC's wording.
 // That the ENGINE applies a mend at most twice and then lets the ladder go on is in test_workflow; the whole loop through a daemon is in test_heal.
 #include "check.hpp"
+#include "sub0squad/harness_registry.hpp"
 #include "sub0squad/contract.hpp"
 #include "sub0squad/fork.hpp"
 #include "sub0squad/harness.hpp"
@@ -27,6 +28,7 @@ static std::string table(const std::string& mend) { return "{\"schema\":\"mends-
 
 int main()
 {
+    sub0squad::registerBuiltinHarnesses();   // the registry starts empty: this program is its own composition root
     const fs::path root = SUB0SQUAD_SOURCE_DIR;
     // The table: the file in the registry is the built-in one, byte for byte; it parses; every mend names a fixture that exists and that IT matches.
     CHECK_EQ(slurp(root / "registry" / "mends.json"), builtinMendsJson());
@@ -204,6 +206,46 @@ int main()
         CHECK(all && all->name == "undefined-contract-symbol" && all->symbol == "calc::Parser::Parser");   // by pattern alone it is the first mend; its requirement (a CONTRACT function) does not hold ...
         const auto hit = matchMend({mends[1]}, gate);
         CHECK(hit && hit->name == "undefined-declared-member" && hit->requires_ == "declared" && hit->action == "add-section" && hit->symbol == "calc::Parser::Parser");   // ... and the gate goes on to this one
+    }
+    // Row 74, from run-v12: the diagnostics table equals its file; the REAL refusal the section got three times matches the entry; the entry's
+    // mechanical edit turns the REAL reply (sent three times) into the fix; an edit that changes nothing is no edit.
+    {
+        CHECK_EQ(slurp(root / "registry" / "diagnostics.json"), builtinDiagnosticsJson());
+        const auto& table = builtinDiagnostics();
+        CHECK(!table.empty());
+        for (const auto& d : table) { const auto hit = matchDiagnostic(table, slurp(root / d.fixture)); CHECK(hit && hit->name == d.name); }
+        const std::string refusal = slurp(root / "tests/data/mends/const-iterator-ref.txt"), reply = slurp(root / "tests/data/mends/const-iterator-reply.txt");
+        const auto known = matchDiagnostic(table, refusal);
+        CHECK(known && known->name == "iterator-for-const-iterator-ref" && known->edit == "const-iterators" && contains(known->hint, "cbegin()"));
+        const auto fixed = known ? applyDiagnosticEdit(known->edit, reply) : std::nullopt;
+        CHECK(fixed && contains(*fixed, "    auto pos = tokens.cbegin();\n    auto end = tokens.cend();\n") && !contains(*fixed, ".begin()") && !contains(*fixed, ".end()"));
+        CHECK(fixed && !applyDiagnosticEdit("const-iterators", *fixed));                      // nothing left to change
+        CHECK(!applyDiagnosticEdit("rename-everything", reply));                              // a closed set
+        CHECK(!matchDiagnostic(table, "src/calc.cpp:3:1: error: expected ';' before '}' token\n"));
+        // The measure of a turn: the first error without its place. The same mistake on another line is the same kind (run-v12: line 156, then 205).
+        const std::string moved = "your function does not pass the check, so it was not kept:\nsrc/calc.cpp:156:37: error: cannot bind non-const lvalue reference of type 'std::vector<calc::Token>::const_iterator&' to an rvalue of type 'std::vector<calc::Token>::const_iterator'\n";
+        CHECK_EQ(errorKind(moved), errorKind(refusal));
+        CHECK(errorKind(refusal).rfind("error: cannot bind", 0) == 0);
+        CHECK(errorKind("src/a.cpp:3:1: error: expected ';'\n") != errorKind(refusal));
+        // A table of one's own is checked: a hint is required, an edit must be known, a pattern must compile, a key must be known.
+        CHECK(parseDiagnostics("{\"schema\":\"diagnostics-1\",\"diagnostics\":[{\"name\":\"x\",\"match\":[\"a\"],\"hint\":\"h\"}]}").has_value());
+        CHECK(!parseDiagnostics("{\"schema\":\"diagnostics-1\",\"diagnostics\":[{\"name\":\"x\",\"match\":[\"a\"]}]}").has_value());
+        CHECK(!parseDiagnostics("{\"schema\":\"diagnostics-1\",\"diagnostics\":[{\"name\":\"x\",\"match\":[\"a\"],\"hint\":\"h\",\"edit\":\"sed\"}]}").has_value());
+        CHECK(!parseDiagnostics("{\"schema\":\"diagnostics-1\",\"diagnostics\":[{\"name\":\"x\",\"match\":[\"(\"],\"hint\":\"h\"}]}").has_value());
+        CHECK(!parseDiagnostics("{\"schema\":\"diagnostics-1\",\"diagnostics\":[{\"name\":\"x\",\"match\":[\"a\"],\"hint\":\"h\",\"command\":\"rm\"}]}").has_value());
+    }
+    // Row 75, from run-v12's attempt 1: `fork.json` names the section that was never accepted; the gate's first error is a `-Wunused` consequence, which
+    // the table WOULD mend by pattern (the real run spent three mends on it) and which is not a mend while that section is missing.
+    {
+        const std::string forkJson = slurp(root / "tests/data/mends/run-v12-fork.json"), gate = slurp(root / "tests/data/mends/run-v12-gate.txt");
+        CHECK_EQ(unacceptedSections(forkJson), std::string("evaluate"));
+        CHECK(unacceptedSections("{\"passed\":true,\"failure\":\"\"}").empty() && unacceptedSections("").empty());
+        CHECK(unacceptedSections("{\"failure\":\"sections-missing\",\"error\":\"sections never accepted: a, b::c\"}") == "a, b::c");
+        const auto would = matchMend(mends, gate);
+        CHECK(would && would->name == "unused-entity" && would->symbol == "hasDot");
+        CHECK(isUnusedConsequence(firstErrorLine(gate)));
+        CHECK(isUnusedConsequence("src/calc.cpp:269:15: error: 'double calc::parsePrimary(int)' defined but not used [-Werror=unused-function]"));
+        CHECK(!isUnusedConsequence("src/calc.cpp:9:1: error: expected ';' before '}' token"));
     }
     // Rows 25/26 and 70, from run-v11's real near pass: the failing tests are found by name and quoted as they are written.
     {

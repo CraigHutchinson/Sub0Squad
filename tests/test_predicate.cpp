@@ -26,6 +26,8 @@ int main()
     {
         Snapshot s;
         CHECK(!eval("plan.present", s) && !eval("requests.openBlocking", s));
+        CHECK(!eval("brief.present", s));
+        { Snapshot b; b.briefPresent = true; CHECK(eval("brief.present", b) && eval("brief.present && !plan.present", b)); }
         s.planPresent = true; s.openBlocking = true;
         CHECK(eval("plan.present", s) && eval("requests.openBlocking", s));
     }

@@ -309,17 +309,21 @@ std::vector<CompileFinding> compileFindings(const std::string& output, const std
 
 std::string ForkResult::toJson() const
 {
+    const auto joined = [](const std::vector<std::string>& v) { std::string out; for (const auto& x : v) out += (out.empty() ? "" : ",") + x; return out; };
+    int progressTurns = 0, thrashTurns = 0;
+    for (const auto& s : sections) { progressTurns += s.progress; thrashTurns += s.thrash; }
     json::Writer w;
     w.beginObject().kvBool("passed", passed).kv("exitCode", exitCode).kv("failure", failure).kv("resumedFrom", resumedFrom).kv("width", width).kv("widthReason", widthReason).kvBool("shed", shed)
         .kvBool("budgetSpent", budgetSpent).kv("budgetSec", budgetSec).kv("skeletonTries", skeletonTries).kv("rounds", rounds).kv("targeted", targeted).kv("mechanicalMends", mechanicalMends).kv("contractSections", contractSections).kv("memberSections", memberSections).kv("routedByMessage", routedByMessage)
         .kv("testsTotal", testsTotal).kv("testsFailed", testsFailed).kvBool("nearPass", nearPass).kv("reverted", reverted)
-        .kv("conflicts", conflicts).kv("lostEdits", lostEdits).kv("refused", refused)
+        .kv("conflicts", conflicts).kv("lostEdits", lostEdits).kv("refused", refused).kv("progressTurns", progressTurns).kv("thrashTurns", thrashTurns)
         .kv("skeletonTokens", static_cast<std::int64_t>(skeletonTokens)).kv("sectionTokens", static_cast<std::int64_t>(sectionTokens)).kv("integrationTokens", static_cast<std::int64_t>(integrationTokens))
         .kv("wallSec", wallSec).kv("sectionWallSec", sectionWallSec).kv("idleShare", idleShare).kv("error", error).key("sections").beginArray();
     for (const auto& s : sections)
         w.beginObject().kv("name", s.name).kv("file", s.file).kv("symbol", s.symbol).kv("signature", s.signature).kv("indent", s.indent).kv("startSec", s.startSec).kv("endSec", s.endSec)
             .kv("promptTokens", static_cast<std::int64_t>(s.promptTokens)).kv("completionTokens", static_cast<std::int64_t>(s.completionTokens)).kv("calls", s.calls).kv("refused", s.refused)
-            .kvBool("committed", s.committed).kvBool("removed", s.removed).kv("lastRefusal", s.lastRefusal.substr(0, 400)).endObject();
+            .kvBool("committed", s.committed).kvBool("removed", s.removed).kv("lastRefusal", s.lastRefusal.substr(0, 400))
+            .kv("progress", s.progress).kv("thrash", s.thrash).kv("identicalReplies", s.identicalReplies).kvBool("thought", s.thought).kv("hinted", joined(s.hinted)).kv("mended", joined(s.mended)).endObject();
     w.endArray().endObject();
     return w.take();
 }
@@ -549,7 +553,7 @@ ForkResult runCanvasFork(const ForkOptions& o)
                 std::printf("fork: resuming the canvas of attempt %d (%s): %zu section(s)\n", from, why.c_str(), res.sections.size());
                 events::note("fork resumes attempt " + std::to_string(from) + " (" + why + ")");
                 if (o.contractSections) ensureContract("This function was MISSING from the file: the tests call it and nothing defined it. The harness added its declaration.");
-                if (o.contractSections) ensureMembers("This member function is DECLARED by its class in the file and nothing defined it. The harness added its definition as a stub.");
+                if (o.memberSections) ensureMembers("This member function is DECLARED by its class in the file and nothing defined it. The harness added its definition as a stub.");
             }
         }
     }
@@ -585,11 +589,11 @@ ForkResult runCanvasFork(const ForkOptions& o)
                     const auto fns = o.contractSections && contract.count(path) ? contract.at(path) : std::vector<ContractFunction>{};
                     const std::string withContract = fns.empty() ? modelText : withContractDeclarations(modelText, path, fns);
                     // Then the members (row 71): a class that declares a member function owes its definition, so each one gets a `@@` line of its own.
-                    const std::string text = o.contractSections ? withMemberDeclarations(withContract, path) : withContract;
+                    const std::string text = o.memberSections ? withMemberDeclarations(withContract, path) : withContract;
                     const auto marks = [](const std::string& t) { int n = 0; for (std::size_t at = t.find("@@"); at != std::string::npos; at = t.find("@@", at + 2)) ++n; return n; };
                     if (marks(withContract) > marks(modelText)) { res.contractSections += marks(withContract) - marks(modelText); std::printf("contract: the skeleton of %s left %d contract function(s) out; the harness declared them\n", path.c_str(), marks(withContract) - marks(modelText)); }
                     if (marks(text) > marks(withContract)) { res.memberSections += marks(text) - marks(withContract); std::printf("class members: the skeleton of %s declares %d member function(s) with no section; the harness made each one a section\n", path.c_str(), marks(text) - marks(withContract)); }
-                    if (const auto twice = o.contractSections ? overloadedMembers(text, path) : std::vector<std::string>{}; !twice.empty()) { bad = path + ": the class member `" + twice.front() + "` is declared more than once (overloads); every function is written by one worker under its own name, so give each a different name"; break; }
+                    if (const auto twice = o.memberSections ? overloadedMembers(text, path) : std::vector<std::string>{}; !twice.empty()) { bad = path + ": the class member `" + twice.front() + "` is declared more than once (overloads); every function is written by one worker under its own name, so give each a different name"; break; }
                     if (text.find("@@") == std::string::npos) { candidate.addFile(path, text); continue; }   // a file with no function to delegate is taken as written
                     const Skeleton sk = expandSkeleton(text, path);
                     if (!sk.error.empty()) bad = path + ": " + sk.error;
@@ -597,7 +601,7 @@ ForkResult runCanvasFork(const ForkOptions& o)
                     // The skeleton check: a skeleton that leaves a contract function undefined is refused (it cannot happen after the step above; kept as the check).
                     if (bad.empty() && !fns.empty()) if (const auto missing = undefinedContract(sk.text, path, fns); !missing.empty()) bad = path + ": the skeleton leaves the contract function `" + missing.front().name + "` undefined (" + missing.front().signature + ")";
                     // And a class whose member has no section is refused: nobody would write it, and the link fails (row 71).
-                    if (bad.empty() && o.contractSections) if (const auto missing = undefinedMembers(sk.text, path); !missing.empty()) bad = path + ": the class `" + missing.front().className + "` declares the member function `" + missing.front().name + "` and no section defines it; write `@@ " + missing.front().signature + "` after the class";
+                    if (bad.empty() && o.memberSections) if (const auto missing = undefinedMembers(sk.text, path); !missing.empty()) bad = path + ": the class `" + missing.front().className + "` declares the member function `" + missing.front().name + "` and no section defines it; write `@@ " + missing.front().signature + "` after the class";
                 }
                 if (bad.empty()) bad = precheckCanvas(candidate, harness, o.dir, o.itemId, o.attempt, attemptDir, true);
             }
@@ -681,10 +685,23 @@ ForkResult runCanvasFork(const ForkOptions& o)
         for (char& c : flat) if (c == '.' || c == '/' || c == ':') c = '_';
         const fs::path trace = attemptDir / ("conversation-" + flat + ".md");
         if (!fs::exists(trace)) traceBegin(trace, "Section " + s.name + " of " + o.itemId, o.engine, o.maxTokens);
-        for (int tryNo = 0; tryNo < 3; ++tryNo) {
+        // Three ordinary turns; then, under thrash control, ONE more with the `think` strategy (reasoning on, room for it) before the section is given
+        // up (rows 74 and 75: a section the model cannot get past is the first cause of everything after it).
+        const int ordinaryTries = 3;
+        const bool mayThink = o.thrashControl && !o.engine.thinking && !s.thought;   // once per section and attempt
+        std::string previousReply, previousKind;
+        for (int tryNo = 0; tryNo < ordinaryTries + (mayThink ? 1 : 0); ++tryNo) {
             if (remainingSec() <= 0) { std::lock_guard<std::mutex> l(mu); res.budgetSpent = true; return; }
+            const bool thinking = tryNo >= ordinaryTries;
+            EngineProfile profile = seeded(tag + ":" + s.name + ":" + std::to_string(tryNo));
+            if (thinking) {
+                profile.thinking = true;
+                s.thought = true;
+                std::printf("section %s: three refusals: one turn under the think strategy\n", s.name.c_str());
+                events::note("section " + s.name + " handed to think");
+            }
             traceSent(trace, tryNo, convo, tryNo == 0 ? 0 : convo.size() - 2, -1);
-            auto r = chat(seeded(tag + ":" + s.name + ":" + std::to_string(tryNo)), convo, o.maxTokens, remainingSec(), {});
+            auto r = chat(profile, convo, thinking ? std::max(o.maxTokens, 6000) : o.maxTokens, remainingSec(), {});
             ++s.calls;
             if (!r) { traceVerdict(trace, tryNo, "the engine call failed: " + r.error()); if (remainingSec() <= 0) { std::lock_guard<std::mutex> l(mu); res.budgetSpent = true; } return; }
             traceReply(trace, tryNo, *r);
@@ -714,15 +731,14 @@ ForkResult runCanvasFork(const ForkOptions& o)
                 if (refusal.empty() && ops != 1) refusal = "reply with exactly one block for `" + s.symbol + "`";
             }
             std::string shownBack;
-            if (refusal.empty()) {
-                const std::string function = applySectionSignature(written, s.signature, s.indent, s.file);
+            // The check of one candidate text for the section; commits it when it passes. Returns true when committed. Called with `mu` held.
+            const std::function<bool(const std::string&, const std::string&)> tryCommit = [&](const std::string& function, const std::string& how) -> bool {
                 Transaction tx{s.file, base, s.name, {{CanvasOp::Kind::replaceSymbol, 0, 0, s.symbol, function}}};
-                std::lock_guard<std::mutex> l(mu);
                 if (base > canvas.revision(s.file)) tx.baseRevision = canvas.revision(s.file);
                 Canvas scratch = canvas;
                 const TxResult applied = scratch.apply(tx);
-                if (!applied.ok) { refusal = applied.error; if (applied.error.find("were changed by") != std::string::npos) ++res.conflicts; }
-                else {
+                if (!applied.ok) { refusal = applied.error; if (applied.error.find("were changed by") != std::string::npos) ++res.conflicts; return false; }
+                {
                     // A commit is refused only for errors INSIDE the section's own function. An error elsewhere in the file is somebody else's (it can
                     // even surface late: a function whose callee was still a stub looked complete to the compiler until the callee was written), and
                     // blocking this section for it would spend its retries on a defect it cannot touch (run-v9: `evaluate`, refused six times). Such
@@ -740,24 +756,60 @@ ForkResult runCanvasFork(const ForkOptions& o)
                         // told only "your reply is not repeated" could not see what to change).
                         refusal = "your function does not pass the check, so it was not kept:\n" + clip(mine.empty() ? bad : mine, 1200);
                         if (from > 0) shownBack = "Your function as you wrote it, with the line numbers the errors use:\n" + numbered(scratch.text(s.file), from, std::min(to, from + 150));
-                    } else {
-                        canvas = std::move(scratch);
-                        persistCanvas(canvas, attemptDir);
-                        committedText[s.name] = function;
-                        s.committed = true;
-                        s.lastRefusal.clear();
-                        traceVerdict(trace, tryNo, "committed as revision " + std::to_string(applied.revision) + " of " + s.file + (bad.empty() ? std::string{} : " (errors elsewhere in the file are for their owners)"));
-                        return;
+                        return false;
+                    }
+                    canvas = std::move(scratch);
+                    persistCanvas(canvas, attemptDir);
+                    committedText[s.name] = function;
+                    s.committed = true;
+                    s.lastRefusal.clear();
+                    traceVerdict(trace, tryNo, "committed as revision " + std::to_string(applied.revision) + " of " + s.file + how + (bad.empty() ? std::string{} : " (errors elsewhere in the file are for their owners)"));
+                    return true;
+                }
+            };
+            std::optional<KnownDiagnostic> known;
+            if (refusal.empty()) {
+                const std::string function = applySectionSignature(written, s.signature, s.indent, s.file);
+                std::lock_guard<std::mutex> l(mu);
+                if (tryCommit(function, "")) return;
+                // A refusal the diagnostics table knows (row 74): where the remedy is mechanical the harness makes the edit itself and checks again; the
+                // edit is kept only when the function then passes. Otherwise the hint goes into the retry prompt.
+                if (o.thrashControl) known = matchDiagnostic(builtinDiagnostics(), refusal);
+                if (known && !known->edit.empty()) {
+                    if (const auto edited = applyDiagnosticEdit(known->edit, function)) {
+                        const std::string firstRefusal = refusal, firstShown = shownBack;
+                        if (tryCommit(*edited, " after the harness applied the known fix `" + known->name + "` (" + known->edit + ")")) {
+                            s.mended.push_back(known->name);
+                            ++res.mechanicalMends;
+                            std::printf("section %s: known diagnostic %s: the harness applied %s and the function passes\n", s.name.c_str(), known->name.c_str(), known->edit.c_str());
+                            events::note("section " + s.name + " mended: " + known->name);
+                            return;
+                        }
+                        refusal = firstRefusal; shownBack = firstShown;   // the edit did not help: what the model wrote is what it is told about
                     }
                 }
             }
             ++s.refused;
             s.lastRefusal = refusal;
             { std::lock_guard<std::mutex> l(mu); ++res.refused; }
-            traceVerdict(trace, tryNo, "refused: " + refusal);
-            std::printf("section %s: refused: %s\n", s.name.c_str(), refusal.substr(0, 160).c_str());
+            // Convergence (docs/METRICS.md 4a): did the first error CHANGE since the turn before (progress) or repeat (thrash)? Was the reply the same text?
+            const std::string kind = errorKind(refusal).empty() ? refusal.substr(0, refusal.find('\n')) : errorKind(refusal);
+            const std::string replyText = trimmed(r->content);
+            const bool identical = tryNo > 0 && replyText == previousReply;
+            const bool repeated = tryNo > 0 && kind == previousKind;
+            if (tryNo > 0) ++(repeated ? s.thrash : s.progress);
+            if (identical) ++s.identicalReplies;
+            previousReply = replyText; previousKind = kind;
+            traceVerdict(trace, tryNo, std::string{"refused"} + (identical ? " (thrash: the identical reply again)" : repeated ? " (thrash: the same first error again)" : tryNo > 0 ? " (progress: the first error changed)" : "") + ": " + refusal);
+            std::printf("section %s: refused%s: %s\n", s.name.c_str(), identical ? " (identical reply)" : "", refusal.substr(0, 160).c_str());
+            std::string hint;
+            if (known) { hint = "What this error means and how to fix it: " + known->hint + "\n"; if (std::find(s.hinted.begin(), s.hinted.end(), known->name) == s.hinted.end()) s.hinted.push_back(known->name); }
+            // An identical reply is not answered by the same refusal (it produced the same reply): it is told that it repeated itself, and what to change.
+            const std::string lead = identical && o.thrashControl
+                ? "Your reply is IDENTICAL to your previous one, so it fails in exactly the same way. Do not send it again: the statement the error points at must change.\n" + (hint.empty() ? std::string{"Read the error below, find the line it names in your function, and write that line differently.\n"} : hint) + "The error: " + refusal + "\n"
+                : "Your reply was REFUSED and nothing changed: " + refusal + "\n" + hint;
             convo.push_back({"assistant", "[your previous reply is shown below where it matters]"});
-            convo.push_back({"user", "Your reply was REFUSED and nothing changed: " + refusal + "\n" + shownBack + "Reply again with the corrected function:\n=== EDIT: " + s.file + " SYMBOL " + s.symbol + " ===\n<your function>\n=== END EDIT ==="});
+            convo.push_back({"user", lead + shownBack + "Reply again with the corrected function:\n=== EDIT: " + s.file + " SYMBOL " + s.symbol + " ===\n<your function>\n=== END EDIT ==="});
         }
     };
     /// Run sessions for `who`, each with the conversation `make` builds for it, at the attempt's width (shed to one under memory pressure).
@@ -814,8 +866,14 @@ ForkResult runCanvasFork(const ForkOptions& o)
         if (!missing.empty()) {
             if (!firstPhase) res.targeted += static_cast<int>(missing.size());
             const std::string prefix = writePrefix();
+            const auto hintFor = [&](ForkSection& s) -> std::string {
+                const auto known = o.thrashControl ? matchDiagnostic(builtinDiagnostics(), s.lastRefusal) : std::nullopt;
+                if (!known) return {};
+                if (std::find(s.hinted.begin(), s.hinted.end(), known->name) == s.hinted.end()) s.hinted.push_back(known->name);
+                return "\nWhat this error means and how to fix it: " + known->hint;
+            };
             const auto writePrompt = [&](ForkSection& s) -> std::vector<ChatMessage> {
-                return {{"system", system}, {"user", prefix + "\nYou own `" + s.symbol + "` in " + s.file + "." + (s.brief.empty() ? std::string{} : " " + s.brief) + (s.lastRefusal.empty() ? std::string{} : " Your earlier reply was refused: " + clip(s.lastRefusal, 500)) +
+                return {{"system", system}, {"user", prefix + "\nYou own `" + s.symbol + "` in " + s.file + "." + (s.brief.empty() ? std::string{} : " " + s.brief) + (s.lastRefusal.empty() ? std::string{} : " Your earlier reply was refused: " + clip(s.lastRefusal, 500) + hintFor(s)) +
                                                          " Reply with:\n=== EDIT: " + s.file + " SYMBOL " + s.symbol + " ===\n<your function>\n=== END EDIT ==="}};
             };
             runPool(missing, writePrompt, firstPhase ? "section" : "rewrite" + std::to_string(round), firstPhase ? res.sectionTokens : res.integrationTokens, firstPhase);
@@ -1003,6 +1061,8 @@ int runLlmFork(const std::vector<std::string>& args)
     o.wallPerSectionSec = std::atoi(arg(args, "section-wall", "150").c_str());
     o.fresh = arg(args, "fresh", "0") == "1";
     o.contractSections = arg(args, "contract-sections", "1") != "0";
+    o.memberSections = arg(args, "member-sections", "1") != "0";
+    o.thrashControl = arg(args, "thrash-control", "1") != "0";
     o.mendSection = arg(args, "mend-section");
     o.mendFile = arg(args, "mend-file");
     auto profile = EngineProfile::parse(arg(args, "engine"));

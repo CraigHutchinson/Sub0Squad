@@ -41,6 +41,7 @@ namespace cli {
 
 const char* const kUsage =
     "usage: sub0squad <command> [options]\n"
+    "  GUIDED:     wizard [--yes] [--script FILE] [--engine NAME=URL] [--portal-port N] [--no-portal]   a checklist console from here to a first finished project\n"
     "  FIRST USE:  doctor  |  up  |  do \"write a calculator in C++\"  |  project wait w-000001  |  down      (README.md, \"First use\")\n"
     "  doctor [--engine NAME=URL]           check what a first run needs (memory, tools, ports, the engine) and say what to fix\n"
     "  up [--max-jobs N] [--frontier off|stub] [--portal-port N] [--no-portal]   start the daemon and the portal in the background; `down` stops them\n"
@@ -62,6 +63,9 @@ const char* const kUsage =
     "  project submit --task calculator-web|calculator-cpp|calculator-py (any blueprint of a registered harness starts at once) [--sandbox DIR] [--inject ITEM[:N]]... [--max-local N]\n"
     "         [--agent mock|llm] [--engine NAME=http://127.0.0.1:PORT/v1[,model=..][,ctx=N][,slots=N]]... [--engine-for PERSONA=NAME]... [--max-tokens N] [--treatment baseline|index|planfirst] [--executor session|canvas|fork] [--process NAME] [--mends FILE (a mends-1 table of this workflow's own, merged over the built-in one: `process mends`)] [--repair-turns N] [--size-budget TOKENS] [--fallback-engine NAME] [--ask]\n"
     "  project plan ID --file plan.json     supply the plan a workflow is awaiting (the deferred architect's answer)\n"
+    "  --process clarified                  a planning stage first: what the request leaves open (platform, executor) is asked ONCE in the inbox\n"
+    "                                       (`request list`, then `request answer ID r-1 --answer go` or `--answer platform=python`); --defaults asks nothing\n"
+    "  project answers [--forget]           the remembered answers to the planning questions\n"
     "  request list [WF] | raise WF --kind K [--scope a,b] [--blocking] [--title T] [--detail D] [--option O]... | answer WF RID [--resolution retry|stop] [--answer TEXT]\n"
     "                                       the inbox: questions, clarifications, requirements, blockers, proposals, escalations\n"
     "  replay WF NODE [--seeds 1,2,3] [--think] [--decompose] [--fork [--parallel N | --sequential-reason TEXT]]   run one node again in isolation, several seeds side by side (minutes, not a whole workflow)\n"

@@ -3,6 +3,7 @@
 // must be accepted on what the executor itself produced (a stub could rescue nothing), and the integrated project must run. This is the test that was missing:
 // the executors had only been driven by the agents' own unit tests, never as a workflow's jobs.
 #include "agent_bench.hpp"
+#include "sub0squad/harness_registry.hpp"
 #include "e2e.hpp"
 
 #include <thread>
@@ -124,6 +125,7 @@ static void runWorkflow(const std::string& exe, const char* executor, const char
 
 int main(int, char** argv)
 {
+    sub0squad::registerBuiltinHarnesses();   // the registry starts empty: this program is its own composition root
     const std::string exe = argv[1];
     runWorkflow(exe, "canvas", "exec-canvas");
     runWorkflow(exe, "fork", "exec-fork");

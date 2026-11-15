@@ -2,6 +2,11 @@
 /// @file harness.hpp
 /// The harness registry (docs/DESIGN_AUDIT.md section 3.1): a project harness is described by one entry, so the workflow, the agents and the plan
 /// validator ask the registry instead of comparing harness names. Entries are plain function pointers and data; a new harness is one new entry.
+///
+/// The registry itself is kernel code (layer 0) and starts EMPTY: the layers above fill it. The harnesses layer provides `registerBuiltinHarnesses()`
+/// (harness_registry.hpp), which the composition root (main) and each test that needs harnesses call once, before any thread is started. Registration
+/// is explicit because the layers are static libraries linked in layer order: a lower layer cannot name a higher one, and a registration by a static
+/// object would be dropped by the linker when nothing refers to it (docs/COMPONENTS.md).
 
 #include <cstddef>
 #include <string>
@@ -40,7 +45,10 @@ struct Harness
     std::vector<std::string> (*scaffoldPaths)() = nullptr;
 };
 
-/// The harness named `name`, or nullptr (an empty or unknown name; the empty name is the legacy header-only calculator sandbox, which has no entry).
+/// Add `harness` to the registry. The entry must outlive the program's use of the registry (entries are constants). Registering a name twice keeps the
+/// first entry, so calling a layer's registration function more than once is harmless. Not thread safe: call it at start-up, before threads exist.
+void registerHarness(const Harness& harness);
+/// The harness named `name`, or nullptr (an empty, unknown or not yet registered name).
 [[nodiscard]] const Harness* findHarness(std::string_view name);
 /// Whether any registered harness judges gates of this kind.
 [[nodiscard]] bool knownGateKind(std::string_view kind);

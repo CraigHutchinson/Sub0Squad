@@ -2,12 +2,14 @@
 // judges what the agent wrote. This pins the reply forms the agent has always accepted (a whole file, a LINES edit against a numbered draft, a read request
 // answered in the same conversation, a file cut off at the token limit and continued), so the forms keep working while the loop is rebuilt.
 #include "agent_bench.hpp"
+#include "sub0squad/harness_registry.hpp"
 
 using namespace sub0squad;
 using namespace bench;
 
 int main()
 {
+    sub0squad::registerBuiltinHarnesses();   // the registry starts empty: this program is its own composition root
     const std::string ref = reference(), bad = defective();
     CHECK(!ref.empty() && !bad.empty() && ref != bad);
     const int bugLine = lineOf(bad, "v = v / d");

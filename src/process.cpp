@@ -53,12 +53,15 @@ std::vector<Field> fieldsOf(Stage& st)
         flag("leaf.allow.reviseTests", st.leaf.allowReviseTests);
         flag("leaf.allow.rearchitect", st.leaf.allowRearchitect);
         flag("leaf.allow.escalate", st.leaf.allowEscalate);
+        flag("leaf.allow.thinkFirst", st.leaf.allowThinkFirst);
         num("leaf.wallSeconds.agentLlm", st.leaf.agentWallLlmSeconds);
         num("leaf.wallSeconds.agentOther", st.leaf.agentWallOtherSeconds);
         num("leaf.wallSeconds.gate", st.leaf.gateWallSeconds);
         num("leaf.wallSeconds.architectLlm", st.leaf.architectWallLlmSeconds);
         num("leaf.wallSeconds.architectOther", st.leaf.architectWallOtherSeconds);
         flag("leaf.contractSections", st.leaf.contractSections);
+        flag("leaf.memberSections", st.leaf.memberSections);
+        flag("leaf.thrashControl", st.leaf.thrashControl);
         flag("leaf.mends.enabled", st.leaf.mendsEnabled);
         list("leaf.mends.disabled", st.leaf.mendsDisabled);
         num("ascent.maxRoundTrips", st.ascent.maxRoundTrips);
@@ -146,7 +149,7 @@ std::string validateStage(const Stage& st, const std::string& where)
             if (const std::string bad = badPlaceholder(a); !bad.empty()) return where + "job.args: " + bad;
         }
         if (j.tier != "stub" && j.tier != "local") return where + "job.tier '" + j.tier + "' must be stub or local";
-        if (j.accept != "" && j.accept != "plan") return where + "job.accept '" + j.accept + "' must be \"\" or \"plan\"";
+        if (j.accept != "" && j.accept != "plan" && j.accept != "brief") return where + "job.accept '" + j.accept + "' must be \"\", \"plan\" or \"brief\"";
         for (const std::string& bad : {range(j.wallSeconds, 10, 86400, where + "job.wallSeconds"), range(j.retries, 0, 5, where + "job.retries")}) if (!bad.empty()) return bad;
     } else {
         const LeafParams& l = st.leaf;
@@ -228,6 +231,7 @@ const std::vector<StageTool>& stageTools()
         {"harness:integrate", "the integration command of the plan's harness: merge the accepted items into <sandbox>/project and run the whole suite", true},
         {"qa", "quality findings over a source tree: duplicated code, the same helper declared twice, very long functions", false},
         {"plan-lint", "audit a plan file: width, critical path, rough time, serial tails", false},
+        {"plan-questions", "the planning questions: what the request leaves open (platform, executor), written to <sandbox>/questions.json for a stage that accepts a brief", false},
     };
     return tools;
 }
@@ -431,9 +435,22 @@ const Process& reviewedProcess()
     return p;
 }
 
+const Process& clarifiedProcess()
+{
+    static const Process p = [] {
+        Process x = standardProcess();
+        x.name = "clarified";
+        x.description = "The standard stages behind a planning stage: what the request leaves open (platform, executor) is asked once through the inbox, the defaults first, and remembered; then plan, build, integrate.";
+        x.stages.insert(x.stages.begin(), jobStage("clarify", "always", "brief.present", {"clarifier", "clarification", "plan-questions", {"--workflow-dir", "${sandbox}"}, "stub", 60, 0, "brief"}));
+        x.stages[1].entry = "stage.clarify.done";
+        return x;
+    }();
+    return p;
+}
+
 const std::vector<const Process*>& builtinProcesses()
 {
-    static const std::vector<const Process*> all = {&standardProcess(), &sectionsProcess(), &reviewedProcess()};
+    static const std::vector<const Process*> all = {&standardProcess(), &sectionsProcess(), &reviewedProcess(), &clarifiedProcess()};
     return all;
 }
 

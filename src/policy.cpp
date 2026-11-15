@@ -6,7 +6,7 @@ namespace sub0squad {
 
 const char* toString(Action a)
 {
-    switch (a) { case Action::retry: return "retry"; case Action::escalate: return "escalate"; case Action::fail: return "fail"; case Action::sections: return "sections"; case Action::decompose: return "decompose"; case Action::reviseTests: return "reviseTests"; case Action::rearchitect: return "rearchitect"; }
+    switch (a) { case Action::retry: return "retry"; case Action::escalate: return "escalate"; case Action::fail: return "fail"; case Action::sections: return "sections"; case Action::decompose: return "decompose"; case Action::reviseTests: return "reviseTests"; case Action::rearchitect: return "rearchitect"; case Action::think: return "think"; }
     return "?";
 }
 
@@ -23,10 +23,12 @@ std::string toJson(const DecisionContext& c, const Decision& d)
         .kv("persona", c.persona).kvBool("divideBySections", c.divideBySections).kvBool("sectionsTried", c.sectionsTried).kvBool("splittable", c.splittable).kvBool("hasTesterDep", c.hasTesterDep).kvBool("decomposeTried", c.decomposeTried).kvBool("reviseTried", c.reviseTried)
         .kvBool("rearchitectTried", c.rearchitectTried);
     // The rungs this workflow's process does not have: written only when there are any, so a decision says why the ladder skipped a rung.
-    const std::pair<const char*, bool> rungs[] = {{"decompose", c.allowDecompose}, {"sections", c.allowSections}, {"reviseTests", c.allowReviseTests}, {"rearchitect", c.allowRearchitect}, {"escalate", c.allowEscalate}};
+    const std::pair<const char*, bool> rungs[] = {{"decompose", c.allowDecompose}, {"sections", c.allowSections}, {"reviseTests", c.allowReviseTests}, {"rearchitect", c.allowRearchitect}, {"escalate", c.allowEscalate}, {"thinkFirst", c.allowThinkFirst}};
     bool lacks = false;
     for (const auto& [name, allowed] : rungs) lacks = lacks || !allowed;
     if (c.forked) w.kvBool("forked", true);   // written only when it holds, like `processLacks`
+    if (c.stuckNearPass) w.kvBool("stuckNearPass", true).kvBool("thinkTried", c.thinkTried);
+    if (c.unacceptedSection) w.kvBool("unacceptedSection", true).kvBool("unacceptedBefore", c.unacceptedBefore).kvBool("thinkTried", c.thinkTried);
     if (lacks) { w.key("processLacks").beginArray(); for (const auto& [name, allowed] : rungs) if (!allowed) w.str(name); w.endArray(); }
     w.endObject().endObject();
     return w.take();
@@ -67,6 +69,28 @@ Decision RulePolicy::decide(const DecisionContext& c) const
     if (c.totalAttempts >= c.maxTotalAttempts) {
         d.action = Action::fail;
         d.reasons.push_back("attempt budget exhausted (" + std::to_string(c.maxTotalAttempts) + " attempts, divisions and rewrites included)");
+        return d;
+    }
+    if (c.stuckNearPass && !c.thinkTried && c.allowThinkFirst) {
+        // Before anything else on the ladder: the repair left the same files, so a plain retry repeats it; and nearly all tests pass, so the tests and
+        // the card are the least likely cause. Thinking is the cheapest change of approach that keeps both.
+        d.action = Action::think;
+        d.tier = "local";
+        d.reasons.push_back("stuck near pass: this attempt ended on the same files as the one before it, with at most 15 % of the tests failing; another plain repair would end the same way");
+        d.reasons.push_back("tests of which nearly all pass are probably right: the manager applies strategy 'think' first (reasoning on), before the tests are sent back or the card is rewritten");
+        return d;
+    }
+    if (c.unacceptedSection && c.allowThinkFirst && !c.thinkTried) {
+        // The first cause is ONE section; nothing about the whole file (its tests, its card, its division) is in question yet.
+        if (!c.unacceptedBefore) {
+            d.action = Action::retry;
+            d.tier = "local";
+            d.reasons.push_back("first cause: a section of the file was never accepted, so its stub stands in the file and the other errors are consequences; the next attempt resumes the canvas and writes only that section");
+            return d;
+        }
+        d.action = Action::think;
+        d.tier = "local";
+        d.reasons.push_back("first cause: the same section was left unaccepted by two attempts running; the manager applies strategy 'think' (reasoning on) to it before any whole-file rung");
         return d;
     }
     if (c.repeatedFailure && c.hasTesterDep && !c.reviseTried && c.allowReviseTests) {

@@ -65,4 +65,44 @@ struct MendMatch
 /// column of the name, as the compiler reports it). Returns the new text, or nullopt when the name is not there or the file is not C or C++.
 [[nodiscard]] std::optional<std::string> silenceUnused(const std::string& text, const std::string& path, int line, int column, const std::string& name);
 
+// ---- Known diagnostics (catalogue row 74) ----
+//
+// A compiler diagnostic a small model does not map to its remedy: run-v12's `evaluate` was refused three times with the same error and the model sent
+// the same code three times. `registry/diagnostics.json` is a table of such diagnostics: a SIGNATURE (patterns matched against the first error), a HINT
+// (one plain explanation and the remedy, attached to the retry prompt) and, where the fix is mechanical, a named deterministic EDIT the harness applies
+// to the offending function itself. An edit is kept only when the function then passes the check it failed; otherwise the hint is all that is used.
+//
+// Edits (a closed set):
+//   const-iterators   `.begin()` becomes `.cbegin()` and `.end()` becomes `.cend()` in the function's text
+
+struct KnownDiagnostic
+{
+    std::string name;
+    std::vector<std::string> match;    ///< ECMAScript patterns against the first error line (quotes normalised to ')
+    std::string hint;                  ///< what the error means and what to write instead, in one or two sentences
+    std::string edit;                  ///< "" (a hint only) | const-iterators
+    std::string fixture;               ///< a refusal or gate output under tests/data/mends that this entry must match
+};
+
+/// The built-in table: the text of `registry/diagnostics.json`, compiled in (a test holds the two equal).
+[[nodiscard]] const std::string& builtinDiagnosticsJson();
+[[nodiscard]] const std::vector<KnownDiagnostic>& builtinDiagnostics();
+/// Parse a `diagnostics-1` table: every pattern must compile, every edit must be known, every entry needs a hint.
+[[nodiscard]] std::expected<std::vector<KnownDiagnostic>, std::string> parseDiagnostics(std::string_view json);
+/// The first entry of `table` one of whose patterns matches the FIRST error of `output`.
+[[nodiscard]] std::optional<KnownDiagnostic> matchDiagnostic(const std::vector<KnownDiagnostic>& table, const std::string& output);
+/// Apply the named edit to one function's text. nullopt when the edit is unknown or changes nothing.
+[[nodiscard]] std::optional<std::string> applyDiagnosticEdit(const std::string& edit, const std::string& functionText);
+/// The first error of `output` WITHOUT its place (`path:line:col:`): what stays the same when the same mistake is made again on another line. The measure
+/// of a section turn: a first error that CHANGED is progress, one that repeated is thrash (docs/METRICS.md section 4a).
+[[nodiscard]] std::string errorKind(const std::string& output);
+
+// ---- The first cause of a fork that left a section unwritten (catalogue row 75) ----
+
+/// The sections a fork attempt never accepted, from its `fork.json` (`"failure":"sections-missing"`), as the comma-separated list the fork wrote; ""
+/// when every section was accepted or the text is not such a record. Their stubs stand in the file, so every error about unused code is a CONSEQUENCE.
+[[nodiscard]] std::string unacceptedSections(const std::string& forkJson);
+/// Whether a first error is of the `-Wunused-*` class (set but not used, defined but not used, unused variable, parameter or function).
+[[nodiscard]] bool isUnusedConsequence(const std::string& firstError);
+
 }  // namespace sub0squad

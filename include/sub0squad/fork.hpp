@@ -43,10 +43,15 @@ struct ForkOptions
     int wallPerSectionSec = 150;        ///< ... plus this for every section, so a file of 14 functions is not given the time of a file of 4
     bool fresh = false;                 ///< never resume the previous attempt's canvas: start from a new skeleton
     /// The sections start from the item's CONTRACT (contract.hpp, catalogue row 59): every function the harness's stub of a file defines is a mandatory
-    /// section with the contract's signature, added by the harness to the skeleton and to a resumed canvas that lacks it. The same holds for every member
-    /// function a class of the file declares without a body (row 71), and a skeleton that leaves one without a section is refused. Off only to reproduce
-    /// the defects.
+    /// section with the contract's signature, added by the harness to the skeleton and to a resumed canvas that lacks it. Off only to reproduce the defect.
     bool contractSections = true;
+    /// Every member function a class of the file declares without a body is a section too (row 71), with a generated stub; a skeleton that leaves one
+    /// without a section, or overloads a member, is refused. A switch of its own (the contract may be kept while this is off). Off only to reproduce the defect.
+    bool memberSections = true;
+    /// Thrash control (rows 74 and 75): a refusal that matches a known diagnostic gets its hint, and its mechanical edit where there is one; an identical
+    /// consecutive reply is answered by saying so, with the hint, not by the same refusal; after three refusals the section gets one turn under the
+    /// `think` strategy before it is given up. Off only to reproduce the defect.
+    bool thrashControl = true;
     /// The mend `add-section` (mends.hpp): continue the previous attempt's files whatever it failed on, add `mendSection` (in `mendFile`) as a stubbed
     /// section with the contract's signature (or the file's own prototype of it), put back sections an earlier assembly removed as uncalled, and write ONLY
     /// the new section. Empty: an ordinary attempt.
@@ -66,6 +71,12 @@ struct ForkSection
     bool committed = false;
     bool removed = false;               ///< nobody called it: the harness removed it from the assembled file
     std::string lastRefusal;            ///< why its last reply was refused ("" when it was kept)
+    /// Convergence of its refused turns (catalogue row 74, docs/METRICS.md 4a): a refusal whose first error differs from the turn before is PROGRESS, one
+    /// that repeats it is THRASH; `identicalReplies` counts replies that were, text for text, the reply before.
+    int progress = 0, thrash = 0, identicalReplies = 0;
+    bool thought = false;               ///< three refusals handed it to the `think` strategy (one more turn, reasoning on)
+    std::vector<std::string> hinted;    ///< known diagnostics (mends.hpp) whose hint was attached to a retry prompt
+    std::vector<std::string> mended;    ///< known diagnostics whose mechanical edit the harness applied to the reply, which then passed
     std::string brief;                  ///< why the harness added this section (a mend): shown to the session that writes it
 };
 

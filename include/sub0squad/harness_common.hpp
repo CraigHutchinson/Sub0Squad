@@ -93,7 +93,7 @@ struct GateHooks
 [[nodiscard]] std::string runPrecheckFlow(const GateHooks& hooks, const std::vector<std::string>& args);
 
 /// The common gate: allowlist, workspace (scaffold, dependencies' accepted outputs, the attempt), precheck, build and run, then judge (minimum tests,
-/// tests must fail against stubs for testers, near pass exit 3, same-failures exit 5) and publish. `args` are those of the gate command.
+/// tests must fail against stubs for testers, near pass exit 3, same-failures exit 5, a near pass on the same files as the last attempt exit 7, a failure of a fork attempt that left a section unaccepted exit 8) and publish. `args` are those of the gate command.
 [[nodiscard]] int runGateFlow(const GateHooks& hooks, const std::vector<std::string>& args);
 
 }  // namespace sub0squad::harnessutil

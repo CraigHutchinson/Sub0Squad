@@ -8,10 +8,13 @@
 #include <string_view>
 #include <Version.hpp>
 #include "sub0squad/build_id.hpp"
+#include "sub0squad/clarify.hpp"
 #include "sub0squad/client.hpp"
 #include "sub0squad/mock_worker.hpp"
 #include "sub0squad/harness_cpp.hpp"
+#include "sub0squad/harness_registry.hpp"
 #include "first_use.hpp"
+#include "wizard.hpp"
 #include "sub0squad/blocks.hpp"
 #include "sub0squad/scenario.hpp"
 #include "sub0squad/harness_py.hpp"
@@ -102,11 +105,13 @@ int selftest()
 int main(int argc, char** argv)
 {
     sub0squad::setBuildId(std::string(sub0squad::version::version_full));
+    sub0squad::registerBuiltinHarnesses();   // the composition root fills the registry: every command below may ask it
     if (argc > 2 && std::strcmp(argv[1], "exec-shim") == 0) return sub0squad::runShim(argv[2]);
     if (argc > 1 && std::strcmp(argv[1], "mock-worker") == 0) return sub0squad::runMockWorker(argc - 2, argv + 2);
     if (argc > 1) {
         const std::vector<std::string> rest(argv + 2, argv + argc);
         if (std::strcmp(argv[1], "mock-planner") == 0) return sub0squad::runMockPlanner(rest);
+        if (std::strcmp(argv[1], "plan-questions") == 0) return sub0squad::runPlanQuestions(rest);
         if (std::strcmp(argv[1], "mock-agent") == 0) return sub0squad::runMockAgent(rest);
         if (std::strcmp(argv[1], "guard") == 0) return sub0squad::runGuard(rest);
         if (std::strcmp(argv[1], "fetch-model") == 0) return sub0squad::runFetchModel(rest);
@@ -125,11 +130,12 @@ int main(int argc, char** argv)
         if (std::strcmp(argv[1], "cpp-gate") == 0) return sub0squad::runCppGate(rest);
         if (std::strcmp(argv[1], "cpp-integrate") == 0) return sub0squad::runCppIntegrate(rest);
     }
-    if (argc > 1 && (std::strcmp(argv[1], "up") == 0 || std::strcmp(argv[1], "down") == 0 || std::strcmp(argv[1], "doctor") == 0)) {
+    if (argc > 1 && (std::strcmp(argv[1], "up") == 0 || std::strcmp(argv[1], "down") == 0 || std::strcmp(argv[1], "doctor") == 0 || std::strcmp(argv[1], "wizard") == 0)) {
         const std::vector<std::string> rest(argv + 2, argv + argc);
         const std::string exe = sub0squad::resolveProgram(argv[0]);
         if (std::strcmp(argv[1], "up") == 0) return sub0squad::runUp(rest, exe);
         if (std::strcmp(argv[1], "down") == 0) return sub0squad::runDown(rest);
+        if (std::strcmp(argv[1], "wizard") == 0) return sub0squad::runWizard(rest, exe, std::string(sub0squad::version::version_full));
         return sub0squad::runDoctor(rest, exe, std::string(sub0squad::version::version_full));
     }
     if (argc > 1 && std::strcmp(argv[1], "--selftest") == 0) return selftest();
