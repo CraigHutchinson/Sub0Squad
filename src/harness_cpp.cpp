@@ -139,7 +139,7 @@ std::string cppCheckPlanScaffold(const std::string& planJson)
     for (const auto& f : plan->scaffold) {
         if (fs::path(f.path).extension() != ".cpp") continue;
         const Cmd c = run({compiler(), "-std=c++20", "-c", "-o", "/dev/null", "-Wall", "-Wextra", "-Werror", "-Iinclude", "-Isrc", f.path}, ws, 60);
-        if (c.exitCode != 0) bad += "the scaffold file '" + f.path + "' does not compile:\n" + diagnostics(c.output, 4);
+        if (c.exitCode != 0) bad += "the scaffold file '" + f.path + "' does not compile (a stub ignores its parameters: leave them unnamed, for example `double evaluate(const std::string&)`, and never use a name the stub does not read):\n" + diagnostics(c.output, 4);
     }
     fs::remove_all(ws, ec);
     return bad;

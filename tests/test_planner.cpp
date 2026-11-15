@@ -46,6 +46,13 @@ int main()
         auto plan = Plan::fromJson(good);
         CHECK(plan.has_value());
         if (plan) {
+            {   // A gate that asks for more tests than the examples can give never passes (the first end-to-end run: 8 asked, 6 written, six attempts).
+                Plan m = *plan;
+                m.items[0].gate.minTests = 20;
+                bool sawReach = false;
+                for (const auto& s2 : checkPlan(m)) sawReach = sawReach || s2.find("lower it to") != std::string::npos;
+                CHECK(sawReach);
+            }
             Plan p = *plan;
             p.items[0].card.examples.clear();
             const auto problems = checkPlan(p);
@@ -104,22 +111,40 @@ int main()
         const fs::path d = makeTempDir("planner-repair");
         auto draft = Plan::fromJson(good);
         CHECK(draft.has_value());
-        if (draft) for (auto& it : draft->items) it.card.examples.clear();
+        if (draft) draft->items[0].card.examples.clear();   // the tester's examples only: one place to repair
         const std::string firstDraft = "Here is the plan:\n```json\n" + (draft ? draft->toJson() : std::string{}) + "\n```\n";
         CHECK(firstDraft != good);
-        fake::Engine engine({{firstDraft}, {good}});
+        // The repair is an EDIT of the document the model is shown (not a second plan): a search block adds the three examples.
+        const std::string edit = "=== EDIT: plan.json ===\n<<<<<<< SEARCH\n\"examples\": []\n=======\n\"examples\": [\"a b = 2\", \"a = 1\", \"a b c = 3\"]\n>>>>>>> REPLACE\n=== END EDIT ===\n";
+        fake::Engine engine({{firstDraft}, {edit}});
         CHECK_EQ(runLlmPlanner(plannerArgs(d, engine)), 0);
         CHECK_EQ(engine.requestCount(), static_cast<std::size_t>(2));
         const auto rq = engine.requests();
         if (rq.size() == 2) {
             CHECK(rq[0].messages.front().second.find("PLANNER") != std::string::npos && rq[0].last().find("write a word counting library in C++") != std::string::npos);
-            CHECK(rq[1].last().find("The plan was refused") != std::string::npos);
+            const std::string again = rq[1].last();
+            CHECK(again.find("worked examples") != std::string::npos && again.find("SMALLEST edits") != std::string::npos && again.find("=== plan.json ===") != std::string::npos);
+            CHECK(again.find("\"complexity\"") != std::string::npos);   // the document is shown...
+            CHECK(rq[1].messages.size() == 2);                          // ...and no history is carried
+            CHECK(fs::exists(d / "planner" / "doc" / "turn-1" / "plan.json"));   // the document is kept on disk
         }
         auto written = Plan::fromJson(slurp(d / "plan.json"));
         CHECK(written.has_value() && written->project == "wordcount");
         const std::string record = slurp(d / "planner.json");
         CHECK(record.find("\"valid\":true") != std::string::npos && record.find("\"turns\":2") != std::string::npos);
         CHECK(fs::exists(d / "planner" / "turn-1.txt") && fs::exists(d / "planner" / "conversation.md"));
+    }
+    {   // An edit that does not apply changes nothing and the original problems stand: the next turn is shown the same document and both messages.
+        const fs::path d = makeTempDir("planner-badedit");
+        auto draft = Plan::fromJson(good);
+        if (draft) draft->items[0].card.examples.clear();
+        const std::string bad = "=== EDIT: plan.json ===\n<<<<<<< SEARCH\nthis text is not in the document\n=======\nx\n>>>>>>> REPLACE\n=== END EDIT ===\n";
+        const std::string fixed = "=== EDIT: plan.json ===\n<<<<<<< SEARCH\n\"examples\": []\n=======\n\"examples\": [\"a b = 2\", \"a = 1\", \"a b c = 3\"]\n>>>>>>> REPLACE\n=== END EDIT ===\n";
+        fake::Engine engine({{draft ? draft->toJson() : std::string{}}, {bad}, {fixed}});
+        CHECK_EQ(runLlmPlanner(plannerArgs(d, engine)), 0);
+        const auto rq = engine.requests();
+        CHECK_EQ(rq.size(), static_cast<std::size_t>(3));
+        if (rq.size() == 3) CHECK(rq[2].last().find("your edits were not applied") != std::string::npos && rq[2].last().find("worked examples") != std::string::npos);
     }
     {   // The scaffold as plain FILE blocks after the JSON (no escaping to get wrong): the same plan results, and the blocks fill in what the JSON leaves out.
         const fs::path d = makeTempDir("planner-blocks");
@@ -185,6 +210,48 @@ int main()
         CHECK(runCppGate({"--workflow-dir", d.string(), "--item", "dev-wc", "--attempt", "2", "--no-publish", "1"}) != 0);
         const std::string said = slurp(d / "items" / "dev-wc" / "attempt-2" / "gate.txt");
         CHECK(said.find("wc::countWords(\"hello world\") is 1 but") != std::string::npos && said.find("expected:") == std::string::npos);
+    }
+    {   // Mechanical mends: a weak gate, a developer not tied to its tester, a missing main stub cost no repair turn.
+        auto plan = Plan::fromJson(good);
+        CHECK(plan.has_value());
+        if (plan) {
+            Plan m = *plan;
+            m.items[0].gate.minTests = 2;
+            m.items[0].gate.mustFailOnStub = false;
+            m.items[1].deps.clear();
+            m.items[1].files.push_back("src/main.cpp");
+            m.items[0].card.include = {"src/engine.h"};   // a path nothing writes
+            const auto mends = mendPlan(m);
+            CHECK(mends.size() >= 4);
+            CHECK(std::none_of(m.items[0].card.include.begin(), m.items[0].card.include.end(), [](const std::string& i) { return i == "src/engine.h"; }));
+            CHECK(m.items[0].gate.minTests >= 5 && m.items[0].gate.mustFailOnStub);
+            CHECK(!m.items[1].deps.empty());
+            CHECK(mendPlan(m).empty());   // nothing left to mend
+        }
+    }
+    {   // A stub's unread parameters are left unnamed; read ones stay.
+        auto plan = Plan::fromJson(good);
+        CHECK(plan.has_value());
+        if (plan) {
+            Plan m = *plan;
+            m.scaffold.push_back({"src/zz.cpp", "#include <string>\nnamespace z {\ndouble f(const std::string& expr, int used, int argc) { return used; }\n}\n"});
+            (void)mendPlan(m);
+            const std::string c = m.scaffold.back().content;
+            CHECK(c.find("double f(const std::string&, int used, int)") != std::string::npos);
+        }
+    }
+    {   // The three slips a real planner made (the first end-to-end runs): an unescaped quote inside a string, and an item closed one bracket short.
+        for (int n : {2, 3, 4}) {
+            std::string rest;
+            const std::string reply = data(("planner-broken-" + std::to_string(n) + ".txt").c_str());
+            (void)extractFileBlocks(reply, rest);
+            CHECK(!Plan::fromJson(extractJsonObject(rest)).has_value());
+            const std::string fixed = repairJson(rest);
+            auto mended = Plan::fromJson(fixed);
+            // Turn 4's plan is well formed once mended but still wrong in substance (two items edit one file): that is the checks' to say, not the mend's.
+            CHECK(mended.has_value() || mended.error().find("not valid JSON") == std::string::npos);
+        }
+        CHECK(repairJson("no object here").empty());
     }
     return finish();
 }

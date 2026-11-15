@@ -1,0 +1,42 @@
+{"schema":"plan-2","task":"write a calculator in C++","harness":"cpp-cmake","project":"calc","reasons":["Split into engine logic and CLI interface for independent testing and implementation.","Engine handles math; CLI handles I/O and argument parsing.","Both are distinct deliverables requiring separate test suites."],"items":[{"id":"test-engine","title":"Calculator Engine Tests","persona":"tester","goal":"Verify math correctness, precedence, and error handling","files":["tests/engine.test.cpp"],"deps":[],"complexity":2,"card":{"context":"Implement unit tests for the calculator engine.","contract":"Tests for calc::evaluate(const std::string& expr, bool degrees=false) -> double. Must handle +, -, *, /, ^, unary minus, parentheses, and functions sin/cos/tan (with degrees flag). Must throw std::invalid_argument on syntax errors or domain errors (e.g., sqrt(-1)).","acceptance":["Basic arithmetic works","Precedence is respected","Parentheses override precedence","Trig functions respect degrees flag","Invalid syntax throws","Domain errors throw"],"include":[],"notes":["Use CHECK_EQ for doubles with CHECK_NEAR for floats if needed, but double precision is standard."],"examples":["\"2 + 3\" = 5","\"2 * 3 + 4\" = 10","\"(2 + 3) * 4\" = 20","\"sin(90)\" = 1 (degrees=true)","\"sin(pi/2)\" = 1 (degrees=false)","\"1 / 0\" throws"]},"gate":{"kind":"ctest","tests":["tests/engine.test.cpp"],"minTests":6,"mustFailOnStub":true}},{"id":"dev-engine","title":"Calculator Engine Implementation","persona":"developer","goal":"Implement the math evaluation engine","files":["src/engine.cpp","src/engine.hpp"],"deps":["test-engine"],"complexity":3,"card":{"context":"Implement the core calculation logic.","contract":"Declare `double evaluate(const std::string& expr, bool degrees = false);` in engine.hpp. Implement tokenization, parsing (recursive descent or shunting-yard), and evaluation. Support standard operators and basic trig functions.","acceptance":["All engine tests pass","No warnings with -Wall -Wextra -Werror"],"include":["tests/engine.test.cpp"],"notes":["Handle whitespace. Use std::stod for number parsing."],"examples":["\"2 + 3\" = 5","\"2 * 3 + 4\" = 10","\"(2 + 3) * 4\" = 20","\"sin(90)\" = 1 (degrees=true)","\"sin(pi/2)\" = 1 (degrees=false)","\"1 / 0\" throws"]},"gate":{"kind":"ctest","tests":["tests/engine.test.cpp"],"minTests":6,"mustFailOnStub":false}},{"id":"test-cli","title":"CLI Application Tests","persona":"tester","goal":"Verify command-line interface behavior","files":["tests/cli.test.cpp"],"deps":[],"complexity":2,"card":{"context":"Implement tests for the command-line application.","contract":"Tests for app::run(const std::vector<std::string>& args) -> int. Must support reading expressions from stdin if no args provided. Must print result to stdout. Must return 0 on success, non-zero on error. Must handle --help flag.","acceptance":["Single arg expression prints result","Multiple args treated as single expression","Empty stdin evaluates nothing or prints help","--help prints usage and returns 0","Invalid expression prints error and returns non-zero"],"include":[],"notes":["Use app::run with vector of strings or variadic macro if helper supports it. Helper is app::run(\"ARG1\", ...)."],"examples":["\"2 + 2\" -> output: \"4\\n\", code: 0","\"--help\" -> output: \"Usage: ...\", code: 0","\"bad\" -> output: \"Error: ...\", code: 1","\"\" (stdin) -> output: \"\", code: 0 (or help)"]},"gate":{"kind":"ctest","tests":["tests/cli.test.cpp"],"minTests":5,"mustFailOnStub":true}},{"id":"dev-cli","title":"CLI Application Implementation","persona":"developer","goal":"Implement the command-line interface","files":["src/main.cpp"],"deps":["test-cli","dev-engine"],"complexity":2,"card":{"context":"Implement main.cpp for CLI interaction.","contract":"Include engine.hpp. Parse command line arguments. If arguments exist, join them as expression and call evaluate. If no arguments, read from stdin. Print result or error. Return appropriate exit code.","acceptance":["All CLI tests pass","Integrates with engine correctly"],"include":["tests/cli.test.cpp"],"notes":["Use std::stringstream to join args if needed, or pass vector to run helper if adapted. Standard main signature."],"examples":["\"2 + 2\" -> output: \"4\\n\", code: 0","\"--help\" -> output: \"Usage: ...\", code: 0","\"bad\" -> output: \"Error: ...\", code: 1","\"\" (stdin) -> output: \"\", code: 0"]},"gate":{"kind":"ctest","tests":["tests/cli.test.cpp"],"minTests":5,"mustFailOnStub":false}]}
+=== FILE: include/calc/engine.hpp ===
+#pragma once
+#include <string>
+#include <stdexcept>
+
+namespace calc {
+    double evaluate(const std::string& expr, bool degrees = false);
+}
+=== END FILE ===
+=== FILE: src/engine.cpp ===
+#include "calc/engine.hpp"
+#include <string>
+#include <stdexcept>
+
+namespace calc {
+    double evaluate(const std::string& expr, bool degrees) {
+        (void)expr;
+        (void)degrees;
+        return 0.0;
+    }
+}
+=== END FILE ===
+=== FILE: src/main.cpp ===
+#include "calc/engine.hpp"
+#include <iostream>
+#include <string>
+#include <vector>
+#include <stdexcept>
+
+namespace app {
+    int run(const std::vector<std::string>& args) {
+        (void)args;
+        return 0;
+    }
+}
+
+int main(int argc, char* argv[]) {
+    std::vector<std::string> args(argv + 1, argv + argc);
+    return app::run(args);
+}
+=== END FILE ===

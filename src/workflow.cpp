@@ -776,7 +776,7 @@ bool advanceItems(const WorkflowRecord& wf, const std::vector<ItemView>& views, 
             for (const JobRecord* g : v.gates) if (g->exitJson.find("\"code\":8") != std::string::npos) { if (g->spec.attempt == n) ctx.unacceptedSection = true; else if (g->spec.attempt == n - 1) ctx.unacceptedBefore = true; }
             for (const JobRecord* g : v.gates) if (g->spec.attempt == n && g->exitJson.find("\"code\":6") != std::string::npos) ctx.interfaceGap = true;
             if (role == "agent" && latest->exitJson.find("\"code\":4") != std::string::npos) ctx.oversize = true;
-            if (const Harness* hs = wf.plan ? findHarness(wf.plan->harness) : nullptr; hs && hs->mockFile) { ctx.frontierHasReference = !v.item->files.empty(); for (const auto& f : v.item->files) if (hs->mockFile(f, false).empty()) ctx.frontierHasReference = false; }
+            if (const Harness* hs = wf.plan ? findHarness(wf.plan->harness) : nullptr; hs && hs->mockFile && wf.plan->scaffold.empty()) { ctx.frontierHasReference = !v.item->files.empty(); for (const auto& f : v.item->files) if (hs->mockFile(f, false).empty()) ctx.frontierHasReference = false; }
             ctx.persona = v.item->persona;
             const LeafParams& leaf = itemsStageOf(wf).leaf;
             ctx.allowDecompose = leaf.allowDecompose; ctx.allowSections = leaf.allowSections; ctx.allowReviseTests = leaf.allowReviseTests;

@@ -26,4 +26,8 @@ namespace sub0squad {
 /// The JSON object in a model's reply (fences and chatter around it dropped); "" when there is none.
 [[nodiscard]] std::string extractJsonObject(const std::string& reply);
 
+/// A model's JSON with the usual slips mended: a double quote inside a string escaped, a newline inside a string escaped, a bracket closed a level too early
+/// or never, text after the object dropped. Tried only when the strict parse fails; "" when the reply holds no object.
+[[nodiscard]] std::string repairJson(const std::string& reply);
+
 }  // namespace sub0squad

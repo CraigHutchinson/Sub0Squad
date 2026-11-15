@@ -1,0 +1,16 @@
+# name: repair-stale-line-is-refused
+# classic: no
+# expect-error: the file has
+# A repair that names a line the document does not have changes nothing (the harness then shows the same document and the same problems again).
+--- base plan.json
+{
+  "id": "a"
+}
+--- reply
+=== EDIT: plan.json LINES 40 ===
+x
+=== END EDIT ===
+--- want plan.json
+{
+  "id": "a"
+}

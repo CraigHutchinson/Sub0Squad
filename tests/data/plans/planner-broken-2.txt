@@ -1,0 +1,47 @@
+{"schema":"plan-2","task":"Write a calculator in C++","harness":"cpp-cmake","project":"calc","reasons":["Split into engine library and CLI app to allow independent testing and implementation.","Engine handles calculation logic; CLI handles I/O and argument parsing.","Both need stubs that compile cleanly under -Wall -Wextra -Werror."], "items":[{"id":"test-engine","title":"Test calculator engine","persona":"tester","goal":"Verify evaluate function with standard math expressions","files":["tests/engine.test.cpp"],"deps":[],"complexity":2, "card":{"context":"Implement tests for calc/engine.h evaluate function","contract":"double evaluate(const std::string& expr, bool degrees=false) returns result of arithmetic expression","acceptance":["Parses +, -, *, / correctly","Handles parentheses","Handles degrees/radians for trig functions","Returns NaN or throws on invalid syntax"],"include":["tests/engine.test.cpp"],"notes":["Use CHECK_EQ for numeric comparisons","Use CHECK_THROWS for errors","Must fail against stubs"],"examples":["2 + 2 = 4","(10 - 5) * 2 = 10","sin(90) = 1 (degrees)","sin(PI/2) = 1 (radians)","2 + = 1 (error)"]}, "gate":{"kind":"ctest","tests":["tests/engine.test.cpp"],"minTests":5,"mustFailOnStub":true}}, {"id":"dev-engine","title":"Implement calculator engine","persona":"developer","goal":"Implement evaluate function in engine.cpp","files":["src/engine.cpp"],"deps":["test-engine"],"complexity":3, "card":{"context":"Implement evaluation logic for arithmetic expressions","contract":"double evaluate(const std::string& expr, bool degrees=false) must parse and compute expressions","acceptance":["All engine tests pass","Handles operator precedence","Supports basic trig functions"],"include":["tests/engine.test.cpp"],"notes":["Use recursive descent parser","Handle degree conversion for trig","Return NaN on parse errors"],"examples":["2 + 2 = 4","(10 - 5) * 2 = 10","sin(90) = 1 (degrees)","sin(PI/2) = 1 (radians)","2 + = 1 (error)"]}, "gate":{"kind":"ctest","tests":["tests/engine.test.cpp"],"minTests":5,"mustFailOnStub":false}}, {"id":"test-cli","title":"Test command-line interface","persona":"tester","goal":"Verify CLI app runs correctly with various inputs","files":["tests/cli.test.cpp"],"deps":[],"complexity":2, "card":{"context":"Implement tests for calc CLI app","contract":"app::run("ARGS") returns .output and .code from running the calculator","acceptance":["Basic expressions print result","Help flag shows usage","Invalid expressions show error","Empty input shows usage"],"include":["tests/cli.test.cpp"],"notes":["Use app::run with string arguments","Check .code for exit status","Check .output for content"],"examples":[""2 + 2" = output contains 4",""--help" = output contains usage",""invalid" = non-zero exit code",""" = non-zero exit code"]}, "gate":{"kind":"ctest","tests":["tests/cli.test.cpp"],"minTests":5,"mustFailOnStub":true}}, {"id":"dev-cli","title":"Implement command-line interface","persona":"developer","goal":"Implement main.cpp for CLI app","files":["src/main.cpp"],"deps":["test-cli"],"complexity":3, "card":{"context":"Implement CLI app that uses engine","contract":"int run(int argc, char* argv[]) runs calculator with arguments","acceptance":["All CLI tests pass","Parses command line arguments","Calls engine.evaluate","Prints results or errors"],"include":["tests/cli.test.cpp"],"notes":["Handle --help flag","Call evaluate with degrees flag","Print result or error message"],"examples":[""2 + 2" = output contains 4",""--help" = output contains usage",""invalid" = non-zero exit code",""" = non-zero exit code"]}, "gate":{"kind":"ctest","tests":["tests/cli.test.cpp"],"minTests":5,"mustFailOnStub":false}}]}
+=== FILE: include/calc/engine.h ===
+#pragma once
+#include <string>
+
+namespace calc {
+    double evaluate(const std::string& expr, bool degrees = false);
+}
+=== END FILE ===
+=== FILE: src/engine.cpp ===
+#include "calc/engine.h"
+#include <string>
+#include <cmath>
+
+namespace calc {
+    double evaluate(const std::string& /*expr*/, bool /*degrees*/) {
+        return 0.0;
+    }
+}
+=== END FILE ===
+=== FILE: include/calc/app.h ===
+#pragma once
+#include <string>
+#include <vector>
+
+namespace app {
+    struct Result {
+        std::string output;
+        int code;
+    };
+    Result run(const std::vector<std::string>& args);
+}
+=== END FILE ===
+=== FILE: src/main.cpp ===
+#include "calc/app.h"
+#include <string>
+#include <vector>
+
+namespace app {
+    Result run(const std::vector<std::string>& /*args*/) {
+        Result res;
+        res.output = "";
+        res.code = 0;
+        return res;
+    }
+}
+=== END FILE ===

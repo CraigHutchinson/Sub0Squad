@@ -20,6 +20,11 @@ inline constexpr int kMinWorkedExamples = 3;
 inline constexpr std::size_t kMaxPlanItems = 8;
 inline constexpr std::size_t kMaxPlanBytes = 16000;
 
+/// The slips a plan can be mended from without asking the model again (each costs a repair turn, and on a slow engine a turn is half an hour): a gate that
+/// is not strict enough or asks for more tests than the examples can give, a developer not tied to the tester whose tests it is graded by (when exactly one
+/// tester item owns those tests), a command-line program's `src/main.cpp` with no stub. Returns one sentence per mend made.
+[[nodiscard]] std::vector<std::string> mendPlan(Plan& plan);
+
 /// Problems with `plan`, empty when it passes. Pure: no files, no engine.
 [[nodiscard]] std::vector<std::string> checkPlan(const Plan& plan);
 

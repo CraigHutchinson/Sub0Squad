@@ -1,0 +1,23 @@
+# name: repair-new-file-and-edit
+# classic: no
+# A missing project header is a new file in the same reply as an edit to the document; both apply together or neither does.
+# allowed: plan.json include/calc/calc.hpp
+--- base plan.json
+{
+  "scaffold": []
+}
+--- reply
+=== EDIT: plan.json LINES 2 ===
+  "scaffold": ["include/calc/calc.hpp"]
+=== END EDIT ===
+=== FILE: include/calc/calc.hpp ===
+#pragma once
+double evaluate(const char* expr);
+=== END FILE ===
+--- want plan.json
+{
+  "scaffold": ["include/calc/calc.hpp"]
+}
+--- want include/calc/calc.hpp
+#pragma once
+double evaluate(const char* expr);

@@ -1,5 +1,6 @@
 #include "sub0squad/planner.hpp"
 
+#include "agent_impl.hpp"
 #include "json_util.hpp"
 #include "sub0squad/engine.hpp"
 #include "sub0squad/event_channel.hpp"
@@ -14,6 +15,8 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <map>
+#include <set>
 #include <sstream>
 
 namespace sub0squad {
@@ -69,6 +72,76 @@ std::string extractJsonObject(const std::string& reply)
     return reply.substr(first, last - first + 1);
 }
 
+std::string repairJson(const std::string& reply)
+{
+    const auto first = reply.find('{');
+    if (first == std::string::npos) return {};
+    std::string out;
+    std::vector<char> stack;
+    bool inString = false;
+    for (std::size_t i = first; i < reply.size(); ++i) {
+        const char c = reply[i];
+        if (inString) {
+            if (c == '\\' && i + 1 < reply.size()) { out += c; out += reply[++i]; continue; }
+            if (c == '\n') { out += "\\n"; continue; }
+            if (c == '"') {   // a quote closes the string only before , : ] } or the end; any other quote is part of the text
+                std::size_t j = i + 1;
+                while (j < reply.size() && (reply[j] == ' ' || reply[j] == '\n' || reply[j] == '\t' || reply[j] == '\r')) ++j;
+                const bool closes = j >= reply.size() || reply[j] == ',' || reply[j] == ':' || reply[j] == ']' || reply[j] == '}';
+                if (closes) { inString = false; out += c; } else out += "\\\"";
+                continue;
+            }
+            out += c;
+            continue;
+        }
+        if (c == '"') { inString = true; out += c; continue; }
+        if (c == '{' || c == '[') { stack.push_back(c); out += c; continue; }
+        if (c == '}' || c == ']') {
+            const char want = c == '}' ? '{' : '[';
+            if (std::find(stack.begin(), stack.end(), want) == stack.end()) continue;   // a closer nothing opened
+            while (stack.back() != want) { out += stack.back() == '{' ? '}' : ']'; stack.pop_back(); }   // a closer a level too early: close what is open
+            stack.pop_back();
+            out += c;
+            if (stack.empty()) return out;   // the object is complete; whatever follows is not part of it
+            continue;
+        }
+        out += c;
+    }
+    if (inString) out += '"';
+    while (!stack.empty()) { out += stack.back() == '{' ? '}' : ']'; stack.pop_back(); }
+    return out;
+}
+
+// A JSON text, tolerant of slips, laid out one element per line and indented: a line number then names a place, and a repair is an edit of a few lines.
+static std::string layoutJson(const std::string& s)
+{
+    std::string out;
+    int depth = 0;
+    bool inString = false;
+    const auto newline = [&] { out += '\n'; out.append(static_cast<std::size_t>(std::max(depth, 0)) * 2, ' '); };
+    for (std::size_t i = 0; i < s.size(); ++i) {
+        const char c = s[i];
+        if (inString) {
+            out += c;
+            if (c == '\\' && i + 1 < s.size()) out += s[++i];
+            else if (c == '"') inString = false;
+            continue;
+        }
+        if (c == '"') { inString = true; out += c; continue; }
+        if (c == ' ' || c == '\n' || c == '\t' || c == '\r') continue;
+        if (c == '{' || c == '[') {
+            std::size_t j = i + 1;
+            while (j < s.size() && (s[j] == ' ' || s[j] == '\n' || s[j] == '\t' || s[j] == '\r')) ++j;
+            if (j < s.size() && (s[j] == '}' || s[j] == ']')) { out += c; out += s[j]; i = j; continue; }   // an empty object or list
+            out += c; ++depth; newline();
+        } else if (c == '}' || c == ']') { --depth; newline(); out += c; }
+        else if (c == ',') { out += c; newline(); }
+        else if (c == ':') out += ": ";
+        else out += c;
+    }
+    return out;
+}
+
 std::string plannerSystemPrompt(int slots)
 {
     std::string harnesses;
@@ -85,10 +158,10 @@ std::string plannerSystemPrompt(int slots)
     s += "{\"schema\":\"plan-2\",\"task\":\"<the request>\",\"harness\":\"<harness name>\",\"project\":\"<short-name>\",\"reasons\":[\"<why this split>\"],\n";
     s += " \"items\":[{\"id\":\"test-<area>\",\"title\":\"..\",\"persona\":\"tester\",\"goal\":\"one sentence\",\"files\":[\"tests/<area><test suffix>\"],\"deps\":[],\"complexity\":2,\n";
     s += "   \"card\":{\"context\":\"1-2 sentences\",\"contract\":\"the exact interface and behaviour\",\"acceptance\":[\"observable checks\"],\"include\":[],\"notes\":[],\"examples\":[\"<input> = <exact result>\"]},\n";
-    s += "   \"gate\":{\"kind\":\"<gate kind>\",\"tests\":[\"tests/<area><test suffix>\"],\"minTests\":8,\"mustFailOnStub\":true}},\n";
+    s += "   \"gate\":{\"kind\":\"<gate kind>\",\"tests\":[\"tests/<area><test suffix>\"],\"minTests\":5,\"mustFailOnStub\":true}},\n";
     s += "  {\"id\":\"dev-<area>\",\"title\":\"..\",\"persona\":\"developer\",\"goal\":\"one sentence\",\"files\":[\"src/<file>.cpp\"],\"deps\":[\"test-<area>\"],\"complexity\":3,\n";
     s += "   \"card\":{\"context\":\"..\",\"contract\":\"..\",\"acceptance\":[\"every test in the tester's file passes\"],\"include\":[\"tests/<area><test suffix>\"],\"notes\":[],\"examples\":[\"<the same facts>\"]},\n";
-    s += "   \"gate\":{\"kind\":\"<gate kind>\",\"tests\":[\"tests/<area><test suffix>\"],\"minTests\":8,\"mustFailOnStub\":false}}]}\n";
+    s += "   \"gate\":{\"kind\":\"<gate kind>\",\"tests\":[\"tests/<area><test suffix>\"],\"minTests\":5,\"mustFailOnStub\":false}}]}\n";
     s += "AFTER the JSON object, write each scaffold file as a plain file block (NOT inside the JSON):\n=== FILE: include/<name>/<name>.hpp ===\n<the project's interface: declarations only>\n=== END FILE ===\n=== FILE: src/<file>.cpp ===\n<a STUB: defines every declared function, returns a neutral value, never throws>\n=== END FILE ===\n\n";
     if (slots > 0) {
         s += "THE ENGINE: it runs " + std::to_string(slots) + " requests at once, one per slot, and the goal is to keep every slot busy. Items take different, unknown amounts of time, so some finish early: a slot that frees must find a ready item waiting. ";
@@ -102,7 +175,7 @@ std::string plannerSystemPrompt(int slots)
     s += "- Few items, each with one purpose. Make ONE tester item and ONE developer item per independent deliverable (a library; a command-line program that uses it): a calculator is an engine item pair and a command-line app item pair, four items (more only where the work is really independent). NEVER make items of a file's internal parts (a lexer, a parser, a \"misc\" item): the developer divides its own file into sections, and two items may not edit the same file. At most 8 items.\n";
     s += "- Keep the whole reply SMALL: under about 2500 tokens. One-line examples, short contracts, no filler. A reply that is cut off is refused. Test files are named tests/NAME followed by the test suffix of the harness.\n";
     s += "- Item ids are lowercase letters, digits, - and _, and say the role and area: test-NAME for a tester, dev-NAME for a developer. At most 32 items; each work card at most about 1500 tokens.\n";
-    s += "- Every gate is declarative (a gate kind and test files); a plan never contains commands. A tester's gate has mustFailOnStub true and minTests of at least 5; a developer's has mustFailOnStub false.\n";
+    s += "- Every gate is declarative (a gate kind and test files); a plan never contains commands. A tester's gate has mustFailOnStub true and minTests of 5 up to the number of worked examples plus 2 (a small model writes about one test per example, and a gate that asks for more can never pass); a developer's has mustFailOnStub false.\n";
     return s;
 }
 
@@ -142,37 +215,113 @@ int runLlmPlanner(const std::vector<std::string>& args)
         writeFile(dir / "planner" / "conversation.md", conversation);
     };
 
+    // The plan as a DOCUMENT (docs/BACKLOG.md "Repairs as edits"): once a first reply exists, a repair is a few edits to it, not a second plan. The document is
+    // `plan.json` laid out one field per line (so a line number names a place) plus one file per scaffold file. The model is shown the numbered document and the
+    // problems, and answers with EDIT transactions; nothing it got right is rewritten, and no history is carried (the conversation is rebuilt from the document).
+    std::map<std::string, std::string> doc;
+    const auto numbered = [](const std::string& text) {
+        std::string out;
+        std::istringstream in(text);
+        std::string line;
+        for (int n = 1; std::getline(in, line); ++n) out += std::to_string(n) + "| " + line + "\n";
+        return out;
+    };
+    // The document as the model last wrote it, from a reply's pieces: the plan JSON (mended when strict parsing fails) with the scaffold taken out into files.
+    const auto toDocument = [&](const std::string& rawJson, const std::string& fullReplyBody, std::vector<PlanFile> files) {
+        doc.clear();
+        std::string jsonText = rawJson;
+        if (auto parsed = Plan::fromJson(jsonText)) {
+            for (const auto& f : parsed->scaffold) if (std::none_of(files.begin(), files.end(), [&](const PlanFile& g) { return g.path == f.path; })) files.push_back(f);
+            parsed->scaffold.clear();
+            jsonText = parsed->toJson();
+        } else if (const std::string fixed = repairJson(fullReplyBody); !fixed.empty()) jsonText = fixed;
+        doc["plan.json"] = layoutJson(jsonText) + "\n";
+        for (const auto& f : files) doc[f.path] = f.content;
+    };
+    // What the model is shown on a repair turn: every file that matters to the problems whole and numbered, the rest by name.
+    const auto documentView = [&](const std::vector<std::string>& problems) {
+        std::string joined;
+        for (const auto& p : problems) joined += p + "\n";
+        std::string view;
+        for (const auto& [path, text] : doc) {
+            const bool mentioned = path == "plan.json" || joined.find(path) != std::string::npos;
+            if (mentioned || text.size() < 700) view += "=== " + path + " ===\n" + numbered(text) + "=== END " + path + " ===\n";
+            else view += "=== " + path + " === (" + std::to_string(std::count(text.begin(), text.end(), '\n') + 1) + " lines, not shown: no problem names it)\n";
+        }
+        return view;
+    };
+    bool haveDocument = false;
+    std::vector<std::string> lastProblems;
+
     for (int turn = 1; turn <= maxTurns; ++turn) {
         const int left = wallSec - static_cast<int>(std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - started).count());
         if (left < 300) { std::fprintf(stderr, "llm-planner: %d s of the wall budget left, too little for another turn\n", left); break; }
         events::progress(turn - 1, maxTurns, turn == 1 ? "planning" : "repairing the plan");
+        if (haveDocument) {   // a repair turn: the document and the problems only, answered with edits (small replies)
+            std::string fix = "Request: " + request + "\n\nYou wrote the plan below (as files; `N| ` is a line number, not part of the file). It was refused for these reasons:\n";
+            for (const auto& p : lastProblems) fix += "- " + p + "\n";
+            fix += "\nFix exactly these problems with the SMALLEST edits; do not rewrite what is right. A missing bracket is an insert at that line. A new file (for example a header) is a === FILE: path === block.\n\n" + documentView(lastProblems) + "\n" + agent::kEditSyntax + "\n";
+            messages = {{"system", plannerSystemPrompt(slots)}, {"user", fix}};
+            conversation += "\n## Turn " + std::to_string(turn) + " (the harness: the document and the problems)\n\n" + fix.substr(0, fix.find("=== plan.json ===")) + "...\n";
+        }
         // The reply streams into planner/live.txt so a watcher can read the plan as it is written; the file goes when the turn ends.
         const fs::path live = dir / "planner" / "live.txt";
         std::error_code ec;
         fs::create_directories(live.parent_path(), ec);
         std::ofstream liveOut(live, std::ios::binary | std::ios::trunc);
-        auto reply = chatCompleteMessages(*engine, messages, maxTokens, std::min(timeoutSec, left), [&](std::string_view content, std::string_view) { liveOut << content << std::flush; });
+        auto reply = chatCompleteMessages(*engine, messages, haveDocument ? std::min(maxTokens, 2000) : maxTokens, std::min(timeoutSec, left), [&](std::string_view content, std::string_view) { liveOut << content << std::flush; });
         liveOut.close();
         fs::remove(live, ec);
         if (!reply) { std::fprintf(stderr, "llm-planner: engine call failed: %s\n", reply.error().c_str()); record(false, turn - 1); return 2; }
         promptTokens += reply->promptTokens; completionTokens += reply->completionTokens;
         writeFile(dir / "planner" / ("turn-" + std::to_string(turn) + ".txt"), reply->content);
         conversation += "\n## Turn " + std::to_string(turn) + " (the planner)\n\n```\n" + reply->content + "\n```\n";
+
         std::vector<std::string> problems;
         std::string withoutBlocks;
-        const std::vector<PlanFile> blocks = extractFileBlocks(reply->content, withoutBlocks);
-        const std::string json = extractJsonObject(withoutBlocks);
-        if (reply->finishReason == "length") problems.push_back("the reply was cut off at the token limit: make the plan smaller (fewer or shorter items and cards) and reply with the complete JSON object");
-        else if (json.empty()) problems.push_back("the reply holds no JSON object: reply with ONE plan-2 JSON object and nothing else");
+        std::vector<PlanFile> blocks = extractFileBlocks(reply->content, withoutBlocks);
+        std::string json = extractJsonObject(withoutBlocks);
+        bool edited = false;
+        if (haveDocument && withoutBlocks.find("\"schema\"") == std::string::npos) {   // not a second plan: the edits apply to the document
+            std::set<std::string> allowed;
+            for (const auto& [path, text] : doc) allowed.insert(path);
+            for (const auto& b : blocks) allowed.insert(b.path);
+            std::string error;
+            if (auto next = agent::applyAsTransactions(reply->content, doc, allowed, "planner", error)) {
+                doc = std::move(*next);
+                edited = true;
+            } else {
+                problems = lastProblems;   // the edits changed nothing, so the original problems stand
+                problems.insert(problems.begin(), "your edits were not applied (nothing changed): " + error);
+            }
+        }
+        if (edited) {   // rebuild the plan from the edited document
+            json = doc["plan.json"];
+            blocks.clear();
+            for (const auto& [path, text] : doc) if (path != "plan.json") blocks.push_back({path, text});
+            withoutBlocks = json;
+        } else if (!haveDocument || problems.empty()) {   // a first reply, or a whole new plan: the old document is replaced
+            if (reply->finishReason == "length") problems.push_back("the reply was cut off at the token limit: make the plan smaller (fewer or shorter items and cards) and reply with the complete JSON object");
+            else if (json.empty()) problems.push_back("the reply holds no JSON object: reply with ONE plan-2 JSON object and nothing else");
+        }
         if (problems.empty()) {
             auto plan = Plan::fromJson(json);
-            if (!plan) problems.push_back("the plan is refused: " + plan.error());
+            if (!plan)
+                if (const std::string fixed = repairJson(withoutBlocks); !fixed.empty())
+                    if (auto again = Plan::fromJson(fixed)) {
+                        plan = std::move(again);
+                        std::fprintf(stderr, "llm-planner: turn %d: the JSON was mended (quotes escaped, brackets closed)\n", turn);
+                    }
+            if (!plan) problems.push_back("the plan is refused: " + plan.error() + (plan.error().find("not valid JSON") != std::string::npos
+                    ? ". Check the JSON: every string on ONE line with no double quote inside it (use single quotes), commas between all fields and items, 'reasons' is a list of short sentences only, and every item (id, title, persona, goal, files, deps, complexity, card, gate) goes inside the 'items' list" : ""));
             else {
                 if (plan->task.empty()) plan->task = request;
+                if (edited) plan->scaffold.clear();   // the document's files are the scaffold
                 for (const auto& b : blocks) {   // a block replaces a scaffold file of the same path in the JSON, or adds one
                     auto same = std::find_if(plan->scaffold.begin(), plan->scaffold.end(), [&](const PlanFile& f) { return f.path == b.path; });
                     if (same != plan->scaffold.end()) same->content = b.content; else plan->scaffold.push_back(b);
                 }
+                for (const auto& m : mendPlan(*plan)) std::fprintf(stderr, "llm-planner: turn %d: mended: %s\n", turn, m.c_str());
                 if (auto ok = plan->validate(); !ok) problems.push_back("the plan is refused: " + ok.error());
                 if (problems.empty()) problems = checkPlan(*plan);
                 if (problems.empty())
@@ -191,22 +340,27 @@ int runLlmPlanner(const std::vector<std::string>& args)
                     std::printf("planned %zu item(s) for '%s' on harness %s in %d turn(s)\n", plan->items.size(), request.c_str(), plan->harness.c_str(), turn);
                     return 0;
                 }
+                Plan bare = *plan;   // the mended plan is the document to repair: its JSON laid out, its scaffold as files
+                bare.scaffold.clear();
+                doc.clear();
+                doc["plan.json"] = layoutJson(bare.toJson()) + "\n";
+                for (const auto& f : plan->scaffold) doc[f.path] = f.content;
+                haveDocument = true;
             }
+            if (!plan && !edited) { toDocument(json, withoutBlocks, blocks); haveDocument = true; }   // not even a plan: repair the raw text
         }
+        if (!haveDocument) {   // nothing to edit (no JSON at all, or cut off): the request is asked again with the reasons
+            std::string again = user + "\n\nAn earlier reply was refused for these reasons; write the COMPLETE plan again, fixing them:\n";
+            for (const auto& p : problems) again += "- " + p + "\n";
+            messages = {{"system", plannerSystemPrompt(slots)}, {"user", again}};
+        }
+        // The document is kept on disk, every turn: the planner can be resumed from it, and a reader sees what each repair changed.
+        for (const auto& [path, text] : doc) writeFile(dir / "planner" / "doc" / ("turn-" + std::to_string(turn)) / path, text);
+        lastProblems = problems;
         problemsByTurn.push_back(problems);
-        std::string fix = "The plan was refused. Fix exactly these problems and reply with the COMPLETE corrected plan (one JSON object, nothing else):\n";
-        for (const auto& p : problems) fix += "- " + p + "\n";
-        conversation += "\n## Turn " + std::to_string(turn) + " (the harness)\n\n" + fix;
+        conversation += "\n## Turn " + std::to_string(turn) + " (the harness)\n\n";
+        for (const auto& p : problems) conversation += "- " + p + "\n";
         std::fprintf(stderr, "llm-planner: turn %d refused: %zu problem(s); first: %s\n", turn, problems.size(), problems.front().substr(0, 200).c_str());
-        // A long refused reply is not repeated: a small model's slot holds a few thousand tokens (the first real probe overflowed it on the third turn), and a
-        // bloated plan is better rewritten than patched. It is also not replaced by a stand-in message: the model copies its own history (the placeholder came
-        // back as the next reply). The request is simply asked again with the reasons attached.
-        if (reply->content.size() > 3000) {
-            messages = {{"system", plannerSystemPrompt(slots)}, {"user", user + "\n\nAn earlier attempt was refused (it is not repeated here) for these reasons; write the COMPLETE plan again, fixing them:\n" + fix.substr(fix.find('\n') + 1)}};
-        } else {
-            messages.push_back({"assistant", reply->content});
-            messages.push_back({"user", fix});
-        }
     }
     record(false, static_cast<int>(problemsByTurn.size()));
     std::fprintf(stderr, "llm-planner: no valid plan in %zu turn(s)\n", problemsByTurn.size());

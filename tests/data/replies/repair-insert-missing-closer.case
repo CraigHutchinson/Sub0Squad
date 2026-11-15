@@ -1,0 +1,40 @@
+# name: repair-insert-missing-closer
+# classic: no
+# A planner's item closed one bracket short (seen on real runs): the repair is ONE inserted line at the place, not a second plan.
+--- base plan.json
+{
+  "items": [
+    {
+      "id": "a",
+      "gate": {
+        "minTests": 5
+      }
+    {
+      "id": "b",
+      "gate": {
+        "minTests": 5
+      }
+    }
+  ]
+}
+--- reply
+=== EDIT: plan.json AFTER 7 ===
+    },
+=== END EDIT ===
+--- want plan.json
+{
+  "items": [
+    {
+      "id": "a",
+      "gate": {
+        "minTests": 5
+      }
+    },
+    {
+      "id": "b",
+      "gate": {
+        "minTests": 5
+      }
+    }
+  ]
+}

@@ -1,0 +1,51 @@
+{"schema":"plan-2","task":"write a calculator in C++","harness":"cpp-cmake","project":"calc","reasons":["Engine logic is the core library and must be tested first.","CLI app depends on the engine and is a separate executable.","Keeping them separate allows independent testing and building.","Ensures strict test-first development with stubs failing tests."],"items":[{"id":"test-engine","title":"Test Calculator Engine","persona":"tester","goal":"Write tests for the core arithmetic engine using the helper macros.","files":["tests/engine.test.cpp"],"deps":[],"complexity":2,"card":{"context":"The engine evaluates mathematical expressions with standard precedence (+, -, *, /, ^) and supports parentheses. It must handle basic numbers and operator precedence correctly.","contract":"The engine is implemented in src/engine.cpp and declared in include/calc/engine.hpp. It exposes a single function: double evaluate(const std::string& expr). It returns the numeric result of the expression. It must handle integer and floating point inputs. Division by zero or invalid syntax should throw std::invalid_argument.","acceptance":["evaluate('2+2') returns 4.0","evaluate('10/2') returns 5.0","evaluate('2^3') returns 8.0","evaluate('(1+2)*3') returns 9.0","evaluate('10/0') throws std::invalid_argument"],"include":["tests/helpers/check.hpp"],"notes":["Use CHECK_EQ for doubles with a small tolerance if needed, or CHECK_NEAR.","Ensure the header is included as 'calc/engine.hpp'."],"examples":["2+2 = 4.0","10/2 = 5.0","2^3 = 8.0","(1+2)*3 = 9.0","10/0 = throws"]},"gate":{"kind":"ctest","tests":["tests/engine.test.cpp"],"minTests":5,"mustFailOnStub":true}},{"id":"dev-engine","title":"Implement Calculator Engine","persona":"developer","goal":"Implement the evaluate function to parse and compute expressions.","files":["src/engine.cpp"],"deps":["test-engine"],"complexity":3,"card":{"context":"Implement the core evaluation logic. A simple recursive descent parser or shunting-yard algorithm is suitable. Must handle +, -, *, /, ^, and parentheses.","contract":"Function signature: double evaluate(const std::string& expr). Must return correct results for standard arithmetic. Must throw std::invalid_argument on division by zero or malformed input. Must handle floating point numbers.","acceptance":["Every test in tests/engine.test.cpp passes"],"include":["tests/engine.test.cpp"],"notes":["Use std::stod for parsing numbers.","Implement a tokenizer or parse character by character.","Handle operator precedence: ^ (highest), then *, /, then +, - (lowest)."],"examples":["2+2 = 4.0","10/2 = 5.0","2^3 = 8.0","(1+2)*3 = 9.0","10/0 = throws"]},"gate":{"kind":"ctest","tests":["tests/engine.test.cpp"],"minTests":5,"mustFailOnStub":false}},{"id":"test-cli","title":"Test CLI Application","persona":"tester","goal":"Write tests for the command-line interface to ensure it calls the engine correctly.","files":["tests/cli.test.cpp"],"deps":[],"complexity":2,"card":{"context":"The CLI application is built from src/main.cpp. It takes an expression as a command-line argument and prints the result to stdout.","contract":"The CLI takes one argument: the expression string. It calls evaluate(expr) and prints the result. If evaluate throws, it prints an error message to stderr and exits with code 1. On success, it exits with code 0. The output format is just the number (e.g., '4').","acceptance":["Running with '2+2' prints '4' and exits 0","Running with '10/0' prints error to stderr and exits 1","Running with no args exits 1","Running with '2^3' prints '8' and exits 0","Running with '(1+2)*3' prints '9' and exits 0"],"include":["tests/helpers/app.hpp","tests/helpers/check.hpp"],"notes":["Use app::run(args) to execute.","Check .code for exit code.","Check .output for stdout/stderr content."],"examples":["2+2 = 4.0","10/0 = error","2^3 = 8.0","(1+2)*3 = 9.0","no args = error"]},"gate":{"kind":"ctest","tests":["tests/cli.test.cpp"],"minTests":5,"mustFailOnStub":true}},{"id":"dev-cli","title":"Implement CLI Application","persona":"developer","goal":"Implement main.cpp to parse args and call the engine.","files":["src/main.cpp"],"deps":["test-cli"],"complexity":2,"card":{"context":"Implement the main function. It should accept command line arguments, pass the expression to evaluate(), and handle output and errors.","contract":"main() takes argc/argv. If argc != 2, print usage to stderr and return 1. Call evaluate(argv[1]). Print result to stdout. Catch std::invalid_argument and print error to stderr, return 1. Otherwise return 0.","acceptance":["Every test in tests/cli.test.cpp passes"],"include":["tests/cli.test.cpp"],"notes":["Include 'calc/engine.hpp'.","Use std::cout and std::cerr.","Handle exceptions properly."],"examples":["2+2 = 4.0","10/0 = error","2^3 = 8.0","(1+2)*3 = 9.0","no args = error"]},"gate":{"kind":"ctest","tests":["tests/cli.test.cpp"],"minTests":5,"mustFailOnStub":false}},{"id":"test-utils","title":"Test Edge Cases and Utilities","persona":"tester","goal":"Write additional tests for edge cases like negative numbers, decimals, and complex nesting.","files":["tests/edge.test.cpp"],"deps":[],"complexity":2,"card":{"context":"Test edge cases that might not be covered in basic engine tests: negative numbers, decimals, nested parentheses, and multiple operators.","contract":"evaluate('negatives', 'decimals', 'nesting') should work correctly. -2+2 = 0. 1.5+2.5 = 4.0. ((2+3)) = 5. 2*3+4*5 = 26. 2+3*4 = 14 (precedence).","acceptance":["evaluate('-2+2') returns 0.0","evaluate('1.5+2.5') returns 4.0","evaluate('((2+3))') returns 5.0","evaluate('2*3+4*5') returns 26.0","evaluate('2+3*4') returns 14.0"],"include":["tests/helpers/check.hpp"],"notes":["Ensure negative numbers are parsed correctly.","Check decimal precision."],"examples":["-2+2 = 0.0","1.5+2.5 = 4.0","((2+3)) = 5.0","2*3+4*5 = 26.0","2+3*4 = 14.0"]},"gate":{"kind":"ctest","tests":["tests/edge.test.cpp"],"minTests":5,"mustFailOnStub":true}},{"id":"dev-engine-ext","title":"Extend Engine for Edge Cases","persona":"developer","goal":"Update engine to handle negative numbers, decimals, and complex nesting.","files":["src/engine.cpp"],"deps":["test-engine","test-utils"],"complexity":3,"card":{"context":"Ensure the engine handles all edge cases: negative numbers, floating point, and deep nesting. The previous implementation might have missed some cases.","contract":"evaluate() must handle negative numbers (e.g., -2), decimals (e.g., 1.5), and nested parentheses. Precedence must be strictly followed. No changes to public interface.","acceptance":["Every test in tests/edge.test.cpp passes"],"include":["tests/edge.test.cpp"],"notes":["Ensure unary minus is handled if needed.","Check floating point parsing."],"examples":["-2+2 = 0.0","1.5+2.5 = 4.0","((2+3)) = 5.0","2*3+4*5 = 26.0","2+3*4 = 14.0"]},"gate":{"kind":"ctest","tests":["tests/edge.test.cpp"],"minTests":5,"mustFailOnStub":false}]}
+}
+=== FILE: include/calc/engine.hpp ===
+#ifndef CALC_ENGINE_HPP
+#define CALC_ENGINE_HPP
+
+#include <string>
+#include <stdexcept>
+
+namespace calc {
+
+double evaluate(const std::string& expr);
+
+}
+
+#endif
+=== END FILE ===
+=== FILE: src/engine.cpp ===
+#include "calc/engine.hpp"
+#include <string>
+#include <stdexcept>
+
+namespace calc {
+
+double evaluate(const std::string& expr) {
+    throw std::invalid_argument("Not implemented");
+}
+
+}
+=== END FILE ===
+=== FILE: src/main.cpp ===
+#include "calc/engine.hpp"
+#include <iostream>
+#include <string>
+#include <stdexcept>
+
+int main(int argc, char* argv[]) {
+    if (argc != 2) {
+        std::cerr << "Usage: calc <expression>" << std::endl;
+        return 1;
+    }
+    try {
+        double result = calc::evaluate(argv[1]);
+        std::cout << result << std::endl;
+        return 0;
+    } catch (const std::invalid_argument& e) {
+        std::cerr << "Error: " << e.what() << std::endl;
+        return 1;
+    }
+}
+=== END FILE ===

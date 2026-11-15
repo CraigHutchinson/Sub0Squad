@@ -1,0 +1,31 @@
+# name: repair-one-value
+# classic: no
+# A gate that asks for more tests than the examples can give: one line changes, everything else is kept.
+--- base plan.json
+{
+  "id": "test-cli",
+  "examples": [
+    "a = 1",
+    "b = 2",
+    "c = 3"
+  ],
+  "gate": {
+    "minTests": 8
+  }
+}
+--- reply
+=== EDIT: plan.json LINES 9 ===
+    "minTests": 5
+=== END EDIT ===
+--- want plan.json
+{
+  "id": "test-cli",
+  "examples": [
+    "a = 1",
+    "b = 2",
+    "c = 3"
+  ],
+  "gate": {
+    "minTests": 5
+  }
+}

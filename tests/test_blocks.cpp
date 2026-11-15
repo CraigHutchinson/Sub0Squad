@@ -27,7 +27,7 @@ int main(int argc, char** argv)
     // ---- block 1: recorded replies ----
     {
         const FixtureReport r = runReplyFixtures(argv[2]);
-        CHECK(r.cases >= 24);                       // every reply form and every refusal has a case
+        CHECK(r.cases >= 28);                       // every reply form and every refusal has a case
         for (const auto& p : r.problems) { std::fprintf(stderr, "reply case: %s\n", p.c_str()); CHECK(false); }
         ReplyCase c;
         std::string err;
