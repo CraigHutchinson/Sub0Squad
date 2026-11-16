@@ -3,10 +3,8 @@
 #include "check.hpp"
 #include "sub0squad/engine.hpp"
 
-#include <arpa/inet.h>
-#include <netinet/in.h>
-#include <sys/socket.h>
-#include <unistd.h>
+#include "sub0squad/platform_net.hpp"
+
 #include <atomic>
 #include <chrono>
 #include <thread>
@@ -14,33 +12,32 @@
 using namespace sub0squad;
 using Clock = std::chrono::steady_clock;
 
-static void sendAll(int fd, const std::string& s) { std::size_t off = 0; while (off < s.size()) { const ssize_t n = ::send(fd, s.data() + off, s.size() - off, MSG_NOSIGNAL); if (n <= 0) return; off += static_cast<std::size_t>(n); } }
+static void sendAll(platform::SocketStream& fd, const std::string& s) { (void)fd.writeAll(s); }
 static std::string chunk(const std::string& s) { char h[32]; std::snprintf(h, sizeof h, "%zx\r\n", s.size()); return std::string(h) + s + "\r\n"; }
 
 /// A one-connection fake engine on an ephemeral port. `mode`: 0 streaming 200, 1 an error status.
 struct Fake
 {
-    int listenFd = -1, port = 0;
+    platform::SocketListener listener;
+    int port = 0;
     std::atomic<long long> finishedAtMs{0};
     std::thread th;
     Clock::time_point t0 = Clock::now();
     explicit Fake(int mode)
     {
-        listenFd = ::socket(AF_INET, SOCK_STREAM, 0);
-        sockaddr_in a{}; a.sin_family = AF_INET; a.sin_addr.s_addr = htonl(INADDR_LOOPBACK); a.sin_port = 0;
-        CHECK(::bind(listenFd, reinterpret_cast<sockaddr*>(&a), sizeof a) == 0);
-        socklen_t len = sizeof a;
-        ::getsockname(listenFd, reinterpret_cast<sockaddr*>(&a), &len);
-        port = ntohs(a.sin_port);
-        ::listen(listenFd, 1);
+        auto l = platform::listenLoopback(0);
+        CHECK(l.has_value());
+        if (l) { listener = std::move(*l); port = listener.port(); }
         th = std::thread([this, mode] {
-            const int fd = ::accept(listenFd, nullptr, nullptr);
+            auto accepted = listener.accept(std::chrono::seconds(30));
+            if (!accepted || !*accepted) return;
+            platform::SocketStream fd = std::move(**accepted);
             char buf[16384];
             std::string req;
-            while (req.find("\r\n\r\n") == std::string::npos) { const ssize_t n = ::recv(fd, buf, sizeof buf, 0); if (n <= 0) break; req.append(buf, static_cast<std::size_t>(n)); }
+            while (req.find("\r\n\r\n") == std::string::npos) { const auto n = fd.readSome(buf, sizeof buf, std::chrono::seconds(10)); if (!n || !*n || **n == 0) break; req.append(buf, **n); }
             // the request body is not needed; but a streaming request must say stream:true
             streamRequested = req.find("\"stream\":true") != std::string::npos;
-            if (mode == 1) { sendAll(fd, "HTTP/1.1 500 Internal Server Error\r\nContent-Length: 17\r\nConnection: close\r\n\r\n{\"error\":\"boom\"}\n"); ::close(fd); return; }
+            if (mode == 1) { sendAll(fd, "HTTP/1.1 500 Internal Server Error\r\nContent-Length: 17\r\nConnection: close\r\n\r\n{\"error\":\"boom\"}\n"); return; }
             sendAll(fd, "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n");
             const auto pause = [] { std::this_thread::sleep_for(std::chrono::milliseconds(300)); };
             sendAll(fd, chunk("data: {\"choices\":[{\"delta\":{\"reasoning_content\":\"think \"},\"finish_reason\":null}]}\n\n")); pause();
@@ -49,11 +46,10 @@ struct Fake
             sendAll(fd, chunk("data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":11,\"completion_tokens\":3},\"timings\":{\"prompt_ms\":12.5,\"predicted_ms\":300.0,\"cache_n\":4}}\n\ndata: [DONE]\n\n"));
             finishedAtMs = std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - t0).count();
             sendAll(fd, "0\r\n\r\n");
-            ::close(fd);
         });
     }
     std::atomic<bool> streamRequested{false};
-    ~Fake() { if (th.joinable()) th.join(); ::close(listenFd); }
+    ~Fake() { if (th.joinable()) th.join(); }
 };
 
 int main()

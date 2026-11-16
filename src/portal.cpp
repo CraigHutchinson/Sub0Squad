@@ -1,6 +1,10 @@
 // The portal's HTTP server and API routes (portal_impl.hpp names the other units).
 #include "portal_impl.hpp"
 
+#include "sub0squad/platform_net.hpp"
+
+#include <random>
+
 namespace sub0squad {
 
 using namespace portal;
@@ -8,20 +12,10 @@ using namespace portal;
 namespace {
 
 // ---- HTTP -----------------------------------------------------------------------------------------------------------------------
-void sendAll(int fd, const std::string& s)
-{
-    std::size_t off = 0;
-    while (off < s.size()) {
-        const ssize_t n = ::send(fd, s.data() + off, s.size() - off, MSG_NOSIGNAL);
-        if (n <= 0) return;
-        off += static_cast<std::size_t>(n);
-    }
-}
-
-void respond(int fd, int code, const char* type, const std::string& body, const char* extraHeaders = "")
+void respond(platform::SocketStream& fd, int code, const char* type, const std::string& body, const char* extraHeaders = "")
 {
     const char* text = code == 200 ? "OK" : code == 404 ? "Not Found" : "Method Not Allowed";
-    sendAll(fd, "HTTP/1.1 " + std::to_string(code) + " " + text + "\r\nContent-Type: " + type + "\r\nContent-Length: " + std::to_string(body.size()) +
+    (void)fd.writeAll("HTTP/1.1 " + std::to_string(code) + " " + text + "\r\nContent-Type: " + type + "\r\nContent-Length: " + std::to_string(body.size()) +
                     "\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\n" + extraHeaders + "Connection: close\r\n\r\n" + body);
 }
 
@@ -30,11 +24,10 @@ void respond(int fd, int code, const char* type, const std::string& body, const 
 namespace {
 std::string randomToken()
 {
-    unsigned char b[16] = {};
-    if (std::FILE* f = std::fopen("/dev/urandom", "rb")) { (void)!std::fread(b, 1, sizeof b, f); std::fclose(f); }
+    std::random_device rd;   // the system's random source (/dev/urandom, or the Windows cryptographic provider)
     static const char* hex = "0123456789abcdef";
     std::string t;
-    for (unsigned char c : b) { t += hex[c >> 4]; t += hex[c & 15]; }
+    for (int i = 0; i < 32; ++i) t += hex[rd() & 15];
     return t;
 }
 std::string headerValue(const std::string& req, const std::string& name)  // case-insensitive, first occurrence
@@ -53,28 +46,14 @@ std::string headerValue(const std::string& req, const std::string& name)  // cas
 int servePortal(int port, const std::function<std::string()>& state, const std::vector<std::string>& extraEngines, const PortalAct& act)
 {
     const std::string token = randomToken();
-    const int srv = ::socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
-    if (srv < 0) { std::perror("portal: socket"); return 1; }
-    int one = 1;
-    ::setsockopt(srv, SOL_SOCKET, SO_REUSEADDR, &one, sizeof one);
-    sockaddr_in a{};
-    a.sin_family = AF_INET;
-    a.sin_port = htons(static_cast<std::uint16_t>(port));
-    ::inet_pton(AF_INET, "127.0.0.1", &a.sin_addr);  // loopback only: the portal is never reachable from another machine
-    if (::bind(srv, reinterpret_cast<sockaddr*>(&a), sizeof a) != 0 || ::listen(srv, 16) != 0) { std::perror("portal: bind/listen"); ::close(srv); return 1; }
+    auto srv = platform::listenLoopback(static_cast<std::uint16_t>(port));   // loopback only: the portal is never reachable from another machine
+    if (!srv) { std::fprintf(stderr, "portal: %s\n", srv.error().message.c_str()); return 1; }
 
     // Generated sites are served from a second loopback port, a different origin from the portal: a page the models wrote cannot read the
     // portal's API (no CORS headers there), and its own responses forbid any network access (CSP connect-src 'none', default-src to itself).
-    const int siteSrv = ::socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
-    {
-        int one2 = 1;
-        ::setsockopt(siteSrv, SOL_SOCKET, SO_REUSEADDR, &one2, sizeof one2);
-        sockaddr_in b{};
-        b.sin_family = AF_INET;
-        b.sin_port = htons(static_cast<std::uint16_t>(port + 1));
-        ::inet_pton(AF_INET, "127.0.0.1", &b.sin_addr);
-        if (siteSrv < 0 || ::bind(siteSrv, reinterpret_cast<sockaddr*>(&b), sizeof b) != 0 || ::listen(siteSrv, 16) != 0) { std::perror("portal: site port"); return 1; }
-    }
+    auto siteSrv = platform::listenLoopback(static_cast<std::uint16_t>(port + 1));
+    if (!siteSrv) { std::fprintf(stderr, "portal: site port: %s\n", siteSrv.error().message.c_str()); return 1; }
+    const platform::SocketListener* listeners[] = {&*srv, &*siteSrv};
     Live live;
     for (const auto& b : extraEngines) live.bases.insert(b);
     std::jthread sampler([&live, &state](std::stop_token st) {
@@ -102,28 +81,33 @@ int servePortal(int port, const std::function<std::string()>& state, const std::
     });
     std::fprintf(stderr, "portal: http://127.0.0.1:%d/  (read-only, loopback only; Ctrl-C to stop)\n", port);
     for (;;) {
-        pollfd pf[2] = {{srv, POLLIN, 0}, {siteSrv, POLLIN, 0}};
-        if (::poll(pf, 2, -1) <= 0) continue;
-        const bool onSite = !(pf[0].revents & POLLIN);
-        const int c = ::accept4(onSite ? siteSrv : srv, nullptr, nullptr, SOCK_CLOEXEC);
-        if (c < 0) continue;
-        timeval tv{2, 0};
-        ::setsockopt(c, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof tv);
+        const auto ready = platform::waitForConnection(listeners);
+        if (!ready) continue;
+        const bool onSite = *ready == 1;
+        auto accepted = (onSite ? *siteSrv : *srv).accept(std::chrono::milliseconds(0));
+        if (!accepted || !*accepted) continue;
+        platform::SocketStream c = std::move(**accepted);   // closed at the end of this iteration
+        const auto readDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);   // a slow or silent client cannot hold the portal
+        const auto readMore = [&](char* b, std::size_t size) -> std::size_t {
+            const auto left = std::max(std::chrono::milliseconds(0), std::chrono::duration_cast<std::chrono::milliseconds>(readDeadline - std::chrono::steady_clock::now()));
+            auto n = c.readSome(b, size, left);
+            return n && *n ? **n : 0;
+        };
         std::string req;
         char buf[2048];
         while (req.find("\r\n\r\n") == std::string::npos && req.size() < 8192) {
-            const ssize_t n = ::recv(c, buf, sizeof buf, 0);
-            if (n <= 0) break;
-            req.append(buf, static_cast<std::size_t>(n));
+            const std::size_t n = readMore(buf, sizeof buf);
+            if (n == 0) break;
+            req.append(buf, n);
         }
         if (req.rfind("POST ", 0) == 0) {  // the owner's inbox: same-origin, tokened, small
             const std::string target = req.substr(5, req.find(' ', 5) - 5);
             const auto headEnd = req.find("\r\n\r\n");
             const std::size_t want = static_cast<std::size_t>(std::clamp<long>(std::atol(headerValue(req, "content-length").c_str()), 0, 65536));
             while (headEnd != std::string::npos && req.size() < headEnd + 4 + want) {
-                const ssize_t n = ::recv(c, buf, sizeof buf, 0);
-                if (n <= 0) break;
-                req.append(buf, static_cast<std::size_t>(n));
+                const std::size_t n = readMore(buf, sizeof buf);
+                if (n == 0) break;
+                req.append(buf, n);
             }
             const std::string origin = headerValue(req, "origin"), host = headerValue(req, "host");
             const std::string self1 = "127.0.0.1:" + std::to_string(port), self2 = "localhost:" + std::to_string(port);
@@ -218,7 +202,6 @@ int servePortal(int port, const std::function<std::string()>& state, const std::
             else if (path == "/healthz") respond(c, 200, "text/plain", "ok\n");
             else respond(c, 404, "text/plain", "not found\n");
         }
-        ::close(c);
     }
 }
 

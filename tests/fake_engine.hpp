@@ -5,11 +5,7 @@
 // agent sent, and how many characters of a reply had been sent when the client closed the connection (an early abort).
 #include <simdjson.h>
 
-#include <arpa/inet.h>
-#include <netinet/in.h>
-#include <poll.h>
-#include <sys/socket.h>
-#include <unistd.h>
+#include "sub0squad/platform_net.hpp"
 
 #include <atomic>
 #include <chrono>
@@ -75,16 +71,10 @@ public:
     /// The script chooses the reply from the request (forked sessions arrive in any order).
     explicit Engine(Script script) : script_(std::move(script))
     {
-        listenFd_ = ::socket(AF_INET, SOCK_STREAM, 0);
-        sockaddr_in a{};
-        a.sin_family = AF_INET;
-        a.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-        a.sin_port = 0;
-        if (::bind(listenFd_, reinterpret_cast<sockaddr*>(&a), sizeof a) != 0) { std::perror("bind"); std::exit(2); }
-        socklen_t len = sizeof a;
-        ::getsockname(listenFd_, reinterpret_cast<sockaddr*>(&a), &len);
-        port_ = ntohs(a.sin_port);
-        ::listen(listenFd_, 16);
+        auto l = sub0squad::platform::listenLoopback(0);
+        if (!l) { std::fprintf(stderr, "%s\n", l.error().message.c_str()); std::exit(2); }
+        listener_ = std::move(*l);
+        port_ = listener_.port();
         acceptor_ = std::thread([this] { acceptLoop(); });
     }
     Engine(const Engine&) = delete;
@@ -94,7 +84,6 @@ public:
         stop_ = true;
         if (acceptor_.joinable()) acceptor_.join();
         for (auto& t : workers_) if (t.joinable()) t.join();
-        ::close(listenFd_);
     }
 
     /// The `--engine` argument that points an agent at this server.
@@ -107,38 +96,27 @@ public:
     [[nodiscard]] long abortedAfter(std::size_t i) const { std::lock_guard<std::mutex> l(mu_); return i < aborted_.size() ? aborted_[i] : -1; }
 
 private:
-    static bool sendAll(int fd, const std::string& s)
-    {
-        std::size_t off = 0;
-        while (off < s.size()) {
-            const ssize_t n = ::send(fd, s.data() + off, s.size() - off, MSG_NOSIGNAL);
-            if (n <= 0) return false;
-            off += static_cast<std::size_t>(n);
-        }
-        return true;
-    }
+    using Stream = sub0squad::platform::SocketStream;
+    static bool sendAll(Stream& fd, const std::string& s) { return fd.writeAll(s).has_value(); }
     static std::string chunk(const std::string& s) { char h[32]; std::snprintf(h, sizeof h, "%zx\r\n", s.size()); return std::string(h) + s + "\r\n"; }
     /// Whether the peer has closed (it sends nothing after its request, so readable means closed).
-    static bool peerClosed(int fd)
+    static bool peerClosed(Stream& fd)
     {
-        pollfd pf{fd, POLLIN, 0};
-        if (::poll(&pf, 1, 0) <= 0) return false;
         char b[64];
-        return ::recv(fd, b, sizeof b, MSG_DONTWAIT) <= 0;
+        const auto n = fd.readSome(b, sizeof b, std::chrono::milliseconds(0));
+        return !n || (*n && **n == 0);
     }
 
     void acceptLoop()
     {
         while (!stop_) {
-            pollfd pf{listenFd_, POLLIN, 0};
-            if (::poll(&pf, 1, 50) <= 0) continue;
-            const int fd = ::accept(listenFd_, nullptr, nullptr);
-            if (fd < 0) continue;
-            workers_.emplace_back([this, fd] { serve(fd); ::close(fd); });
+            auto c = listener_.accept(std::chrono::milliseconds(50));
+            if (!c || !*c) continue;
+            workers_.emplace_back([this, s = std::move(**c)]() mutable { serve(s); });
         }
     }
 
-    void serve(int fd)
+    void serve(Stream& fd)
     {
         std::string req;
         char buf[16384];
@@ -154,11 +132,9 @@ private:
                 }
             }
             if (headEnd != std::string::npos && req.size() >= headEnd + 4 + need) break;
-            pollfd pf{fd, POLLIN, 0};
-            if (::poll(&pf, 1, 5000) <= 0) return;
-            const ssize_t n = ::recv(fd, buf, sizeof buf, 0);
-            if (n <= 0) return;
-            req.append(buf, static_cast<std::size_t>(n));
+            const auto n = fd.readSome(buf, sizeof buf, std::chrono::milliseconds(5000));
+            if (!n || !*n || **n == 0) return;
+            req.append(buf, **n);
         }
         const std::string line = req.substr(0, req.find("\r\n"));
         if (line.find("/models") != std::string::npos) {   // what `doctor` asks to see that a server answers
@@ -217,7 +193,8 @@ private:
     }
 
     Script script_;
-    int listenFd_ = -1, port_ = 0;
+    sub0squad::platform::SocketListener listener_;
+    int port_ = 0;
     std::atomic<bool> stop_{false};
     std::thread acceptor_;
     std::vector<std::thread> workers_;

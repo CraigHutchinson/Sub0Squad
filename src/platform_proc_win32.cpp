@@ -7,6 +7,8 @@
 #include <tlhelp32.h>
 #include <shellapi.h>
 
+#include <algorithm>
+#include <cctype>
 #include <cstdlib>
 #include <map>
 #include <set>
@@ -137,6 +139,65 @@ bool terminateProcess(ProcessId id)
     // Not graceful (Windows has no SIGTERM): the process ends at once with the code a shell gives SIGTERM.
     const Handle h = openProcess(id, PROCESS_TERMINATE);
     return h.valid() && ::TerminateProcess(h.get(), 128 + 15);
+}
+
+namespace {
+
+/// PATHEXT as lower-case extensions (".com;.exe;.bat;.cmd" when unset).
+std::vector<std::string> pathExtensions()
+{
+    const char* v = std::getenv("PATHEXT");
+    std::string all = v && *v ? v : ".COM;.EXE;.BAT;.CMD";
+    for (auto& c : all) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    std::vector<std::string> out;
+    std::size_t at = 0;
+    while (at <= all.size()) {
+        const auto semi = all.find(';', at);
+        const std::string e = all.substr(at, semi == std::string::npos ? std::string::npos : semi - at);
+        if (!e.empty()) out.push_back(e);
+        if (semi == std::string::npos) break;
+        at = semi + 1;
+    }
+    return out;
+}
+
+}  // namespace
+
+bool isExecutable(const std::filesystem::path& path)
+{
+    std::error_code ec;
+    if (!std::filesystem::is_regular_file(path, ec)) return false;
+    std::string ext = path.extension().string();
+    for (auto& c : ext) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    const auto exts = pathExtensions();
+    return std::find(exts.begin(), exts.end(), ext) != exts.end();
+}
+
+std::filesystem::path findOnPath(const std::string& name)
+{
+    const auto tryName = [](const std::filesystem::path& base) -> std::filesystem::path {
+        if (isExecutable(base)) return base;
+        if (base.has_extension()) return {};
+        for (const auto& e : pathExtensions()) {
+            std::filesystem::path p = base;
+            p += e;
+            if (isExecutable(p)) return p;
+        }
+        return {};
+    };
+    if (name.find_first_of("/\\") != std::string::npos) return tryName(std::filesystem::path(win32::widen(name)));
+    const char* path = std::getenv("PATH");
+    const std::string all = path ? path : "";
+    std::size_t at = 0;
+    while (at <= all.size()) {
+        const auto semi = all.find(';', at);
+        const std::string dir = all.substr(at, semi == std::string::npos ? std::string::npos : semi - at);
+        if (!dir.empty())
+            if (auto p = tryName(std::filesystem::path(win32::widen(dir)) / win32::widen(name)); !p.empty()) return p;
+        if (semi == std::string::npos) break;
+        at = semi + 1;
+    }
+    return {};
 }
 
 void setEnvironment(const std::string& name, const std::string& value)

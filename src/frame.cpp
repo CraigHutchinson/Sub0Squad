@@ -1,9 +1,5 @@
 #include "sub0squad/frame.hpp"
 
-#include "sub0squad/platform_file.hpp"
-
-#include <cerrno>
-#include <cstring>
 
 namespace sub0squad {
 
@@ -29,14 +25,14 @@ std::expected<bool, std::string> FrameBuffer::next(std::string& out)
     return true;
 }
 
-std::expected<void, std::string> writeFrameBlocking(int fd, std::string_view payload)
+std::expected<void, std::string> writeFrameBlocking(platform::SocketStream& stream, std::string_view payload)
 {
     const std::string f = encodeFrame(payload);
-    if (auto w = platform::writeAll(fd, f); !w) return std::unexpected("write: " + w.error().message);
+    if (auto w = stream.writeAll(f); !w) return std::unexpected("write: " + w.error().message);
     return {};
 }
 
-std::expected<std::string, std::string> readFrameBlocking(int fd)
+std::expected<std::string, std::string> readFrameBlocking(platform::SocketStream& stream, std::optional<std::chrono::milliseconds> timeout)
 {
     FrameBuffer fb;
     std::string out;
@@ -45,10 +41,11 @@ std::expected<std::string, std::string> readFrameBlocking(int fd)
         auto got = fb.next(out);
         if (!got) return std::unexpected(got.error());
         if (*got) return out;
-        const auto n = platform::readSome(fd, buf, sizeof buf);
+        const auto n = stream.readSome(buf, sizeof buf, timeout);
         if (!n) return std::unexpected("read: " + n.error().message);
-        if (*n == 0) return std::unexpected("connection closed");
-        fb.append(buf, *n);
+        if (!*n) return std::unexpected("timed out");
+        if (**n == 0) return std::unexpected("connection closed");
+        fb.append(buf, **n);
     }
 }
 

@@ -54,6 +54,27 @@ private:
     int handle_ = -1;
 };
 
+/// An exclusive lock on a file, held until the object is destroyed or this process ends (the system releases it even after a crash). Move-only.
+class FileLock
+{
+public:
+    FileLock() = default;
+    FileLock(const FileLock&) = delete;
+    FileLock& operator=(const FileLock&) = delete;
+    FileLock(FileLock&& other) noexcept : handle_(other.handle_) { other.handle_ = -1; }
+    FileLock& operator=(FileLock&& other) noexcept;
+    ~FileLock();
+
+    /// Take the lock on `path` (created owner-only if new) without waiting: nullopt when another process holds it, an error when the file
+    /// cannot be opened. POSIX: flock; Windows: LockFileEx.
+    [[nodiscard]] static std::expected<std::optional<FileLock>, PlatformError> tryExclusive(const std::filesystem::path& path);
+    [[nodiscard]] bool isHeld() const { return handle_ != -1; }
+
+private:
+    explicit FileLock(std::intptr_t handle) : handle_(handle) {}
+    std::intptr_t handle_ = -1;
+};
+
 /// Open, append and close: one record to a shared log (the ledger).
 [[nodiscard]] std::expected<void, PlatformError> appendToFile(const std::filesystem::path& path, std::string_view data,
                                                               std::filesystem::perms perms = std::filesystem::perms::owner_read | std::filesystem::perms::owner_write);

@@ -3,8 +3,11 @@
 /// Blocking client for the control socket, plus the command line (`sub0squad submit|status|logs|cancel|wait|resume|serve|...`).
 
 #include "sub0squad/paths.hpp"
+#include "sub0squad/platform_net.hpp"
 
+#include <chrono>
 #include <expected>
+#include <optional>
 #include <string>
 #include <string_view>
 
@@ -17,8 +20,9 @@ public:
     ControlClient() = default;
     ControlClient(const ControlClient&) = delete;
     ControlClient& operator=(const ControlClient&) = delete;
-    ControlClient(ControlClient&& other) noexcept : fd_(other.fd_) { other.fd_ = -1; }
-    ~ControlClient();
+    ControlClient(ControlClient&&) noexcept = default;
+    ControlClient& operator=(ControlClient&&) noexcept = default;
+    ~ControlClient() = default;
 
     struct ConnectError { std::string message; bool noDaemon = false; };
     [[nodiscard]] static std::expected<ControlClient, ConnectError> connect(const RuntimePaths& paths);
@@ -30,7 +34,8 @@ public:
     void setReceiveTimeout(int seconds);
 
 private:
-    int fd_ = -1;
+    platform::SocketStream stream_;
+    std::optional<std::chrono::milliseconds> receiveTimeout_;
 };
 
 /// Entry point for every command except the hidden `exec-shim` and `mock-worker`. Returns the process exit code.

@@ -2,10 +2,9 @@
 
 #include "json_util.hpp"
 
-#include <netdb.h>
-#include <poll.h>
-#include <sys/socket.h>
-#include <unistd.h>
+#include "sub0squad/platform_net.hpp"
+
+#include <algorithm>
 #include <chrono>
 #include <cstring>
 
@@ -90,47 +89,42 @@ std::string dechunk(const std::string& s)
     return out;
 }
 
+/// Connect to the URL's host and send one request; the stream is then read until the server closes it.
+std::expected<platform::SocketStream, std::string> sendRequest(const std::string& host, int port, const std::string& path, const std::string& method,
+                                                               const std::string& body, const char* accept)
+{
+    auto s = platform::connectTcp(host, static_cast<std::uint16_t>(port));
+    if (!s) return std::unexpected(s.error().message);
+    std::string req = method + " " + path + " HTTP/1.1\r\nHost: " + host + "\r\nConnection: close\r\nAccept: " + accept + "\r\n";
+    if (!body.empty() || method == "POST") req += "Content-Type: application/json\r\nContent-Length: " + std::to_string(body.size()) + "\r\n";
+    req += "\r\n" + body;
+    if (!s->writeAll(req)) return std::unexpected("send failed");
+    return std::move(*s);
+}
+
+/// What is left of the time until `deadline`, never negative.
+std::chrono::milliseconds leftUntil(std::chrono::steady_clock::time_point deadline)
+{
+    return std::max(std::chrono::milliseconds(0), std::chrono::duration_cast<std::chrono::milliseconds>(deadline - std::chrono::steady_clock::now()));
+}
+
 }  // namespace
 
 std::expected<HttpResponse, std::string> httpRequest(const std::string& method, const std::string& url, const std::string& body, int timeoutSec)
 {
     auto u = parseUrl(url);
     if (!u) return std::unexpected(u.error());
-    addrinfo hints{}, *res = nullptr;
-    hints.ai_socktype = SOCK_STREAM;
-    if (::getaddrinfo(u->host.c_str(), std::to_string(u->port).c_str(), &hints, &res) != 0 || !res) return std::unexpected("cannot resolve " + u->host);
-    const int fd = ::socket(res->ai_family, res->ai_socktype, 0);
-    if (fd < 0 || ::connect(fd, res->ai_addr, res->ai_addrlen) != 0) {
-        const std::string err = std::strerror(errno);
-        if (fd >= 0) ::close(fd);
-        ::freeaddrinfo(res);
-        return std::unexpected("cannot connect to " + u->host + ":" + std::to_string(u->port) + ": " + err);
-    }
-    ::freeaddrinfo(res);
-    std::string req = method + " " + u->path + " HTTP/1.1\r\nHost: " + u->host + "\r\nConnection: close\r\nAccept: application/json\r\n";
-    if (!body.empty() || method == "POST") req += "Content-Type: application/json\r\nContent-Length: " + std::to_string(body.size()) + "\r\n";
-    req += "\r\n" + body;
-    const char* p = req.data();
-    std::size_t left = req.size();
-    while (left > 0) {
-        const ssize_t n = ::send(fd, p, left, MSG_NOSIGNAL);
-        if (n <= 0) { ::close(fd); return std::unexpected("send failed"); }
-        p += n; left -= static_cast<std::size_t>(n);
-    }
+    auto s = sendRequest(u->host, u->port, u->path, method, body, "application/json");
+    if (!s) return std::unexpected(s.error());
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(timeoutSec);
     std::string raw;
     char buf[8192];
     for (;;) {
-        const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - std::chrono::steady_clock::now()).count();
-        if (ms <= 0) { ::close(fd); return std::unexpected("timed out after " + std::to_string(timeoutSec) + " s"); }
-        pollfd pf{fd, POLLIN, 0};
-        const int r = ::poll(&pf, 1, static_cast<int>(ms));
-        if (r <= 0) continue;
-        const ssize_t n = ::recv(fd, buf, sizeof buf, 0);
-        if (n <= 0) break;
-        raw.append(buf, static_cast<std::size_t>(n));
+        auto n = s->readSome(buf, sizeof buf, leftUntil(deadline));
+        if (!n || (*n && **n == 0)) break;   // an error or the end: what came is the response
+        if (!*n) return std::unexpected("timed out after " + std::to_string(timeoutSec) + " s");
+        raw.append(buf, **n);
     }
-    ::close(fd);
     const auto hdrEnd = raw.find("\r\n\r\n");
     if (hdrEnd == std::string::npos || raw.rfind("HTTP/1.", 0) != 0) return std::unexpected("malformed HTTP response");
     HttpResponse out;
@@ -185,27 +179,8 @@ std::expected<int, std::string> httpStream(const std::string& method, const std:
 {
     auto u = parseUrl(url);
     if (!u) return std::unexpected(u.error());
-    addrinfo hints{}, *res = nullptr;
-    hints.ai_socktype = SOCK_STREAM;
-    if (::getaddrinfo(u->host.c_str(), std::to_string(u->port).c_str(), &hints, &res) != 0 || !res) return std::unexpected("cannot resolve " + u->host);
-    const int fd = ::socket(res->ai_family, res->ai_socktype, 0);
-    if (fd < 0 || ::connect(fd, res->ai_addr, res->ai_addrlen) != 0) {
-        const std::string err = std::strerror(errno);
-        if (fd >= 0) ::close(fd);
-        ::freeaddrinfo(res);
-        return std::unexpected("cannot connect to " + u->host + ":" + std::to_string(u->port) + ": " + err);
-    }
-    ::freeaddrinfo(res);
-    std::string req = method + " " + u->path + " HTTP/1.1\r\nHost: " + u->host + "\r\nConnection: close\r\nAccept: text/event-stream, application/json\r\n";
-    if (!body.empty() || method == "POST") req += "Content-Type: application/json\r\nContent-Length: " + std::to_string(body.size()) + "\r\n";
-    req += "\r\n" + body;
-    const char* p = req.data();
-    std::size_t left = req.size();
-    while (left > 0) {
-        const ssize_t n = ::send(fd, p, left, MSG_NOSIGNAL);
-        if (n <= 0) { ::close(fd); return std::unexpected("send failed"); }
-        p += n; left -= static_cast<std::size_t>(n);
-    }
+    auto s = sendRequest(u->host, u->port, u->path, method, body, "text/event-stream, application/json");
+    if (!s) return std::unexpected(s.error());
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(timeoutSec);
     std::string head;
     bool inBody = false, chunked = false;
@@ -213,19 +188,16 @@ std::expected<int, std::string> httpStream(const std::string& method, const std:
     ChunkDecoder dec;
     char buf[8192];
     for (;;) {
-        const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - std::chrono::steady_clock::now()).count();
-        if (ms <= 0) { ::close(fd); return std::unexpected("timed out after " + std::to_string(timeoutSec) + " s"); }
-        pollfd pf{fd, POLLIN, 0};
-        const int r = ::poll(&pf, 1, static_cast<int>(ms));
-        if (r <= 0) continue;
-        const ssize_t n = ::recv(fd, buf, sizeof buf, 0);
-        if (n <= 0) break;
+        auto got = s->readSome(buf, sizeof buf, leftUntil(deadline));
+        if (!got || (*got && **got == 0)) break;
+        if (!*got) return std::unexpected("timed out after " + std::to_string(timeoutSec) + " s");
+        const std::size_t n = **got;
         std::size_t off = 0;
         if (!inBody) {
-            head.append(buf, static_cast<std::size_t>(n));
+            head.append(buf, n);
             const auto hdrEnd = head.find("\r\n\r\n");
             if (hdrEnd == std::string::npos) continue;
-            if (head.rfind("HTTP/1.", 0) != 0) { ::close(fd); return std::unexpected("malformed HTTP response"); }
+            if (head.rfind("HTTP/1.", 0) != 0) return std::unexpected("malformed HTTP response");
             status = std::atoi(head.c_str() + 9);
             std::string headers = head.substr(0, hdrEnd);
             for (auto& c : headers) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
@@ -241,14 +213,13 @@ std::expected<int, std::string> httpStream(const std::string& method, const std:
             continue;
         }
         std::string out;
-        if (chunked) dec.feed(buf + off, static_cast<std::size_t>(n) - off, out); else out.assign(buf + off, static_cast<std::size_t>(n) - off);
+        if (chunked) dec.feed(buf + off, n - off, out); else out.assign(buf + off, n - off);
         if (!out.empty()) onBody(out);
         if (stop && stop()) break;   // the caller cancels: closing the connection stops the server generating
         if (chunked && dec.done) break;
     }
-    ::close(fd);
     if (!inBody) return std::unexpected("malformed HTTP response");
-    return status;
+    return status;   // the stream closes here: a cancelled reply stops the server generating
 }
 
 std::expected<ChatResult, std::string> chatComplete(const EngineProfile& e, const std::string& system, const std::string& user, int maxTokens, double temperature, int timeoutSec)

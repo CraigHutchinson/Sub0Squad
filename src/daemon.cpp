@@ -89,8 +89,7 @@ void Daemon::Impl::handle(Client& c, const std::string& text)
         if (!journalOk) { send(c, errorReply("journal is failing: not accepting new work")); return; }
         auto spec = JobSpec::fromJson(req->specJson);
         if (!spec) { send(c, errorReply(spec.error())); return; }
-        auto uid = peerUid(c.fd);
-        spec->owner = "uid:" + std::to_string(uid.value_or(0));
+        spec->owner = c.owner;
         spec->workflow.clear(); spec->item.clear(); spec->role.clear(); spec->attempt = 0;  // clients cannot forge workflow labels
         if (spec->memoryMiB > 0) {  // the explicit memory guard: refuse now, with the numbers, rather than start and thrash
             if (auto ok = requireMemory(spec->memoryMiB); !ok) { send(c, errorReply(ok.error())); return; }
@@ -178,11 +177,14 @@ void Daemon::Impl::onClient(int fd, std::uint32_t events)
 void Daemon::Impl::onAccept()
 {
     for (;;) {
-        const int fd = ::accept4(listenFd, nullptr, nullptr, SOCK_NONBLOCK | SOCK_CLOEXEC);
-        if (fd < 0) return;
-        auto uid = peerUid(fd);
-        if (!uid || *uid != ::getuid()) { logf("rejected a client from another uid"); ::close(fd); continue; }
+        auto accepted = listener.accept(std::chrono::milliseconds(0));
+        if (!accepted || !*accepted) return;
+        platform::SocketStream& s = **accepted;
+        if (!platform::peerIsSameUser(s)) { logf("rejected a client from another user"); continue; }
+        const std::string owner = platform::peerUser(s);
+        const int fd = static_cast<int>(s.release());   // the client map and the epoll set own it from here (slice 5: platform_wait)
         clients[fd].fd = fd;
+        clients[fd].owner = owner;
         epollAdd(fd, EPOLLIN, tag(kClient, fd));
     }
 }
@@ -237,11 +239,12 @@ Daemon::~Daemon() = default;
 std::expected<std::unique_ptr<Daemon>, std::string> Daemon::create(DaemonOptions options)
 {
     if (auto err = options.paths.ensureDirectories(); !err.empty()) return std::unexpected(err);
-    auto lock = takeInstanceLock(options.paths.instanceLock());
-    if (!lock) return std::unexpected(lock.error());
+    auto lock = platform::FileLock::tryExclusive(options.paths.instanceLock());
+    if (!lock) return std::unexpected(lock.error().message);
+    if (!*lock) return std::unexpected("another sub0squad daemon already runs for this state directory");
     auto impl = std::make_unique<Impl>();
     impl->opts = std::move(options);
-    impl->lockFd = *lock;
+    impl->instanceLock = std::move(**lock);
     auto journal = Journal::open(impl->opts.paths.journalDir());
     if (!journal) return std::unexpected(journal.error());
     impl->journal = std::move(*journal);
@@ -256,10 +259,11 @@ std::expected<std::unique_ptr<Daemon>, std::string> Daemon::create(DaemonOptions
     sigprocmask(SIG_BLOCK, &mask, nullptr);
     impl->sigFd = ::signalfd(-1, &mask, SFD_CLOEXEC | SFD_NONBLOCK);
     signal(SIGPIPE, SIG_IGN);
-    auto listenFd = listenUnix(impl->opts.paths.controlSocket());
-    if (!listenFd) return std::unexpected(listenFd.error());
-    impl->listenFd = *listenFd;
-    impl->epollAdd(impl->listenFd, EPOLLIN, tag(kListen, impl->listenFd));
+    auto listener = platform::listenLocal(impl->opts.paths.controlSocket());
+    if (!listener) return std::unexpected(listener.error().message);
+    impl->listener = std::move(*listener);
+    const int listenFd = static_cast<int>(impl->listener.native());
+    impl->epollAdd(listenFd, EPOLLIN, tag(kListen, listenFd));
     impl->epollAdd(impl->wakeFd, EPOLLIN, tag(kPost, impl->wakeFd));
     impl->epollAdd(impl->sigFd, EPOLLIN, tag(kSignals, impl->sigFd));
     impl->reconcileAtStart();

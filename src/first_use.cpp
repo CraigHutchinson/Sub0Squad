@@ -10,11 +10,7 @@
 #include "sub0squad/platform_proc.hpp"
 #include "sub0squad/platform_process.hpp"
 #include "sub0squad/platform_file.hpp"
-
-#include <arpa/inet.h>    // portInUse: moves to platform_net (docs/PLATFORM.md slice 4)
-#include <netinet/in.h>
-#include <sys/socket.h>
-#include <unistd.h>       // access() in onPath and resolveProgram
+#include "sub0squad/platform_net.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -40,17 +36,7 @@ std::string option(const std::vector<std::string>& a, const std::string& key, co
 bool flag(const std::vector<std::string>& a, const std::string& key) { for (const auto& x : a) if (x == "--" + key) return true; return false; }
 
 /// The directory of a program on PATH ("" when it is not there).
-std::string onPath(const std::string& program)
-{
-    const char* path = std::getenv("PATH");
-    std::istringstream in(path ? path : "");
-    for (std::string dir; std::getline(in, dir, ':');) {
-        if (dir.empty()) continue;
-        const fs::path p = fs::path{dir} / program;
-        if (::access(p.c_str(), X_OK) == 0) return p.string();
-    }
-    return {};
-}
+std::string onPath(const std::string& program) { return platform::findOnPath(program).string(); }
 
 bool daemonAnswers(const RuntimePaths& paths)
 {
@@ -74,18 +60,7 @@ std::string daemonBuild(const RuntimePaths& paths)
 }
 
 /// Whether something accepts connections on 127.0.0.1:port.
-bool portInUse(int port)
-{
-    const int fd = ::socket(AF_INET, SOCK_STREAM, 0);
-    if (fd < 0) return false;
-    sockaddr_in a{};
-    a.sin_family = AF_INET;
-    a.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-    a.sin_port = htons(static_cast<uint16_t>(port));
-    const bool used = ::connect(fd, reinterpret_cast<sockaddr*>(&a), sizeof a) == 0;
-    ::close(fd);
-    return used;
-}
+bool portInUse(int port) { return platform::loopbackPortInUse(static_cast<std::uint16_t>(port)); }
 
 /// Start `argv` detached (its own session, output appended to `log`); returns its process id, or the reason it could not start.
 std::expected<platform::ProcessId, std::string> startDetached(std::vector<std::string> argv, const fs::path& log)
@@ -109,15 +84,16 @@ std::string resolveProgram(const char* argv0)
     const std::string name = argv0 ? argv0 : "";
     if (name.empty()) return {};
     std::error_code ec;
-    const std::string found = name.find('/') != std::string::npos ? fs::absolute(name, ec).string() : onPath(name);
-    return !found.empty() && ::access(found.c_str(), X_OK) == 0 ? found : std::string{};
+    if (name.find_first_of("/\\") == std::string::npos) return onPath(name);
+    const fs::path found = fs::absolute(name, ec);
+    return !ec && platform::isExecutable(found) ? found.string() : std::string{};
 }
 
 int runUp(const std::vector<std::string>& args, const std::string& exe)
 {
     if (std::getenv("SUB0SQUAD_UP_ACTIVE")) { std::fprintf(stderr, "up: refusing to run inside a process that `up` started\n"); return 64; }
     if (exe.empty()) { std::fprintf(stderr, "up: cannot find this program's own path; run it by its full path\n"); return 64; }
-    ::setenv("SUB0SQUAD_UP_ACTIVE", "1", 1);   // inherited by what is started below, so nothing started by `up` can run `up` again
+    platform::setEnvironment("SUB0SQUAD_UP_ACTIVE", "1");   // inherited by what is started below, so nothing started by `up` can run `up` again
     const RuntimePaths paths = RuntimePaths::fromEnvironment();
     if (const std::string err = paths.ensureDirectories(); !err.empty()) { std::fprintf(stderr, "up: %s\n", err.c_str()); return 1; }
     const fs::path upDir = paths.stateDir / "up";
@@ -136,8 +112,8 @@ int runUp(const std::vector<std::string>& args, const std::string& exe)
         if (const auto started = startDetached(argv, upDir / "daemon.log"); !started) { std::fprintf(stderr, "up: %s\n", started.error().c_str()); return 1; }
         bool up = false;
         for (int i = 0; i < 100 && !up; ++i) { std::this_thread::sleep_for(std::chrono::milliseconds(100)); up = daemonAnswers(paths); }
-        if (!up) { std::fprintf(stderr, "up: the daemon did not come up; see %s\n", (upDir / "daemon.log").c_str()); return 1; }
-        std::printf("daemon: started (log: %s)\n", (upDir / "daemon.log").c_str());
+        if (!up) { std::fprintf(stderr, "up: the daemon did not come up; see %s\n", (upDir / "daemon.log").string().c_str()); return 1; }
+        std::printf("daemon: started (log: %s)\n", (upDir / "daemon.log").string().c_str());
     }
     if (flag(args, "no-portal")) std::printf("portal: not started (--no-portal)\n");
     else {
@@ -154,7 +130,7 @@ int runUp(const std::vector<std::string>& args, const std::string& exe)
                 "  sub0squad do \"write a calculator in C++\"      start a project (the mock agent: no model needed)\n"
                 "  sub0squad project status                      what is running; `project wait w-000001` blocks until it ends\n"
                 "  results: %s/<workflow>/project and report.md\n"
-                "  sub0squad down                                stop the daemon and the portal\n", paths.workflowsDir().c_str());
+                "  sub0squad down                                stop the daemon and the portal\n", paths.workflowsDir().string().c_str());
     return 0;
 }
 

@@ -23,7 +23,8 @@
 #include "sub0squad/platform_proc.hpp"
 #include "sub0squad/status.hpp"
 #include "sub0squad/supervisor.hpp"
-#include "sub0squad/unix_socket.hpp"
+#include "sub0squad/platform_file.hpp"
+#include "sub0squad/platform_ipc.hpp"
 #include "sub0pipeline/sub0pipeline.hpp"
 #include <signal.h>
 #include <sys/epoll.h>
@@ -110,6 +111,7 @@ struct Daemon::Impl
     struct Client
     {
         int fd = -1;
+        std::string owner;   ///< who connected ("uid:1000"), read when it was accepted
         FrameBuffer in;
         std::string out;
         std::set<std::string> waits;
@@ -128,7 +130,9 @@ struct Daemon::Impl
         std::jthread runner;
     };
     DaemonOptions opts;
-    int lockFd = -1, listenFd = -1, epfd = -1, wakeFd = -1, sigFd = -1;
+    platform::FileLock instanceLock;      ///< one daemon per state directory
+    platform::SocketListener listener;    ///< the control socket; its native handle sits in the epoll set (slice 5 moves the loop to platform_wait)
+    int epfd = -1, wakeFd = -1, sigFd = -1;
     Journal journal;
     JobStore store;
     WorkflowStore wfStore;
@@ -147,7 +151,7 @@ struct Daemon::Impl
         for (auto& [id, r] : running) { r->done.succeed(); }  // release any pipeline still waiting; the shims keep running
         running.clear();                                       // joins the runner threads
         for (auto& [fd, c] : clients) ::close(fd);
-        for (int fd : {listenFd, wakeFd, sigFd, epfd, lockFd}) if (fd >= 0) ::close(fd);
+        for (int fd : {wakeFd, sigFd, epfd}) if (fd >= 0) ::close(fd);
         for (auto& [fd, id] : pidfdToJob) ::close(fd);
     }
     // ---- reactor plumbing ------------------------------------------------------------------------------------------

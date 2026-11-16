@@ -3,8 +3,12 @@
 /// Length-prefixed message framing for the control socket: a 4-byte little-endian length, then that many bytes of JSON.
 /// (Sub0Pipeline's FrameReader belongs to its ITransport; the control channel is a plain socket, so this is the whole format.)
 
+#include "sub0squad/platform_net.hpp"
+
+#include <chrono>
 #include <cstdint>
 #include <expected>
+#include <optional>
 #include <string>
 #include <string_view>
 
@@ -27,8 +31,9 @@ private:
     std::string buffer_;
 };
 
-/// Blocking helpers for the CLI side.
-[[nodiscard]] std::expected<void, std::string> writeFrameBlocking(int fd, std::string_view payload);
-[[nodiscard]] std::expected<std::string, std::string> readFrameBlocking(int fd);
+/// Blocking helpers for the CLI side. A read waits at most `timeout` for each piece (none: as long as it takes) and then fails with "timed out".
+[[nodiscard]] std::expected<void, std::string> writeFrameBlocking(platform::SocketStream& stream, std::string_view payload);
+[[nodiscard]] std::expected<std::string, std::string> readFrameBlocking(platform::SocketStream& stream,
+                                                                        std::optional<std::chrono::milliseconds> timeout = std::nullopt);
 
 }  // namespace sub0squad

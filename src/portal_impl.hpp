@@ -10,12 +10,6 @@
 #include "sub0squad/engine.hpp"
 #include "sub0squad/recall.hpp"
 
-#include <arpa/inet.h>
-#include <poll.h>
-#include <netinet/in.h>
-#include <sys/socket.h>
-#include <unistd.h>
-
 #include <algorithm>
 #include <array>
 #include <cctype>

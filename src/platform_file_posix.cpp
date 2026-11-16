@@ -3,6 +3,7 @@
 #include "sub0squad/platform_file.hpp"
 
 #include <fcntl.h>
+#include <sys/file.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -70,6 +71,34 @@ std::expected<void, PlatformError> AppendFile::truncate(std::uint64_t size)
     if (handle_ < 0) return std::unexpected(PlatformError{"truncate", EBADF, "the file is not open"});
     if (::ftruncate(handle_, static_cast<off_t>(size)) != 0) return std::unexpected(fromErrno("ftruncate"));
     return {};
+}
+
+FileLock& FileLock::operator=(FileLock&& other) noexcept
+{
+    if (this != &other) {
+        if (handle_ != -1) ::close(static_cast<int>(handle_));
+        handle_ = other.handle_;
+        other.handle_ = -1;
+    }
+    return *this;
+}
+
+FileLock::~FileLock()
+{
+    if (handle_ != -1) ::close(static_cast<int>(handle_));   // closing the descriptor releases the flock
+}
+
+std::expected<std::optional<FileLock>, PlatformError> FileLock::tryExclusive(const fs::path& path)
+{
+    const int fd = ::open(path.c_str(), O_RDWR | O_CREAT | O_CLOEXEC, 0600);
+    if (fd < 0) return std::unexpected(fromErrno("open " + path.string()));
+    if (::flock(fd, LOCK_EX | LOCK_NB) != 0) {
+        const int err = errno;
+        ::close(fd);
+        if (err == EWOULDBLOCK) return std::optional<FileLock>{};
+        return std::unexpected(fromErrno("lock " + path.string(), err));
+    }
+    return std::optional<FileLock>{FileLock{fd}};
 }
 
 std::expected<void, PlatformError> writeAll(int descriptor, std::string_view data)

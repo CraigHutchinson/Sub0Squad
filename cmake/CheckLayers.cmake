@@ -74,7 +74,6 @@ endif()
 # The platform rule (docs/PLATFORM.md section 2): only the platform library (stems platform_*) includes operating-system headers or reads /proc.
 # The files that still do are listed here; the list may only shrink, exactly like KNOWN_VIOLATIONS. Each entry names the slice that removes it.
 set(KNOWN_SYSTEM_USERS
-  include/sub0squad/unix_socket.hpp src/unix_socket.cpp src/engine.cpp src/portal_impl.hpp src/first_use.cpp src/client.cpp               # 4: platform_net, platform_ipc
   src/cli_jobs.cpp                                                                                                                         # 5: inotify (following a log)
   src/daemon_impl.hpp src/shim.cpp                                                                                                         # 5: platform_wait (epoll, eventfd, signals, the shim's fork)
   src/mock_worker.cpp                                                                                                                      # a test program that forks escapees on purpose: may stay

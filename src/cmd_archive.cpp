@@ -4,7 +4,8 @@
 
 #include <cctype>
 #include <cstdio>
-#include <ctime>
+#include <chrono>
+#include <format>
 #include <filesystem>
 
 namespace sub0squad {
@@ -26,27 +27,23 @@ int runArchiveCommand(const std::vector<std::string>& args, const RuntimePaths& 
         return 1;
     }
     std::error_code ec;
-    if (!fs::is_directory(paths.stateDir, ec) || fs::is_empty(paths.stateDir, ec)) { std::printf("nothing to archive: %s is empty\n", paths.stateDir.c_str()); return 0; }
-    char stamp[32];
-    const std::time_t now = std::time(nullptr);
-    std::tm utc{};
-    ::gmtime_r(&now, &utc);
-    std::strftime(stamp, sizeof stamp, "%Y%m%dT%H%M%SZ", &utc);
+    if (!fs::is_directory(paths.stateDir, ec) || fs::is_empty(paths.stateDir, ec)) { std::printf("nothing to archive: %s is empty\n", paths.stateDir.string().c_str()); return 0; }
+    const std::string stamp = std::format("{:%Y%m%dT%H%M%SZ}", std::chrono::floor<std::chrono::seconds>(std::chrono::system_clock::now()));   // UTC
     const fs::path root = paths.stateDir.parent_path() / "archive";
     fs::path target = root / (std::string{stamp} + (label.empty() ? "" : "-" + label));
     for (int n = 2; fs::exists(target, ec) && n < 100; ++n) target = root / (std::string{stamp} + (label.empty() ? "" : "-" + label) + "-" + std::to_string(n));   // two archives in one second
     fs::create_directories(target, ec);
-    if (ec) { std::fprintf(stderr, "archive: cannot create %s: %s\n", target.c_str(), ec.message().c_str()); return 1; }
+    if (ec) { std::fprintf(stderr, "archive: cannot create %s: %s\n", target.string().c_str(), ec.message().c_str()); return 1; }
     fs::rename(paths.stateDir, target / "state", ec);
-    if (ec) { std::fprintf(stderr, "archive: cannot move %s to %s: %s (nothing was changed)\n", paths.stateDir.c_str(), (target / "state").c_str(), ec.message().c_str()); fs::remove(target, ec); return 1; }
+    if (ec) { std::fprintf(stderr, "archive: cannot move %s to %s: %s (nothing was changed)\n", paths.stateDir.string().c_str(), (target / "state").string().c_str(), ec.message().c_str()); fs::remove(target, ec); return 1; }
     fs::create_directories(paths.stateDir, ec);
-    if (ec) { std::fprintf(stderr, "archive: moved the state to %s but cannot create a new %s: %s\n", target.c_str(), paths.stateDir.c_str(), ec.message().c_str()); return 1; }
+    if (ec) { std::fprintf(stderr, "archive: moved the state to %s but cannot create a new %s: %s\n", target.string().c_str(), paths.stateDir.string().c_str(), ec.message().c_str()); return 1; }
     const fs::path processes = target / "state" / "processes";
     if (fs::is_directory(processes, ec)) {
         fs::copy(processes, paths.stateDir / "processes", fs::copy_options::recursive, ec);
-        if (ec) std::fprintf(stderr, "archive: could not carry the registered processes over (%s); they are in %s\n", ec.message().c_str(), processes.c_str());
+        if (ec) std::fprintf(stderr, "archive: could not carry the registered processes over (%s); they are in %s\n", ec.message().c_str(), processes.string().c_str());
     }
-    std::printf("archived to %s\n%s is new and empty%s\n", target.c_str(), paths.stateDir.c_str(), fs::is_directory(paths.stateDir / "processes", ec) ? " (your registered processes were kept)" : "");
+    std::printf("archived to %s\n%s is new and empty%s\n", target.string().c_str(), paths.stateDir.string().c_str(), fs::is_directory(paths.stateDir / "processes", ec) ? " (your registered processes were kept)" : "");
     return 0;
 }
 

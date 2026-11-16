@@ -88,6 +88,25 @@ std::optional<std::vector<std::string>> commandLine(ProcessId id)
 
 bool terminateProcess(ProcessId id) { return id > 0 && ::kill(static_cast<pid_t>(id), SIGTERM) == 0; }
 
+bool isExecutable(const std::filesystem::path& path)
+{
+    std::error_code ec;
+    return std::filesystem::is_regular_file(path, ec) && ::access(path.c_str(), X_OK) == 0;
+}
+
+std::filesystem::path findOnPath(const std::string& name)
+{
+    if (name.find('/') != std::string::npos) return isExecutable(name) ? std::filesystem::path(name) : std::filesystem::path{};
+    const char* path = std::getenv("PATH");
+    std::istringstream in(path ? path : "");
+    for (std::string dir; std::getline(in, dir, ':');) {
+        if (dir.empty()) continue;
+        const std::filesystem::path p = std::filesystem::path{dir} / name;
+        if (isExecutable(p)) return p;
+    }
+    return {};
+}
+
 void setEnvironment(const std::string& name, const std::string& value) { ::setenv(name.c_str(), value.c_str(), 1); }
 void unsetEnvironment(const std::string& name) { ::unsetenv(name.c_str()); }
 

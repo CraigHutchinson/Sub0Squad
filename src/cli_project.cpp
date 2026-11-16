@@ -22,13 +22,14 @@
 #include "sub0squad/triage.hpp"
 #include "sub0squad/workflow.hpp"
 #include "sub0squad/workflow_status.hpp"
-#include "sub0squad/unix_socket.hpp"
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
 #include <fstream>
 #include <sstream>
+#include <thread>
 
 namespace sub0squad::cli {
 
@@ -241,7 +242,7 @@ int cmdDo(const RuntimePaths& paths, int argc, char** argv)
     spec.triage = t.toJson();
     std::printf("triage: %s project, complexity %d, %s, architect: %s\n", t.projectType.c_str(), t.complexity, t.split ? "split into items" : "one item", t.architect.c_str());
     for (const auto& r : t.reasons) std::printf("  - %s\n", r.c_str());
-    if (!spec.sandboxDir.empty() && spec.sandboxDir[0] != '/') { char b[4096]; if (::getcwd(b, sizeof b)) spec.sandboxDir = std::string{b} + "/" + spec.sandboxDir; }
+    if (!spec.sandboxDir.empty() && std::filesystem::path(spec.sandboxDir).is_relative()) { std::error_code cwdErr; spec.sandboxDir = (std::filesystem::current_path(cwdErr) / spec.sandboxDir).string(); }
     auto client = ControlClient::connect(paths);
     if (!client) { std::fprintf(stderr, "%s%s\n", client.error().message.c_str(), client.error().noDaemon ? " (is `sub0squad serve` running?)" : ""); return 3; }
     auto reply = client->request("workflowSubmit", submitFields(allowMismatch) + "\"spec\":" + spec.toJson());
@@ -351,7 +352,7 @@ int cmdProject(const RuntimePaths& paths, int argc, char** argv)
         const bool allowMismatch = takeAllowMismatch(argc, argv);
         WorkflowSpec spec;
         if (int rc = parseWorkflowFlags(argc, argv, 1, spec)) return rc;
-        if (!spec.sandboxDir.empty() && spec.sandboxDir[0] != '/') { char b[4096]; if (::getcwd(b, sizeof b)) spec.sandboxDir = std::string{b} + "/" + spec.sandboxDir; }
+        if (!spec.sandboxDir.empty() && std::filesystem::path(spec.sandboxDir).is_relative()) { std::error_code cwdErr; spec.sandboxDir = (std::filesystem::current_path(cwdErr) / spec.sandboxDir).string(); }
         auto client = ControlClient::connect(paths);
         if (!client) { std::fprintf(stderr, "%s%s\n", client.error().message.c_str(), client.error().noDaemon ? " (is `sub0squad serve` running?)" : ""); return 3; }
         auto reply = client->request("workflowSubmit", submitFields(allowMismatch) + "\"spec\":" + spec.toJson());
@@ -404,7 +405,7 @@ int cmdProject(const RuntimePaths& paths, int argc, char** argv)
             std::string state;
             if (!text.empty() && workflowTerminal(text, id, state)) { printWorkflows(text); return state == "succeeded" ? 0 : 1; }
             if (std::chrono::steady_clock::now() >= deadline) { std::fprintf(stderr, "timed out waiting for the workflow (it keeps running)\n"); return 124; }
-            ::usleep(300000);
+            std::this_thread::sleep_for(std::chrono::milliseconds(300));
         }
     }
     std::fputs(kUsage, stderr);

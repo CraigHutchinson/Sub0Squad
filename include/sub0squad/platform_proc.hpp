@@ -38,6 +38,11 @@ namespace sub0squad::platform {
 /// Ask `id` to stop (SIGTERM on POSIX). False when it could not be signalled. Prefer `Child::terminate` for a process this program started.
 [[nodiscard]] bool terminateProcess(ProcessId id);
 
+/// Whether `path` is a file this user may run (POSIX: execute permission; Windows: an existing file with an extension in PATHEXT).
+[[nodiscard]] bool isExecutable(const std::filesystem::path& path);
+/// The program `name` as the system would find it on PATH (Windows also tries each PATHEXT extension), or an empty path.
+[[nodiscard]] std::filesystem::path findOnPath(const std::string& name);
+
 /// Set or remove a variable in this process's environment (inherited by children started afterwards).
 void setEnvironment(const std::string& name, const std::string& value);
 void unsetEnvironment(const std::string& name);

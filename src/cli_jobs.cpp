@@ -22,10 +22,7 @@
 #include "sub0squad/triage.hpp"
 #include "sub0squad/workflow.hpp"
 #include "sub0squad/workflow_status.hpp"
-#include "sub0squad/unix_socket.hpp"
 #include <sys/inotify.h>
-#include <sys/socket.h>
-#include <sys/time.h>
 #include <poll.h>
 #include <unistd.h>
 #include <chrono>
@@ -287,7 +284,7 @@ int cmdWait(const RuntimePaths& paths, int argc, char** argv)
     if (timeout > 0) client->setReceiveTimeout(timeout);
     auto reply = client->request("wait", "\"id\":\"" + id + "\"");
     if (!reply) {
-        const bool timedOut = timeout > 0 && reply.error().find("Resource temporarily unavailable") != std::string::npos;
+        const bool timedOut = timeout > 0 && reply.error() == "timed out";   // ControlClient's word for a receive timeout, on every system
         std::fprintf(stderr, "%s\n", timedOut ? "timed out waiting for the job to finish (it keeps running)" : reply.error().c_str());
         return timedOut ? 124 : 1;
     }

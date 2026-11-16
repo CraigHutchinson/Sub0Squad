@@ -9,6 +9,8 @@
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
+#include <winsock2.h>   // before windows.h, which would otherwise bring the old winsock.h
+#include <ws2tcpip.h>
 #include <windows.h>
 
 #include "sub0squad/platform_error.hpp"
@@ -78,6 +80,33 @@ public:
 private:
     HANDLE h_ = nullptr;
 };
+
+/// Winsock started once for the process (WSAStartup 2.2); true when it is usable. Never cleaned up: the process's end does that.
+[[nodiscard]] inline bool winsockReady()
+{
+    static const bool ready = [] {
+        WSADATA data{};
+        return ::WSAStartup(MAKEWORD(2, 2), &data) == 0;
+    }();
+    return ready;
+}
+
+/// A PlatformError for `operation` from WSAGetLastError() (or `code`).
+[[nodiscard]] inline PlatformError socketError(std::string operation, int code = ::WSAGetLastError())
+{
+    return lastError(std::move(operation), static_cast<DWORD>(code));
+}
+
+/// A new socket that is non-blocking and never inherited by a child; INVALID_SOCKET on failure (WSAGetLastError says why).
+[[nodiscard]] inline SOCKET newSocket(int family, int type, int protocol)
+{
+    if (!winsockReady()) return INVALID_SOCKET;
+    const SOCKET s = ::WSASocketW(family, type, protocol, nullptr, 0, WSA_FLAG_OVERLAPPED | WSA_FLAG_NO_HANDLE_INHERIT);
+    if (s == INVALID_SOCKET) return s;
+    u_long on = 1;
+    ::ioctlsocket(s, FIONBIO, &on);
+    return s;
+}
 
 /// FILETIME as one 64-bit count of 100 ns intervals.
 [[nodiscard]] inline std::uint64_t ticks(const FILETIME& t) { return (static_cast<std::uint64_t>(t.dwHighDateTime) << 32) | t.dwLowDateTime; }

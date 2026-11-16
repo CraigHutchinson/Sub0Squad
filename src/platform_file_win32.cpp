@@ -81,6 +81,36 @@ std::expected<void, PlatformError> AppendFile::truncate(std::uint64_t size)
     return {};
 }
 
+FileLock& FileLock::operator=(FileLock&& other) noexcept
+{
+    if (this != &other) {
+        if (handle_ != -1) ::CloseHandle(reinterpret_cast<HANDLE>(handle_));
+        handle_ = other.handle_;
+        other.handle_ = -1;
+    }
+    return *this;
+}
+
+FileLock::~FileLock()
+{
+    if (handle_ != -1) ::CloseHandle(reinterpret_cast<HANDLE>(handle_));   // closing the handle releases the lock
+}
+
+std::expected<std::optional<FileLock>, PlatformError> FileLock::tryExclusive(const fs::path& path)
+{
+    HANDLE h = ::CreateFileW(path.c_str(), GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_ALWAYS,
+                             FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (h == INVALID_HANDLE_VALUE) return std::unexpected(win32::lastError("open " + path.string()));
+    OVERLAPPED at{};
+    if (!::LockFileEx(h, LOCKFILE_EXCLUSIVE_LOCK | LOCKFILE_FAIL_IMMEDIATELY, 0, 1, 0, &at)) {
+        const DWORD err = ::GetLastError();
+        ::CloseHandle(h);
+        if (err == ERROR_LOCK_VIOLATION || err == ERROR_IO_PENDING) return std::optional<FileLock>{};
+        return std::unexpected(win32::lastError("lock " + path.string(), err));
+    }
+    return std::optional<FileLock>{FileLock{reinterpret_cast<std::intptr_t>(h)}};
+}
+
 std::expected<void, PlatformError> writeAll(int descriptor, std::string_view data)
 {
     const char* p = data.data();

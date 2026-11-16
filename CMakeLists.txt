@@ -53,9 +53,10 @@ foreach(layerName ${SUB0SQUAD_LAYER_NAMES})
   set(SUB0SQUAD_LOWER ${lib})
   math(EXPR layerIndex "${layerIndex} + 1")
 endforeach()
-# The Windows backends split command lines with CommandLineToArgvW (shell32); ntdll is reached at run time, never linked.
+# The Windows backends split command lines with CommandLineToArgvW (shell32), use Winsock (ws2_32) and name the user (advapi32); ntdll is
+# reached at run time, never linked.
 if(WIN32)
-  target_link_libraries(sub0squad_platform PUBLIC shell32)
+  target_link_libraries(sub0squad_platform PUBLIC shell32 ws2_32 advapi32)
 endif()
 # The daemon's job graph and typed events are the Sub0 libraries; only the orchestration layer uses them.
 target_link_libraries(sub0squad_orchestration PUBLIC Sub0Pipeline::Sub0Pipeline Sub0Pipeline::Priority Sub0Pub::Sub0Pub)
@@ -114,7 +115,7 @@ sub0squad_add_test(test_job_spec kernel)
 add_executable(platform_child tests/platform_child.cpp)
 target_compile_options(platform_child PRIVATE ${SUB0SQUAD_STRICT})
 target_link_libraries(platform_child PRIVATE sub0squad_platform)
-foreach(t test_platform_process test_platform_proc test_platform_host test_platform_file)
+foreach(t test_platform_process test_platform_proc test_platform_host test_platform_file test_platform_net)
   add_executable(${t} tests/${t}.cpp)
   target_compile_options(${t} PRIVATE ${SUB0SQUAD_STRICT} -g)
   target_include_directories(${t} PRIVATE tests)

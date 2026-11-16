@@ -23,7 +23,6 @@
 #include "sub0squad/triage.hpp"
 #include "sub0squad/workflow.hpp"
 #include "sub0squad/workflow_status.hpp"
-#include "sub0squad/unix_socket.hpp"
 #include "sub0squad/platform_proc.hpp"
 #include <chrono>
 #include <cstdio>
