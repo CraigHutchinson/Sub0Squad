@@ -1,6 +1,6 @@
 # Resume here (written 2026-11-16, to continue on a faster machine)
 
-Read this first; it supersedes the "next steps" of `HANDOFF.md`, `NEXT_SESSION_PROMPT.md` and `ITERATION_PROGRESS.md` (they remain the history). The owner's goal is unchanged: prove the
+Read this first; it supersedes the "next steps" of the old `HANDOFF.md`, `NEXT_SESSION_PROMPT.md` and `ITERATION_PROGRESS.md` (in git history: [ARCHIVE.md](ARCHIVE.md)). The owner's goal is unchanged: prove the
 harness builds sandbox projects from a bare request with local models; the Qwen3.6-35B-A3B (Q4_K_M) is the minimum bar and nothing leaves the machine (frontier stays OFF).
 
 ## 1. Where things stand
@@ -29,8 +29,8 @@ Last pushed commit when this was written: `4adca03` on `origin/main`; 48 of 48 c
 ## 2. The design direction the owner set this week (read before building)
 
 1. **`docs/CLEAN_SLATE.md`**: the principle (no pre-built plan, no reference in the harness; the oracle is in `validation/`), the split table, the first-probe results (section 7).
-2. **`docs/PLAN_FORMAT.md`**: why format, not planning, is the failure; prior art (BAML schema-aligned parsing, "Let Me Speak Freely", TOON, grammar-constrained decoding); the options table; the
-   recommendation; and **the discipline ladder** (section 5b): plan prose, plan form, work prose, work source. Each layer has one job, a format problem is repaired in place by edits and never
+2. **`docs/CLEAN_SLATE.md` section 8** (was `PLAN_FORMAT.md`): why format, not planning, is the failure; prior art (BAML schema-aligned parsing, "Let Me Speak Freely", TOON, grammar-constrained decoding); the options table; the
+   recommendation; and **the discipline ladder** (end of section 8): plan prose, plan form, work prose, work source. Each layer has one job, a format problem is repaired in place by edits and never
    climbs, a content problem is raised to the AUTHOR of the layer above (the same hand-off as a fork's coordinator), so a layer's author is recorded with it.
 3. **Repairs are edits, not regenerations** (BACKLOG "Repairs as edits"): built for the planner (`planner/doc/turn-N/`, canvas transactions, block 1 has four repair cases); not yet for the other roles.
 4. **Context kept on disk**: llama-server slot save and restore (unmeasured here).
@@ -39,12 +39,14 @@ Last pushed commit when this was written: `4adca03` on `origin/main`; 48 of 48 c
 
 Cheap first; each step names what proves it. Rules in section 5 apply throughout.
 
-1. **Re-measure on the faster machine before anything else**: decode and prefill speed, then the planner success rate over at least 10 seeds with the current code (`llm-planner --workflow-dir D --engine "qwen35=URL,model=qwen35,ctx=8192,slots=4,seed=N" --request "write a calculator in C++" --max-turns 6`, with and without `--prose`). A faster machine changes which timeouts, wall budgets and context sizes are right; the numbers in section 1 are CPU-bound. Record them in `docs/CLEAN_SLATE.md` section 7.
+1. **Re-measure on the faster machine before anything else**: decode and prefill speed, then the planner success rate over at least 10 seeds with the current code (`llm-planner --workflow-dir D --engine "qwen35=URL,model=qwen35,ctx=8192,slots=4,seed=N" --request "write a scientific calculator in C++" --max-turns 6`, with and without `--prose`). A faster machine changes which timeouts, wall budgets and context sizes are right; the numbers in section 1 are CPU-bound. Record them in `docs/CLEAN_SLATE.md` section 7.
 2. **Get one full run through `do` to pass and grade it** (`validation/grade_blackbox.py WORKFLOW_DIR`, and the literal audit it includes). Then repeat for a 20-seed clean-slate baseline (`scripts/start-campaign.sh`; the campaign driver still starts from blueprints and has no grader, plan-validity or repair columns: extend `scripts/campaign.py`).
 3. **Plan format, per BACKLOG "Plan format and discipline boundaries"**: (a) measure the format-only failure share on the existing `planner.json` records; (b) prose plan, then one formatter call per item in parallel on idle slots, repaired by edits, against the single-reply planner on the same seeds; (c) pass a grammar or JSON schema to llama-server for the format step only and check content quality does not fall; (d) a schema-guided tolerant parser in place of one mend per slip. Thinking stays off for format steps.
 4. **Expectation QA** (BACKLOG "Many experts, one result"): an explicit step that checks the tester's expected values against the contract and the worked examples before a developer is graded (a referee call that re-derives each literal), with the failing line as the dispute text. The one-failing-test shortcut was tried and reverted (it breaks `test_nearpass`); the reason and the alternative are in the BACKLOG.
 5. **Work prose** for tester and developer (describe, then write); the concern hand-off from a failing item to the layer above (generalise `reviseTests`); the recorded author per layer.
-6. **Prompt wording A/B** (BACKLOG): prompts as data, variants B to E from the owner against today's wording, at least 10 seeds each.
+6. **Prompt wording A/B** (BACKLOG): prompts as data, variants B to E from the owner against today's wording, at least 10 seeds each. Built since (local session, 2026-11-16): the worker stance switch `--stance baseline|specialist` and the CONCERN block (experiment E1,
+   [EXPERIMENTS.md](EXPERIMENTS.md) section 9, [PROMPTS.md](PROMPTS.md)); `--stance` is the first prompt-as-data switch. Also built: the platform layer
+   ([PLATFORM.md](PLATFORM.md)), process launch in one place.
 7. **Portal**: the planning card and the planning graph node are built (see BACKLOG); still to do: the dispute edges and gate classes in the decision view, a workflow selector (today `?wf=w-000022` in the URL); make `up` start the portal by default (it was off only because `--no-portal` was passed); ngrok later (needs the owner: install, account, token, authentication design).
 8. **Slot save and restore** measurement; per-role windows; the phased design and execution planner (BACKLOG, CLEAN_SLATE section 6).
 9. Fault-injection campaign at every step and role; web and Python scaffolds (only C++ self-scaffolds today); a section-count cap in the fork split (a 15-section skeleton for a 20-line file); the A/B context campaigns.
@@ -55,7 +57,7 @@ Mended mechanically in `mendPlan` (`src/plan_checks.cpp`), each with a test in `
 
 ## 5. Rules that still bind
 
-STOP AND ASK before: the final project name; enabling any frontier tier; changes to Sub0Pipeline or Sub0Pub; downloads or installs; credentials. Never stop the daemon or portal while a request is open. One CPU-heavy job at a time; builds at `-j2` (revisit on the new machine); process-spawning tests under `ulimit -u` and a timeout. Source `scripts/dev-env.sh` before a build that may reconfigure. Style: camelCase, Doxygen, `#pragma once`, `[[nodiscard]]`, new capability off by default, C++23 `-Wall -Wextra -Werror`. Every manual fix is catalogued in `docs/INTERVENTIONS.md` with a detector, a mend and a fixture. Report outcomes faithfully; claim nothing that was not observed. The Bash tool expands `${...}` even in quoted heredocs: write such text with the Write or Edit tool. Commit as the owner's noreply identity, trailer `Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>`; push to origin/main.
+STOP AND ASK before: the final project name; enabling any frontier tier; changes to Sub0Pipeline or Sub0Pub; downloads or installs; credentials. Never stop the daemon or portal while a request is open. One CPU-heavy job at a time; builds at `-j2` (revisit on the new machine); process-spawning tests under `ulimit -u` and a timeout. Source `scripts/dev-env.sh` before a build that may reconfigure. Style: camelCase, Doxygen, `#pragma once`, `[[nodiscard]]`, new capability off by default, C++23 `-Wall -Wextra -Werror`, `std::format`/`std::print` rather than `printf` (DECISIONS 25). Every manual fix is catalogued in `docs/INTERVENTIONS.md` with a detector, a mend and a fixture. Report outcomes faithfully; claim nothing that was not observed. The Bash tool expands `${...}` even in quoted heredocs: write such text with the Write or Edit tool. Commit as the owner's noreply identity, trailer `Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>`; push to origin/main.
 
 ## 6. Starting on the new machine
 

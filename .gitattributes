@@ -1,0 +1,4 @@
+# Every text file is LF on every checkout. The project builds and runs on Linux, scripts are run by a POSIX shell or Python, and the tests
+# compare files byte for byte with goldens (registry/processes, tests/data). A Windows checkout with core.autocrlf=true turned them into CRLF:
+# the configure failed under WSL ("git version 1.6.5 or later required") and a dozen golden tests failed.
+* text=auto eol=lf

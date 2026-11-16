@@ -72,5 +72,5 @@ pass RATE on a real model: that needs the fixtures below and a model run.
 
 `interface-gap` (the gap is named, the rewritten card names every export, the next attempt passes), `decompose` (the architect's division is valid and covers every
 file), `reviseTests` (a disputed tester fixes the wrong expectation and agrees with the reference), `read-then-edit` (a draft too large to show whole; reads used),
-`integrate` (a coordinator's tests over merged parts), and a timeout/length scenario (the reply is cut off and continued). The knowledge store (docs/KNOWLEDGE_STORE.md)
+`integrate` (a coordinator's tests over merged parts), and a timeout/length scenario (the reply is cut off and continued). The knowledge store ([KNOWLEDGE_STORE.md](https://github.com/CraigHutchinson/Sub0Squad/blob/96a17c925fb82feff086fc5106bc0a79915be3e8/docs/KNOWLEDGE_STORE.md) (archived))
 is the larger task each of these is a slice of.

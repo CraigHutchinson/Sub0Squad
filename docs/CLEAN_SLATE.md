@@ -1,13 +1,15 @@
 # Clean slate: a sandbox project with no pre-built plan and no reference inside the harness
 
-Status: 2026-11-15. Owner direction (this is the next priority, ahead of more baseline campaigns). Design only; nothing below is built except the validation-suite split.
+Status: 2026-11-16. Owner direction of 2026-11-15. Built: the validation-suite split, the planner role with its repair loop (repair as edits, JSON mends), the plan
+checks and the `planned` process. Not built: plan review, expectation QA, the loop stage, the clean-slate campaign. The experiments that follow from this page
+are E2 to E5 and E10 of [EXPERIMENTS.md](EXPERIMENTS.md).
 
 ## 1. The principle
 
 Everything the harness runs on must be something a **real project** could supply: a request in words, answers to clarifying questions, and what the squad itself produces. Two things we have been leaning on are not that:
 
 * **A hand-written plan** (`docs/calculator-cpp.plan.json`, the mock planner's blueprints). Every real run so far started from one. The planner role, the one that turns a bare request into items, contracts and tests, has never run. Failures that begin in the plan (underspecified or wrong contracts, an unusable decomposition) were fixed in the blueprint by us and so never happened to the squad.
-* **A reference implementation** (the mock agent's correct files; the C++ oracle). A real project has none. An oracle in the gate made the process look better than it is and leaked the answer to the tester (see `docs/WORKER_PROBE.md`).
+* **A reference implementation** (the mock agent's correct files; the C++ oracle). A real project has none. An oracle in the gate made the process look better than it is and leaked the answer to the tester (see [EXPERIMENTS.md](EXPERIMENTS.md) section 7).
 
 The harness therefore contains neither as a dependency. Blueprints stay only as **mock-agent fixtures for fast machinery tests**; they never start a real-model run.
 
@@ -84,3 +86,49 @@ Plan quality, honestly: the checks make the plans well formed and compilable, no
 Failure classes: (1) JSON structure errors in a deeply nested `card` (2 of 5): a small model loses track of braces; a flatter plan form or a per-item reply would avoid it. (2) Scaffold stubs that do not compile under `-Werror`: caught and repaired in the same run. (3) Under-allocation of ready work: not caught by any check.
 
 Not verified: a build from any of these plans, the success rate over a larger sample (5 seeds is a rough figure), and whether feeding the lint into the repair turn raises fill.
+
+## 8. How a plan should be written (design, 2026-11-15)
+
+**The problem.** One planner reply carries two disciplines at once: *what to build* (the split, the contracts, the examples) and *exact syntax* (nested JSON with
+escaped quotes, C++ stubs that compile under `-Werror`). Nearly every failure in section 7 was format, not planning, and a failed reply was rewritten whole.
+
+**Prior art** (vendor claims marked):
+
+| Source | Finding | For us |
+|---|---|---|
+| Tam et al., "Let Me Speak Freely?" (arXiv 2408.02442) | Strict format restriction lowers reasoning quality; "answer in prose, then convert" keeps it. Shown on GPT-3.5-class models and small schemas. | Supports splitting planning from formatting; measure on ours. |
+| BAML schema-aligned parsing (vendor benchmark) | Parse what the model wrote against the declared schema (trailing commas, unquoted strings, near-miss enums) instead of demanding strict JSON. | `repairJson` is a hand-made subset of this. |
+| TOON (own benchmark only) | A tabular notation of JSON, about 40 % fewer tokens, best on uniform arrays. | Our plan is nested: small gain. |
+| Grammar-constrained decoding: llama.cpp GBNF and `json_schema`, XGrammar, Outlines | Syntax cannot fail; it does not make content right, and may hurt it. | llama-server accepts a grammar per request; our engine call does not pass one yet. |
+| The owner's finding | Thinking off is more reliable and faster for JSON. | The planner runs with thinking off. |
+
+**Options.** A: today (one reply, JSON and FILE blocks, mends, repair by edits). B: two steps, a prose plan then a format step that is repaired by edits and may
+be constrained. C: a lenient notation with our own parser. D: grammar-constrained JSON for the whole reply. E: TOON for the items table. F: section by section, a
+skeleton then one small call per card, in parallel on idle slots.
+
+**Recommendation: B then F**, with a grammar only on the format step and schema-guided tolerant parsing in the parser: (1) a short prose plan, thinking off;
+(2) one format call per item, in parallel; (3) the scaffold written by a developer-persona call and judged by the plan checks and the compile; (4) `repairJson`
+and the mends grown into a schema-guided parser; (5) each step measured against A on the same seeds (valid-first-try rate, repair edits, tokens, wall time).
+A grammar is adopted only if the plan's content does not get worse on the same judge. These are experiments E3 to E5. The same "formatter" building block
+(free output in, a checked artefact out, repaired by edits) serves the gate report, the card rewrite and the manager's decisions.
+
+**For the owner:** may a second, smaller local model serve the format step, and may the engine call pass a grammar or schema (local only)?
+
+**The discipline ladder** (owner, 2026-11-15). Prose then format is not only for the plan. Each piece of work has the same layers, and each layer has one job:
+
+| layer | writes | judged by | when it fails, raise to |
+|---|---|---|---|
+| plan prose | the split, contracts, examples in words | the formatter can reproduce it; the examples are consistent | the owner (intent) |
+| plan form | `plan-2` JSON and scaffold from the prose | `Plan::fromJson`, the plan checks, the scaffold compile | plan prose (a decision is missing or contradictory), else repaired by edits in place |
+| work prose | per item: how the tests or the code will be built, in words (the cases to cover; the functions and their steps) | the contract, the examples | the plan form or plan prose |
+| work source | tests or code | the gate | work prose (the description cannot be implemented), else repaired by edits |
+
+The rule: a worker who cannot turn the layer above into its own output does not paper over it. It raises the issue to the AUTHOR of that layer (the one who wrote the prose),
+who answers or revises that layer, exactly as a fork's coordinator can be asked about a section. This is the same hand-off the `CONCERN` item in the backlog describes
+(pull-context and concern), now with a fixed ladder: a layer's author is recorded with the layer (planner/prose.md names the lead; the work prose names the item's
+planner), so a question has an addressee. A format problem never climbs: it is repaired by edits where it is. A content problem (a contract that two items read differently,
+an example that contradicts the contract) climbs one layer at a time, and the layer that fixes it is the one whose output is changed.
+
+Build order: (1) plan prose then plan form, measured against the single reply (started: `llm-planner --prose`); (2) the concern hand-off from a failing item to the plan
+layer (the dispute mechanism, `reviseTests`, already sends a developer's failure back to the tester; it generalises); (3) work prose for the tester and the developer
+(a short description first, then the code, so a failing test is first discussed in words); (4) a recorded author per layer.

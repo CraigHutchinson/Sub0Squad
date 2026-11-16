@@ -14,11 +14,10 @@ job graphs (deferred completion, cancellation, remote sub-graphs) and
 [Sub0Pub](https://github.com/CraigHutchinson/Sub0Pub) carries typed events. The new parts are the resource arbiter, the
 durable journal, planners, and the engine seam.
 
-**Status:** the daemon, the CLI, project workflows over three project harnesses (C++ with CMake, Python, a static web page) and the model-free proving grounds
-work on Linux and are covered by the test suite. Driving a project with a real local model works mechanically but is not yet proven end to end (the first
-35B run of the C++ calculator failed; the answer in progress is sections, forks and the canvas: [docs/CANVAS.md](docs/CANVAS.md),
-[docs/BLOCK_PROVING_GROUNDS.md](docs/BLOCK_PROVING_GROUNDS.md)). Design: [docs/DESIGN.md](docs/DESIGN.md), [docs/ROADMAP.md](docs/ROADMAP.md),
-[docs/DECISIONS.md](docs/DECISIONS.md). The name is a placeholder; the final `sub0*` name is pending.
+**Status:** the daemon, the CLI, project workflows over three project harnesses (C++ with CMake, Python, a static web page), three executors, the planner and
+the model-free proving grounds work on Linux and are covered by the test suite. No real local model has finished a project yet: the work now is the proving
+sandbox on a local llama.cpp server, one A/B experiment at a time ([docs/STATUS.md](docs/STATUS.md), [docs/EXPERIMENTS.md](docs/EXPERIMENTS.md)). There is no
+release. The name is a placeholder; the final `sub0*` name is pending.
 
 Origin: it grew out of Sub0Llm's Qwen optimisation harness (`scripts/optimization/*` there), which becomes the first job kind.
 
@@ -96,12 +95,34 @@ Start an OpenAI-compatible server yourself (for example llama.cpp's `llama-serve
 ```sh
 sub0squad doctor --engine qwen=http://127.0.0.1:8092/v1
 sub0squad up --frontier off                   # a pass must mean the model: the stub tier never supplies the answer
-sub0squad do "write a calculator in C++" --agent llm --engine qwen=http://127.0.0.1:8092/v1,model=qwen,ctx=8192,slots=4 --executor fork
+sub0squad do "write a scientific calculator in C++" --agent llm --engine qwen=http://127.0.0.1:8092/v1,model=qwen,ctx=8192,slots=4 --executor fork
 ```
 
 `--executor` chooses how an item is written: `session` (one conversation; the baseline), `canvas` (small transactions on a revisioned document, each checked
 before it is kept) or `fork` (a skeleton, then one function per session, side by side on the idle slots). These commands need a model and are not run by the
 test suite; [docs/BLOCK_PROVING_GROUNDS.md](docs/BLOCK_PROVING_GROUNDS.md) lists what has been proven without one (`sub0squad block run`).
+`--stance specialist` tells each worker its item is a dedicated assignment it owns, with the standing to contest the card or tests and propose delegation in a
+`CONCERN` block (an experiment, off by default: [docs/PROMPTS.md](docs/PROMPTS.md)).
+
+## Documents
+
+| Document | What it holds |
+|---|---|
+| [RESUME.md](docs/RESUME.md) | The hand-off for the next session on a new machine: state, evidence, priority order, start commands |
+| [STATUS.md](docs/STATUS.md) | Where the project is, what is proven and by which test, open questions for the owner, standing rules, host safety |
+| [EXPERIMENTS.md](docs/EXPERIMENTS.md) | The proving sandbox: method, host and engine, tools, campaigns, results on the real model, the experiment queue |
+| [BACKLOG.md](docs/BACKLOG.md) | Work understood but not done: now, next, later |
+| [PROMPTS.md](docs/PROMPTS.md) | What every worker is told and why: terms, stances, the CONCERN block, prompt costs, rules for changing a prompt |
+| [PROCESS_DESIGN.md](docs/PROCESS_DESIGN.md) | Workflows as processes of stages, predicates, the escalation ladder, mends, planning questions, the wizard |
+| [CLEAN_SLATE.md](docs/CLEAN_SLATE.md) | Planning from a bare request with no reference in the harness; how a plan should be written |
+| [CANVAS.md](docs/CANVAS.md) | The canvas, forked sections, transactional edits, folded views and read requests |
+| [CONTEXT_AND_PLANNING.md](docs/CONTEXT_AND_PLANNING.md) | Context levels, knowledge and the concern channel's design |
+| [BLOCK_PROVING_GROUNDS.md](docs/BLOCK_PROVING_GROUNDS.md), [SCENARIOS.md](docs/SCENARIOS.md) | Building blocks proven without a model; capability scenarios and their fixtures |
+| [METRICS.md](docs/METRICS.md) | What is measured and how: accounting, ticks, scorecards, quality |
+| [INTERVENTIONS.md](docs/INTERVENTIONS.md) | Every manual fix, as a catalogue row with a detector, a mend and a fixture |
+| [COMPONENTS.md](docs/COMPONENTS.md), [DECISIONS.md](docs/DECISIONS.md), [DEV_SETUP.md](docs/DEV_SETUP.md) | Layers and components; decisions taken; the development machine |
+| [PLATFORM.md](docs/PLATFORM.md) | The platform library: one place for processes, files, sockets and host facts; the path to a Windows build |
+| [ARCHIVE.md](docs/ARCHIVE.md) | Retired documents, by permalink to the commit before they were removed |
 
 ## Licence
 

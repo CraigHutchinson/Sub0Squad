@@ -1,8 +1,8 @@
 # Process design: processes as data over the V, delegation and parallelism; the process controller
 
 Status: DESIGN, revision 2, 2026-11-11; **BUILT (2026-11-13) as stages as data: read section 13 first (section 12 describes the first slice, which a review replaced).** Owner of the design: this document. It supersedes the first draft after an audit of that draft against
-`src/workflow.cpp` (section 1). Builds on DESIGN_AUDIT.md section 3 (four registries), BUILDING_BLOCKS.md (co-evolving structure and leaves, up-transfer,
-versioned contracts, the three ideals), FEEDBACK_LOOPS.md section 4 (the bar), INTERVENTIONS.md (the ledger) and WORK_GRAPH.md sections 7, 13, 14 (the V,
+`src/workflow.cpp` (section 1). Builds on [DESIGN_AUDIT.md](https://github.com/CraigHutchinson/Sub0Squad/blob/96a17c925fb82feff086fc5106bc0a79915be3e8/docs/DESIGN_AUDIT.md) (archived) section 3 (four registries), [BUILDING_BLOCKS.md](https://github.com/CraigHutchinson/Sub0Squad/blob/96a17c925fb82feff086fc5106bc0a79915be3e8/docs/BUILDING_BLOCKS.md) (archived) (co-evolving structure and leaves, up-transfer,
+versioned contracts, the three ideals), [FEEDBACK_LOOPS.md](https://github.com/CraigHutchinson/Sub0Squad/blob/96a17c925fb82feff086fc5106bc0a79915be3e8/docs/FEEDBACK_LOOPS.md) (archived) section 4 (the bar), INTERVENTIONS.md (the ledger) and [WORK_GRAPH.md](https://github.com/CraigHutchinson/Sub0Squad/blob/96a17c925fb82feff086fc5106bc0a79915be3e8/docs/WORK_GRAPH.md) (archived) sections 7, 13, 14 (the V,
 requests). Nothing here is built except the harness registry (`harness.hpp`, `harness_registry.cpp`). Every new capability is off by default; the owner
 decides intent and permissions only; no frontier tier without an explicit owner switch; progress is never discarded; extension is files and jobs, no plugin ABI.
 

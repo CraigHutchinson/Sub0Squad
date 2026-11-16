@@ -10,7 +10,7 @@ merge time. The human sees the same surface: a live picture of what each worker 
 
 ## Why it follows from what exists
 
-* **Sections already exist**: `foldRegions` (docs/FOLDED_VIEWS.md) gives function-level regions of a file; a section is a region (or a whole small file, or a card
+* **Sections already exist**: `foldRegions` ("Folded views" below) gives function-level regions of a file; a section is a region (or a whole small file, or a card
   or contract paragraph). The folded view is the canvas's zoomed-out rendering; a READ request is "expand this section".
 * **Ownership already exists, coarsely**: a plan's items own disjoint files, and a divided item is a coordinator over parts. Today a collision is impossible
   because the allowlists never overlap. The canvas is what lets that restriction relax (several workers in one file) without losing safety.
@@ -47,11 +47,11 @@ merge time. The human sees the same surface: a live picture of what each worker 
 
 ## Fit with the V model and forks
 
-* A **fork** (`WORK_GRAPH.md` section 23) is the first real user: the primer writes the skeleton, each function is a section, each session claims its own. The
+* A **fork** ([WORK_GRAPH.md](https://github.com/CraigHutchinson/Sub0Squad/blob/96a17c925fb82feff086fc5106bc0a79915be3e8/docs/WORK_GRAPH.md) (archived) section 23) is the first real user: the primer writes the skeleton, each function is a section, each session claims its own. The
   parent coordinator sees all claims and can run its integration gate as sections close.
 * **Up/down transfer**: a `contract-change` note on an interface section is the signal that today needs a `sendDown`; a worker that reads such a note re-checks
   the tests against the new contract before continuing.
-* **Review**: a cross-module reviewer (docs/BUILDING_BLOCKS.md, "widen before retrying") is a worker with `observe` claims over every section of a level.
+* **Review**: a cross-module reviewer ([BUILDING_BLOCKS.md](https://github.com/CraigHutchinson/Sub0Squad/blob/96a17c925fb82feff086fc5106bc0a79915be3e8/docs/BUILDING_BLOCKS.md) (archived), "widen before retrying") is a worker with `observe` claims over every section of a level.
 
 ## Transactional edits: what they fix now, before any second worker exists (owner question, 2026-11-11)
 
@@ -85,7 +85,7 @@ several workers) sit on. It is built: see "As built" below.
 
 ## As built (2026-11-12): one design for the canvas, folded views and forked sections
 
-The three documents (this one, `FOLDED_VIEWS.md`, `WORK_GRAPH.md` section 23) describe one mechanism, and it is built as one: **a file is a revisioned document of
+The three documents (this one, "Folded views" below, [WORK_GRAPH.md](https://github.com/CraigHutchinson/Sub0Squad/blob/96a17c925fb82feff086fc5106bc0a79915be3e8/docs/WORK_GRAPH.md) (archived) section 23) describe one mechanism, and it is built as one: **a file is a revisioned document of
 sections; a view is a rendering of a revision; a reply is a transaction on it; a fork is several workers each owning one section of the same document.**
 Three **executors** run an item (`WorkflowSpec.executor`, `--executor session|canvas|fork`; a workflow option and a scenario option; `replay --fork` runs the fork executor on one node):
 
@@ -107,7 +107,7 @@ Three **executors** run an item (`WorkflowSpec.executor`, `--executor session|ca
    scratch copy. A failure refuses the transaction and returns the located error in the same turn. The first three refusals of an attempt cost no repair turn.
 5. A commit is a new revision (kept on disk: `attempt-N/canvas/<file>.rK`, log in `canvas.json` with who changed which lines), then the item's tests run.
 6. **A commit that makes more tests fail than the best revision is reverted** (as a new revision by `harness`) and the worker is told what its change broke.
-   "Never discard progress" (`WORK_GRAPH.md` section 22) is now a property of the document, not of the prompt.
+   "Never discard progress" ([WORK_GRAPH.md](https://github.com/CraigHutchinson/Sub0Squad/blob/96a17c925fb82feff086fc5106bc0a79915be3e8/docs/WORK_GRAPH.md) (archived) section 22) is now a property of the document, not of the prompt.
 7. **Reads are bounded:** two read-only replies are answered free; from the third each costs a turn; the answer to the second says the next reply must be an
    edit. A read that names only a path returns the outline (every body folded), never the file.
 8. **Turn control** (rows 34 to 36): the reply is judged while it streams (`detectRunaway`: a SEARCH block over 40 lines, the same line 10 times or a short
@@ -258,7 +258,7 @@ section and whether a section's second reply differs from its first.
 * **Two insertions after the same line keep the order they were given in.** The model-based test found the applier's sort was unstable for that case; it is stable now.
 * **A fork's ownership check is the first claim.** Slice 1's `claimed` / `released` decisions are not built; within one fork attempt the coordinator holds the map
   section to owner, which is enough to refuse an edit outside a section and name the holder. Journaled claims are needed only when sections outlive an attempt.
-* **Fork sessions are fresh, small conversations, including the integration round.** `WORK_GRAPH.md` 23 continued each fork's own conversation on failure; that
+* **Fork sessions are fresh, small conversations, including the integration round.** [WORK_GRAPH.md](https://github.com/CraigHutchinson/Sub0Squad/blob/96a17c925fb82feff086fc5106bc0a79915be3e8/docs/WORK_GRAPH.md) (archived) 23 continued each fork's own conversation on failure; that
   grows a context per round and shows a stale skeleton. A round now shows the current revision with the owner's function open: the same view rule as the canvas.
 * **Challenged and changed: "wire the canvas, keep the session loop as legacy".** Both are executors of one registry of three; the session loop is the baseline that
   block 3 and block 5 are compared against with the same seeds, not a deprecated path. It becomes removable when the canvas reaches the block 3 bar on a real model.
@@ -277,6 +277,26 @@ section and whether a section's second reply differs from its first.
 * The fork executor inside a workflow (`llm-fork --agent-exit 1` as the agent job) is NOT tested: `llm-fork` itself is (`test_fork`), a
   workflow that uses it through the daemon is not.
 * Claims across attempts, notes, presence, the portal pane (slices 1 to 4).
+
+## Folded views and read requests
+
+A small model has a small window (8,192 tokens per slot here) and cannot patch what it cannot see. The first 35B C++ run showed both failures: a draft cut
+off mid-file made the model rewrite 340 lines, and the whole file spends the window on code the fix does not touch. Owner direction (2026-11-11): show the
+structure and let the worker ask for the lines it needs, like an editor that folds braced regions. Built in `src/outline.cpp`, used by all three executors.
+
+* **Prior art taken:** Aider's repository map (an outline of definitions within a token budget); SWE-agent's interface (a small window and an explicit request
+  to move it; a limited, readable interface beat raw file access); Agentless localisation (file, then function, then lines, edit last); editors' folding and
+  LSP document symbols.
+* `foldRegions`: function-like blocks by braces (C++, JavaScript) or indentation (Python); namespaces and classes stay open so members show.
+* `foldedView`: the file numbered (`  12| code`), whole when it fits, otherwise each body collapsed to `... (41 lines folded: 7-47; name)`. Regions holding a
+  line the gate named stay open, nearest first, while the budget allows. `sectionView` folds everything but the named functions (a fork's integration view).
+* **READ requests:** `=== READ: path LINES a-b ===` or `=== READ: path SYMBOL name ===`, at most 160 lines each. Bounded since catalogue row 36: the first two
+  read-only replies of an attempt are free, from the third each costs a turn, and the answer to the second says the next reply must be an edit. A read naming
+  only the path returns the outline, never the whole file.
+* **Next:** a cross-file outline (the signatures of the files a card includes, for interface mismatches like rows 25 and 28); a `=== SEARCH: text ===` request;
+  measure tokens per attempt, rewrite share, reads per attempt and pass rate with and without folding (`sub0squad replay`).
+* **Limits:** fold detection is heuristic. Macros or odd formatting can show the wrong lines, which costs a read, never correctness (edits apply to the real
+  text). A tree-sitter outline is the upgrade if a platform needs it.
 
 ## Open questions
 

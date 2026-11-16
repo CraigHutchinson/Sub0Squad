@@ -1,6 +1,6 @@
 # Context and planning: who holds the whole picture, and how agents pull what they need
 
-Status: design and hypotheses, 2026-11-15 (owner direction). Nothing here is built except where a row says so. It is the thinking behind the experiments of `docs/CAMPAIGN.md` and uses the measures of `docs/METRICS.md`.
+Status: design and hypotheses, 2026-11-15 (owner direction). Nothing here is built except where a row says so. It is the thinking behind the experiments of [EXPERIMENTS.md](EXPERIMENTS.md) and uses the measures of `docs/METRICS.md`.
 
 ## 1. The hypothesis
 
@@ -27,7 +27,7 @@ role that holds the whole picture and a defined way to consolidate it when anyth
 
 ## 3. The project knowledge base, in levels
 
-All project knowledge lives in one layered store (the same structure as the knowledge register of `docs/WORK_GRAPH.md` section 19, scoped to a project), addressable by level so that an agent pulls only as deep as it needs:
+All project knowledge lives in one layered store (the same structure as the knowledge register of [WORK_GRAPH.md](https://github.com/CraigHutchinson/Sub0Squad/blob/96a17c925fb82feff086fc5106bc0a79915be3e8/docs/WORK_GRAPH.md) (archived) section 19, scoped to a project), addressable by level so that an agent pulls only as deep as it needs:
 
 | level | what it holds | who writes it | machine-checkable? |
 |---|---|---|---|
@@ -82,10 +82,10 @@ Context is a set of knobs, each worth an A/B:
 | view of code | whole / folded with reads |
 | keeper | rule-based / the model (35B) / a stronger model when allowed (never frontier without the owner's switch) |
 
-**Method.** (1) The campaign (`docs/CAMPAIGN.md`) gives the baseline: many seeds of today's configuration, with the failure classes. (2) Failing cases become **scenarios** (`docs/SCENARIOS.md`): the exact failing item with its recorded state, so an arm can be tried on it in minutes with the same seeds and the confidence rule of `scenario compare`.
+**Method.** (1) The campaign ([EXPERIMENTS.md](EXPERIMENTS.md)) gives the baseline: many seeds of today's configuration, with the failure classes. (2) Failing cases become **scenarios** (`docs/SCENARIOS.md`): the exact failing item with its recorded state, so an arm can be tried on it in minutes with the same seeds and the confidence rule of `scenario compare`.
 (3) Promising arms are run as whole campaigns (20 seeds) and compared on the KPIs of `docs/METRICS.md`: first-pass rate, oracle pass rate, tokens per quality point, convergence and thrash, plus the context-specific ones below. (4) The plan-quality question is tested directly by running the **planner** (a model planning from the bare prompt, with and without the pull and pushback machinery) against the hand-written blueprint as the control, judged by the same downstream outcomes.
 
-**Context-specific measures.** Context tokens provided against pulled (what was needed vs offered); questions asked, and the **useful-question rate** (a question that changed the work or avoided an error, judged by whether the answered attempt passed where the same seed without it failed); concerns raised, accepted, rejected, and the outcome after each; stale items created by amendments and the tokens to repair them; plan-defect rate (failures whose first cause is in L1 to L3, from the failure taxonomy of `docs/CAMPAIGN.md`).
+**Context-specific measures.** Context tokens provided against pulled (what was needed vs offered); questions asked, and the **useful-question rate** (a question that changed the work or avoided an error, judged by whether the answered attempt passed where the same seed without it failed); concerns raised, accepted, rejected, and the outcome after each; stale items created by amendments and the tokens to repair them; plan-defect rate (failures whose first cause is in L1 to L3, from the failure taxonomy of [EXPERIMENTS.md](EXPERIMENTS.md)).
 
 ## 7. Risks and what would change our mind
 
@@ -97,10 +97,10 @@ Context is a set of knobs, each worth an A/B:
 
 ## 8. Build order
 
-1. The campaign driver and the failure taxonomy (`docs/CAMPAIGN.md`): the baseline and the evidence.
+1. The campaign driver and the failure taxonomy ([EXPERIMENTS.md](EXPERIMENTS.md)): the baseline and the evidence.
 2. The metrics accounting (`docs/METRICS.md` slice 0), so context and token measures are trustworthy.
 3. `CONTEXT` pull requests over the existing knowledge-register files and recall (levels L0 to L5 as a directory layout in the workflow sandbox with an index); L4 and L5 already exist as outlines, reads and traces.
 4. The `CONCERN` channel: request kind, keeper job (rule-based first), answer delivery, the L3 change log.
 5. Consolidation on change: regenerate derivable context, mark dependents stale (needs `Plan::extended` and the contract amendment of `docs/PROCESS_DESIGN.md`).
 6. The spec-check turn and the thin card as selectable context modes; then the A/B campaigns.
-7. The project knowledge base as the **sandbox knowledge store** project (`docs/KNOWLEDGE_STORE_SCOPE.md`) is the test-bed for the storage layer itself; it stays a separate sandbox project, comparable to this component, until a decision is made to adopt it.
+7. The project knowledge base as the **sandbox knowledge store** project ([KNOWLEDGE_STORE_SCOPE.md](https://github.com/CraigHutchinson/Sub0Squad/blob/96a17c925fb82feff086fc5106bc0a79915be3e8/docs/KNOWLEDGE_STORE_SCOPE.md) (archived)) is the test-bed for the storage layer itself; it stays a separate sandbox project, comparable to this component, until a decision is made to adopt it.

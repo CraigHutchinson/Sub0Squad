@@ -1,7 +1,7 @@
 # Block proving grounds: isolated base concepts that build up to the whole
 
 Status: design, 2026-11-12 (owner direction: parallelism and throughput are a core principle, satisfied by folding, forks and the canvas; each is a base building block with its
-own proving ground, among other isolated concepts that build up to the whole). Complements `docs/BUILDING_BLOCKS.md` (the order of work), `docs/SCENARIOS.md` (the per-element
+own proving ground, among other isolated concepts that build up to the whole). Complements [BUILDING_BLOCKS.md](https://github.com/CraigHutchinson/Sub0Squad/blob/96a17c925fb82feff086fc5106bc0a79915be3e8/docs/BUILDING_BLOCKS.md) (archived) (the order of work), `docs/SCENARIOS.md` (the per-element
 capability suite) and `docs/CANVAS.md`. Updated 2026-11-12 by the Fable iteration: the model-free proving grounds of blocks 1, 4, 5 and 6 and the `block` command are built
 (section "Built without a model"); nothing below has a real-model result yet (section "Real-model measurements" holds the commands).
 
@@ -34,7 +34,7 @@ Each block names its concept, the isolated fixture, the trusted judge, the metri
 | 9 | **Decision policy and the ladder**: widen before retrying, early abort, bounds | recorded failure sequences replayed through the policy | each failure signature leads to its intended rung (golden decisions); no rung is entered twice | 1, 2 | policy unit tests built; golden logs recorded: `tests/data/actions/*.ndjson` hold every decision (with its inputs and reasons) of every engine scenario, compared byte for byte by `test_workflow`, including the mend decisions (`mend-*`). Not yet: recorded failure sequences of REAL runs replayed through the policy |
 | 10 | **Process as data**: stages, executors, the standard process equal to the legacy engine | golden action logs of the legacy engine | the standard process reproduces the goldens exactly | 9 | built as stages as data and proven by ctest (`test_predicate`, `test_process`, `test_workflow`; `PROCESS_DESIGN.md` section 13) |
 | 11 | **The whole on a platform**: the calculator end to end | the plan on a platform, frontier off, the 35B | zero manual mends over 3 runs in a row; per-item numbers recorded | 3 to 10 | first runs in progress (`w-000002`), not passing |
-| 12 | **The whole at scale**: the knowledge store | the slices of `KNOWLEDGE_STORE_SCOPE.md` | the slice gates and properties | 11 | designed |
+| 12 | **The whole at scale**: the knowledge store | the slices of [KNOWLEDGE_STORE_SCOPE.md](https://github.com/CraigHutchinson/Sub0Squad/blob/96a17c925fb82feff086fc5106bc0a79915be3e8/docs/KNOWLEDGE_STORE_SCOPE.md) (archived) | the slice gates and properties | 11 | designed |
 
 ## The parallel-sections proving ground (block 6) in detail
 
@@ -109,7 +109,7 @@ Run one at a time, with the engine otherwise idle, and archive each `--out` dire
    speed while the aggregate is above it; if every call still decodes at the single-sequence speed, the sessions are queueing again. (`idleShare` is
    measured from client spans and cannot show this.)
 4. **The whole on a platform with sections** (block 11): `sub0squad up --frontier off`, then
-   `sub0squad do "write a calculator in C++" --agent llm --engine ENGINE --executor fork --max-tokens 1500`.
+   `sub0squad do "write a scientific calculator in C++" --agent llm --engine ENGINE --executor fork --max-tokens 1500`.
 
 ## How the blocks are used
 

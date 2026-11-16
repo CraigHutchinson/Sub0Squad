@@ -55,10 +55,19 @@ Boost 1.92.0 to be pinned when first used. Bump deliberately, one dependency per
 ## Tests and benchmarks
 
 ```sh
-cmake --build out/build/dev && ctest --test-dir out/build/dev --output-on-failure     # 9 tests, about 65 s
+cmake --build out/build/dev && ctest --test-dir out/build/dev --output-on-failure     # about 50 tests, 6 to 12 minutes at -j1 under a process cap (STATUS.md section 3)
 cmake --build out/build/dev --target Sub0Squad_Bench_check                             # sub0perf: judge against perf/baselines/crogbuntu1.json
 cmake --build out/build/dev --target Sub0Squad_Bench_baseline                          # only with a reason, once a baseline exists
 ```
 End-to-end tests start a real daemon and the real CLI under `SUB0SQUAD_HOME` inside the build tree. Run timing targets alone on a
 quiet machine. sub0perf git hooks and the after-build check are **off** by default (`SUB0MATH_PERF_GIT_HOOKS`,
 `SUB0MATH_PERF_ON_BUILD`); an existing build directory keeps the values it cached, so pass them with `-D` there.
+
+## A Windows host (WSL)
+
+The project builds on Linux only. On Windows, build inside WSL (Ubuntu 24.04 with GCC 15 or clang, Ninja, CMake): clone inside WSL, or sync a Windows
+checkout into a WSL directory, never build on `/mnt/c` or `/mnt/d` directly (slow, and the tests create Unix sockets). `.gitattributes` makes every text file
+LF on checkout; a working tree made before it, or with `core.autocrlf=true`, still has CRLF files: the configure fails (`cmake/git-semver.sh`) and the golden
+tests fail byte for byte. Convert them in the copy (`grep -rlIZ $'\r' . | xargs -0 sed -i 's/\r$//'`) or re-checkout. If the first configure failed, delete
+the empty `$CPM_SOURCE_CACHE/version.cmake` it left. GCC is supported: two flow-based GCC diagnostics in third-party and generated code are warnings rather than
+errors (`CMakeLists.txt`).
