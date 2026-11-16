@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <cerrno>
+#include <charconv>
 #include <cstring>
 #include <thread>
 
@@ -51,12 +52,39 @@ struct SpawnSetup
     SpawnSetup& operator=(const SpawnSetup&) = delete;
 };
 
+/// One pipe, both ends close-on-exec, the write end lifted to 10 or above so a dup2 onto 1, 2 or 3 never meets itself (a dup2 onto the same
+/// number would keep close-on-exec). Closes what it holds.
+struct ChildPipe
+{
+    int read = -1, write = -1;
+    ChildPipe() = default;
+    ChildPipe(const ChildPipe&) = delete;
+    ChildPipe& operator=(const ChildPipe&) = delete;
+    ~ChildPipe() { closeWrite(); if (read >= 0) ::close(read); }
+    bool open()
+    {
+        int fds[2];
+        if (::pipe2(fds, O_CLOEXEC) != 0) return false;
+        read = fds[0];
+        write = ::fcntl(fds[1], F_DUPFD_CLOEXEC, 10);
+        ::close(fds[1]);
+        return write >= 0;
+    }
+    void closeWrite() { if (write >= 0) ::close(write); write = -1; }
+    Pipe takeRead() { const int r = read; read = -1; return r >= 0 ? Pipe{r} : Pipe{}; }
+};
+
 /// Starts `spec`; when `captureFd` is a descriptor, stdout (and stderr when `captureStderr`) are connected to it instead of spec.outputFile.
 std::expected<Child, PlatformError> start(const ProcessSpec& spec, int captureFd, bool captureStderr)
 {
     if (spec.argv.empty() || spec.argv.front().empty()) return std::unexpected(PlatformError{"start a process", EINVAL, "cannot start a process: no program was named"});
     const std::string program = spec.argv.front();
     const std::string what = "start '" + program + "'" + (spec.cwd.empty() ? std::string{} : " in " + spec.cwd.string());
+    if (spec.pipeOutput && (captureFd >= 0 || !spec.outputFile.empty()))
+        return std::unexpected(PlatformError{what, EINVAL, "cannot " + what + ": piped output with an output file or capture"});
+    ChildPipe outPipe, errPipe, eventPipe;
+    if (spec.pipeOutput && (!outPipe.open() || !errPipe.open())) return std::unexpected(errorOf("create the output pipes for " + what, errno));
+    if (!spec.eventPipeVariable.empty() && !eventPipe.open()) return std::unexpected(errorOf("create the event pipe for " + what, errno));
     SpawnSetup s;
     if (!spec.cwd.empty() && posix_spawn_file_actions_addchdir_np(&s.actions, spec.cwd.c_str()) != 0) return std::unexpected(errorOf(what, errno));
     if (spec.nullInput) posix_spawn_file_actions_addopen(&s.actions, 0, "/dev/null", O_RDONLY, 0);
@@ -64,12 +92,18 @@ std::expected<Child, PlatformError> start(const ProcessSpec& spec, int captureFd
         posix_spawn_file_actions_adddup2(&s.actions, captureFd, 1);
         if (captureStderr) posix_spawn_file_actions_adddup2(&s.actions, captureFd, 2);
     }
+    else if (spec.pipeOutput) {
+        posix_spawn_file_actions_adddup2(&s.actions, outPipe.write, 1);
+        posix_spawn_file_actions_adddup2(&s.actions, errPipe.write, 2);
+    }
     else if (!spec.outputFile.empty()) {
         const int flags = O_WRONLY | O_CREAT | (spec.appendOutput ? O_APPEND : O_TRUNC);
         posix_spawn_file_actions_addopen(&s.actions, 1, spec.outputFile.c_str(), flags, static_cast<mode_t>(spec.outputPerms));
         posix_spawn_file_actions_adddup2(&s.actions, 1, 2);
     }
-    posix_spawn_file_actions_addclosefrom_np(&s.actions, 3);   // only the standard streams cross: no pipe, socket or lock of ours leaks into a child
+    // Only the standard streams cross (and the event pipe, as descriptor 3): no pipe, socket or lock of ours leaks into a child.
+    if (eventPipe.write >= 0) posix_spawn_file_actions_adddup2(&s.actions, eventPipe.write, 3);
+    posix_spawn_file_actions_addclosefrom_np(&s.actions, eventPipe.write >= 0 ? 4 : 3);
 
     // A clean start: no blocked signals (the daemon blocks some for its own loop) and default SIGPIPE (an ignored one survives exec).
     sigset_t none, defaults;
@@ -86,14 +120,94 @@ std::expected<Child, PlatformError> start(const ProcessSpec& spec, int captureFd
     argv.reserve(spec.argv.size() + 1);
     for (const auto& a : spec.argv) argv.push_back(const_cast<char*>(a.c_str()));
     argv.push_back(nullptr);
+    std::vector<std::string> envStrings;
+    if (spec.environment) envStrings = *spec.environment;
+    else for (char** e = environ; *e; ++e) envStrings.emplace_back(*e);
+    if (!spec.eventPipeVariable.empty()) {
+        std::erase_if(envStrings, [&](const std::string& e) { return e.starts_with(spec.eventPipeVariable + "="); });
+        envStrings.push_back(spec.eventPipeVariable + "=3");
+    }
+    std::vector<char*> envp;
+    envp.reserve(envStrings.size() + 1);
+    for (auto& e : envStrings) envp.push_back(e.data());
+    envp.push_back(nullptr);
     pid_t pid = 0;
-    if (const int rc = posix_spawnp(&pid, program.c_str(), &s.actions, &s.attr, argv.data(), environ); rc != 0) return std::unexpected(errorOf(what, rc));
-    return Child{pid, spec.newSession};
+    if (const int rc = posix_spawnp(&pid, program.c_str(), &s.actions, &s.attr, argv.data(), envp.data()); rc != 0) return std::unexpected(errorOf(what, rc));
+    // Raising oom_score_adj needs no privilege. Set from here, just after the start: posix_spawn runs no code of ours in the child.
+    if (spec.memoryVictimScore > 0)
+        if (const int fd = ::open(("/proc/" + std::to_string(pid) + "/oom_score_adj").c_str(), O_WRONLY | O_CLOEXEC); fd >= 0) {
+            const std::string v = std::to_string(std::min(spec.memoryVictimScore, 1000));
+            (void)!::write(fd, v.data(), v.size());
+            ::close(fd);
+        }
+    Child child{pid, spec.newSession};
+    outPipe.closeWrite();   // the child holds its own copies: each pipe ends when every writer is gone
+    errPipe.closeWrite();
+    eventPipe.closeWrite();
+    child.attachPipes(outPipe.takeRead(), errPipe.takeRead(), eventPipe.takeRead());
+    return child;
 }
 
 }  // namespace
 
-Child::Child(Child&& o) noexcept : id_(o.id_), leadsGroup_(o.leadsGroup_), status_(o.status_), handle_(o.handle_), group_(o.group_), endedBy_(o.endedBy_) { o.id_ = 0; }
+Pipe& Pipe::operator=(Pipe&& o) noexcept
+{
+    if (this != &o) {
+        if (native_ != -1) ::close(static_cast<int>(native_));
+        native_ = o.native_;
+        o.native_ = -1;
+    }
+    return *this;
+}
+
+Pipe::~Pipe()
+{
+    if (native_ != -1) ::close(static_cast<int>(native_));
+}
+
+std::expected<std::optional<std::size_t>, PlatformError> Pipe::readSome(char* buffer, std::size_t size, std::optional<std::chrono::milliseconds> timeout)
+{
+    if (native_ == -1) return std::unexpected(PlatformError{"read", EBADF, "cannot read: the pipe is not open"});
+    const int fd = static_cast<int>(native_);
+    const auto deadline = timeout ? std::optional{Clock::now() + *timeout} : std::nullopt;
+    for (;;) {
+        int ms = -1;
+        if (deadline) ms = static_cast<int>(std::clamp<long long>(std::chrono::duration_cast<std::chrono::milliseconds>(*deadline - Clock::now()).count(), 0, 1 << 30));
+        pollfd p{fd, POLLIN, 0};
+        const int ready = ::poll(&p, 1, ms);
+        if (ready < 0 && errno == EINTR) continue;
+        if (ready < 0) return std::unexpected(errorOf("wait on a pipe", errno));
+        if (ready == 0) return std::optional<std::size_t>{};
+        const ssize_t n = ::read(fd, buffer, size);
+        if (n >= 0) return std::optional<std::size_t>{static_cast<std::size_t>(n)};
+        if (errno != EINTR && errno != EAGAIN) return std::unexpected(errorOf("read a pipe", errno));
+    }
+}
+
+std::expected<void, PlatformError> writeToInherited(std::string_view handleText, std::string_view data)
+{
+    int fd = -1;
+    const auto [end, ec] = std::from_chars(handleText.data(), handleText.data() + handleText.size(), fd);
+    if (ec != std::errc{} || end != handleText.data() + handleText.size() || fd < 0)
+        return std::unexpected(PlatformError{"write to an inherited pipe", EBADF, "cannot write to an inherited pipe: '" + std::string{handleText} + "' names none"});
+    const char* p = data.data();
+    std::size_t left = data.size();
+    while (left > 0) {
+        const ssize_t n = ::write(fd, p, left);
+        if (n < 0 && errno == EINTR) continue;
+        if (n <= 0) return std::unexpected(errorOf("write to an inherited pipe", n < 0 ? errno : EPIPE));
+        p += n;
+        left -= static_cast<std::size_t>(n);
+    }
+    return {};
+}
+
+Child::Child(Child&& o) noexcept
+    : id_(o.id_), leadsGroup_(o.leadsGroup_), status_(o.status_), handle_(o.handle_), group_(o.group_), endedBy_(o.endedBy_), stdout_(std::move(o.stdout_)),
+      stderr_(std::move(o.stderr_)), events_(std::move(o.events_))
+{
+    o.id_ = 0;
+}
 
 Child::~Child() = default;
 
@@ -106,9 +220,27 @@ Child& Child::operator=(Child&& o) noexcept
         handle_ = o.handle_;   // unused on POSIX: a pid is the whole handle
         group_ = o.group_;
         endedBy_ = o.endedBy_;
+        stdout_ = std::move(o.stdout_);
+        stderr_ = std::move(o.stderr_);
+        events_ = std::move(o.events_);
         o.id_ = 0;
     }
     return *this;
+}
+
+void Child::attachPipes(Pipe out, Pipe err, Pipe events)
+{
+    stdout_ = std::move(out);
+    stderr_ = std::move(err);
+    events_ = std::move(events);
+}
+
+void Child::reapOrphans()
+{
+    int raw = 0;
+    pid_t p;
+    while ((p = ::waitpid(-1, &raw, WNOHANG)) > 0 || (p < 0 && errno == EINTR))
+        if (p == static_cast<pid_t>(id_) && !status_) status_ = statusOf(raw);
 }
 
 std::optional<ExitStatus> Child::wait(std::optional<std::chrono::milliseconds> timeout)
@@ -136,13 +268,13 @@ std::optional<ExitStatus> Child::wait(std::optional<std::chrono::milliseconds> t
 
 bool Child::terminate()
 {
-    if (status_ || id_ <= 0) return false;
+    if (id_ <= 0 || (status_ && !leadsGroup_)) return false;   // a group may outlive its reaped leader
     return ::kill(static_cast<pid_t>(leadsGroup_ ? -id_ : id_), SIGTERM) == 0;
 }
 
 bool Child::kill()
 {
-    if (status_ || id_ <= 0) return false;
+    if (id_ <= 0 || (status_ && !leadsGroup_)) return false;   // a group may outlive its reaped leader
     return ::kill(static_cast<pid_t>(leadsGroup_ ? -id_ : id_), SIGKILL) == 0;
 }
 

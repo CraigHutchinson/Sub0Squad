@@ -36,11 +36,13 @@ public:
     [[nodiscard]] bool isOpen() const { return socket_ != -1; }
     /// Write all of `data`, waiting while the peer's buffer is full. An error when the peer has gone.
     [[nodiscard]] std::expected<void, PlatformError> writeAll(std::string_view data);
+    /// Write as much of `data` as fits now, never waiting: the number of bytes written, 0 when the peer's buffer is full.
+    [[nodiscard]] std::expected<std::size_t, PlatformError> writeSome(std::string_view data);
     /// Read what is available, waiting up to `timeout` (none: as long as it takes; zero: not at all). nullopt when nothing came in time;
     /// 0 when the peer closed its end.
     [[nodiscard]] std::expected<std::optional<std::size_t>, PlatformError> readSome(char* buffer, std::size_t size,
                                                                                     std::optional<std::chrono::milliseconds> timeout = std::nullopt);
-    /// The native socket, still owned here (for a loop that waits on native handles: the daemon's, until slice 5).
+    /// The native socket, still owned here (to watch it with a platform_wait Waiter).
     [[nodiscard]] NativeSocket native() const { return socket_; }
     /// Give up ownership: the caller closes the returned socket (with closeSocket).
     [[nodiscard]] NativeSocket release() { const NativeSocket s = socket_; socket_ = -1; return s; }

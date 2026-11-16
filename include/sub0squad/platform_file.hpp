@@ -21,8 +21,9 @@ namespace sub0squad::platform {
 
 /// Replace `path` with `text`, creating its parent directories.
 [[nodiscard]] std::expected<void, PlatformError> writeFile(const std::filesystem::path& path, std::string_view text);
-/// Like writeFile, but through a sibling temporary file and a rename: a reader sees the old content or the new, never half of it.
-[[nodiscard]] std::expected<void, PlatformError> writeFileAtomic(const std::filesystem::path& path, std::string_view text);
+/// Like writeFile, but through a sibling temporary file and a rename: a reader sees the old content or the new, never half of it. `durable`: the
+/// temporary file is flushed to the device before the rename, so after a crash the file holds the old content or the whole new one.
+[[nodiscard]] std::expected<void, PlatformError> writeFileAtomic(const std::filesystem::path& path, std::string_view text, bool durable = false);
 
 /// Seconds since the epoch of the last change to `path`; nullopt when it does not exist.
 [[nodiscard]] std::optional<double> modifiedSeconds(const std::filesystem::path& path);

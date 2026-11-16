@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstdio>
 #include <cstdlib>
 #include <map>
 #include <set>
@@ -67,6 +68,18 @@ bool isAlive(ProcessId id, std::uint64_t expectedStart)
     if (!h.valid()) return false;
     const auto start = created(h.get());
     return start && *start == expectedStart && running(h.get());
+}
+
+std::vector<ProcessId> allProcesses()
+{
+    std::vector<ProcessId> out;
+    const Handle snap{::CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0)};
+    if (!snap.valid()) return out;
+    PROCESSENTRY32W e{};
+    e.dwSize = sizeof e;
+    for (BOOL ok = ::Process32FirstW(snap.get(), &e); ok; ok = ::Process32NextW(snap.get(), &e))
+        if (e.th32ProcessID != 0) out.push_back(static_cast<ProcessId>(e.th32ProcessID));
+    return out;
 }
 
 std::vector<ProcessId> descendants(ProcessId root)
@@ -136,9 +149,31 @@ std::optional<std::vector<std::string>> commandLine(ProcessId id)
 
 bool terminateProcess(ProcessId id)
 {
-    // Not graceful (Windows has no SIGTERM): the process ends at once with the code a shell gives SIGTERM.
+    // Windows has no SIGTERM. A process that watches for stop requests (platform_wait) made a named event: set it, and it ends itself in order.
+    // Otherwise it ends at once, with the code a shell gives SIGTERM.
+    if (id > 0) {
+        const Handle stop{::OpenEventW(EVENT_MODIFY_STATE, FALSE, win32::stopEventName(id).c_str())};
+        if (stop.valid() && ::SetEvent(stop.get())) return true;
+    }
     const Handle h = openProcess(id, PROCESS_TERMINATE);
     return h.valid() && ::TerminateProcess(h.get(), 128 + 15);
+}
+
+bool killProcess(ProcessId id)
+{
+    const Handle h = openProcess(id, PROCESS_TERMINATE);
+    return h.valid() && ::TerminateProcess(h.get(), 128 + 9);
+}
+
+void becomeSubreaper() {}      // a job object holds a tree on Windows (platform_process: a new session gets one)
+void ignoreBrokenPipes() {}    // a write to a broken pipe is already an error, never a signal
+void ignoreStopRequests() { ::SetConsoleCtrlHandler(nullptr, TRUE); }   // Ctrl+C; terminateProcess without a stop event cannot be ignored
+void setProcessName(const std::string&) {}
+void crash()
+{
+    std::fflush(nullptr);
+    ::TerminateProcess(::GetCurrentProcess(), 0xC0000005u);   // what an access violation leaves as the exit code
+    std::abort();
 }
 
 namespace {

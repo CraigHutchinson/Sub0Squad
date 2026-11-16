@@ -91,6 +91,18 @@ std::expected<void, PlatformError> SocketStream::writeAll(std::string_view data)
     return {};
 }
 
+std::expected<std::size_t, PlatformError> SocketStream::writeSome(std::string_view data)
+{
+    if (socket_ == -1) return std::unexpected(PlatformError{"write", EBADF, "cannot write: the socket is not open"});
+    for (;;) {
+        const ssize_t n = ::send(static_cast<int>(socket_), data.data(), data.size(), MSG_NOSIGNAL);
+        if (n >= 0) return static_cast<std::size_t>(n);
+        if (errno == EINTR) continue;
+        if (errno == EAGAIN || errno == EWOULDBLOCK) return std::size_t{0};
+        return std::unexpected(sysError("write to the socket"));
+    }
+}
+
 std::expected<std::optional<std::size_t>, PlatformError> SocketStream::readSome(char* buffer, std::size_t size, std::optional<std::chrono::milliseconds> timeout)
 {
     if (socket_ == -1) return std::unexpected(PlatformError{"read", EBADF, "cannot read: the socket is not open"});

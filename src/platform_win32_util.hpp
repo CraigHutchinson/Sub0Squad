@@ -14,6 +14,7 @@
 #include <windows.h>
 
 #include "sub0squad/platform_error.hpp"
+#include "sub0squad/platform_process.hpp"
 
 #include <cstdint>
 #include <string>
@@ -110,5 +111,20 @@ private:
 
 /// FILETIME as one 64-bit count of 100 ns intervals.
 [[nodiscard]] inline std::uint64_t ticks(const FILETIME& t) { return (static_cast<std::uint64_t>(t.dwHighDateTime) << 32) | t.dwLowDateTime; }
+
+/// The name of the event a process that watches for stop requests (platform_wait) creates, and terminateProcess sets: Windows has no SIGTERM.
+[[nodiscard]] inline std::wstring stopEventName(std::int64_t pid) { return L"Local\\sub0squad-stop-" + std::to_wstring(pid); }
+
+/// How a process ended, from its exit code: a crash status of the system becomes the nearest signal, so callers that classify crashes keep working.
+[[nodiscard]] inline ExitStatus exitStatusOf(DWORD code)
+{
+    if (code < 0xC0000000u) return ExitStatus{static_cast<int>(code), 0};
+    switch (code) {
+    case 0xC0000005u: return ExitStatus{-1, 11};   // access violation: SIGSEGV
+    case 0xC000008Eu: case 0xC0000090u: case 0xC0000094u: return ExitStatus{-1, 8};   // divide by zero, float: SIGFPE
+    case 0xC000013Au: return ExitStatus{-1, 2};    // Ctrl+C: SIGINT
+    default: return ExitStatus{-1, 6};             // stack overrun, abort and the rest: SIGABRT
+    }
+}
 
 }  // namespace sub0squad::platform::win32

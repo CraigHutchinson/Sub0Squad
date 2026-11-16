@@ -2,7 +2,7 @@
 # the build (CMakeLists.txt makes one static library per list). A stem is a `src/<stem>.cpp`, an `include/sub0squad/<stem>.hpp`, or both.
 # `platform` is the only layer that talks to the operating system (docs/PLATFORM.md); it uses nothing else of ours, which its link proof checks.
 set(SUB0SQUAD_LAYER_NAMES platform kernel runtime domain harnesses agents orchestration presentation)
-set(LAYER0 platform_error platform_process platform_proc platform_host platform_file platform_net platform_ipc)
+set(LAYER0 platform_error platform_process platform_proc platform_host platform_file platform_net platform_ipc platform_wait)
 set(LAYER1 build_id paths frame journal job_spec job_store progress event_channel host_guard harness)
 set(LAYER2 shim supervisor status mock_worker)
 set(LAYER3 attempt_failure clarify stance engine plan division policy predicate mends contract scenario_compare process plan_lint plan_checks ledger workflow workflow_status overseer briefing recall trace triage edits outline canvas turn_control throughput qa)

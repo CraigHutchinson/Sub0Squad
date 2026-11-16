@@ -72,12 +72,8 @@ if(unmapped)
   list(APPEND bad "files not assigned to a layer: ${unmapped}")
 endif()
 # The platform rule (docs/PLATFORM.md section 2): only the platform library (stems platform_*) includes operating-system headers or reads /proc.
-# The files that still do are listed here; the list may only shrink, exactly like KNOWN_VIOLATIONS. Each entry names the slice that removes it.
-set(KNOWN_SYSTEM_USERS
-  src/cli_jobs.cpp                                                                                                                         # 5: inotify (following a log)
-  src/daemon_impl.hpp src/shim.cpp                                                                                                         # 5: platform_wait (epoll, eventfd, signals, the shim's fork)
-  src/mock_worker.cpp                                                                                                                      # a test program that forks escapees on purpose: may stay
-  )
+# Slice 5 emptied the list of files that still did; it stays as the mechanism, so a new direct use fails here until it moves behind a platform_* interface.
+set(KNOWN_SYSTEM_USERS "")
 set(systemHeader "^#include <((unistd|spawn|poll|signal|fcntl|dirent|termios|pty|netdb|pwd|grp|dlfcn|windows|winsock2|ws2tcpip)\\.h|csignal|(sys|arpa|netinet|linux)/[a-z_0-9]+\\.h)>")
 set(systemUsers "")
 file(GLOB platformScoped "${SRC_DIR}/src/*.cpp" "${SRC_DIR}/src/*.hpp" "${SRC_DIR}/include/sub0squad/*.hpp")

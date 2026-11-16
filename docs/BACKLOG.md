@@ -155,12 +155,12 @@ every role. Needs expectation QA, the routed CONCERN channel and the habit score
 **Platform and CI**
 - The platform library ([PLATFORM.md](PLATFORM.md)): slices 0 to 4 built 2026-11-16 (the system-header check; one process launcher; process identity
   and host facts, `ProcessId` out of the public headers; files, with one copy of the read and write helpers; sockets and the instance lock), each with
-  Windows backends. Next: slice 5 (the daemon's and the shim's wait loops, the log follower, the pidfd watch) when the experiments leave room.
+  Windows backends. Slice 5 (the daemon's and the shim's wait loops, the log follower, the pidfd watch) is done; next is a first native run, which needs the local Sub0Pipeline checkout brought level.
 - `std::format`/`std::print` and `contains`/`starts_with` ([DECISIONS.md](DECISIONS.md) 25): piloted 2026-11-16 on `replay.cpp` and `sandbox.cpp` (the
   specifier mapping checked byte for byte against `printf`, rounding cases included). Left: about 380 `printf`-family calls in 35 files, 28 `snprintf`,
   77 `find(...) != npos`. One layer per change, kernel upward, with the goldens as the guard; a layer is done when `git grep printf` is empty in it.
 - Windows and macOS builds, after the platform library (about 3,000 lines for Windows: [PLATFORM.md](PLATFORM.md) section 6). The platform layer's
-  Windows backends are built and tested natively (MinGW-w64); slice 4 is done the same way; next is slice 5, then the domain layer under MSVC. The HTTP stack on Boost.Beast and Asio
+  Windows backends are built and tested natively (MinGW-w64); slices 4 and 5 are done the same way; next is a first native run, then the domain layer under MSVC. The HTTP stack on Boost.Beast and Asio
   behind the seam ([DECISIONS.md](DECISIONS.md) 18).
 - CI for the squad: build, tests, ASan and UBSan, TSan, clang-tidy, and a GCC job (the GCC build was made clean on 2026-11-16).
 - Split the largest files (`test_workflow.cpp`, `client.cpp`, `portal.cpp`).

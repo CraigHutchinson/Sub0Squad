@@ -12,7 +12,10 @@
 //   env NAME               the variable's value, no line break
 //   held HANDLE PATH       "leaked" if the descriptor (POSIX) or handle (Windows) HANDLE is open here and is the file PATH, else "closed"
 //   tree PIDFILE SELF      start SELF sleep 30000 (a grandchild), write its id to PIDFILE, wait for it
+//   event VAR TEXT         TEXT and a line break to the inherited event pipe the variable VAR names
+//   stoppable MS           watch for stop requests, say "ready", then exit 0 on a request ("stopped" to stdout) or 1 after MS milliseconds
 #include "sub0squad/platform_process.hpp"
+#include "sub0squad/platform_wait.hpp"
 
 #include <chrono>
 #include <csignal>
@@ -111,6 +114,22 @@ int main(int argc, char** argv)
         fs::rename(fs::path(argv[2]).concat(".part"), argv[2]);   // the reader never sees half a number
         (void)c->wait();
         return 0;
+    }
+    if (mode == "event" && argc == 4) {
+        const char* v = std::getenv(argv[2]);
+        if (!v) return 72;
+        return sub0squad::platform::writeToInherited(v, std::string(argv[3]) + "\n") ? 0 : 73;
+    }
+    if (mode == "stoppable" && argc == 3) {
+        auto w = sub0squad::platform::Waiter::create();
+        if (!w || !w->watchStopRequests(7)) return 74;
+        put(stdout, "ready\n");
+        auto events = w->wait(std::chrono::milliseconds(std::atoll(argv[2])));
+        if (events && !events->empty() && events->front().kind == sub0squad::platform::WaitEvent::Kind::stopRequested && events->front().tag == 7) {
+            put(stdout, "stopped\n");
+            return 0;
+        }
+        return 1;
     }
     put(stderr, "platform_child: unknown mode\n");
     return 64;

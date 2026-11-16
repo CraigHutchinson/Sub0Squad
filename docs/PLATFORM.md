@@ -3,19 +3,20 @@
 Status: 2026-11-16. Owner direction: good platform abstractions, first of all to keep a good shape to the code; a native Windows build is the second
 reason, not the first. **Built:** the `platform` layer (layer 0, `cmake/Layers.cmake`, with its `link_platform` proof), the system-header check (slice 0)
 and `platform_process` with its test (slice 1). The launchers of `harness_common`, `host_guard`, `wizard`, `replay`, `first_use` and `supervisor` run on it;
-the shim's own fork waits for slice 5. Slice 2: `platform_proc` and `platform_host`, with tests; `process_tree` is gone, the four `/proc/self/exe` reads
+the shim followed in slice 5. Slice 2: `platform_proc` and `platform_host`, with tests; `process_tree` is gone, the four `/proc/self/exe` reads
 and the two `/proc/meminfo` parsers are one each, and `ProcessId` replaced `pid_t` in the public headers. Slice 3: `platform_file`, with a test; the
 journal, ledger, progress, frames and the event channel use it, and the eleven private copies of `slurp`/`readFile`/`writeFile`/`writeFileAtomic` in
 `src/` are gone (two shared helpers, `harnessutil` and `agent`, forward to it). The tests' one `std::system` now runs through the launcher.
 The 21 text-mode `std::ofstream` writes are gone (onto `writeFile`, `writeFileAtomic` and `appendToFile`, or binary mode for the streamed sinks).
-**Windows backends** (2026-11-16): each built module has a `_win32.cpp` sibling, and the platform layer, its five tests and its link proof
+**Windows backends** (2026-11-16): each built module has a `_win32.cpp` sibling, and the platform layer, its tests and its link proof
 build and pass natively under MinGW-w64 (GCC 16.2, UCRT); the platform tests start a helper of our own (`tests/platform_child.cpp`) instead of `/bin/sh`.
 Slice 4: `platform_net` and `platform_ipc` (one `SocketStream` and one `SocketListener` for TCP and the local socket) and `FileLock`, with POSIX and
 Windows backends and a test; the engine client, the portal, the control client, the port probe, the daemon's lock, listener and peer check, and the
 two socket fixtures of the tests use them, and `unix_socket.*` is gone. `findOnPath` and `isExecutable` joined `platform_proc`.
-**Not yet:** slice 5 (the daemon and shim loops, the log follower, `watchExit`), which is what the rest of the program needs before it builds on
-Windows (section 6). Evidence: a survey of `src/` and `tests/` on that date, checked by an independent review of this
-page against the code; the Windows state is from a native build on that date.
+Slice 5: `platform_wait` (a `Waiter` for sockets, process exits, a wake-up and stop requests), pipes, a replaced environment and the event pipe in
+`platform_process`, with POSIX and Windows backends and a test; the daemon's loop, the shim, the log follower and `mock_worker` use them, and
+`KNOWN_SYSTEM_USERS` is empty: no file outside the platform layer includes an operating-system header. Evidence: a survey of `src/` and `tests/` on that
+date, checked by an independent review of this page against the code; the Windows state is from a native build on that date.
 
 ## 1. Why, before any Windows
 
@@ -41,8 +42,8 @@ code, which is worth doing on Linux alone. Slice 1 also removed headers that fiv
 
 **Only the platform layer includes operating-system headers** (`<unistd.h>`, `<sys/*.h>`, `<signal.h>`, `<poll.h>`, `<spawn.h>`, `<fcntl.h>`,
 `<dirent.h>`, `<arpa/*.h>`, `<netinet/*.h>`, and later `<windows.h>`, `<winsock2.h>`) **or reads `/proc`.** Everything else uses its interfaces. The
-`layering` test checks it (`cmake/CheckLayers.cmake`). The files that still break the rule are listed in `KNOWN_SYSTEM_USERS`, each with the slice that moves
-it. The list may only shrink: a file that stops using the system must be taken off the list, and a file that starts fails the test.
+`layering` test checks it (`cmake/CheckLayers.cmake`). The files that broke the rule were listed in `KNOWN_SYSTEM_USERS`, each with the slice that moved
+it; slice 5 emptied the list. It stays as the mechanism: a file that starts using the system directly fails the test.
 
 ## 3. Shape
 
@@ -64,14 +65,14 @@ it. The list may only shrink: a file that stops using the system must be taken o
 
 | Module | Interface | Replaces | POSIX | Windows |
 |---|---|---|---|---|
-| `platform_process` (**built**) | `ProcessSpec{argv, cwd, outputFile, appendOutput, outputPerms, nullInput, newSession}`; `spawn -> Child`; `Child::wait(timeout)`, `terminate()`, `kill()` (the whole group for a new session); `runCaptured(spec, {timeout, maxBytes, includeStderr}) -> Captured{status, output (the end of it), timedOut, truncated}` | the launchers above; later `std::system` in the tests | `posix_spawnp` with `closefrom`, an empty signal mask and default SIGPIPE; still to come: the shim's pre-exec steps (oom score, parent-death signal) | CreateProcessW; a Job object per group to kill the tree |
-| `platform_proc` (**built**, except `watchExit`) | `selfExecutable()`, `currentProcess()`, `processStart(ProcessId)` and `isAlive(id, start)` (identity against PID reuse), `descendants(ProcessId)`, `commandLine(ProcessId)`, `terminateProcess(ProcessId)`, `setEnvironment`/`unsetEnvironment`; pure `parseProcStat`, `parseCmdline`; later `watchExit(ProcessId)` | `process_tree.cpp`, the four readlinks, `build_id.cpp`, `first_use.cpp`, `pidfd_open` in `daemon_jobs.cpp`, `getpid` in `harness_cpp.cpp`; the tests' lookups by `s0q-` name | `/proc`, pidfd | Toolhelp32 snapshot, process creation time, `QueryFullProcessImageNameW`, a process handle to wait on |
+| `platform_process` (**built**) | `ProcessSpec{argv, cwd, outputFile, appendOutput, outputPerms, nullInput, newSession, environment (replaces), pipeOutput, eventPipeVariable, memoryVictimScore}`; `spawn -> Child`; `Child::wait(timeout)`, `terminate()`, `kill()` (the whole group for a new session, even after its leader ended), `takeStdout/takeStderr/takeEvents -> Pipe{readSome(timeout)}`, `reapOrphans()`; `writeToInherited(handleText, data)` for the event pipe; `runCaptured(spec, {timeout, maxBytes, includeStderr}) -> Captured{status, output (the end of it), timedOut, truncated}` | the launchers above, the shim's fork; later `std::system` in the tests | `posix_spawnp` with `closefrom`, an empty signal mask and default SIGPIPE; the event pipe as descriptor 3; `oom_score_adj` written from the parent just after the start | CreateProcessW with an explicit handle list and a UTF-16 environment block; the event pipe's handle value in the variable; a Job object per group to kill the tree; no out-of-memory preference |
+| `platform_proc` (**built**) | `selfExecutable()`, `currentProcess()`, `processStart(ProcessId)` and `isAlive(id, start)` (identity against PID reuse), `descendants(ProcessId)`, `commandLine(ProcessId)`, `terminateProcess(ProcessId)`, `killProcess(ProcessId)`, `becomeSubreaper()`, `ignoreBrokenPipes()`, `ignoreStopRequests()`, `setProcessName`, `crash()`, `setEnvironment`/`unsetEnvironment`; pure `parseProcStat`, `parseCmdline` | `process_tree.cpp`, the four readlinks, `build_id.cpp`, `first_use.cpp`, `getpid` in `harness_cpp.cpp`, the shim's `prctl` and `mock_worker`'s signals; the tests' lookups by `s0q-` name | `/proc`, `prctl`, signals | Toolhelp32 snapshot, process creation time, `QueryFullProcessImageNameW`; `terminateProcess` sets the target's stop event when it has one (a process that watches for stop requests), else `TerminateProcess` |
 | `platform_host` (**built**) | `memory() -> {totalMiB, availableMiB, swap, commitHeadroomMiB}`, `cpuTimes()`, `loadAverage() -> optional`, `freeDiskMiB(path) -> optional`, `gpu() -> optional`; pure `parseMeminfo`, `parseCpuTimes` | `host_guard.cpp`, `portal_sampler.cpp` | `/proc/meminfo`, `/proc/stat`, `/proc/loadavg`, statvfs, `/sys/class/drm` | `GlobalMemoryStatusEx` (including the commit limit), `GetSystemTimes`, no load average (nullopt), `GetDiskFreeSpaceExW` |
 | `platform_file` (**built**, except the temporary directory) | `readFile`/`readFileText`, `writeFile`, `writeFileAtomic`, `modifiedSeconds`, `AppendFile{open, append, sync, truncate}`, `appendToFile`, `writeAll`/`readSome` on a descriptor; later `FileLock` (with the daemon socket, slice 4) and a temporary directory; the owner-only directory is `std::filesystem::permissions` | `journal.cpp`, `ledger.cpp`, `progress.cpp`, `frame.cpp`, `event_channel.cpp`, `paths.cpp`, `fsync` in `shim.cpp`, `mkdtemp` in `check.hpp` | O_APPEND, fsync, rename, flock, chmod, mkdtemp | FlushFileBuffers, `MoveFileExW(REPLACE_EXISTING, WRITE_THROUGH)` with a retry while a reader holds the file, LockFileEx, an ACL |
 | `platform_net` (**built**) | `SocketStream{writeAll, readSome(timeout) -> nullopt on time out, 0 at the end, native, release}`, `SocketListener{accept(timeout), port, native}`; `connectTcp(host, port)`, `listenLoopback(port)` (127.0.0.1 only; 0 lets the system choose), `waitForConnection(listeners, timeout)`, `loopbackPortInUse(port)` | `engine.cpp`, `portal.cpp`, `first_use.cpp`, `tests/fake_engine.hpp`, `tests/test_stream.cpp` | BSD sockets, non-blocking and close-on-exec, poll, MSG_NOSIGNAL | Winsock 2, non-blocking and not inherited, WSAPoll, SO_EXCLUSIVEADDRUSE (a held port is refused as on POSIX) |
 | `platform_ipc` (**built**) | `listenLocal(path)`, `connectLocal(path) -> SocketStream or {error, noServer}`, `peerIsSameUser(stream)`, `peerUser(stream)` | `unix_socket.cpp` (gone), the socket code in `client.cpp` and `daemon.cpp` | AF_UNIX with the `/proc/self/fd` bind, umask 0177, `SO_PEERCRED` | AF_UNIX (Windows 10 1803 and later), the path in UTF-8 and at most 107 bytes; no peer credentials, so the owner-only state directory is the check |
-| `platform_wait` | `Waiter`: wait on streams, child exits, a timer, a wake-up and a shutdown request together; `FileWatch` for "this log grew" | `daemon_impl.hpp` (epoll, eventfd, signalfd, timerfd), `shim.cpp` (epoll, the subreaper), inotify in `cli_jobs.cpp` | epoll, eventfd, signalfd, timerfd, inotify, `PR_SET_CHILD_SUBREAPER` | an I/O completion port or `WaitForMultipleObjects`, waitable timers, `ReadDirectoryChangesW`, `SetConsoleCtrlHandler`; Job objects stand in for the subreaper |
-| `platform_limits` | in `ProcessSpec`: a process count, a memory cap, an out-of-memory preference | `ulimit` in scripts and tests, `oom_score_adj` in `shim.cpp` | setrlimit, `oom_score_adj`, a cgroup when the service runs in one | Job object limits (active processes, job memory) |
+| `platform_wait` (**built**) | `Waiter{watchSocket(socket, read, write, tag), unwatchSocket, watchExit(id, tag), unwatchExit, watchStopRequests(tag), wake() (any thread), wait(timeout) -> [WaitEvent{kind, tag, readable, writable, hangup, status}]}`; a timer is the wait's timeout. The log follower polls four times a second instead of a change notification | `daemon_impl.hpp` (epoll, eventfd, signalfd, pidfd), `shim.cpp` (epoll, signalfd, timerfd, `waitpid(-1)`), inotify in `cli_jobs.cpp` | epoll, eventfd, a signalfd for SIGTERM and SIGINT (blocked in the calling thread and every thread it starts later), pidfd; an exited child is reaped and its status reported | one event for every socket (`WSAEventSelect`) with `WSAPoll` for the state each wait, `WaitForMultipleObjects` (at most 60 processes), a named stop event (`Local\sub0squad-stop-<pid>`) plus `SetConsoleCtrlHandler`; Job objects stand in for the subreaper |
+| `platform_limits` | in `ProcessSpec`: a process count, a memory cap (the out-of-memory preference is `memoryVictimScore`, slice 5) | `ulimit` in scripts and tests | setrlimit, `oom_score_adj`, a cgroup when the service runs in one | Job object limits (active processes, job memory) |
 
 `cpp_templates.cpp` has `popen` only inside the text of a generated project's helper, not in our code: it belongs to the C++ harness's toolchain profile
 (section 6).
@@ -84,16 +85,22 @@ it. The list may only shrink: a file that stops using the system must be taken o
    streams, a clean signal mask and default SIGPIPE; a program that cannot start is reported by name ("cannot start 'g++'") instead of a silent exit 127; the
    harness keeps the last 512 KiB of output instead of 256 to 512 KiB. Behaviour kept, though worth changing: a harness timeout kills only the direct child,
    so a timed-out build can leave compiler processes behind. Killing the group needs the children in a group of their own, which the shim's own group
-   kill must still reach. Decide that together with the shim in slice 5. Left: the shim's fork (slice 5); `std::system` in `test_scenarios.cpp`.
+   kill must still reach (still open after slice 5). Left: `std::system` in `test_scenarios.cpp`.
 2. **`platform_proc` and `platform_host`** (**done** 2026-11-16): one self path, one memory reader, `ProcessId` out of the public headers. The
-   daemon's pidfd watch (`watchExit`) moved to slice 5: it is a descriptor in the daemon's epoll set and belongs with that loop.
+   daemon's pidfd watch became `Waiter::watchExit` in slice 5, with that loop.
 3. **`platform_file`** (**done** 2026-11-16): durable appends, atomic replaces and whole-file reads in one tested place, binary mode throughout. The 21
-   text-mode writes that would have put CRLF into goldens on Windows are moved onto it. Left: `fsync` in `shim.cpp` (slice 5).
+   text-mode writes that would have put CRLF into goldens on Windows are moved onto it. The shim's `fsync` became `writeFileAtomic(..., durable)` in slice 5.
 4. **`platform_net` and `platform_ipc`** (**done** 2026-11-16, POSIX and Windows together): engine client, portal, control client, port probe, the
    daemon's instance lock (`FileLock`), listener and peer check, and the tests' socket fixtures. The daemon still hands each accepted stream's native
-   socket to its epoll loop (`SocketStream::release`) until slice 5. Behaviour that changed: the portal gives a client 2 s for its whole request
+   socket to its epoll loop (`SocketStream::release`) until slice 5, which keeps the streams. Behaviour that changed: the portal gives a client 2 s for its whole request
    (before: 2 s per read), and its token comes from `std::random_device` instead of `/dev/urandom`.
-5. **`platform_wait`**: the daemon and shim loops, the subreaper, the log follower. This needs the most design, so do it once 1 to 4 have settled.
+5. **`platform_wait`** (**done** 2026-11-16, POSIX and Windows together): the daemon's loop (its listener, clients, shims' exits, posts as wakes, and
+   stop requests), the shim (spawned job with three piped streams, each copied by a thread of its own; its exit, a stop request or the wall time in one
+   `Waiter`; the teardown through `Child` and `killProcess`; `exit.json` and `shim.json` written durably), the log follower, and `mock_worker` (its
+   server and escapee are re-starts of itself, not forks). Behaviour that changed: a job whose program cannot start writes the reason to its
+   `stderr.log` (still exit 127, or 126); the daemon takes its stop requests before its executor threads start, so a SIGTERM can no longer land on
+   one of them and end the process; `logs --follow` looks every 250 ms; the job's oom score is set from the shim just after the start, not before the
+   exec. The harness timeout's group kill (step 1) is still open.
 
 Rough size, POSIX only (library code including tests): slice 1 was about 450 lines; 2 about 300; 3 about 250; 4 about 400; 5 about 600. The call sites
 shrink by a similar amount.
@@ -120,12 +127,14 @@ script has a `cmake/git-semver.cmd` twin). The platform layer has its four Windo
 * `platform_file_win32.cpp`: the C runtime's descriptors in binary, append and no-inherit mode; `_commit` (FlushFileBuffers) for sync, `_chsize_s` to
   truncate, `GetFileAttributesExW` for the modification time.
 
-`platform_net_win32.cpp` and `platform_ipc_win32.cpp` (slice 4) are Winsock 2 and AF_UNIX, and `test_platform_net` passes natively. With them every
-unit of the domain, harness, agent and presentation layers compiles natively, except these, all slice 5: `daemon_impl.hpp` and the four daemon units
-that include it, `shim`, and `cli_jobs` (inotify). `mock_worker` uses POSIX signals and stays a test fixture to port with the shim.
-`tests/m0_graph_growth.cpp` (a fork probe that answered on Linux) is built on POSIX only. `src/sub0squad.cpp` also fails natively, against the local
-Sub0Pipeline checkout that `CPM_Sub0Pipeline_SOURCE` points at on this machine (it lacks `Pipeline::emplaceDeferred`), not against the pinned version;
-nothing of ours to change. Not yet decided: whether the replace-while-read retry (below) belongs in `platform_file` now or with the first Windows run.
+`platform_net_win32.cpp` and `platform_ipc_win32.cpp` (slice 4) are Winsock 2 and AF_UNIX, and `test_platform_net` passes natively.
+`platform_wait_win32.cpp` (slice 5) and the pipes of `platform_process_win32.cpp` pass `test_platform_wait` natively, including a stop request to
+another process through its named event. Every unit of the program now compiles natively. The four daemon units and `src/sub0squad.cpp` fail only
+against the local Sub0Pipeline checkout that `CPM_Sub0Pipeline_SOURCE` points at on this machine (it lacks `Completion` and `Pipeline::emplaceDeferred`);
+compiled against the pinned version (the copy the WSL build fetched), the daemon units compile cleanly. Nothing of ours to change. MinGW needs
+`libstdc++exp` for `std::print`'s console output; CMake links it. `tests/m0_graph_growth.cpp` (a fork probe that answered on Linux) is built on POSIX only.
+Not yet decided: whether the replace-while-read retry (below) belongs in `platform_file` now or with the first Windows run. Not yet run natively: the
+program itself (the daemon, a shim, a job), which needs the Sub0Pipeline checkout brought level first.
 
 * **First milestone: the domain layer and its tests under MSVC or clang-cl.** It is free of the operating system since slice 4, so this checks the C++23
   portability of most of the code cheaply.
@@ -143,13 +152,15 @@ What Windows will not match exactly, and must be designed for:
   detect that and say so.
 * **Replacing a file while it is read.** Rename over a file fails while a reader has it open, and `std::ifstream` opens without delete sharing. The file
   module owns reads as well as writes (sharing flags), or retries.
-* **Graceful stop.** There is no SIGTERM: a polite stop is a message (over the child's pipe or a named event), then `TerminateJobObject`.
+* **Graceful stop.** There is no SIGTERM. Decided in slice 5: a process that watches for stop requests (the daemon, the shim) owns a named event that
+  `terminateProcess` sets; anything else, and a job's group, ends at once (`TerminateProcess`, `TerminateJobObject`). So a cancel reaches the shim
+  politely and the shim tears the job down as on POSIX, but a job's own SIGTERM handler has no Windows counterpart.
 * **Peer credentials** on the local socket: the folder's ACL stands in for `SO_PEERCRED`.
 * **The engine** (llama-server) already runs natively on Windows; nothing in the squad needs WSL for it.
 
 ## 7. Recommendation
 
-Slices 0 to 4 are done: they removed duplicated code and kept operating-system types out of the interfaces, at low risk, and the platform layer has
-Windows backends that pass its tests. Schedule slice 5 when the experiments leave room, since it replaces the daemon's core loop; it gets its POSIX and
-Windows backends together, as slice 4 did. Until slice 5 the WSL path in [DEV_SETUP.md](DEV_SETUP.md) is the way to run the program on a
-Windows host; the native MinGW build is for the platform layer and for finding what does not compile yet.
+Slices 0 to 5 are done: they removed duplicated code and kept operating-system types out of the interfaces, and the platform layer has Windows
+backends that pass its tests. The next Windows step is a first native run of the program (the daemon, a shim and the mock first-use path), which needs
+the local Sub0Pipeline checkout brought level with the pinned version (the owner's call: it is another repository). Until then the WSL path in
+[DEV_SETUP.md](DEV_SETUP.md) is the way to run the program on a Windows host.

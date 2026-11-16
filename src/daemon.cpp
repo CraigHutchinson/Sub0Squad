@@ -1,5 +1,5 @@
 /// @file daemon.cpp
-/// Daemon: reactor and IPC (epoll loop, clients, request dispatch), construction and run.
+/// Daemon: reactor and IPC (a platform_wait loop, clients, request dispatch), construction and run.
 
 #include "daemon_impl.hpp"
 #include "sub0squad/platform_file.hpp"
@@ -9,16 +9,12 @@ namespace sub0squad {
 void Daemon::Impl::post(std::move_only_function<void()> fn)
 {
     { std::lock_guard lock(postMutex); posted.push_back(std::move(fn)); }
-    const std::uint64_t one = 1;
-    (void)!::write(wakeFd, &one, sizeof one);
+    waiter.wake();
 }
 
-void Daemon::Impl::epollAdd(int fd, std::uint32_t events, std::uint64_t data)
+void Daemon::Impl::watchShim(const std::string& id, platform::ProcessId shim)
 {
-    epoll_event ev{};
-    ev.events = events;
-    ev.data.u64 = data;
-    ::epoll_ctl(epfd, EPOLL_CTL_ADD, fd, &ev);
+    if (waiter.watchExit(shim, tag(kShimExit, shim))) shimToJob[shim] = id;
 }
 
 void Daemon::Impl::notifyWaiters(const std::string& id)
@@ -42,22 +38,16 @@ void Daemon::Impl::send(Client& c, const std::string& payload)
 void Daemon::Impl::flush(Client& c)
 {
     while (!c.out.empty()) {
-        const ssize_t n = ::send(c.fd, c.out.data(), c.out.size(), MSG_NOSIGNAL);
-        if (n > 0) { c.out.erase(0, static_cast<std::size_t>(n)); continue; }
-        if (n < 0 && errno == EINTR) continue;
-        if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
-            epoll_event ev{};
-            ev.events = EPOLLIN | EPOLLOUT;
-            ev.data.u64 = tag(kClient, c.fd);
-            ::epoll_ctl(epfd, EPOLL_CTL_MOD, c.fd, &ev);
-            return;
-        }
-        return;  // peer gone; the EPOLLHUP path closes it
+        auto n = c.stream.writeSome(c.out);
+        if (!n) return;   // the peer is gone; the hang-up closes it
+        if (*n == 0) break;
+        c.out.erase(0, *n);
     }
-    epoll_event ev{};
-    ev.events = EPOLLIN;
-    ev.data.u64 = tag(kClient, c.fd);
-    ::epoll_ctl(epfd, EPOLL_CTL_MOD, c.fd, &ev);
+    const bool wantWrite = !c.out.empty();   // ask to hear about room to write only while a reply waits
+    if (wantWrite != c.watchingWrite) {
+        c.watchingWrite = wantWrite;
+        (void)waiter.watchSocket(c.stream.native(), true, wantWrite, tag(kClient, c.stream.native()));
+    }
 }
 
 void Daemon::Impl::handle(Client& c, const std::string& text)
@@ -69,7 +59,7 @@ void Daemon::Impl::handle(Client& c, const std::string& text)
     if (cmd == "ping") {
         // Pure: a ping reads and answers, it never changes anything (the watchers are run by `check`).
         json::Writer w;
-        w.beginObject().kvBool("ok", true).kv("v", 1).kv("pid", static_cast<std::int64_t>(::getpid())).kv("maxJobs", opts.maxJobs)
+        w.beginObject().kvBool("ok", true).kv("v", 1).kv("pid", platform::currentProcess()).kv("maxJobs", opts.maxJobs)
             .kvBool("journalOk", journalOk).kv("build", buildId()).endObject();
         send(c, w.take());
     } else if (cmd == "check") {
@@ -140,38 +130,37 @@ void Daemon::Impl::handle(Client& c, const std::string& text)
     }
 }
 
-void Daemon::Impl::closeClient(int fd)
+void Daemon::Impl::closeClient(platform::NativeSocket socket)
 {
-    ::epoll_ctl(epfd, EPOLL_CTL_DEL, fd, nullptr);
-    ::close(fd);
-    clients.erase(fd);
+    waiter.unwatchSocket(socket);
+    clients.erase(socket);   // closes the socket
 }
 
-void Daemon::Impl::onClient(int fd, std::uint32_t events)
+void Daemon::Impl::onClient(const platform::WaitEvent& event)
 {
-    auto it = clients.find(fd);
+    const auto socket = static_cast<platform::NativeSocket>(event.tag & kTagValueMask);
+    auto it = clients.find(socket);
     if (it == clients.end()) return;
     Client& c = it->second;
-    if (events & EPOLLOUT) flush(c);
-    if (events & EPOLLIN) {
+    if (event.writable) flush(c);
+    if (event.readable) {
         char buf[16384];
         for (;;) {
-            const ssize_t n = ::read(fd, buf, sizeof buf);
-            if (n > 0) { c.in.append(buf, static_cast<std::size_t>(n)); continue; }
-            if (n == 0) { closeClient(fd); return; }
-            if (errno == EINTR) continue;
-            break;
+            auto n = c.stream.readSome(buf, sizeof buf, std::chrono::milliseconds(0));
+            if (!n || (*n && **n == 0)) { closeClient(socket); return; }   // failed, or the peer closed its end
+            if (!*n) break;                                                 // nothing more for now
+            c.in.append(buf, **n);
         }
         std::string frame;
         for (;;) {
             auto got = c.in.next(frame);
-            if (!got) { logf("client %d: %s; closing", fd, got.error().c_str()); closeClient(fd); return; }
+            if (!got) { logf("client %lld: %s; closing", static_cast<long long>(socket), got.error().c_str()); closeClient(socket); return; }
             if (!*got) break;
             handle(c, frame);
-            if (clients.find(fd) == clients.end()) return;
+            if (clients.find(socket) == clients.end()) return;
         }
     }
-    if (events & (EPOLLHUP | EPOLLERR)) closeClient(fd);
+    if (event.hangup) closeClient(socket);
 }
 
 void Daemon::Impl::onAccept()
@@ -181,18 +170,16 @@ void Daemon::Impl::onAccept()
         if (!accepted || !*accepted) return;
         platform::SocketStream& s = **accepted;
         if (!platform::peerIsSameUser(s)) { logf("rejected a client from another user"); continue; }
-        const std::string owner = platform::peerUser(s);
-        const int fd = static_cast<int>(s.release());   // the client map and the epoll set own it from here (slice 5: platform_wait)
-        clients[fd].fd = fd;
-        clients[fd].owner = owner;
-        epollAdd(fd, EPOLLIN, tag(kClient, fd));
+        const platform::NativeSocket socket = s.native();
+        if (!waiter.watchSocket(socket, true, false, tag(kClient, socket))) { logf("cannot watch a new client; closing it"); continue; }
+        Client& c = clients[socket];
+        c.owner = platform::peerUser(s);
+        c.stream = std::move(s);
     }
 }
 
 void Daemon::Impl::drainPosts()
 {
-    std::uint64_t n;
-    (void)!::read(wakeFd, &n, sizeof n);
     for (;;) {
         std::move_only_function<void()> fn;
         {
@@ -207,25 +194,22 @@ void Daemon::Impl::drainPosts()
 
 int Daemon::Impl::loop()
 {
-    epoll_event evs[32];
     while (!stopping) {
         // Blocks when there is nothing to watch (the idle state: no wake-ups); with jobs running or queued it wakes every 5 s (1 s near the reserve) to check memory.
-        const int n = ::epoll_wait(epfd, evs, 32, hasWorkToWatch() ? watchMs : -1);
-        if (n < 0) { if (errno == EINTR) continue; return 1; }
+        auto events = waiter.wait(hasWorkToWatch() ? std::optional{std::chrono::milliseconds(watchMs)} : std::nullopt);
+        if (!events) { logf("%s", events.error().what().c_str()); return 1; }
         if (const auto now = std::chrono::steady_clock::now(); now - lastMemCheck >= std::chrono::milliseconds(watchMs) && hasWorkToWatch()) {
             lastMemCheck = now;
             shedIfPressured();
             scheduleQueued();  // memory recovered: admit what was held back
         }
-        for (int i = 0; i < n; ++i) {
-            const auto kind = static_cast<Kind>(evs[i].data.u64 >> 32);
-            const int fd = static_cast<int>(evs[i].data.u64 & 0xFFFFFFFFu);
-            switch (kind) {
+        for (const platform::WaitEvent& e : *events) {
+            if (e.kind == platform::WaitEvent::Kind::woken) { drainPosts(); continue; }
+            switch (static_cast<Kind>(e.tag >> 56)) {
                 case kListen: onAccept(); break;
-                case kClient: onClient(fd, evs[i].events); break;
-                case kPidfd: onPidfd(fd); break;
-                case kPost: drainPosts(); break;
-                case kSignals: { signalfd_siginfo si; (void)!::read(sigFd, &si, sizeof si); logf("signal %u: stopping (jobs keep running)", si.ssi_signo); stopping = true; break; }
+                case kClient: onClient(e); break;
+                case kShimExit: onShimExit(static_cast<platform::ProcessId>(e.tag & kTagValueMask)); break;
+                case kStop: logf("asked to stop: stopping (jobs keep running)"); stopping = true; break;
             }
         }
     }
@@ -242,35 +226,30 @@ std::expected<std::unique_ptr<Daemon>, std::string> Daemon::create(DaemonOptions
     auto lock = platform::FileLock::tryExclusive(options.paths.instanceLock());
     if (!lock) return std::unexpected(lock.error().message);
     if (!*lock) return std::unexpected("another sub0squad daemon already runs for this state directory");
+    // The waiter takes the stop requests BEFORE the Impl starts its executor threads, so on POSIX those threads inherit SIGTERM and SIGINT blocked
+    // and the signals reach the loop instead of ending the process.
+    auto waiter = platform::Waiter::create();
+    if (!waiter) return std::unexpected(waiter.error().message);
+    if (auto ok = waiter->watchStopRequests(tag(kStop, 0)); !ok) return std::unexpected(ok.error().message);
+    platform::ignoreBrokenPipes();
     auto impl = std::make_unique<Impl>();
     impl->opts = std::move(options);
     impl->instanceLock = std::move(**lock);
+    impl->waiter = std::move(*waiter);
     auto journal = Journal::open(impl->opts.paths.journalDir());
     if (!journal) return std::unexpected(journal.error());
     impl->journal = std::move(*journal);
     for (const auto& rec : impl->journal.records()) { impl->store.apply(rec); impl->wfStore.apply(rec); }
 
-    impl->epfd = ::epoll_create1(EPOLL_CLOEXEC);
-    impl->wakeFd = ::eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK);
-    sigset_t mask;
-    sigemptyset(&mask);
-    sigaddset(&mask, SIGTERM);
-    sigaddset(&mask, SIGINT);
-    sigprocmask(SIG_BLOCK, &mask, nullptr);
-    impl->sigFd = ::signalfd(-1, &mask, SFD_CLOEXEC | SFD_NONBLOCK);
-    signal(SIGPIPE, SIG_IGN);
     auto listener = platform::listenLocal(impl->opts.paths.controlSocket());
     if (!listener) return std::unexpected(listener.error().message);
     impl->listener = std::move(*listener);
-    const int listenFd = static_cast<int>(impl->listener.native());
-    impl->epollAdd(listenFd, EPOLLIN, tag(kListen, listenFd));
-    impl->epollAdd(impl->wakeFd, EPOLLIN, tag(kPost, impl->wakeFd));
-    impl->epollAdd(impl->sigFd, EPOLLIN, tag(kSignals, impl->sigFd));
+    if (auto ok = impl->waiter.watchSocket(impl->listener.native(), true, false, tag(kListen, 0)); !ok) return std::unexpected(ok.error().message);
     impl->reconcileAtStart();
     {   // run-info.json: which program is serving this state directory, since when and with which limits (catalogue row 20). Rewritten at every start.
         using namespace std::chrono;
         json::Writer w;
-        w.beginObject().kv("schema", "run-info-1").kv("build", buildId()).kv("pid", static_cast<std::int64_t>(::getpid())).kv("exe", impl->opts.exe.string())
+        w.beginObject().kv("schema", "run-info-1").kv("build", buildId()).kv("pid", platform::currentProcess()).kv("exe", impl->opts.exe.string())
             .kv("startedAt", duration<double>(system_clock::now().time_since_epoch()).count()).kv("maxJobs", impl->opts.maxJobs).kv("memShedMiB", impl->opts.memShedMiB)
             .kv("frontier", impl->opts.frontier == FrontierMode::off ? "off" : "stub").endObject();
         (void)platform::writeFileAtomic(impl->opts.paths.stateDir / "run-info.json", w.take() + "\n");
@@ -280,7 +259,7 @@ std::expected<std::unique_ptr<Daemon>, std::string> Daemon::create(DaemonOptions
 
 int Daemon::run()
 {
-    logf("serving %s (max %d parallel jobs, %zu journal records)", impl_->opts.paths.controlSocket().c_str(), impl_->opts.maxJobs,
+    logf("serving %s (max %d parallel jobs, %zu journal records)", impl_->opts.paths.controlSocket().string().c_str(), impl_->opts.maxJobs,
          impl_->journal.records().size());
     impl_->advanceWorkflows();
     impl_->scheduleQueued();

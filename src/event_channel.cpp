@@ -2,7 +2,7 @@
 
 #include "json_util.hpp"
 
-#include "sub0squad/platform_file.hpp"
+#include "sub0squad/platform_process.hpp"
 
 #include <cstdlib>
 
@@ -15,7 +15,7 @@ void send(json::Writer& w)
     if (!v) return;
     std::string line{w.view()};
     line.push_back('\n');
-    (void)platform::writeAll(std::atoi(v), line);   // best effort: a run without a reader loses its progress notes, not its work
+    (void)platform::writeToInherited(v, line);   // best effort: a run without a reader loses its progress notes, not its work
 }
 }  // namespace
 

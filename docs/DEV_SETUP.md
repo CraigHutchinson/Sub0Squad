@@ -74,14 +74,14 @@ errors (`CMakeLists.txt`).
 
 ### A native Windows build (the platform layer only, for now)
 
-The platform layer builds and passes its tests natively, and every other unit compiles except the daemon, the shim and the log follower, which wait
-for slice 5 of [PLATFORM.md](PLATFORM.md) (section 6 lists what is left). Toolchain: MinGW-w64 with the UCRT runtime (GCC 16.2 is what was tested), CMake and Ninja on
+The platform layer builds and passes its tests natively, and every other unit compiles; the daemon units and `sub0squad.cpp` need a Sub0Pipeline
+checkout level with the pinned version ([PLATFORM.md](PLATFORM.md) section 6 lists what is left). Toolchain: MinGW-w64 with the UCRT runtime (GCC 16.2 is what was tested), CMake and Ninja on
 `PATH`. Configure uses `cmake/git-semver.cmd` in place of the shell script. From PowerShell in the checkout:
 
 ```powershell
 $env:CPM_SOURCE_CACHE = "$PWD\out\cpm-cache"
 cmake -S . -B out/build/mingw -G Ninja -DCMAKE_CXX_COMPILER=g++ -DCMAKE_C_COMPILER=gcc -DCMAKE_BUILD_TYPE=Release
-cmake --build out/build/mingw -j4 --target test_platform_process test_platform_proc test_platform_host test_platform_file test_platform_net link_platform
+cmake --build out/build/mingw -j4 --target test_platform_process test_platform_proc test_platform_host test_platform_file test_platform_net test_platform_wait link_platform
 ctest --test-dir out/build/mingw -R "test_platform_|link_platform" --output-on-failure
 ```
 

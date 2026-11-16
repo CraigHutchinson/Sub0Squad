@@ -42,11 +42,19 @@ std::expected<void, PlatformError> writeFile(const fs::path& path, std::string_v
     return {};
 }
 
-std::expected<void, PlatformError> writeFileAtomic(const fs::path& path, std::string_view text)
+std::expected<void, PlatformError> writeFileAtomic(const fs::path& path, std::string_view text, bool durable)
 {
     const fs::path tmp = path.string() + ".tmp";
-    if (auto w = writeFile(tmp, text); !w) return w;
     std::error_code ec;
+    if (durable) {
+        fs::remove(tmp, ec);
+        auto f = AppendFile::open(tmp);
+        if (!f) return std::unexpected(f.error());
+        if (auto w = f->append(text); !w) return w;
+        if (auto s = f->sync(); !s) return s;
+    } else if (auto w = writeFile(tmp, text); !w) {
+        return w;
+    }
     fs::rename(tmp, path, ec);   // replaces an existing file on both systems (MoveFileExW with MOVEFILE_REPLACE_EXISTING on Windows)
     if (ec) { fs::remove(tmp, ec); return std::unexpected(fromCode("rename to " + path.string(), ec)); }
     return {};

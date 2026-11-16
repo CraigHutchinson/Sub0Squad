@@ -32,11 +32,29 @@ namespace sub0squad::platform {
 /// descendant when `root` is a subreaper, because it was reparented to `root`.
 [[nodiscard]] std::vector<ProcessId> descendants(ProcessId root);
 
+/// Every process this user can see, live or zombie, in no particular order.
+[[nodiscard]] std::vector<ProcessId> allProcesses();
+
 /// The arguments `id` was started with, or nullopt when it does not exist or cannot be read.
 [[nodiscard]] std::optional<std::vector<std::string>> commandLine(ProcessId id);
 
-/// Ask `id` to stop (SIGTERM on POSIX). False when it could not be signalled. Prefer `Child::terminate` for a process this program started.
+/// Ask `id` to stop. POSIX: SIGTERM. Windows: the stop event of a process that watches for stop requests (platform_wait), so it ends itself
+/// in order; TerminateProcess when it has none. False when it could not be reached. Prefer `Child::terminate` for a process this program started.
 [[nodiscard]] bool terminateProcess(ProcessId id);
+/// End `id` at once (SIGKILL; TerminateProcess). False when it could not be reached.
+[[nodiscard]] bool killProcess(ProcessId id);
+
+/// Adopt the orphans of this process's tree (POSIX: PR_SET_CHILD_SUBREAPER, so a descendant that detaches stays a descendant and
+/// `descendants` still finds it). Windows: no effect; a job object holds a tree there.
+void becomeSubreaper();
+/// A write to a pipe or socket whose reader is gone fails with an error instead of ending this process (POSIX: SIGPIPE ignored). Windows: always so.
+void ignoreBrokenPipes();
+/// Stop requests (terminateProcess, Ctrl+C) no longer end this process: for a test program that plays a process which will not stop.
+void ignoreStopRequests();
+/// The name the system shows for this process (POSIX: PR_SET_NAME, at most 15 bytes, what `ps -o comm` and /proc/PID/stat show). Windows: no effect.
+void setProcessName(const std::string& name);
+/// End this process as a crash does (POSIX: SIGSEGV; Windows: the access-violation status), for a test program that plays a crashing job.
+[[noreturn]] void crash();
 
 /// Whether `path` is a file this user may run (POSIX: execute permission; Windows: an existing file with an extension in PATHEXT).
 [[nodiscard]] bool isExecutable(const std::filesystem::path& path);

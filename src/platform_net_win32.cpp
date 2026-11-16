@@ -84,6 +84,16 @@ std::expected<void, PlatformError> SocketStream::writeAll(std::string_view data)
     return {};
 }
 
+std::expected<std::size_t, PlatformError> SocketStream::writeSome(std::string_view data)
+{
+    if (socket_ == -1) return std::unexpected(PlatformError{"write", WSAENOTSOCK, "cannot write: the socket is not open"});
+    const int n = ::send(sock(socket_), data.data(), static_cast<int>(std::min<std::size_t>(data.size(), 1 << 30)), 0);
+    if (n >= 0) return static_cast<std::size_t>(n);
+    const int err = ::WSAGetLastError();
+    if (err == WSAEWOULDBLOCK) return std::size_t{0};
+    return std::unexpected(win32::socketError("write to the socket", err));
+}
+
 std::expected<std::optional<std::size_t>, PlatformError> SocketStream::readSome(char* buffer, std::size_t size, std::optional<std::chrono::milliseconds> timeout)
 {
     if (socket_ == -1) return std::unexpected(PlatformError{"read", WSAENOTSOCK, "cannot read: the socket is not open"});

@@ -22,15 +22,13 @@
 #include "sub0squad/triage.hpp"
 #include "sub0squad/workflow.hpp"
 #include "sub0squad/workflow_status.hpp"
-#include <sys/inotify.h>
-#include <poll.h>
-#include <unistd.h>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
 #include <sstream>
+#include <thread>
 
 namespace sub0squad::cli {
 
@@ -158,8 +156,6 @@ int cmdLogs(const RuntimePaths& paths, int argc, char** argv)
     const int run = runOverride ? runOverride : snap.run;
     const std::string path = (paths.runDir(id, run) / (err ? "stderr.log" : "stdout.log")).string();
     std::streamoff offset = 0;
-    const int ino = ::inotify_init1(IN_CLOEXEC);
-    if (follow && ino >= 0) ::inotify_add_watch(ino, paths.runDir(id, run).c_str(), IN_MODIFY | IN_CREATE | IN_CLOSE_WRITE);
     for (;;) {
         std::ifstream in(path, std::ios::binary);
         if (in) {
@@ -179,11 +175,9 @@ int cmdLogs(const RuntimePaths& paths, int argc, char** argv)
             while (last.read(buf, sizeof buf) || last.gcount() > 0) std::fwrite(buf, 1, static_cast<std::size_t>(last.gcount()), stdout);
             break;
         }
-        pollfd p{ino, POLLIN, 0};
-        if (ino >= 0 && ::poll(&p, 1, 1000) > 0) { char junk[4096]; (void)!::read(ino, junk, sizeof junk); }
-        else if (ino < 0) ::usleep(500000);
+        // A person reads along: a look four times a second is prompt enough, and the same on every system (no change notification needed).
+        std::this_thread::sleep_for(std::chrono::milliseconds(250));
     }
-    if (ino >= 0) ::close(ino);
     return 0;
 }
 
@@ -252,7 +246,7 @@ int cmdSubmit(const RuntimePaths& paths, int argc, char** argv)
     } else {
         for (; i < argc; ++i) spec.argv.emplace_back(argv[i]);
     }
-    if (spec.cwd.empty()) { char buf[4096]; if (::getcwd(buf, sizeof buf)) spec.cwd = buf; }
+    if (spec.cwd.empty()) { std::error_code ec; spec.cwd = std::filesystem::current_path(ec).string(); }
     auto client = ControlClient::connect(paths);
     if (!client) { std::fprintf(stderr, "%s%s\n", client.error().message.c_str(), client.error().noDaemon ? " (is `sub0squad serve` running?)" : ""); return 3; }
     auto reply = client->request("submit", submitFields(allowMismatch) + "\"spec\":" + spec.toJson());

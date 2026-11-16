@@ -12,12 +12,37 @@
 #include <filesystem>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace sub0squad::platform {
 
 /// A process id as the system numbers it (a pid on POSIX), widened so the type is the same on every platform.
 using ProcessId = std::int64_t;
+
+/// The read end of a pipe from a child: its stdout, its stderr or its event channel (ProcessSpec::pipeOutput, eventPipeVariable). Move-only; closes
+/// on destruction. One reader at a time: reads block the calling thread, so a pipe is read on a thread of its own or with a timeout.
+class Pipe
+{
+public:
+    Pipe() = default;
+    /// For the implementation: wraps a native read end (a descriptor on POSIX, a HANDLE on Windows).
+    explicit Pipe(std::intptr_t native) : native_(native) {}
+    Pipe(const Pipe&) = delete;
+    Pipe& operator=(const Pipe&) = delete;
+    Pipe(Pipe&& o) noexcept : native_(o.native_) { o.native_ = -1; }
+    Pipe& operator=(Pipe&& o) noexcept;
+    ~Pipe();
+
+    [[nodiscard]] bool isOpen() const { return native_ != -1; }
+    /// Read what is available, waiting up to `timeout` (none: as long as it takes). nullopt when nothing came in time; 0 when every writer has
+    /// closed it (the child and whatever inherited it).
+    [[nodiscard]] std::expected<std::optional<std::size_t>, PlatformError> readSome(char* buffer, std::size_t size,
+                                                                                    std::optional<std::chrono::milliseconds> timeout = std::nullopt);
+
+private:
+    std::intptr_t native_ = -1;
+};
 
 /// What to start and how its standard streams are connected.
 struct ProcessSpec
@@ -31,6 +56,13 @@ struct ProcessSpec
     bool nullInput = true;                       ///< stdin reads from the null device; false: inherited
     bool newSession = false;                     ///< the child leads its own session and process group: detached from the caller's terminal and
                                                  ///< signals, and Child::kill and terminate reach its whole group
+    std::optional<std::vector<std::string>> environment{};   ///< "NAME=value" entries that REPLACE the caller's environment; none: inherited
+    bool pipeOutput = false;                     ///< stdout and stderr each go to a pipe of their own (Child::takeStdout, takeStderr);
+                                                 ///< outputFile must be empty
+    std::string eventPipeVariable{};             ///< non-empty: one more pipe, whose write end the child inherits and finds named by this
+                                                 ///< environment variable (writeToInherited writes to it; Child::takeEvents reads it)
+    int memoryVictimScore = 0;                   ///< POSIX: the child's oom_score_adj (1 to 1000: killed before others under memory pressure;
+                                                 ///< 0 leaves it as inherited). Windows: no such preference, ignored
 };
 
 /// How a child ended.
@@ -71,6 +103,17 @@ public:
     /// Ends it at once (SIGKILL on POSIX); its whole group when it leads one. False when it is already gone.
     bool kill();
 
+    /// The read ends of its pipes (ProcessSpec::pipeOutput, eventPipeVariable), each handed out once; an unopened Pipe when there is none.
+    [[nodiscard]] Pipe takeStdout() { return std::move(stdout_); }
+    [[nodiscard]] Pipe takeStderr() { return std::move(stderr_); }
+    [[nodiscard]] Pipe takeEvents() { return std::move(events_); }
+    /// For the implementation: hands it its pipes.
+    void attachPipes(Pipe out, Pipe err, Pipe events);
+
+    /// Reap every ended child of this process without waiting (on POSIX a subreaper, becomeSubreaper, inherits the orphans of its tree, and they stay
+    /// as zombies until reaped), keeping this child's status when it is among them. No effect on Windows, which keeps no zombies.
+    void reapOrphans();
+
 private:
     ProcessId id_ = 0;
     bool leadsGroup_ = false;
@@ -78,7 +121,12 @@ private:
     std::intptr_t handle_ = 0;   ///< native process handle (Windows), 0 when none
     std::intptr_t group_ = 0;    ///< native group handle (a Windows job object), 0 when none
     int endedBy_ = 0;            ///< the signal-like cause this side ended it with (15 terminate, 9 kill), where the system keeps none
+    Pipe stdout_, stderr_, events_;
 };
+
+/// Write all of `data` to the write end of an event pipe this process inherited, named by `handleText` (the value of the variable
+/// ProcessSpec::eventPipeVariable named). An error when the text names nothing open.
+[[nodiscard]] std::expected<void, PlatformError> writeToInherited(std::string_view handleText, std::string_view data);
 
 /// Starts a child. The error names the program and the system's reason (a missing program, a working directory that does not exist, an output file
 /// that cannot be opened).

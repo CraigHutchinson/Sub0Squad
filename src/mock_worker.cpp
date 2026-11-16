@@ -3,9 +3,9 @@
 #include "json_util.hpp"
 #include "sub0squad/progress.hpp"
 
-#include <signal.h>
-#include <sys/prctl.h>
-#include <unistd.h>
+#include "sub0squad/platform_proc.hpp"
+#include "sub0squad/platform_process.hpp"
+
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -18,49 +18,38 @@ namespace sub0squad {
 
 namespace {
 
-int eventFd()
-{
-    const char* v = std::getenv("SUB0SQUAD_EVENT_FD");
-    return v ? std::atoi(v) : -1;
-}
-
 void emit(const std::string& line)
 {
-    const int fd = eventFd();
-    if (fd < 0) return;
-    std::string out = line + "\n";
-    (void)!::write(fd, out.data(), out.size());
+    const char* v = std::getenv("SUB0SQUAD_EVENT_FD");
+    if (!v) return;
+    (void)platform::writeToInherited(v, line + '\n');
 }
 
 void sleepMs(long ms) { std::this_thread::sleep_for(std::chrono::milliseconds(ms)); }
 
 [[noreturn]] void idleForever(bool ignoreTerm)
 {
-    if (ignoreTerm) ::signal(SIGTERM, SIG_IGN);
-    for (;;) ::pause();
+    if (ignoreTerm) platform::ignoreStopRequests();
+    for (;;) sleepMs(1000);
 }
 
-void nameSelf(const std::string& prefix, const std::string& tag)
+void nameSelf(const std::string& prefix, const std::string& tag) { platform::setProcessName((prefix + tag).substr(0, 15)); }
+
+/// Start this program again as `mock-worker <mode...>`: the extra processes are the same program on every system (no fork).
+void spawnSelf(std::vector<std::string> mode, bool newSession)
 {
-    const std::string name = (prefix + tag).substr(0, 15);
-    ::prctl(PR_SET_NAME, name.c_str());
+    platform::ProcessSpec ps;
+    ps.argv = {platform::selfExecutable().string(), "mock-worker"};
+    ps.argv.insert(ps.argv.end(), mode.begin(), mode.end());
+    ps.newSession = newSession;
+    (void)platform::spawn(ps);
 }
 
-// A "server": a child in the job's own group that ignores SIGTERM (like a model server that must be killed).
-void spawnServer(const std::string& tag)
-{
-    if (::fork() == 0) { nameSelf("s0q-srv-", tag); idleForever(true); }
-}
+// A "server": a child in the job's own group that ignores stop requests (like a model server that must be killed).
+void spawnServer(const std::string& tag) { spawnSelf({"--idle", "s0q-srv-" + tag}, false); }
 
-// An escapee: setsid, then double fork, so it is in no group of the job and its parent is gone.
-void spawnEscapee(const std::string& tag)
-{
-    if (::fork() == 0) {
-        ::setsid();
-        if (::fork() == 0) { nameSelf("s0q-esc-", tag); idleForever(true); }
-        _exit(0);
-    }
-}
+// An escapee: started in a session of its own by a go-between that exits at once, so it is in no group of the job and its parent is gone.
+void spawnEscapee(const std::string& tag) { spawnSelf({"--escape-hop", tag}, false); }
 
 void writeStateFile(const std::string& path, int attempts, int maxAttempts, const char* status)
 {
@@ -103,10 +92,12 @@ int runMockWorker(int argc, char** argv)
         else if (a == "--tag") tag = next();
         else if (a == "--mem-mib") memMiB = std::atol(next());
         else if (a == "--state-file") stateFile = next();
+        else if (a == "--idle") { nameSelf(next(), ""); idleForever(true); }
+        else if (a == "--escape-hop") { spawnSelf({"--idle", "s0q-esc-" + std::string{next()}}, true); return 0; }
         else if (a == "--metric") { std::string kv = next(); auto eq = kv.find('='); if (eq != std::string::npos) metrics.emplace_back(kv.substr(0, eq), std::atof(kv.c_str() + eq + 1)); }
         else { std::fprintf(stderr, "mock-worker: unknown option %s\n", a.c_str()); return 64; }
     }
-    if (ignoreTerm) ::signal(SIGTERM, SIG_IGN);
+    if (ignoreTerm) platform::ignoreStopRequests();
     nameSelf("s0q-wrk-", tag);
     std::vector<char> ballast;
     if (memMiB > 0) { ballast.assign(static_cast<std::size_t>(memMiB) << 20, 1); }
@@ -130,7 +121,7 @@ int runMockWorker(int argc, char** argv)
     for (int step = firstStep; step <= steps; ++step) {
         if (step == stallAt) { emit("{\"schema\":\"sub0squad-event-1\",\"type\":\"note\",\"text\":\"stalling\"}"); idleForever(ignoreTerm); }
         sleepMs(stepMs);
-        if (step == crashAt) ::raise(SIGSEGV);
+        if (step == crashAt) platform::crash();
         if (step == failAt) { std::fprintf(stderr, "mock-worker: failing at step %d\n", step); return 3; }
         json::Writer w;
         w.beginObject().kv("schema", "sub0squad-event-1").kv("type", "progress").kv("done", step).kv("total", steps).kv("phase", "work").endObject();

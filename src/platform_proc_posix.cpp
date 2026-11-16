@@ -3,6 +3,7 @@
 
 #include <dirent.h>
 #include <signal.h>
+#include <sys/prctl.h>
 #include <unistd.h>
 
 #include <charconv>
@@ -55,19 +56,26 @@ bool isAlive(ProcessId id, std::uint64_t expectedStart)
     return st && st->state != 'Z' && st->state != 'X' && st->start == expectedStart;
 }
 
-std::vector<ProcessId> descendants(ProcessId root)
+std::vector<ProcessId> allProcesses()
 {
-    std::map<ProcessId, std::vector<ProcessId>> children;
+    std::vector<ProcessId> out;
     if (DIR* d = ::opendir("/proc")) {
         while (const dirent* e = ::readdir(d)) {
             const std::string_view name = e->d_name;
             ProcessId n = 0;
             const auto [end, ec] = std::from_chars(name.data(), name.data() + name.size(), n);
-            if (ec != std::errc{} || end != name.data() + name.size() || n <= 0) continue;
-            if (auto st = readStat(n)) children[st->parent].push_back(n);
+            if (ec == std::errc{} && end == name.data() + name.size() && n > 0) out.push_back(n);
         }
         ::closedir(d);
     }
+    return out;
+}
+
+std::vector<ProcessId> descendants(ProcessId root)
+{
+    std::map<ProcessId, std::vector<ProcessId>> children;
+    for (const ProcessId n : allProcesses())
+        if (auto st = readStat(n)) children[st->parent].push_back(n);
     std::vector<ProcessId> out;
     std::vector<ProcessId> work{root};
     while (!work.empty()) {
@@ -87,6 +95,22 @@ std::optional<std::vector<std::string>> commandLine(ProcessId id)
 }
 
 bool terminateProcess(ProcessId id) { return id > 0 && ::kill(static_cast<pid_t>(id), SIGTERM) == 0; }
+bool killProcess(ProcessId id) { return id > 0 && ::kill(static_cast<pid_t>(id), SIGKILL) == 0; }
+
+void becomeSubreaper() { ::prctl(PR_SET_CHILD_SUBREAPER, 1); }
+void ignoreBrokenPipes() { ::signal(SIGPIPE, SIG_IGN); }
+void ignoreStopRequests()
+{
+    ::signal(SIGTERM, SIG_IGN);
+    ::signal(SIGINT, SIG_IGN);
+}
+void setProcessName(const std::string& name) { ::prctl(PR_SET_NAME, name.c_str(), 0, 0, 0); }
+void crash()
+{
+    ::signal(SIGSEGV, SIG_DFL);
+    ::raise(SIGSEGV);
+    ::_exit(128 + SIGSEGV);   // only when the signal was blocked
+}
 
 bool isExecutable(const std::filesystem::path& path)
 {

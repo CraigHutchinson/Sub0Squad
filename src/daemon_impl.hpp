@@ -25,15 +25,8 @@
 #include "sub0squad/supervisor.hpp"
 #include "sub0squad/platform_file.hpp"
 #include "sub0squad/platform_ipc.hpp"
+#include "sub0squad/platform_wait.hpp"
 #include "sub0pipeline/sub0pipeline.hpp"
-#include <signal.h>
-#include <sys/epoll.h>
-#include <sys/eventfd.h>
-#include <sys/signalfd.h>
-#include <sys/socket.h>
-#include <sys/syscall.h>
-#include <sys/wait.h>
-#include <unistd.h>
 #include <cerrno>
 #include <chrono>
 #include <cstdarg>
@@ -52,8 +45,10 @@ namespace sub0squad {
 
 namespace daemon_detail {
 
-enum Kind : std::uint64_t { kListen = 1, kClient, kPidfd, kPost, kSignals };
-constexpr std::uint64_t tag(Kind k, int fd) { return (static_cast<std::uint64_t>(k) << 32) | static_cast<std::uint32_t>(fd); }
+/// What a Waiter tag stands for: the kind in the top byte, the socket or the shim's process id below it.
+enum Kind : std::uint64_t { kListen = 1, kClient, kShimExit, kStop };
+constexpr std::uint64_t kTagValueMask = (std::uint64_t{1} << 56) - 1;
+constexpr std::uint64_t tag(Kind k, std::int64_t value) { return (static_cast<std::uint64_t>(k) << 56) | (static_cast<std::uint64_t>(value) & kTagValueMask); }
 
 inline void logf(const char* fmt, ...)
 {
@@ -110,18 +105,18 @@ struct Daemon::Impl
 {
     struct Client
     {
-        int fd = -1;
+        platform::SocketStream stream;
         std::string owner;   ///< who connected ("uid:1000"), read when it was accepted
         FrameBuffer in;
         std::string out;
         std::set<std::string> waits;
+        bool watchingWrite = false;   ///< the waiter reports when there is room to write (a reply is waiting in `out`)
     };
     struct Running
     {
         std::string id;
         int run = 1;
-        int pidfd = -1;
-        pid_t shimPid = 0;
+        platform::ProcessId shimPid = 0;
         bool finalized = false;
         bool hasPipeline = false;
         int leaseIndex = -1;           ///< slot of the job's lease (0..cap-1), passed to the job as SUB0SQUAD_LEASE_INDEX; -1 = none or adopted
@@ -131,8 +126,8 @@ struct Daemon::Impl
     };
     DaemonOptions opts;
     platform::FileLock instanceLock;      ///< one daemon per state directory
-    platform::SocketListener listener;    ///< the control socket; its native handle sits in the epoll set (slice 5 moves the loop to platform_wait)
-    int epfd = -1, wakeFd = -1, sigFd = -1;
+    platform::SocketListener listener;    ///< the control socket
+    platform::Waiter waiter;              ///< the reactor: the listener, the clients, the shims' exits, posts (wake) and stop requests
     Journal journal;
     JobStore store;
     WorkflowStore wfStore;
@@ -140,23 +135,20 @@ struct Daemon::Impl
     bool inAdvance = false;
     bool journalOk = true;
     bool stopping = false;
-    std::map<int, Client> clients;
+    std::map<platform::NativeSocket, Client> clients;
     std::map<std::string, std::unique_ptr<Running>> running;
-    std::map<int, std::string> pidfdToJob;
+    std::map<platform::ProcessId, std::string> shimToJob;   ///< the shims whose exit the waiter watches
     std::mutex postMutex;
     std::deque<std::move_only_function<void()>> posted;
     sub0pipeline::PriorityExecutor executor{{.threadCount = 2}};
     ~Impl()
     {
         for (auto& [id, r] : running) { r->done.succeed(); }  // release any pipeline still waiting; the shims keep running
-        running.clear();                                       // joins the runner threads
-        for (auto& [fd, c] : clients) ::close(fd);
-        for (int fd : {wakeFd, sigFd, epfd}) if (fd >= 0) ::close(fd);
-        for (auto& [fd, id] : pidfdToJob) ::close(fd);
+        running.clear();                                       // joins the runner threads; the clients' sockets close with the map
     }
     // ---- reactor plumbing ------------------------------------------------------------------------------------------
     void post(std::move_only_function<void()> fn);
-    void epollAdd(int fd, std::uint32_t events, std::uint64_t data);
+    void watchShim(const std::string& id, platform::ProcessId shim);   ///< false from the waiter: already gone (onShimExit runs at once)
     // ---- journal ---------------------------------------------------------------------------------------------------
     bool record(std::string_view type, const std::string& body);
     // ---- startup reconciliation ------------------------------------------------------------------------------------
@@ -179,7 +171,7 @@ struct Daemon::Impl
     void startRun(const JobRecord& job, int leaseIndex = -1);
     void onShimStart(const std::string& id, int run, sub0pipeline::Completion done);
     void onRunnerDone(const std::string& id) { running.erase(id); }
-    void onPidfd(int fd);
+    void onShimExit(platform::ProcessId shim);
     void finalizeWith(const std::string& id, JobState state, const std::string& exitJson, const std::string& note);
     // ---- workflows and the ledger ---------------------------------------------------------------------------------
     void ledgerFor(const std::string& id);
@@ -207,8 +199,8 @@ struct Daemon::Impl
     std::string doCancel(const std::string& id);
     std::string doResume(const std::string& id);
     void handle(Client& c, const std::string& text);
-    void closeClient(int fd);
-    void onClient(int fd, std::uint32_t events);
+    void closeClient(platform::NativeSocket socket);
+    void onClient(const platform::WaitEvent& event);
     void onAccept();
     void drainPosts();
     int loop();

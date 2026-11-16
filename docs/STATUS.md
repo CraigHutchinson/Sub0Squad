@@ -34,6 +34,7 @@ Resuming on a new machine: [RESUME.md](RESUME.md) has the priority order and the
 | The platform library's process identity and host facts: `/proc` parsers on fixed text, this process, a child's tree, memory, processor time, disk | test_platform_proc, test_platform_host |
 | The platform library's files: binary whole-file reads and writes, atomic replace, owner-only appends with sync and truncate, descriptor I/O | test_platform_file |
 | The platform library's sockets and instance lock: loopback round trip, read and accept deadlines, end of stream, two listeners, a held port, the local socket and its peer, a lock a second taker cannot get | test_platform_net |
+| The platform library's waits and the shim's process pieces: a timeout, a wake from another thread, socket readiness and hang-up, a child's exit with its status, a stop request to this process and to a child, piped stdout and stderr, the event pipe, a replaced environment | test_platform_wait |
 
 ## 2. On the real model
 
@@ -52,7 +53,7 @@ ulimit -u $(( $(ps -u $USER -L --no-headers | wc -l) + 400 )); ctest --test-dir 
 
 The full suite is about 50 tests and 6 to 12 minutes sequentially. clang 21 is the reference compiler; GCC 15 builds too (two flow-based GCC
 diagnostics are warnings, not errors: `CMakeLists.txt`). The program runs on Linux only. Windows is a decided target: the platform layer has Windows backends and passes its
-five tests natively under MinGW-w64; the daemon, the shim and the log follower wait on platform slice 5 ([PLATFORM.md](PLATFORM.md) section 6). On a Windows host use WSL with the checkout
+tests natively under MinGW-w64, and since platform slice 5 every unit compiles natively; the program has not run natively yet ([PLATFORM.md](PLATFORM.md) section 6). On a Windows host use WSL with the checkout
 cloned inside WSL, or `.gitattributes` keeping the shell scripts LF. `cmake -DSRC_DIR=$PWD -P cmake/CheckLayers.cmake` is the layer check by hand.
 
 ## 4. Running on the model

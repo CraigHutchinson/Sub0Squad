@@ -38,17 +38,17 @@ void Daemon::Impl::reconcileAtStart()
 
 void Daemon::Impl::adopt(const JobRecord& job)
 {
-    const int pidfd = static_cast<int>(::syscall(SYS_pidfd_open, static_cast<pid_t>(job.shimPid), 0));
-    if (pidfd < 0) { record("jobFinished", journalbody::finished(job.id, job.run, JobState::lost, "", "supervisor vanished while adopting")); return; }
+    if (!waiter.watchExit(job.shimPid, tag(kShimExit, job.shimPid))) {
+        record("jobFinished", journalbody::finished(job.id, job.run, JobState::lost, "", "supervisor vanished while adopting"));
+        return;
+    }
+    shimToJob[job.shimPid] = job.id;
     auto r = std::make_unique<Running>();
     r->id = job.id;
     r->run = job.run;
-    r->pidfd = pidfd;
-    r->shimPid = static_cast<pid_t>(job.shimPid);
-    pidfdToJob[pidfd] = job.id;
-    epollAdd(pidfd, EPOLLIN, tag(kPidfd, pidfd));
+    r->shimPid = job.shimPid;
     running[job.id] = std::move(r);
-    logf("adopted running job %s (shim %d)", job.id.c_str(), static_cast<int>(job.shimPid));
+    logf("adopted running job %s (shim %lld)", job.id.c_str(), static_cast<long long>(job.shimPid));
 }
 
 int Daemon::Impl::activeCount() const
@@ -184,25 +184,19 @@ void Daemon::Impl::onShimStart(const std::string& id, int run, sub0pipeline::Com
     }
     r.shimPid = *pid;
     const auto ticks = platform::processStart(*pid).value_or(0);
-    r.pidfd = static_cast<int>(::syscall(SYS_pidfd_open, static_cast<pid_t>(*pid), 0));
     record("jobStarted", journalbody::started(id, run, *pid, ticks));
-    if (r.pidfd >= 0) { pidfdToJob[r.pidfd] = id; epollAdd(r.pidfd, EPOLLIN, tag(kPidfd, r.pidfd)); }
-    logf("job %s run %d started (shim %d)", id.c_str(), run, static_cast<int>(*pid));
+    // A shim that is already gone (it failed at once) is not watched; it is a lost job, as before, found by the next reconcile.
+    watchShim(id, *pid);
+    logf("job %s run %d started (shim %lld)", id.c_str(), run, static_cast<long long>(*pid));
 }
 
-void Daemon::Impl::onPidfd(int fd)
+void Daemon::Impl::onShimExit(platform::ProcessId shim)
 {
-    auto it = pidfdToJob.find(fd);
-    if (it == pidfdToJob.end()) return;
+    auto it = shimToJob.find(shim);   // the waiter reaped it when it was our child
+    if (it == shimToJob.end()) return;
     const std::string id = it->second;
-    pidfdToJob.erase(it);
-    ::epoll_ctl(epfd, EPOLL_CTL_DEL, fd, nullptr);
-    ::close(fd);
-    auto rit = running.find(id);
-    if (rit == running.end()) return;
-    rit->second->pidfd = -1;
-    int status = 0;
-    (void)::waitpid(rit->second->shimPid, &status, WNOHANG);  // reap when it is our child; harmless otherwise
+    shimToJob.erase(it);
+    if (!running.contains(id)) return;
     const JobRecord* job = store.find(id);
     if (!job) return;
     const Effective eff = reconcile(opts.paths, *job);
@@ -259,7 +253,7 @@ void Daemon::Impl::ledgerFor(const std::string& id)
     r.tokensWork = metric("tokens.work"); r.harnessBytes = metric("harness.bytes"); r.decodeTps = metric("engine.decode_tps");
     for (std::size_t i = 0; i + 1 < job->spec.argv.size(); ++i)
         if (job->spec.argv[i] == "--engine") r.engine = job->spec.argv[i + 1].substr(0, job->spec.argv[i + 1].find('='));
-    if (!appendLedger(opts.paths.ledgerFile(), r)) logf("cannot append to the ledger %s", opts.paths.ledgerFile().c_str());
+    if (!appendLedger(opts.paths.ledgerFile(), r)) logf("cannot append to the ledger %s", opts.paths.ledgerFile().string().c_str());
 }
 
 std::string Daemon::Impl::doCancel(const std::string& id)
@@ -269,10 +263,10 @@ std::string Daemon::Impl::doCancel(const std::string& id)
     if (isTerminal(job->state)) return errorReply("job " + id + " is already " + std::string{toString(job->state)});
     const int run = job->run;
     const bool wasQueued = job->state == JobState::queued;
-    const pid_t shim = static_cast<pid_t>(job->shimPid);
+    const platform::ProcessId shim = job->shimPid;
     const std::uint64_t ticks = job->shimStartTicks;
     record("jobCancelRequested", journalbody::cancelRequested(id, run));
-    if (!wasQueued && shim > 0 && platform::isAlive(shim, ticks)) ::kill(shim, SIGTERM);
+    if (!wasQueued && shim > 0 && platform::isAlive(shim, ticks)) (void)platform::terminateProcess(shim);
     json::Writer w;
     w.beginObject().kvBool("ok", true).kv("id", id).kv("state", toString(store.find(id)->state)).endObject();
     if (wasQueued) { notifyWaiters(id); }
