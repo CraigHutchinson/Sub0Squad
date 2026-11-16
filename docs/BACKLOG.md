@@ -132,12 +132,23 @@ The queue, with hypotheses, arms, measures and commands, is [EXPERIMENTS.md](EXP
     cost all running work. Reactions: retry with back-off, re-prefill from the host prompt cache; and avoid the case:
     admission control on pool headroom (start or grow a request only with room left), a ceiling per slot above the
     fair share (`--kv-unified-per-slot` at about half the pool), and an upstream fix to end only the largest sequence.
-  - Early warning into the agent's context: the engine's pool watermark (Sub0LlmEngine backlog: used / reclaimable /
-    free, levels at 70, 85 and 95 %) becomes one line in the agent's latest message, for example `context: you hold 9.1k;
-    shared pool 23k of 64k free; 3 of 4 agents busy (notice)`. At `warning` the agent is asked to finish the current
-    step and compact; at `critical` the squad stops admitting or growing requests. Put the line at the end of the newest
-    message, never in the system prompt or earlier turns, so the cached prefix is kept; quantise it to bands so it does
-    not change every turn.
+  - Early warning into the agent's context, **only when the level changes** (owner, 2026-11-16), not in every message:
+    the engine's pool watermark (`status --json` `pool`: used / reclaimable / free, levels `ok`, `notice` 70 %,
+    `warning` 85 %, `critical` 95 % used) is read by the squad, which tells an agent once when the level crosses a band,
+    up (worse) or down (better), with exact figures at that moment: `context: shared pool now 9.4k of 64k free
+    (warning, was notice); you hold 12.1k`. Rules:
+    - Every note costs tokens in the pool it warns about, so near exhaustion notes must be rarer, not more frequent:
+      one note per crossing per agent, never a repeat at the same level, and nothing while the level is unchanged.
+    - Hysteresis so a level near a threshold does not flap: go up at the threshold, come back down only 5 points below
+      it (for example `warning` from 85 % up, back to `notice` below 80 %); a level must hold for one engine poll
+      before it is announced.
+    - Timely: the squad polls the engine between turns (and on a cadence while generations run) and attaches a pending
+      note to the agent's next message; a crossing to `critical` reaches every active agent at its next turn.
+    - Precise and actionable: the figures at the crossing and one instruction for the level (`warning`: finish the
+      current step and compact; `critical`: stop and hand back a summary). `ok` after a warning says the room is back.
+    - Squad-side action does not wait for the note: at `critical` the squad stops admitting or growing requests.
+    - Place the note at the end of the newest message, never in the system prompt or earlier turns, so the cached
+      prefix is kept.
   - Fixed budgets stay available as a mode for experiments (same seeds must mean the same limits). The watermark line is off or fixed in experiments, since it depends on the other agents.
 - Later: workload-adaptive configuration (a prefill-tuned engine for the planner's long first prompt, then the serving configuration with the KV kept, measured in
   Sub0LlmEngine's reconfiguration spike) once the engine offers it as a request-level switch. Known model faults to avoid meanwhile: Qwen3.8-27B UD-IQ3_XXS is wrong with
