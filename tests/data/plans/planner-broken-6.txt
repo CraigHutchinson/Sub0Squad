@@ -1,0 +1,59 @@
+{"schema":"plan-2","task":"write a calculator in C++","harness":"cpp-cmake","project":"cpp-calc","reasons":["Split into library (calc_lib) and CLI (calc_cli) for parallel testing and clear separation of concerns. Library logic is tested independently of I/O. CLI logic depends on library but tests can run in parallel with library tests."],"items":[{"id":"test-calc-lib","title":"Test calc_lib calculate function","persona":"tester","goal":"Verify arithmetic, division by zero, and invalid operator handling.","files":["tests/test_calc_lib.cpp"],"deps":[],"complexity":2,"card":{"context":"Unit tests for the core arithmetic engine.","contract":"The function `double calculate(double a, double b, char op)` is declared in `src/calc_lib.h`. It must return the result of `a op b`. It throws `std::invalid_argument` if `op` is not `+`, `-`, `*`, `/`, or if `op` is `/` and `b` is 0. It throws `std::invalid_argument` if `op` is invalid.","acceptance":["Tests pass against stub (stub throws or returns wrong value)","Tests pass against implementation"],"include":["tests/test_calc_lib.cpp"],"notes":["Use `CHECK_THROWS` for error cases.","Use `CHECK_EQ` for arithmetic cases."],"examples":["calculate(2.0, 3.0, '+') = 5.0","calculate(10.0, 2.0, '-') = 8.0","calculate(3.0, 4.0, '*') = 12.0","calculate(5.0, 2.0, '/') = 2.5","calculate(5.0, 0.0, '/') throws std::invalid_argument","calculate(5.0, 2.0, '%') throws std::invalid_argument"]},"gate":{"kind":"ctest","tests":["tests/test_calc_lib.cpp"],"minTests":6,"mustFailOnStub":true}},{"id":"test-calc-cli","title":"Test calc_cli main function","persona":"tester","goal":"Verify CLI argument parsing, output formatting, and error handling.","files":["tests/test_calc_cli.cpp"],"deps":[],"complexity":2,"card":{"context":"Integration tests for the command-line interface.","contract":"The CLI expects exactly 3 arguments: operand1, operator, operand2. It prints the result to stdout. If argc is not 4, it prints usage to stderr and exits 1. If calculation fails (invalid op or div by zero), it prints 'Error: ...' to stderr and exits 1. Uses `app::run("ARG1", "ARG2", "ARG3")` to invoke.","acceptance":["Tests pass against stub (stub crashes or returns wrong output)","Tests pass against implementation"],"include":["tests/test_calc_cli.cpp"],"notes":["Use `app::run` from helpers/app.hpp.","Check exit code and output string."],"examples":["./calc 2 + 3 outputs 5","./calc 10 - 2 outputs 8","./calc 3 * 4 outputs 12","./calc 5 / 2 outputs 2.5","./calc 5 / 0 exits 1 with error","./calc exits 1 with usage"]},"gate":{"kind":"ctest","tests":["tests/test_calc_cli.cpp"],"minTests":6,"mustFailOnStub":true}},{"id":"dev-calc-lib","title":"Implement calc_lib calculate function","persona":"developer","goal":"Implement arithmetic logic and error handling.","files":["src/calc_lib.cpp"],"deps":["test-calc-lib"],"complexity":3,"card":{"context":"Implement the `calculate` function declared in `src/calc_lib.h`.","contract":"Implement `double calculate(double a, double b, char op)`. Perform addition, subtraction, multiplication, division. Throw `std::invalid_argument` for invalid `op` or division by zero. Return double result.","acceptance":["Every test in test_calc_lib.cpp passes"],"include":["tests/test_calc_lib.cpp"],"notes":["Include `src/calc_lib.h`.","Use `std::invalid_argument` from `<stdexcept>`."],"examples":["calculate(2.0, 3.0, '+') = 5.0","calculate(10.0, 2.0, '-') = 8.0","calculate(3.0, 4.0, '*') = 12.0","calculate(5.0, 2.0, '/') = 2.5","calculate(5.0, 0.0, '/') throws std::invalid_argument","calculate(5.0, 2.0, '%') throws std::invalid_argument"]},"gate":{"kind":"ctest","tests":["tests/test_calc_lib.cpp"],"minTests":6,"mustFailOnStub":false}},{"id":"dev-calc-cli","title":"Implement calc_cli main function","persona":"developer","goal":"Implement CLI argument parsing and output.","files":["src/calc_cli.cpp"],"deps":["test-calc-cli","dev-calc-lib"],"complexity":3,"card":{"context":"Implement `main` in `src/calc_cli.cpp` to parse args, call `calculate`, and print result.","contract":"Parse `argv[1]` to double, `argv[2]` to char, `argv[3]` to double. Call `calculate`. Print result to stdout. Catch `std::invalid_argument`, print to stderr, exit 1. If argc != 4, print usage to stderr, exit 1.","acceptance":["Every test in test_calc_cli.cpp passes"],"include":["tests/test_calc_cli.cpp"],"notes":["Include `src/calc_lib.h`.","Use `std::stod` for parsing."],"examples":["./calc 2 + 3 outputs 5","./calc 10 - 2 outputs 8","./calc 3 * 4 outputs 12","./calc 5 / 2 outputs 2.5","./calc 5 / 0 exits 1 with error","./calc exits 1 with usage"]},"gate":{"kind":"ctest","tests":["tests/test_calc_cli.cpp"],"minTests":6,"mustFailOnStub":false}}]}
+=== FILE: src/calc_lib.h ===
+#ifndef CALC_LIB_H
+#define CALC_LIB_H
+
+#include <stdexcept>
+
+double calculate(double a, double b, char op);
+
+#endif
+=== END FILE ===
+=== FILE: src/calc_lib.cpp ===
+#include "calc_lib.h"
+
+double calculate(double a, double b, char op) {
+    switch (op) {
+        case '+': return a + b;
+        case '-': return a - b;
+        case '*': return a * b;
+        case '/':
+            if (b == 0.0) {
+                throw std::invalid_argument("Division by zero");
+            }
+            return a / b;
+        default:
+            throw std::invalid_argument("Invalid operator");
+    }
+}
+=== END FILE ===
+=== FILE: src/calc_cli.cpp ===
+#include <iostream>
+#include <string>
+#include <stdexcept>
+#include "calc_lib.h"
+
+int main(int argc, char* argv[]) {
+    if (argc != 4) {
+        std::cerr << "Usage: calc <num1> <op> <num2>" << std::endl;
+        return 1;
+    }
+
+    try {
+        double a = std::stod(argv[1]);
+        char op = argv[2][0];
+        double b = std::stod(argv[3]);
+
+        double result = calculate(a, b, op);
+        std::cout << result << std::endl;
+    } catch (const std::invalid_argument& e) {
+        std::cerr << "Error: " << e.what() << std::endl;
+        return 1;
+    } catch (const std::exception& e) {
+        std::cerr << "Error: " << e.what() << std::endl;
+        return 1;
+    }
+
+    return 0;
+}
+=== END FILE ===

@@ -47,7 +47,7 @@
     "tests": [
      "tests/wc.test.cpp"
     ],
-    "minTests": 5,
+    "minTests": 4,
     "mustFailOnStub": true
    }
   },
@@ -85,7 +85,7 @@
     "tests": [
      "tests/wc.test.cpp"
     ],
-    "minTests": 5,
+    "minTests": 4,
     "mustFailOnStub": false
    }
   }

@@ -87,7 +87,19 @@ std::string repairJson(const std::string& reply)
             if (c == '"') {   // a quote closes the string only before , : ] } or the end; any other quote is part of the text
                 std::size_t j = i + 1;
                 while (j < reply.size() && (reply[j] == ' ' || reply[j] == '\n' || reply[j] == '\t' || reply[j] == '\r')) ++j;
-                const bool closes = j >= reply.size() || reply[j] == ',' || reply[j] == ':' || reply[j] == ']' || reply[j] == '}';
+                bool closes = j >= reply.size() || reply[j] == ':' || reply[j] == ']' || reply[j] == '}';
+                if (!closes && reply[j] == ',') {   // a comma closes the string only when a JSON value or key follows it: `run("ARG1", ...)` is text
+                    std::size_t k = j + 1;
+                    while (k < reply.size() && (reply[k] == ' ' || reply[k] == '\n' || reply[k] == '\t' || reply[k] == '\r')) ++k;
+                    closes = k >= reply.size() || std::string("\"{[-0123456789tfn]}").find(reply[k]) != std::string::npos;
+                    if (closes && !stack.empty() && stack.back() == '{' && k < reply.size() && reply[k] == '"') {   // in an object a value is followed by a KEY: a string and then a colon
+                        std::size_t e = k + 1;
+                        while (e < reply.size() && reply[e] != '"' && reply[e] != '\n') e += reply[e] == '\\' ? 2 : 1;
+                        std::size_t after = e + 1;
+                        while (after < reply.size() && (reply[after] == ' ' || reply[after] == '\n' || reply[after] == '\t')) ++after;
+                        closes = after < reply.size() && reply[after] == ':';
+                    }
+                }
                 if (closes) { inString = false; out += c; } else out += "\\\"";
                 continue;
             }
@@ -142,6 +154,25 @@ static std::string layoutJson(const std::string& s)
     return out;
 }
 
+std::string prosePlannerPrompt(int slots)
+{
+    std::string harnesses;
+    for (const auto& name : harnessNames()) harnesses += "- " + name + "\n";
+    std::string s;
+    s += "You are the PLANNING LEAD of a small software squad. Think about WHAT to build and how to split it, and write the plan in plain prose. Do NOT write JSON, code or file contents: a formatter turns your prose into the exact plan form afterwards, and a different worker writes each file.\n\n";
+    s += "Project kinds the squad can build (name the one that fits, or the one the request names):\n" + harnesses + "\n";
+    s += "Write these parts, with these headings, briefly (under about 450 words in all):\n";
+    s += "PROJECT: a short name and the kind.\n";
+    s += "SPLIT: why this split. The work is test-first: for each independent deliverable (a library; a command-line program that uses it) a TESTER item writes tests from the contract, then a DEVELOPER item implements it and is graded by those tests. Few items, each with one purpose.\n";
+    s += "For each item: ITEM <id> (tester or developer): its goal in one sentence; the file it writes (tests/NAME... or src/NAME...); the items it depends on.\n";
+    s += "INTERFACE: the project's header in words (the names, parameter and result types, and how an error is reported) and which source files need a stub.\n";
+    s += "CONTRACT, per deliverable: exact behaviour in prose, nothing left open (names, types, errors, argument order of anything a test calls).\n";
+    s += "EXAMPLES, per deliverable: at least 4 lines of the form `input = exact result`, worked out CAREFULLY (both the tests and the code are checked against them).\n";
+    s += "ACCEPTANCE, per item: the observable checks that say it is done.\n";
+    if (slots > 0) s += "\nTHE ENGINE runs " + std::to_string(slots) + " requests at once. Items take unknown, different times, so plan for more independent items than slots when the work really is independent (never pad with invented parts), so a slot that frees finds work waiting.\n";
+    return s;
+}
+
 std::string plannerSystemPrompt(int slots)
 {
     std::string harnesses;
@@ -165,7 +196,7 @@ std::string plannerSystemPrompt(int slots)
     s += "AFTER the JSON object, write each scaffold file as a plain file block (NOT inside the JSON):\n=== FILE: include/<name>/<name>.hpp ===\n<the project's interface: declarations only>\n=== END FILE ===\n=== FILE: src/<file>.cpp ===\n<a STUB: defines every declared function, returns a neutral value, never throws>\n=== END FILE ===\n\n";
     if (slots > 0) {
         s += "THE ENGINE: it runs " + std::to_string(slots) + " requests at once, one per slot, and the goal is to keep every slot busy. Items take different, unknown amounts of time, so some finish early: a slot that frees must find a ready item waiting. ";
-        s += "Plan for MORE independent work than slots (about " + std::to_string(slots + slots / 2) + " items that can start at once when the work really is independent), never fewer; but never pad with invented parts. Each item must fit one slot's context window and about an hour.\n\n";
+        s += "Plan for MORE independent work than slots (about " + std::to_string(slots) + " items that can start at once when the work really is independent), never fewer; but never pad with invented parts, and keep every reply small (a plan of more than 6 items is cut off and refused). Each item must fit one slot's context window and about an hour.\n\n";
     }
     s += "RULES\n";
     s += "- Test-first. A tester item (persona \"tester\", no deps) writes the tests from the contract; a developer item depends on it, lists its test file in card.include and gate.tests, and is graded by tests it did not write. Testers write only under tests/; developers never write tests; no two items edit the same file.\n";
@@ -175,7 +206,7 @@ std::string plannerSystemPrompt(int slots)
     s += "- Few items, each with one purpose. Make ONE tester item and ONE developer item per independent deliverable (a library; a command-line program that uses it): a calculator is an engine item pair and a command-line app item pair, four items (more only where the work is really independent). NEVER make items of a file's internal parts (a lexer, a parser, a \"misc\" item): the developer divides its own file into sections, and two items may not edit the same file. At most 8 items.\n";
     s += "- Keep the whole reply SMALL: under about 2500 tokens. One-line examples, short contracts, no filler. A reply that is cut off is refused. Test files are named tests/NAME followed by the test suffix of the harness.\n";
     s += "- Item ids are lowercase letters, digits, - and _, and say the role and area: test-NAME for a tester, dev-NAME for a developer. At most 32 items; each work card at most about 1500 tokens.\n";
-    s += "- Every gate is declarative (a gate kind and test files); a plan never contains commands. A tester's gate has mustFailOnStub true and minTests of 5 up to the number of worked examples plus 2 (a small model writes about one test per example, and a gate that asks for more can never pass); a developer's has mustFailOnStub false.\n";
+    s += "- Every gate is declarative (a gate kind and test files); a plan never contains commands. A tester's gate has mustFailOnStub true and minTests of 3 up to the number of worked examples (a small model writes about one test per example, and a gate that asks for more can never pass); a developer's has mustFailOnStub false.\n";
     return s;
 }
 
@@ -190,6 +221,19 @@ int runLlmPlanner(const std::vector<std::string>& args)
     const int wallSec = std::atoi(arg(args, "wall", "7000").c_str());           // the whole job: no turn is started that cannot finish inside it
     const auto started = std::chrono::steady_clock::now();
     if (dir.empty() || request.empty()) { std::fprintf(stderr, "llm-planner: --workflow-dir and --request are required\n"); return 64; }
+    // A plan the owner supplied (`do --plan-file`): not re-planned. It still goes through the mends and the plan's checks, so a plan from any source is held to the same bar.
+    if (fs::exists(dir / "plan.supplied")) {
+        auto supplied = Plan::fromJson(slurp(dir / "plan.json"));
+        if (!supplied) { std::fprintf(stderr, "llm-planner: the supplied plan is refused: %s\n", supplied.error().c_str()); return 1; }
+        for (const auto& m : mendPlan(*supplied)) std::fprintf(stderr, "llm-planner: supplied plan mended: %s\n", m.c_str());
+        for (const auto& problem : checkPlan(*supplied)) std::fprintf(stderr, "llm-planner: supplied plan: %s\n", problem.c_str());
+        if (auto ok = supplied->validate(); !ok) { std::fprintf(stderr, "llm-planner: the supplied plan is refused: %s\n", ok.error().c_str()); return 1; }
+        if (const Harness* h = findHarness(supplied->harness); h && h->checkPlanScaffold)
+            if (const std::string bad = h->checkPlanScaffold(supplied->toJson()); !bad.empty()) { std::fprintf(stderr, "llm-planner: the supplied plan is refused: %s\n", bad.c_str()); return 1; }
+        if (!writeFile(dir / "plan.json", supplied->toJson())) return 1;
+        std::printf("using the supplied plan: %zu item(s)\n", supplied->items.size());
+        return 0;
+    }
     auto engine = EngineProfile::parse(arg(args, "engine"));
     if (!engine) { std::fprintf(stderr, "llm-planner: %s\n", engine.error().c_str()); return 64; }
 
@@ -197,6 +241,19 @@ int runLlmPlanner(const std::vector<std::string>& args)
     std::string answers = slurp(dir / "brief.json");
     std::string user = "Request: " + request + "\n";
     if (!answers.empty()) user += "\nThe owner's answers to the planning questions (settled; follow them):\n" + answers + "\n";
+    // Two disciplines, two steps (docs/PLAN_FORMAT.md): the planning lead writes the plan in PROSE, a formatter turns the prose into the plan form. The
+    // prose is kept on disk (planner/prose.md): it is the layer a formatting or a building problem is raised to.
+    std::string prose;
+    if (std::find(args.begin(), args.end(), "--prose") != args.end()) {
+        events::progress(0, 1, "writing the plan in prose");
+        const std::vector<ChatMessage> proseMessages = {{"system", prosePlannerPrompt(std::atoi(arg(args, "slots", std::to_string(engine->maxConcurrent)).c_str()))}, {"user", user + "\nWrite the plan in prose."}};
+        auto lead = chatCompleteMessages(*engine, proseMessages, 1800, std::min(timeoutSec, wallSec), {});
+        if (!lead) { std::fprintf(stderr, "llm-planner: the prose step failed: %s\n", lead.error().c_str()); return 2; }
+        prose = lead->content;
+        writeFile(dir / "planner" / "prose.md", prose + "\n");
+        if (prose.size() < 200) { std::fprintf(stderr, "llm-planner: the prose plan is too short (%zu characters)\n", prose.size()); return 1; }
+        user += "\nThe planning lead has decided the split, the contracts and the examples, in prose, below. Turn them into the plan form: keep every decision, example and name, and invent nothing.\n\n--- the lead's plan ---\n" + prose + "\n--- end ---\n";
+    }
     user += "\nWrite the plan.";
 
     const int slots = std::atoi(arg(args, "slots", std::to_string(engine->maxConcurrent)).c_str());

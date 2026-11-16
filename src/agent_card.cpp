@@ -154,6 +154,11 @@ std::string buildCard(const fs::path& dir, const Plan& plan, const WorkItem& ite
     card << "\n\nContext: " << item->card.context << "\n\nContract:\n" << item->card.contract << "\n";
     if (!item->card.acceptance.empty()) { card << "\nAcceptance:\n"; for (const auto& x : item->card.acceptance) card << "- " << x << "\n"; }
     if (!item->card.examples.empty()) { card << "\nWorked examples (facts the contract commits to: the tests and the code must both agree with them; if a test or an example looks wrong, say so):\n"; for (const auto& x : item->card.examples) card << "- " << x << "\n"; }
+    // The contracts of the developer items this one is built on: the program must know how the library reports an error (the first full clean-slate run: the
+    // engine returns NaN for invalid input, the app's card only said "return 1 on error", and no attempt of the app passed its error test).
+    for (const auto& depId : item->deps)
+        if (const WorkItem* dep = plan.find(depId); dep && dep->persona == "developer" && !dep->card.contract.empty() && item->persona == "developer")
+            card << "\nYou build on '" << dep->id << "' (files " << (dep->files.empty() ? std::string{} : dep->files[0]) << "). What it promises, which you rely on:\n" << dep->card.contract << "\n";
     for (const auto& inc : item->card.include) {
         std::string content;
         for (const auto& dep : closure(plan, itemId)) { const fs::path f = dir / "items" / dep / "accepted" / inc; if (fs::exists(f)) { content = slurp(f); break; } }

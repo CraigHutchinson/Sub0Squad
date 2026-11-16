@@ -146,6 +146,43 @@ int main()
         CHECK_EQ(rq.size(), static_cast<std::size_t>(3));
         if (rq.size() == 3) CHECK(rq[2].last().find("your edits were not applied") != std::string::npos && rq[2].last().find("worked examples") != std::string::npos);
     }
+    {   // A real planner's scaffold whose main calls `calc::run`, declared in a header and defined in no stub: it compiles file by file and does not link.
+        const std::string bad = cppCheckPlanScaffold(data("planner-unlinked.json"));
+        CHECK(bad.find("do not link together") != std::string::npos && bad.find("calc::run") != std::string::npos);
+    }
+    {   // The contract says calc::evaluate, the header declares a global evaluate (a real plan; the build then fails to link).
+        auto plan = Plan::fromJson(data("planner-nsmismatch.json"));
+        CHECK(plan.has_value());
+        bool said = false;
+        if (plan) for (const auto& x : checkPlan(*plan)) said = said || x.find("declares a namespace or type 'calc'") != std::string::npos;
+        CHECK(said);
+    }
+    {   // A supplied plan is not re-planned (the engine is never called) but goes through the same mends and checks.
+        const fs::path d = makeTempDir("planner-supplied");
+        put(d / "plan.json", good);
+        put(d / "plan.supplied", "1\n");
+        fake::Engine engine({{"never used"}});
+        CHECK_EQ(runLlmPlanner(plannerArgs(d, engine)), 0);
+        CHECK_EQ(engine.requestCount(), static_cast<std::size_t>(0));
+        CHECK(Plan::fromJson(slurp(d / "plan.json")).has_value());
+        put(d / "plan.json", "{\"schema\":\"plan-2\"}");
+        CHECK_EQ(runLlmPlanner(plannerArgs(d, engine)), 1);   // a supplied plan that is not a plan is refused
+    }
+    {   // Prose first (docs/PLAN_FORMAT.md): the lead's prose is kept on disk and given to the formatter, which turns it into the plan.
+        const fs::path d = makeTempDir("planner-prose");
+        const std::string lead = "PROJECT: wordcount, a C++ library.\nSPLIT: one library, so one tester item and one developer item.\nITEM test-wc (tester): tests for countWords, tests/wc.test.cpp.\nITEM dev-wc (developer): implements countWords in src/wc.cpp.\nINTERFACE: size_t wc::countWords(const std::string&).\nEXAMPLES: hello world = 2; a = 1; empty = 0; a b c = 3.\n";
+        fake::Engine engine({{lead}, {good}});
+        auto args = plannerArgs(d, engine);
+        args.push_back("--prose");
+        CHECK_EQ(runLlmPlanner(args), 0);
+        const auto rq = engine.requests();
+        CHECK_EQ(rq.size(), static_cast<std::size_t>(2));
+        if (rq.size() == 2) {
+            CHECK(rq[0].messages.front().second.find("PLANNING LEAD") != std::string::npos);
+            CHECK(rq[1].messages.front().second.find("PLANNER of a small software squad") != std::string::npos && rq[1].last().find("ITEM test-wc (tester)") != std::string::npos);
+        }
+        CHECK(slurp(d / "planner" / "prose.md").find("PROJECT: wordcount") != std::string::npos);
+    }
     {   // The scaffold as plain FILE blocks after the JSON (no escaping to get wrong): the same plan results, and the blocks fill in what the JSON leaves out.
         const fs::path d = makeTempDir("planner-blocks");
         auto base = Plan::fromJson(good);
@@ -224,9 +261,35 @@ int main()
             const auto mends = mendPlan(m);
             CHECK(mends.size() >= 4);
             CHECK(std::none_of(m.items[0].card.include.begin(), m.items[0].card.include.end(), [](const std::string& i) { return i == "src/engine.h"; }));
-            CHECK(m.items[0].gate.minTests >= 5 && m.items[0].gate.mustFailOnStub);
+            CHECK(m.items[0].gate.minTests >= 3 && m.items[0].gate.mustFailOnStub);
             CHECK(!m.items[1].deps.empty());
             CHECK(mendPlan(m).empty());   // nothing left to mend
+        }
+    }
+    {   // The program's item depends on every library item (else its gate links their stubs).
+        auto plan = Plan::fromJson(good);
+        CHECK(plan.has_value());
+        if (plan) {
+            Plan m = *plan;
+            WorkItem app = m.items[1];   // a developer item
+            app.id = "dev-app"; app.files = {"src/main.cpp"}; app.deps = {m.items[0].id};
+            m.items.push_back(app);
+            bool added = false;
+            for (const auto& x : mendPlan(m)) added = added || x.find("depends on 'dev-wc'") != std::string::npos;
+            CHECK(added);
+            CHECK(std::find(m.items.back().deps.begin(), m.items.back().deps.end(), std::string("dev-wc")) != m.items.back().deps.end());
+        }
+    }
+    {   // A test file named another way is renamed everywhere it is mentioned.
+        auto plan = Plan::fromJson(good);
+        CHECK(plan.has_value());
+        if (plan) {
+            Plan m = *plan;
+            for (auto& it : m.items) for (auto* list : {&it.files, &it.gate.tests, &it.card.include}) for (auto& x : *list) if (x == "tests/wc.test.cpp") x = "tests/test_wc.cpp";
+            (void)mendPlan(m);
+            bool oldLeft = false;
+            for (const auto& it : m.items) for (const auto* list : {&it.files, &it.gate.tests, &it.card.include}) for (const auto& x : *list) oldLeft = oldLeft || x == "tests/test_wc.cpp";
+            CHECK(!oldLeft && m.items[0].files[0] == "tests/wc.test.cpp");
         }
     }
     {   // A stub's unread parameters are left unnamed; read ones stay.
@@ -241,7 +304,7 @@ int main()
         }
     }
     {   // The three slips a real planner made (the first end-to-end runs): an unescaped quote inside a string, and an item closed one bracket short.
-        for (int n : {2, 3, 4}) {
+        for (int n : {2, 3, 4, 5, 6, 7}) {
             std::string rest;
             const std::string reply = data(("planner-broken-" + std::to_string(n) + ".txt").c_str());
             (void)extractFileBlocks(reply, rest);

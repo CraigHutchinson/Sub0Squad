@@ -442,7 +442,7 @@ const Process& plannedProcess()
         Process x = standardProcess();
         x.name = "planned";
         x.description = "The standard stages with NO blueprint: a planner (a model, from the request alone) writes the plan, the mechanical plan checks and the harness's scaffold check send a refused plan back to it, then build and integrate. The default of a real-model run (docs/CLEAN_SLATE.md).";
-        x.stages[0] = jobStage("plan", "always", "plan.present", {"planner", "planner", "llm-planner", {"--workflow-dir", "${sandbox}", "--engine", "${engine}", "--request", "${request}", "--max-turns", "6"}, "local", 7200, 0, "plan"});
+        x.stages[0] = jobStage("plan", "always", "plan.present", {"planner", "planner", "llm-planner", {"--workflow-dir", "${sandbox}", "--engine", "${engine}", "--request", "${request}", "--max-turns", "6"}, "local", 7200, 2, "plan"});   // a planner's failure is a stochastic one (about half of the plans on the 35B): a fresh run is the cheapest repair
         return x;
     }();
     return p;

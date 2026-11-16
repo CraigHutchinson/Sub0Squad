@@ -12,13 +12,16 @@
 
 namespace sub0squad {
 
-/// `llm-planner --workflow-dir DIR --engine PROFILE --request TEXT [--max-turns N] [--timeout SEC] [--max-tokens N] [--wall SEC] [--slots N]` (slots default to the engine profile's): exit 0 plan written, 1 no valid plan
+/// `llm-planner --workflow-dir DIR --engine PROFILE --request TEXT [--max-turns N] [--timeout SEC] [--max-tokens N] [--wall SEC] [--slots N] [--prose]` (slots default to the engine profile's): exit 0 plan written, 1 no valid plan
 /// within the turns, 2 the engine failed, 64 usage.
 [[nodiscard]] int runLlmPlanner(const std::vector<std::string>& args);
 
 /// The system prompt: the planner's role, the plan-2 form and its rules, and what each registered harness is and does. Exposed so a test can read it.
 /// `slots` > 0 tells the planner how many requests the engine runs at once and asks it to over-allocate ready work (plan-lint measures the result).
 [[nodiscard]] std::string plannerSystemPrompt(int slots = 0);
+
+/// The prompt of the prose step (`--prose`): the planning lead decides the split, contracts and examples in plain words; a formatter turns them into the plan form.
+[[nodiscard]] std::string prosePlannerPrompt(int slots = 0);
 
 /// The `=== FILE: path === ... === END FILE ===` blocks of a reply (the plan's scaffold, as plain text); `rest` is the reply without them.
 [[nodiscard]] std::vector<PlanFile> extractFileBlocks(const std::string& reply, std::string& rest);

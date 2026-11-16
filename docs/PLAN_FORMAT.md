@@ -48,6 +48,27 @@ This divides at discipline boundaries, so a smaller or specialised model, or an 
 - Tester and developer replies already use edit transactions; the open work is to make the *first* reply small (the section split) and to persist what a worker knew (the planner document is now kept under `planner/doc/turn-N/`).
 - A "formatter" role is a generic building block: free-form worker output in, a checked artefact out, repaired by edits. It serves the plan, the gate report, the work-card rewrite (`rearchitect`) and the manager's decisions.
 
+## 5b. The discipline ladder (owner, 2026-11-15)
+
+Prose then format is not only for the plan. Each piece of work has the same layers, and each layer has one job:
+
+| layer | writes | judged by | when it fails, raise to |
+|---|---|---|---|
+| plan prose | the split, contracts, examples in words | the formatter can reproduce it; the examples are consistent | the owner (intent) |
+| plan form | `plan-2` JSON and scaffold from the prose | `Plan::fromJson`, the plan checks, the scaffold compile | plan prose (a decision is missing or contradictory), else repaired by edits in place |
+| work prose | per item: how the tests or the code will be built, in words (the cases to cover; the functions and their steps) | the contract, the examples | the plan form or plan prose |
+| work source | tests or code | the gate | work prose (the description cannot be implemented), else repaired by edits |
+
+The rule: a worker who cannot turn the layer above into its own output does not paper over it. It raises the issue to the AUTHOR of that layer (the one who wrote the prose),
+who answers or revises that layer, exactly as a fork's coordinator can be asked about a section. This is the same hand-off the `CONCERN` item in the backlog describes
+(pull-context and concern), now with a fixed ladder: a layer's author is recorded with the layer (planner/prose.md names the lead; the work prose names the item's
+planner), so a question has an addressee. A format problem never climbs: it is repaired by edits where it is. A content problem (a contract that two items read differently,
+an example that contradicts the contract) climbs one layer at a time, and the layer that fixes it is the one whose output is changed.
+
+Build order: (1) plan prose then plan form, measured against the single reply (started: `llm-planner --prose`); (2) the concern hand-off from a failing item to the plan
+layer (the dispute mechanism, `reviseTests`, already sends a developer's failure back to the tester; it generalises); (3) work prose for the tester and the developer
+(a short description first, then the code, so a failing test is first discussed in words); (4) a recorded author per layer.
+
 ## 6. Not decided (owner)
 
 - Whether a second, smaller model may serve the format step (frontier stays off; this is a local model).

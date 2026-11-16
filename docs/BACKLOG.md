@@ -196,3 +196,26 @@ Done 2026-11-15: the planner's repair turn is now an edit. The first reply becom
 ## Plan format and discipline boundaries (owner, 2026-11-15)
 
 Design and prior art are in `docs/PLAN_FORMAT.md`. TASKS, in order: (1) measure the format-only failure share on the existing planner records; (2) prose plan then per-item format calls, in parallel, with edit repair, against the single-reply planner on the same seeds; (3) pass a grammar or schema to llama-server for the format step only, and check content quality does not fall; (4) a schema-guided tolerant parser in place of one mend per slip.
+
+## Portal: show the planning layers and this week's features (owner, 2026-11-16)
+
+The portal's work graph starts at the plan's items; a clean-slate workflow's PLANNING (the longest and least reliable stage so far) is invisible, and so are the other new things. TASKS:
+- A planning node (and, later, the layers of `docs/PLAN_FORMAT.md`: plan prose, plan form, work prose, work source) ahead of the items, with its state, turns used, and a transcript like any node: `planner/live.txt` (streaming), `planner/prose.md`, `planner/turn-N.txt`, `planner/conversation.md`.
+- Per planner turn: the problems that were raised, the mends applied (`mendPlan`, `repairJson`: today only on stderr, so also write them into `planner.json`), whether the turn was an edit or a whole plan, and the document as it stood (`planner/doc/turn-N/`) with the diff between turns.
+- The plan-lint scalars (slot fill, speedup, backfill rate, warnings) shown beside the plan; the dispute edges (`reviseTests`: developer to tester), the gate exit class (near pass, stuck, one failing test), and the new policy rung (one failing test goes back to its tester) in the decision log view.
+- The supplied-plan path (`plan.supplied`) and the planner's retries (the plan stage now retries twice): a run's planner attempts as separate nodes.
+- Mark which work was model-built versus mended mechanically, and show the grade (validation grader output) when one exists beside a finished run.
+
+## A/B on prompt wording in the proving grounds (owner, 2026-11-16)
+
+Wording is a variable like any other, and the wording of the system prompts has never been measured. The planner's line "The workers are small local models: each sees ONLY its own work card, so every card must be exact and short" is the first candidate. Owner's reframing (isolated specialists, self-contained, atomic, not "weak" or "short"), as variants to run against it:
+
+- A (today): "The workers are small local models: each sees ONLY its own work card, so every card must be exact and short."
+- B (focused, architectural): "Each worker operates as a dedicated specialist executing a single, self-contained work card; make every card atomic, precise, and fully self-sufficient."
+- C (task-oriented): "Workers execute in strict isolation with visibility limited to their assigned card, so scope each card to a distinct, self-contained unit of work with exact specifications."
+- D (team metaphor): "Treat each worker as a focused specialist working in isolation on a single assignment: define every work card with surgical precision and zero reliance on outside context."
+- E (punchy): "Workers are isolated specialists that see only their assigned card; make every card self-contained, atomic, and exact."
+
+Method: prompts as DATA (a registry of named variants the stage reads, so a variant is not a rebuild); the same seeds and the same engine for every variant; one block with a fixture and a judge per prompt role (planner, tester, developer, fork skeleton, repair turns). Metrics: valid-plan rate and turns to valid, reply tokens, items per plan and slot fill (the lint), the share of cards that pass the plan checks first time, and for the workers the attempts to accepted and the first-try pass rate. Hypotheses to test, not assume: "atomic" may raise the number of items (more, smaller cards: good for slots, bad for reply size and cut-offs); removing "short" may lengthen replies and cause more cut-offs; "isolated specialists" may change how much the model invents beyond the card. The same experiment applies to the other wording that shapes behaviour (the over-allocation paragraph, the examples rule, the edit syntax text, the repair messages). Needs the ordinary rules: one CPU-heavy job at a time, enough seeds per variant (at least 10) before any claim, and the results recorded with the build and the variant name.
+
+Idea, not adopted (2026-11-16): when ONE test fails and a repair left the developer's files unchanged, send that test back to its tester BEFORE the `think` rung (the wrong-literal case in w-000013 and w-000020 cost one extra attempt of thinking). It needs a distinguishing signal: with no oracle, a right test and a wrong test look the same, and `test_nearpass` (right tests, a developer stuck on one) pins the current order. A cheaper discriminator is an independent check of the literal (the expectation QA step above).

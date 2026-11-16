@@ -70,12 +70,28 @@ std::vector<std::string> mendPlan(Plan& plan)
     std::vector<std::string> mends;
     for (auto& it : plan.items) {
         if (it.persona != "tester" && it.persona != "developer") continue;
-        const int reachable = std::max(5, static_cast<int>(it.card.examples.size()) + 2);
+        const int reachable = std::max(3, static_cast<int>(it.card.examples.size()));
         if (it.persona == "tester") {
             if (!it.gate.mustFailOnStub) { it.gate.mustFailOnStub = true; mends.push_back("item '" + it.id + "': gate.mustFailOnStub set to true"); }
-            if (it.gate.minTests < 5) { it.gate.minTests = 5; mends.push_back("item '" + it.id + "': gate.minTests raised to 5"); }
+            if (it.gate.minTests < 3) { it.gate.minTests = 3; mends.push_back("item '" + it.id + "': gate.minTests raised to 3"); }
         }
         if (it.gate.minTests > reachable) { it.gate.minTests = reachable; mends.push_back("item '" + it.id + "': gate.minTests lowered to " + std::to_string(reachable)); }
+    }
+    // The build compiles exactly tests/NAME<suffix>: a test file the planner named another way (tests/test_calc.cpp) is renamed everywhere it is mentioned.
+    if (const Harness* h = findHarness(plan.harness); h && h->testSuffix && h->testSuffix[0]) {
+        for (auto& t : plan.items) {
+            if (t.persona != "tester") continue;
+            for (auto& f : t.files) {
+                if (f.rfind("tests/", 0) != 0 || endsWith(f, h->testSuffix) || f.find('/', 6) != std::string::npos) continue;
+                const std::string stem = f.substr(6, f.rfind('.') == std::string::npos || f.rfind('.') < 6 ? std::string::npos : f.rfind('.') - 6);
+                const std::string name = "tests/" + (stem.rfind("test_", 0) == 0 ? stem.substr(5) : stem) + h->testSuffix;
+                const std::string old = f;
+                for (auto& o : plan.items) {
+                    for (auto* list : {&o.files, &o.gate.tests, &o.card.include}) for (auto& x : *list) if (x == old) x = name;
+                }
+                mends.push_back("item '" + t.id + "': test file '" + old + "' renamed to '" + name + "' (the build compiles tests/NAME" + h->testSuffix + ")");
+            }
+        }
     }
     for (auto& dev : plan.items) {
         if (dev.persona != "developer") continue;
@@ -106,6 +122,29 @@ std::vector<std::string> mendPlan(Plan& plan)
                 if (std::find(it.card.include.begin(), it.card.include.end(), h) == it.card.include.end()) {
                     it.card.include.push_back(h);
                     mends.push_back("item '" + it.id + "': card.include gains the project header '" + h + "'");
+                }
+        }
+    }
+    // The command-line program links the whole library: its gate builds the app against whatever the other developers' items have produced, and an app whose
+    // item does not depend on them is built against their STUBS and can never pass (the first full clean-slate run: dev-cli depended on its tests only).
+    if (plan.harness == "cpp-cmake") {
+        const auto closureOf = [&](const WorkItem& start) {
+            std::set<std::string> seen;
+            std::vector<std::string> todo = start.deps;
+            while (!todo.empty()) {
+                const std::string id = todo.back(); todo.pop_back();
+                if (!seen.insert(id).second) continue;
+                for (const auto& o : plan.items) if (o.id == id) for (const auto& d : o.deps) todo.push_back(d);
+            }
+            return seen;
+        };
+        for (auto& app : plan.items) {
+            if (app.persona != "developer" || std::find(app.files.begin(), app.files.end(), "src/main.cpp") == app.files.end()) continue;
+            const std::set<std::string> have = closureOf(app);
+            for (const auto& lib : plan.items)
+                if (lib.persona == "developer" && lib.id != app.id && have.count(lib.id) == 0 && closureOf(lib).count(app.id) == 0) {
+                    app.deps.push_back(lib.id);
+                    mends.push_back("item '" + app.id + "': depends on '" + lib.id + "' (the program links the library it builds on, so the library is built first)");
                 }
         }
     }
@@ -149,12 +188,12 @@ std::vector<std::string> checkPlan(const Plan& plan)
     for (const auto& it : plan.items) {
         if (it.card.acceptance.empty()) problems.push_back("item '" + it.id + "' has no acceptance: list the observable checks that say it is done");
         if (it.card.contract.empty()) problems.push_back("item '" + it.id + "' has an empty contract: state the interface exactly (names, parameters, results, errors)");
-        const int reachable = std::max(5, static_cast<int>(it.card.examples.size()) + 2);
+        const int reachable = std::max(3, static_cast<int>(it.card.examples.size()));
         if ((it.persona == "tester" || it.persona == "developer") && it.gate.minTests > reachable)
             problems.push_back("item '" + it.id + "': gate.minTests is " + std::to_string(it.gate.minTests) + " but only " + std::to_string(reachable) + " tests can be expected from " + std::to_string(it.card.examples.size()) + " worked examples; lower it to " + std::to_string(reachable) + " or add examples");
         if (it.persona == "tester") {
             if (!it.gate.mustFailOnStub) problems.push_back("tester item '" + it.id + "': set gate.mustFailOnStub to true (tests that pass against a stub test nothing)");
-            if (it.gate.minTests < 5) problems.push_back("tester item '" + it.id + "': gate.minTests is " + std::to_string(it.gate.minTests) + "; ask for at least 5 tests");
+            if (it.gate.minTests < 3) problems.push_back("tester item '" + it.id + "': gate.minTests is " + std::to_string(it.gate.minTests) + "; ask for at least 3 tests");
             for (const auto& t : it.gate.tests)
                 if (std::find(it.files.begin(), it.files.end(), t) == it.files.end()) problems.push_back("tester item '" + it.id + "': the gate runs '" + t + "' but the item does not list it in files");
             if (static_cast<int>(it.card.examples.size()) < kMinWorkedExamples)
@@ -170,6 +209,33 @@ std::vector<std::string> checkPlan(const Plan& plan)
                 if (std::find(it.card.include.begin(), it.card.include.end(), t) == it.card.include.end())
                     problems.push_back("developer item '" + it.id + "': put '" + t + "' in card.include so the developer reads the tests it is graded by");
         }
+    }
+
+    // The words and the header must agree: a contract that names `calc::evaluate` while the header declares a global `evaluate` is built two ways (the tester
+    // and the developer follow the card, the link follows the header: "undefined reference", run w-000017). Every `NAME::` the cards use must be a namespace, class
+    // or struct the scaffold's headers declare (std and the harness's own helpers aside).
+    if (plan.harness == "cpp-cmake" && !plan.scaffold.empty()) {
+        std::set<std::string> declared = {"std", "app", "check"};
+        for (const auto& f : plan.scaffold) {
+            const std::string& c = f.content;
+            for (const char* kw : {"namespace ", "class ", "struct ", "enum class ", "enum "}) {
+                for (std::size_t at = c.find(kw); at != std::string::npos; at = c.find(kw, at + 1)) {
+                    std::size_t b = at + std::string(kw).size(), e = b;
+                    while (e < c.size() && (std::isalnum(static_cast<unsigned char>(c[e])) || c[e] == '_')) ++e;
+                    if (e > b) declared.insert(c.substr(b, e - b));
+                }
+            }
+        }
+        std::set<std::string> flagged;
+        for (const auto& it : plan.items)
+            for (const std::string* text : {&it.card.contract, &it.goal})
+                for (std::size_t at = text->find("::"); at != std::string::npos; at = text->find("::", at + 2)) {
+                    std::size_t b = at;
+                    while (b > 0 && (std::isalnum(static_cast<unsigned char>((*text)[b - 1])) || (*text)[b - 1] == '_')) --b;
+                    const std::string ns = text->substr(b, at - b);
+                    if (!ns.empty() && std::isalpha(static_cast<unsigned char>(ns[0])) && declared.count(ns) == 0 && flagged.insert(ns).second)
+                        problems.push_back("item '" + it.id + "': the contract uses '" + ns + "::...' but no header in the scaffold declares a namespace or type '" + ns + "': make the header declare it (namespace " + ns + " { ... }), or write the contract without it");
+                }
     }
 
     // The project's own interface (a harness whose scaffold is the plan's): every file a developer writes needs a stub the tests can link against, and

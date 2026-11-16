@@ -111,9 +111,9 @@ template <class T> std::string show(const T& v) { std::ostringstream o; o << v; 
 )CPP";
 
 const char* kAppHelper = R"CPP(#pragma once
-// Runs the app (calc_cli) and returns what it printed. Either ONE string, the command line after the program name written as in a shell (quote an
-// argument that has spaces): app::run("--degrees \"sin(90)\""); or SEVERAL strings, one per argument, passed exactly as given:
-// app::run("--degrees", "sin(90)"). The program's path is supplied by the build; do not use CALC_CLI_PATH yourself.
+// Runs the app (calc_cli) and returns what it printed. ONE string is ONE argument, as given (app::run("2 + 2") gives the program the single argument
+// `2 + 2`), except that a string starting with '-' is a command line of options written as in a shell: app::run("--degrees \"sin(90)\"");
+// or SEVERAL strings, one per argument, passed exactly as given: app::run("--degrees", "sin(90)"). No string: the program with no arguments. The program's path is supplied by the build; do not use CALC_CLI_PATH yourself.
 #include <cstdio>
 #include <string>
 #include <utility>
@@ -142,7 +142,8 @@ inline std::string quoted(const std::string& arg)
     return q + "'";
 }
 
-inline Result run(const std::string& args) { return runLine(args); }
+inline Result run(const std::string& args) { return !args.empty() && args[0] == '-' ? runLine(args) : runLine(quoted(args)); }
+inline Result run() { return runLine(""); }   // the program with no arguments (a test of its usage message is natural; the first full runs wrote app::run() and could not compile)
 
 template <class... More>
 Result run(const std::string& first, const std::string& second, const More&... more)
@@ -499,7 +500,7 @@ std::string cppOwnScaffoldBrief()
            "every tests/NAME.test.cpp is its own test executable. The harness supplies CMakeLists.txt and tests/helpers/ (do not recreate them): "
            "tests/helpers/check.hpp gives TEST(name){...}, CHECK(cond), CHECK_EQ(a, b), CHECK_NEAR(a, b, tol) and CHECK_THROWS(expr) (a failure shows each side's own text and value; write the value under test first and the constant you expect second); "
            "a test file includes the project's own header and \"helpers/check.hpp\" and defines only TEST cases (no main). To test the command-line app a test file includes \"helpers/app.hpp\" and calls app::run(\"ARGS\") "
-           "(or app::run(\"ARG1\", \"ARG2\", ...), one string per argument), which runs the built app and returns .output (stdout and stderr together) and .code (the exit code). "
+           "(one string is ONE argument, so app::run(\"2 + 2\") gives the program the single argument 2 + 2; a string starting with - is a command line of options, app::run(\"--degrees \\\"sin(90)\\\"\"); or app::run(\"ARG1\", \"ARG2\", ...), one string per argument; app::run() gives no arguments), which runs the built app and returns .output (stdout and stderr together) and .code (the exit code). "
            "The project's own interface (headers) and the STUBS of every source file a developer writes (including src/main.cpp when there is an app) come from the plan's scaffold. "
            "A tester's tests must fail against the stubs (at least 70 % of them); a developer's file must pass every test.";
 }
@@ -544,7 +545,7 @@ const CalculatorSurface& cppSurface()
         "double calc::evaluate(const std::string& expr, bool degrees = false), declared in include/calc/calc.hpp and defined in src/calc.cpp",
         "std::runtime_error",
         "includes \"calc/calc.hpp\" (engine tests) and \"helpers/check.hpp\" and defines only TEST cases (CHECK_NEAR, CHECK_EQ, CHECK_THROWS), no main",
-        "In a test, #include \"helpers/app.hpp\" and call app::run(\"ARGS\") (the whole command line as one string) or app::run(\"ARG1\", \"ARG2\") (one string per argument), which returns a struct with .output (stdout and stderr together) and .code (the exit code); do not use popen or CALC_CLI_PATH yourself.",
+        "In a test, #include \"helpers/app.hpp\" and call app::run(\"ARGS\") (one string is ONE argument, so app::run(\"2 + 2\") is the single argument 2 + 2; a string starting with - is a command line of options) or app::run(\"ARG1\", \"ARG2\") (one string per argument), which returns a struct with .output (stdout and stderr together) and .code (the exit code); do not use popen or CALC_CLI_PATH yourself.",
         "int main(int argc, char** argv)",
         "C++20, standard library only, no warnings",
         "A small recursive descent parser works well: expression -> term -> unary -> postfix -> primary"};

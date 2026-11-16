@@ -141,6 +141,15 @@ std::string cppCheckPlanScaffold(const std::string& planJson)
         const Cmd c = run({compiler(), "-std=c++20", "-c", "-o", "/dev/null", "-Wall", "-Wextra", "-Werror", "-Iinclude", "-Isrc", f.path}, ws, 60);
         if (c.exitCode != 0) bad += "the scaffold file '" + f.path + "' does not compile (a stub ignores its parameters: leave them unnamed, for example `double evaluate(const std::string&)`, and never use a name the stub does not read):\n" + diagnostics(c.output, 4);
     }
+    // The stubs must LINK as the build links them (every src/*.cpp with src/main.cpp): a function the headers declare that no stub defines would fail every
+    // tester's build with an undefined reference, and nobody could pass (the first supplied-plan run: `calc::run` was declared and called, never defined).
+    const bool hasMain = std::any_of(plan->scaffold.begin(), plan->scaffold.end(), [](const PlanFile& f) { return f.path == "src/main.cpp"; });
+    if (bad.empty() && hasMain) {
+        std::vector<std::string> cmd = {compiler(), "-std=c++20", "-Wall", "-Wextra", "-Werror", "-Iinclude", "-Isrc", "-o", "linkcheck"};
+        for (const auto& f : plan->scaffold) if (fs::path(f.path).extension() == ".cpp") cmd.push_back(f.path);
+        const Cmd c = run(cmd, ws, 90);
+        if (c.exitCode != 0) bad += "the scaffold stubs do not link together (as src/main.cpp with the other src files): every function a header declares and a stub or main calls needs a stub body in some src file (main.cpp itself defines only main):\n" + diagnostics(c.output, 4);
+    }
     fs::remove_all(ws, ec);
     return bad;
 }
@@ -187,11 +196,24 @@ int runCppIntegrate(const std::vector<std::string>& args)
 
     events::progress(3, 4, "run");
     const fs::path app = project / "build" / "calc_cli";
+    std::string captured;
+    if (!plan->scaffold.empty()) {
+        // A plan a planner wrote has no calculator in it: nothing here may assume what the program takes. The tests already ran every behaviour the plan
+        // promised; the run only checks that the built program starts and ends without a crash or a sanitizer report (when the plan has a program at all).
+        if (fs::exists(app)) {
+            const Cmd start = run({app.string()}, project, 20);
+            if (start.exitCode >= 128 || start.output.find("Sanitizer") != std::string::npos) { std::printf("INTEGRATION FAIL: the program crashed or tripped a sanitizer when started with no arguments (exit %d):\n%s\n", start.exitCode, start.output.substr(0, 400).c_str()); return 1; }
+            captured = start.output;
+            writeFile(dir / "capture.txt", captured);
+        }
+    } else {
     const Cmd smoke = run({app.string(), "2^3^2"}, project, 20);
     if (smoke.exitCode != 0 || smoke.output.find("512") == std::string::npos) { std::printf("INTEGRATION FAIL: the app gave '%s' for 2^3^2 (exit %d)\n", smoke.output.substr(0, 200).c_str(), smoke.exitCode); return 1; }
     const Cmd frame = run({app.string(), "--screen", "2^3^2"}, project, 20);
     if (frame.exitCode != 0 || frame.output.empty()) { std::printf("INTEGRATION FAIL: the app's --screen frame is empty (exit %d)\n", frame.exitCode); return 1; }
-    writeFile(dir / "capture.txt", frame.output);
+    captured = frame.output;
+    writeFile(dir / "capture.txt", captured);
+    }
 
     events::progress(4, 4, "integrated");
     {
@@ -205,7 +227,7 @@ int runCppIntegrate(const std::vector<std::string>& args)
             for (std::size_t i = 0; i < it.files.size(); ++i) md += (i ? ", " : "") + it.files[i];
             md += " |\n";
         }
-        md += "\n## Verification\n\n" + std::to_string(all.pass) + " tests passed over the merged project, built with AddressSanitizer and UBSan; the app ran a smoke expression.\n\n## The app's screen (capture)\n\n```\n" + frame.output + "```\n\n## Run it\n\n```sh\ncd project\ncmake -S . -B build -G Ninja && cmake --build build\nbuild/calc_cli '2^3^2'\n```\n";
+        md += "\n## Verification\n\n" + std::to_string(all.pass) + " tests passed over the merged project, built with AddressSanitizer and UBSan; the app ran a smoke expression.\n\n## The app's screen (capture)\n\n```\n" + captured + "```\n\n## Run it\n\n```sh\ncd project\ncmake -S . -B build -G Ninja && cmake --build build\nbuild/calc_cli '2^3^2'\n```\n";
         md += provenanceMarkdown(*plan, dir);
         if (!plan->reasons.empty()) { md += "\n## Why this split\n\n"; for (const auto& r : plan->reasons) md += "- " + r + "\n"; }
         writeFile(dir / "report.md", md);

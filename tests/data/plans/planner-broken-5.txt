@@ -1,0 +1,128 @@
+{
+"schema":"plan-2",
+"task":"Write a calculator in C++",
+"harness":"cpp-cmake",
+"project":"calc",
+"reasons":["Separate the mathematical engine (parsing and evaluation) from the CLI interface for modular testing.", "The engine is pure logic; the CLI handles I/O and error wrapping.", "Two independent deliverables allow parallel work by tester and developer pairs."],
+"items":[
+{
+"id":"test-engine",
+"title":"Engine Tests",
+"persona":"tester",
+"goal":"Verify parsing and evaluation of arithmetic expressions including precedence, unary operators, and errors.",
+"files":["tests/engine.test.cpp"],
+"deps":[],
+"complexity":3,
+"card":{
+"context":"The calculator engine must parse infix arithmetic expressions and evaluate them. It supports +, -, *, /, ^ (power), parentheses, and unary minus.",
+"contract":"Function: `double calc::evaluate(const std::string& expr)`.",
+"acceptance":["Correctly evaluates simple sums and products.", "Correctly handles operator precedence (* before +).", "Correctly handles parentheses.", "Correctly handles unary minus (e.g., -5 + 3).", "Correctly handles exponentiation.", "Returns NaN on syntax errors or division by zero.", "Returns NaN on empty input."],
+"include":[],
+"notes":["Use `std::isnan` to check for errors.", "Assume integer literals are converted to double."],
+"examples":["2 + 3 = 5", "2 * 3 + 4 = 10", "(2 + 3) * 4 = 20", "-5 + 3 = -2", "2 ^ 3 = 8", "10 / 0 = nan", "2 + = 3 = nan"]
+},
+"gate":{
+"kind":"ctest",
+"tests":["tests/engine.test.cpp"],
+"minTests":6,
+"mustFailOnStub":true
+}
+},
+{
+"id":"dev-engine",
+"title":"Engine Implementation",
+"persona":"developer",
+"goal":"Implement the `calc::evaluate` function to parse and calculate arithmetic expressions.",
+"files":["src/engine.cpp"],
+"deps":["test-engine"],
+"complexity":3,
+"card":{
+"context":"Implement the core logic for the calculator.",
+"contract":"Implement `double calc::evaluate(const std::string& expr)` declared in `include/calc/engine.hpp`.",
+"acceptance":["Every test in `tests/engine.test.cpp` passes.", "No warnings with -Wall -Wextra -Werror."],
+"include":["tests/engine.test.cpp"],
+"notes":["You can implement a recursive descent parser or use a shunting-yard algorithm.", "Handle spaces in input by ignoring them."],
+"examples":["2 + 3 = 5", "2 * 3 + 4 = 10", "(2 + 3) * 4 = 20"]
+},
+"gate":{
+"kind":"ctest",
+"tests":["tests/engine.test.cpp"],
+"minTests":6,
+"mustFailOnStub":false
+}
+},
+{
+"id":"test-cli",
+"title":"CLI Tests",
+"persona":"tester",
+"goal":"Verify the command-line interface correctly invokes the engine and handles arguments.",
+"files":["tests/cli.test.cpp"],
+"deps":[],
+"complexity":2,
+"card":{
+"context":"The CLI app takes an expression as a command-line argument and prints the result.",
+"contract":"Use `app::run("ARG1", ...)` to simulate execution. Check `output` and `code`.",
+"acceptance":["Prints the result for a valid expression.", "Prints an error message for an invalid expression.", "Exits with code 0 on success.", "Exits with code 1 on failure.", "Handles multiple arguments by joining them or taking the first one (design choice: join args with space)."],
+"include":[],
+"notes":["The app should join all arguments with spaces to form the expression.", "Standard output should contain the numeric result."],
+"examples":["Args: '2+2' -> Output contains '4', Code: 0", "Args: '10/0' -> Output contains 'Error', Code: 1", "Args: '-5' -> Output contains '-5', Code: 0"]
+},
+"gate":{
+"kind":"ctest",
+"tests":["tests/cli.test.cpp"],
+"minTests":5,
+"mustFailOnStub":true
+}
+},
+{
+"id":"dev-cli",
+"title":"CLI Implementation",
+"persona":"developer",
+"goal":"Implement the main application that wraps the engine.",
+"files":["src/main.cpp"],
+"deps":["test-cli", "dev-engine"],
+"complexity":2,
+"card":{
+"context":"Create the entry point for the calculator.",
+"contract":"Implement `int main(int argc, char* argv[])`. Join args into a string and call `calc::evaluate`.",
+"acceptance":["Every test in `tests/cli.test.cpp` passes.", "Prints result to stdout.", "Prints error to stderr on failure.", "Exit code 0 on success, 1 on error."],
+"include":["tests/cli.test.cpp"],
+"notes":["Include `include/calc/engine.hpp`.", "Use `std::stod` or `std::to_string` for output formatting if needed."],
+"examples":["Args: '2+2' -> Output '4', Code 0", "Args: '10/0' -> Output 'Error', Code 1"]
+},
+"gate":{
+"kind":"ctest",
+"tests":["tests/cli.test.cpp"],
+"minTests":5,
+"mustFailOnStub":false
+}
+}
+]
+}
+
+=== FILE: include/calc/engine.hpp ===
+#ifndef CALC_ENGINE_HPP
+#define CALC_ENGINE_HPP
+
+#include <string>
+
+namespace calc {
+    double evaluate(const std::string& expr);
+}
+
+#endif
+
+=== END FILE ===
+=== FILE: src/engine.cpp ===
+#include "calc/engine.hpp"
+#include <cmath>
+#include <string>
+
+namespace calc {
+    double evaluate(const std::string& expr) {
+        (void)expr;
+        return 0.0;
+    }
+}
+
+=== END FILE ===
