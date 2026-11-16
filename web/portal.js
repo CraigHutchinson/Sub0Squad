@@ -163,6 +163,7 @@ function drawGraph(items,wfId){
   // the live job behind each node; a division or a card rewrite raised by the node shows on the node itself (highest rank wins)
   const rank={decompose:4,rearchitect:3,agent:2,gate:1},jobsByItem={};
   ((state.jobs&&state.jobs.jobs)||[]).forEach(j=>{if(j.workflow===wfId&&j.item&&['running','starting'].includes(j.state)&&rank[j.role]&&(!jobsByItem[j.item]||rank[j.role]>rank[jobsByItem[j.item].role]))jobsByItem[j.item]=j});
+  ((state.jobs&&state.jobs.jobs)||[]).forEach(j=>{if(j.workflow===wfId&&!j.item&&['running','starting'].includes(j.state)&&/planner/.test((j.tool||'')+' '+(j.role||'')+' '+(j.step||'')))jobsByItem.planning=j});
   const actOf=(i,j)=>!j?null:j.role==='decompose'?{cls:'act-divide',label:'dividing into parts',icon:'D',tip:'The model is dividing this item into smaller parts ('+j.id+'). When it is done the parts appear inside it and it integrates them.'}
     :j.role==='rearchitect'?{cls:'act-architect',label:'rewriting its card',icon:'A',tip:'An architect job is rewriting this item\'s work card, shorter and focused on what failed ('+j.id+').'}
     :(i.persona==='integrator'&&j.role==='gate')?{cls:'act-integrate',label:'integrating its parts',icon:'I',int:true,tip:'All parts are accepted: this node runs its own tests over them together ('+j.id+').'}:null;
@@ -197,7 +198,7 @@ function drawGraph(items,wfId){
     else if(bq)liveLine=`<text class="live" x="${x+10}" y="${yy+66}" style="fill:var(--warn)">waiting for an answer (${esc(bq.id)})</text>`;
     return {k:i.id,cls,html:`<title>${esc(i.id)} · ${esc(i.title||'')}</title><rect class="box" x="${x}" y="${yy}" width="${W}" height="${H}" rx="8"/>
     <text x="${x+10}" y="${yy+18}"><tspan font-weight="600">${esc(clipText(short,maxId))}</tspan> <tspan class="sub">${esc(i.persona)}</tspan></text>
-    <text class="sub" x="${x+10}" y="${yy+34}">${esc(act?act.label:i.status)} · attempt${i.attempts==1?'':'s'} ${i.attempts}${i.engine?' · '+esc(i.engine):''}${(i.healed||[]).length?' · healed: '+esc(i.healed.join(', ')):(i.mends||[]).length?' · mending: '+esc(i.mends.join(', ')):''}</text>
+    <text class="sub" x="${x+10}" y="${yy+34}">${i.planner?esc(i.status)+' · '+(i.supplied?'supplied plan':i.attempts+' turn'+(i.attempts==1?'':'s')+(i.mendCount?' · '+i.mendCount+' mend'+(i.mendCount==1?'':'s'):'')+(i.runs>1?' · '+i.runs+' runs':'')):esc(act?act.label:i.status)+' · attempt'+(i.attempts==1?'':'s')+' '+i.attempts}${i.engine?' · '+esc(i.engine):''}${(i.healed||[]).length?' · healed: '+esc(i.healed.join(', ')):(i.mends||[]).length?' · mending: '+esc(i.mends.join(', ')):''}</text>
     <text class="sub" x="${x+10}" y="${yy+50}">tokens in ${fmt(i.tokensIn)} · out ${fmt(i.tokensOut)}</text>${liveLine}${badge}${actIcon}`}});
   const NS='http://www.w3.org/2000/svg';
   reconcile(host.querySelector('.lc'),nodes.filter(n=>n.cls.includes(' cont ')||n.cls.startsWith('node cont')),{tag:'g',ns:NS});
@@ -234,14 +235,13 @@ let planRec=null,planWf=null,planAt=0;
 async function loadPlan(force){const wf=currentWf();if(!wf||document.hidden)return;if(!force&&planWf===wf.id&&Date.now()-planAt<4000)return;planAt=Date.now();planWf=wf.id;
   try{const r=await fetch('/api/file?wf='+encodeURIComponent(wf.id)+'&p=planner.json',{cache:'no-store'});planRec=r.ok?JSON.parse(await r.text()):null}catch(e){planRec=null}
   renderPlanning()}
-function renderPlanning(){
-  const card=$('planning'),wf=currentWf();if(!card||!wf||frozen())return;
+function planningHtml(){
+  const wf=currentWf();if(!wf)return null;
   const files=((pkg&&pkg.files)||[]).map(f=>f.p);const has=p=>files.includes(p);
   const turnNos=files.map(p=>(p.match(/^planner\/turn-(\d+)\.txt$/)||[])[1]).filter(Boolean).map(Number).sort((a,b)=>a-b);
   const jobs=((state&&state.jobs&&state.jobs.jobs)||[]).filter(j=>j.workflow===wf.id&&/planner/.test((j.tool||'')+' '+(j.role||'')+' '+(j.step||'')));
   const rec=planRec&&planWf===wf.id?planRec:null;
-  if(!rec&&!turnNos.length&&!has('planner/prose.md')&&!has('planner/live.txt')&&!jobs.length){card.style.display='none';return}
-  card.style.display='';
+  if(!rec&&!turnNos.length&&!has('planner/prose.md')&&!has('planner/live.txt')&&!jobs.length)return null;
   const live=has('planner/live.txt'),planned=has('plan.json');
   const running=jobs.some(j=>['running','starting'].includes(j.state));
   const status=rec&&rec.supplied?['supplied plan','']:live?['writing','']:rec?(rec.valid?['planned','']:['no valid plan','bad']):planned?['planned','']:(turnNos.length||running)?['planning','']:['',''];
@@ -266,8 +266,29 @@ function renderPlanning(){
   const mendBox=mends.length?'<details><summary><b>'+mends.length+'</b> mechanical mend'+plural(mends.length)+' <span class="mute">fixed without asking the model again</span></summary><div class="fl">'+mends.map(m=>'<div><span class="mute">'+(m.turn?'turn '+m.turn:'supplied')+'</span> '+esc(m.text)+'</div>').join('')+'</div></details>':'';
   const lintBox=(rec&&rec.lint)?'<details><summary>plan-lint: how well the plan keeps the slots busy</summary><pre class="viewer" style="max-height:30vh">'+esc(rec.lint)+'</pre></details>':'';
   const slotsNote=(rec&&rec.slots)?'planned for '+rec.slots+' slots; ':'';
-  setInner(card,'<b>Planning</b> '+(status[0]?'<span class="pill '+status[1]+'">'+esc(status[0])+'</span>':'')+' <span class="mute">the layers before any item: '+slotsNote+'one reply, then edits to it (docs/PLAN_FORMAT.md)</span><div style="margin:6px 0">'+head+'</div>'+retry+table+mendBox+lintBox);
+  return ('<b>Planning</b> '+(status[0]?'<span class="pill '+status[1]+'">'+esc(status[0])+'</span>':'')+' <span class="mute">the layers before any item: '+slotsNote+'one reply, then edits to it (docs/PLAN_FORMAT.md)</span><div style="margin:6px 0">'+head+'</div>'+retry+table+mendBox+lintBox);
 }
+function renderPlanning(){
+  const card=$('planning');if(!card||!currentWf()||frozen())return;
+  const html=planningHtml();
+  if(html==null){card.style.display='none';return}
+  card.style.display='';setInner(card,html);
+}
+// The planning node of the work graph: the planner is the root every item without a dependency waits for. Its numbers come from planner.json and the daemon's
+// planner jobs; its status says whether the plan exists, is being written, or was never produced.
+function planningItem(wf){
+  if(!wf)return null;
+  const files=((pkg&&pkg.files)||[]).map(f=>f.p);const rec=planRec&&planWf===wf.id?planRec:null;
+  const jobs=((state&&state.jobs&&state.jobs.jobs)||[]).filter(j=>j.workflow===wf.id&&!j.item&&/planner/.test((j.tool||'')+' '+(j.role||'')+' '+(j.step||'')));
+  const turns=files.filter(p=>/^planner\/turn-\d+\.txt$/.test(p)).length;
+  if(!rec&&!turns&&!files.includes('planner/live.txt')&&!jobs.length)return null;
+  const running=files.includes('planner/live.txt')||jobs.some(j=>['running','starting'].includes(j.state));
+  const planned=files.includes('plan.json');
+  const status=running?'running':planned||(rec&&rec.valid)?'accepted':rec?'failed':'pending';
+  return {id:'planning',title:'Planning: the plan from the request',persona:'planner',status,attempts:rec&&rec.turns>0?rec.turns:turns,deps:[],parent:'',
+    tokensIn:(rec&&rec.promptTokens)||0,tokensOut:(rec&&rec.completionTokens)||0,durationSec:0,engine:'',mends:[],planner:true,mendCount:rec&&rec.mends?rec.mends.length:0,runs:jobs.length,supplied:!!(rec&&rec.supplied)};
+}
+const withPlanning=wf=>{const p=planningItem(wf);if(!p)return wf.items;return [p,...wf.items.map(i=>(i.deps||[]).length||i.parent?i:{...i,deps:['planning']})]};
 let searchTimer=null;
 $('q').addEventListener('input',()=>{clearTimeout(searchTimer);searchTimer=setTimeout(runSearch,350)});
 async function runSearch(){
@@ -339,7 +360,7 @@ function render(){
     reconcile($('kpis'),[['workflow',esc(wf.id)+' <span class="pill">'+esc(wf.state)+'</span>'],['items accepted',done+' / '+wf.items.length],['jobs active',wf.jobsActive+' of '+wf.jobs],['open requests',String((wf.requests||[]).filter(r=>r.status==='open').length)],
       ['tokens (finished)',fmt(L.totalTokens||0)],['work ratio',((L.workRatio||0)*100).toFixed(1)+' %'],['rework tokens',fmt(L.reworkTokens||0)],['engine',eng]].map(([k,v])=>({k,cls:'kpi',html:`<span class="mute">${k}</span><b>${v}</b>`})));
     setText($('wfname'),'Work graph · '+wf.id+' · '+wf.task);setText($('note'),wf.note||'');
-    drawGraph(wf.items,wf.id);
+    drawGraph(withPlanning(wf),wf.id);
     renderIntent();
     reconcile($('nodes'),wf.items.map(i=>({tokensIn:0,tokensOut:0,durationSec:0,...i})).map(i=>{const nm=i.attempts>0?nodeModel(i,null):null;
       return {k:i.id,cls:'click'+(sel&&sel.type=='node'&&sel.key==i.id?' selrow':''),html:`<td>${esc(i.id)}</td><td>${nm?badgeHtml(nm.b,nm.title):''}</td><td>${esc(i.status)}${(()=>{const j=((state.jobs&&state.jobs.jobs)||[]).find(x=>x.workflow===wf.id&&x.item===i.id&&['running','starting'].includes(x.state)&&(x.role==='decompose'||x.role==='rearchitect'));return j?` <span class="pill">${j.role==='decompose'?'dividing':'rewriting card'}</span>`:''})()}</td><td>${i.attempts}</td><td>${fmt(i.tokensIn)}</td><td>${fmt(i.tokensOut)}</td><td>${Math.round(i.durationSec)} s</td>`}}),{tag:'tr'});
@@ -377,6 +398,7 @@ function drawDrawer(){
     else{const s=e.slots.find(x=>x.id==+k)||{};const o=slotOwners()[base+'#'+k];
       a=`<h2>${esc(base)} · slot ${k}</h2><div class="kv"><span>node</span><span>${o?esc(o.item)+' attempt '+o.attempt+' ('+esc(o.job)+')':'—'}</span><span>state</span><span>${esc(slotText(s))}</span><span>prompt</span><span>${fmt(s.promptProcessed)} of ${fmt(s.promptTokens)} tokens processed</span><span>decoded</span><span>${fmt(s.decoded)} tokens</span></div>${o?`<div style="margin:6px 0">${fl('items/'+o.item+'/attempt-'+o.attempt+'/conversation.md','▶ watch transcript')} <span class="mute">live</span></div>`:''}`;
       b=`<b>Decode</b>${chart(s.decodeSeries,'tok/s','',null)}<b>Prefill</b>${chart(s.prefillSeries,'tok/s','b',null)}`;}}
+  else if(sel.type=='node'&&sel.key==='planning'){a=planningHtml()||'<p class="mute">no planning record yet</p>'}
   else if(sel.type=='node'){const wf=currentWf();const i=wf&&wf.items.find(x=>x.id==sel.key);
     if(!i)a='<p class="mute">node not found</p>';else{
       const j=((state.jobs&&state.jobs.jobs)||[]).filter(x=>x.workflow==wf.id&&x.item==i.id).slice(-4).reverse();const run=j.find(x=>['running','starting'].includes(x.state));

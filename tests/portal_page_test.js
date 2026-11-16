@@ -125,6 +125,13 @@ const shown = () => all.map((e) => e.innerHTML + '\n' + e.textContent).join('\n'
   check(planning && planning.innerHTML.includes('depends on') && planning.innerHTML.includes('mechanical mend') && planning.innerHTML.includes('slot fill on 4 slots'), 'the planning card shows the mends and the lint');
   check(planning && planning.innerHTML.includes('planner/doc/turn-1/plan.json') && planning.innerHTML.includes('planner/turn-2.txt'), 'the planning card links each reply and document');
 
+  // The planning node of the work graph: the root the items wait on, with its turns and mends; its panel is the planning card.
+  try { sandbox.__page.render(); } catch (err) { check(false, 'render with a planning node threw: ' + (err && err.stack ? err.stack.split('\n').slice(0, 3).join(' | ') : err)); }
+  page = shown();
+  check(page.includes('Planning: the plan from the request') && page.includes('2 turns') && page.includes('1 mend'), 'the work graph has a planning node saying turns and mends');
+  try { sandbox.__page.openDrawer({ type: 'node', key: 'planning' }); } catch (err) { check(false, 'opening the planning node panel threw: ' + (err && err.stack ? err.stack : err)); }
+  check(byId.get('dA').innerHTML.includes('mechanical mend') && byId.get('dA').innerHTML.includes('planner/turn-2.txt'), 'the planning node panel shows the turns and the mends');
+
   // An empty state renders the invitation, not an exception.
   answers['/api/state'] = '{"workflows":{"asOf":1,"source":"daemon","workflows":[]},"jobs":{"jobs":[]}}';
   try { sandbox.__page.tickState(); } catch (err) { check(false, 'an empty state threw: ' + err); }
