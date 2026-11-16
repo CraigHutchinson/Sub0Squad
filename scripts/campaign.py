@@ -391,7 +391,7 @@ def main():
     ap.add_argument("--home", help="campaign directory (default out/campaign/NAME)")
     ap.add_argument("--runs", type=int, default=20)
     ap.add_argument("--seed-base", type=int, default=1000)
-    ap.add_argument("--task", default="write a calculator in C++")
+    ap.add_argument("--task", default="write a scientific calculator in C++")
     ap.add_argument("--executor", default="fork", choices=["session", "canvas", "fork"])
     ap.add_argument("--binary", help="the sub0squad binary to pin (default out/build/dev/sub0squad)")
     ap.add_argument("--engine-name", default="qwen35")

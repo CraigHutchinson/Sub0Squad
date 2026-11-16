@@ -5,9 +5,11 @@ harness builds sandbox projects from a bare request with local models; the Qwen3
 
 ## 1. Where things stand
 
-**The clean-slate path exists end to end** (`sub0squad do "write a calculator in C++" --agent llm --executor fork`): a planner model plans from the request alone (no blueprint, no reference),
+**The clean-slate path exists end to end** (`sub0squad do "write a scientific calculator in C++" --agent llm --executor fork`): a planner model plans from the request alone (no blueprint, no reference),
 mechanical mends and checks repair what they can, the squad builds test-first, a developer's failure can be disputed back to its tester, the harness integrates generically, and a
 validation grader outside the harness judges the result.
+
+**The request slipped (found 2026-11-16, owner): the sandbox project is a SCIENTIFIC calculator** (the web sample was always "write a scientific calculator as a web page"). Every clean-slate run in this section used `write a calculator in C++`, so the planner correctly planned only `+ - * /` and parentheses, and the trig functions, inverses and degrees mode that the old hand-written blueprint carried were never asked for. All results below are for the plain calculator: they prove the machinery, not the scientific project. `scripts/campaign.py` and `docs/CLEAN_SLATE.md` now say `scientific`; the next full run must use it, and the planner will have to get nested trig expectations right (the tester's wrong-literal failure gets harder). `validation/grade_blackbox.py` has a separate `scientific` group of cases.
 
 **It has not passed end to end yet.** Evidence (35B on this CPU, 3 to 5 tok/s decode, 4 slots at 8192 tokens):
 
@@ -61,7 +63,7 @@ STOP AND ASK before: the final project name; enabling any frontier tier; changes
 git pull && source scripts/dev-env.sh && cmake --preset dev && cmake --build out/build/dev -j2   # see docs/DEV_SETUP.md
 scripts/start-campaign.sh status          # the engine service (sub0-llama35) and the campaign; MODEL, LLAMA, CTX, SLOTS, THREADS can be overridden
 out/build/dev/sub0squad up && out/build/dev/sub0squad portal --port 8780   # the portal: http://127.0.0.1:8780/
-out/build/dev/sub0squad do "write a calculator in C++" --agent llm --engine "qwen35=http://127.0.0.1:8092/v1,model=qwen35,ctx=8192,slots=4" --executor fork --defaults
+out/build/dev/sub0squad do "write a scientific calculator in C++" --agent llm --engine "qwen35=http://127.0.0.1:8092/v1,model=qwen35,ctx=8192,slots=4" --executor fork --defaults
 ```
 
 A plan can be supplied instead of planned: put `plan.json` and an empty `plan.supplied` in a directory and pass `--sandbox DIR` to `do`; it still goes through the mends and checks. Memory notes for the assistant are in the user's `.claude` project memory (`sub0squad-iteration-state.md`).

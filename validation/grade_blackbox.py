@@ -9,14 +9,18 @@ command line only, and the product's own tests are audited by an independent eva
   product    the built program (project/build/calc_cli) is run on cases any "write a calculator" request implies: four operations, precedence, parentheses,
              unary minus, a decimal, and a division by zero that must end with a non-zero status. The expression is passed as ONE argument and, when that
              fails, as separate words, because the request does not say which.
+  scientific (with --scientific it must pass) sqrt, powers, sin, cos, tan and their inverses, log: each accepted in the forms the request leaves open
   literals   every `evaluate("EXPR") ... NUMBER` pair found in the tests the squad wrote is evaluated here (Python, + - * / and parentheses only); a test
              whose expected number differs is a WRONG TEST, whatever the product does.
 """
-import argparse, json, os, re, subprocess, sys
+import argparse, json, math, os, re, subprocess, sys
 
 CASES = [("2 + 3", 5), ("10 - 4", 6), ("6 * 7", 42), ("9 / 3", 3), ("2 + 3 * 4", 14), ("(2 + 3) * 4", 20), ("-5 + 8", 3), ("1.5 + 2.25", 3.75),
          ("10 / 4", 2.5), ("2 * (3 + 4) - 5", 9), ("100 / 5 / 2", 10)]
 ERROR_CASES = ["1 / 0"]
+# What "scientific" implies without fixing a syntax: a value may be accepted in more than one form (an angle in radians or in degrees, `^` or `**`).
+SCIENTIFIC = [("sqrt(16)", [4]), ("2 ^ 10", [1024]), ("sin(0)", [0]), ("cos(0)", [1]), ("tan(0)", [0]), ("sin(90)", [1, math.sin(90)]), ("asin(1)", [90, math.pi / 2]),
+              ("acos(1)", [0]), ("atan(1)", [45, math.pi / 4]), ("log(100)", [2, math.log(100)]), ("2 * sin(0) + 3", [3]), ("sqrt(9) + cos(0)", [4])]
 
 
 def run(cmd, cwd, timeout=20):
@@ -52,6 +56,20 @@ def judge_product(app, cwd):
     return out
 
 
+def judge_scientific(app, cwd):
+    out = []
+    for expr, wants in SCIENTIFIC:
+        ok, text = False, ""
+        for argv in ([app, expr], [app] + expr.split(), [app, expr.replace("^", "**")]):
+            code, text = run(argv, cwd)
+            got = number(text) if code == 0 else None
+            if got is not None and any(abs(got - w) <= 1e-6 for w in wants):
+                ok = True
+                break
+        out.append((expr, wants, text, ok))
+    return out
+
+
 SAFE = re.compile(r"^[0-9+\-*/(). eE]+$")
 
 
@@ -81,6 +99,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("workflow")
     ap.add_argument("--json", action="store_true")
+    ap.add_argument("--scientific", action="store_true", help="the project is a scientific calculator: its group of cases must pass too")
     a = ap.parse_args()
     project = os.path.abspath(os.path.join(a.workflow, "project"))
     app = os.path.join(project, "build", "calc_cli")
@@ -88,6 +107,9 @@ def main():
     if os.path.exists(app):
         rows = judge_product(app, project)
         result["product"] = {"passed": sum(1 for r in rows if r[3]), "total": len(rows), "failed": [{"case": r[0], "want": r[1], "got": r[2]} for r in rows if not r[3]]}
+    if os.path.exists(app):
+        sci = judge_scientific(app, project)
+        result["scientific"] = {"passed": sum(1 for r in sci if r[3]), "total": len(sci), "failed": [{"case": r[0], "accepted": r[1], "got": r[2]} for r in sci if not r[3]]}
     wrong, checked = audit_literals(project)
     result["literals"] = {"checked": checked, "wrong": [{"file": w[0], "expr": w[1], "test says": w[2], "actually": w[3]} for w in wrong]}
     if a.json:
@@ -95,9 +117,12 @@ def main():
     else:
         p = result["product"]
         print("product   " + ("no built program" if p is None else f"{p['passed']} of {p['total']} cases pass" + "".join(f"\n  FAIL {f['case']!r}: want {f['want']}, got {f['got']!r}" for f in p["failed"])))
+        sc = result.get("scientific")
+        if sc: print(f"scientific {sc['passed']} of {sc['total']} cases pass" + "".join(f"\n  FAIL {f['case']!r}: accepted {f['accepted']}, got {f['got']!r}" for f in sc["failed"]))
         l = result["literals"]
         print(f"literals  {checked} audited, {len(wrong)} wrong" + "".join(f"\n  WRONG {w[0]}: {w[1]} = {w[3]}, the test says {w[2]}" for w in wrong))
-    ok = result["product"] is not None and result["product"]["passed"] == result["product"]["total"] and not wrong
+    sci_ok = not a.scientific or (result.get("scientific") is not None and result["scientific"]["passed"] == result["scientific"]["total"])
+    ok = result["product"] is not None and result["product"]["passed"] == result["product"]["total"] and not wrong and sci_ok
     sys.exit(0 if ok else 1)
 
 
