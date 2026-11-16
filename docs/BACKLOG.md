@@ -1,5 +1,7 @@
 # Backlog
 
+> **Resuming? Read `docs/RESUME.md` first**: it orders everything below into a priority list for the next session (2026-11-16).
+
 > **PRIORITY (owner, 2026-11-15): the clean-slate sandbox, `docs/CLEAN_SLATE.md`.** No hand-written plan and no reference implementation inside the harness: a planner role plans from the bare request, a plan review and expectation QA check it, and `validation/grade_run.py` judges the result from outside. This comes before further baseline campaigns and before the other items below.
 
 

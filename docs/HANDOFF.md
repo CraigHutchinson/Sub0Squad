@@ -1,6 +1,6 @@
 # Handoff: state, findings and plan (saved 2026-11-09)
 
-> **Read `docs/ITERATION_PROGRESS.md` first** (2026-11-12): it is the running log of the Fable iteration (what is built, what is proven without a model, what remains,
+> **Newest: `docs/RESUME.md` (2026-11-16). Then read `docs/ITERATION_PROGRESS.md`** (2026-11-12): it is the running log of the Fable iteration (what is built, what is proven without a model, what remains,
 > the commands for the real-model measurements). The text below predates it and is kept for the history of the runs.
 
 

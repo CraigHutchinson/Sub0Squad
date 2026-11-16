@@ -1,5 +1,7 @@
 # Prompt for the next session
 
+**Current (2026-11-16): read `docs/RESUME.md` first.** What follows is older.
+
 Read `docs/ITERATION_PROGRESS.md` first, then `docs/CANVAS.md` ("As built"), `docs/BLOCK_PROVING_GROUNDS.md` ("Built without a model" and "Real-model measurements")
 and `docs/INTERVENTIONS.md` (rows 34 to 43 and "State after the Fable iteration"). The branch of the Fable iteration holds: the canvas and fork executors, turn
 control, the model-free block proving grounds and the `block` command, the removal of the header-only sandbox, and the first-use path (`doctor`, `up`, `down`,
