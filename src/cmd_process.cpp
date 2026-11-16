@@ -2,6 +2,7 @@
 
 #include "sub0squad/mends.hpp"
 #include "sub0squad/process.hpp"
+#include "sub0squad/platform_file.hpp"
 
 #include <cstdio>
 #include <expected>
@@ -117,7 +118,7 @@ int runProcessCommand(const std::vector<std::string>& args, const fs::path& stat
         fs::create_directories(dir, ec);
         const fs::path file = dir / (name + ".json");
         if (fs::exists(file)) { std::fprintf(stderr, "%s exists: remove it or pick another name\n", file.c_str()); return 1; }
-        std::ofstream(file) << p.toJson() << "\n";
+        (void)platform::writeFile(file, p.toJson() + "\n");
         if (!std::ifstream(file)) { std::fprintf(stderr, "cannot write %s\n", file.c_str()); return 1; }
         std::printf("wrote %s\nuse it: sub0squad do \"write a calculator in C++\" --process %s\n", file.c_str(), name.c_str());
         return 0;

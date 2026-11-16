@@ -3,8 +3,9 @@
 #include "sub0squad/platform_proc.hpp"
 
 #include <cstdint>
-#include <cstdio>
 #include <cstdlib>
+#include <format>
+#include <fstream>
 
 namespace sub0squad {
 
@@ -18,16 +19,15 @@ std::string fingerprint()
 {
     const auto self = platform::selfExecutable();
     if (self.empty()) return {};
-    std::FILE* f = std::fopen(self.c_str(), "rb");
-    if (!f) return {};
+    std::ifstream in(self, std::ios::binary);   // a path, not a char*: on Windows the path is wide
+    if (!in) return {};
     std::uint64_t h = 1469598103934665603ULL;
-    unsigned char buf[65536];
-    for (std::size_t n; (n = std::fread(buf, 1, sizeof buf, f)) > 0;)
-        for (std::size_t i = 0; i < n; ++i) { h ^= buf[i]; h *= 1099511628211ULL; }
-    std::fclose(f);
-    char hex[17];
-    std::snprintf(hex, sizeof hex, "%016llx", static_cast<unsigned long long>(h));
-    return hex;
+    char buf[65536];
+    while (in.read(buf, sizeof buf) || in.gcount() > 0) {
+        for (std::streamsize i = 0; i < in.gcount(); ++i) { h ^= static_cast<unsigned char>(buf[i]); h *= 1099511628211ULL; }
+        if (!in) break;
+    }
+    return std::format("{:016x}", h);
 }
 
 }  // namespace

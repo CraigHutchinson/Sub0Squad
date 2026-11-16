@@ -65,9 +65,35 @@ quiet machine. sub0perf git hooks and the after-build check are **off** by defau
 
 ## A Windows host (WSL)
 
-The project builds on Linux only. On Windows, build inside WSL (Ubuntu 24.04 with GCC 15 or clang, Ninja, CMake): clone inside WSL, or sync a Windows
+The program runs on Linux only. On Windows, build inside WSL (Ubuntu 24.04 with GCC 15 or clang, Ninja, CMake): clone inside WSL, or sync a Windows
 checkout into a WSL directory, never build on `/mnt/c` or `/mnt/d` directly (slow, and the tests create Unix sockets). `.gitattributes` makes every text file
 LF on checkout; a working tree made before it, or with `core.autocrlf=true`, still has CRLF files: the configure fails (`cmake/git-semver.sh`) and the golden
 tests fail byte for byte. Convert them in the copy (`grep -rlIZ $'\r' . | xargs -0 sed -i 's/\r$//'`) or re-checkout. If the first configure failed, delete
 the empty `$CPM_SOURCE_CACHE/version.cmake` it left. GCC is supported: two flow-based GCC diagnostics in third-party and generated code are warnings rather than
 errors (`CMakeLists.txt`).
+
+### A native Windows build (the platform layer only, for now)
+
+The platform layer builds and passes its tests natively; the rest of the program does not compile on Windows until slices 4 and 5 of
+[PLATFORM.md](PLATFORM.md) (section 6 lists what is left). Toolchain: MinGW-w64 with the UCRT runtime (GCC 16.2 is what was tested), CMake and Ninja on
+`PATH`. Configure uses `cmake/git-semver.cmd` in place of the shell script. From PowerShell in the checkout:
+
+```powershell
+$env:CPM_SOURCE_CACHE = "$PWD\out\cpm-cache"
+cmake -S . -B out/build/mingw -G Ninja -DCMAKE_CXX_COMPILER=g++ -DCMAKE_C_COMPILER=gcc -DCMAKE_BUILD_TYPE=Release
+cmake --build out/build/mingw -j4 --target test_platform_process test_platform_proc test_platform_host test_platform_file link_platform
+ctest --test-dir out/build/mingw -R "test_platform_|link_platform" --output-on-failure
+```
+
+A full `cmake --build out/build/mingw -- -k 0` lists what still fails to compile.
+
+### The engine on a Windows host
+
+The model runs natively on Windows (CUDA), not in WSL: [Sub0LlmEngine](https://github.com/CraigHutchinson/Sub0LlmEngine), a sibling checkout, holds the
+engine configuration, the per-machine bench history and the tuning page, and finds the weights in the machine's model registry (`D:\LlmModels`, see its
+`README.md`). From the Sub0LlmEngine folder on Windows: `python -m sub0llmengine start` (and `status`, which prints the `--engine` line, the slot count
+and the context per request to use; `serve` for the tuning page). The squad and the campaign in WSL then use that engine as it is: `scripts/start-campaign.sh`
+starts no engine when one already answers at `ENGINE_HOST:ENGINE_PORT` (pass `SLOTS` and `SQUAD_CTX` from `status`).
+
+WSL must be able to reach the engine: with WSL's default NAT networking, Windows' `127.0.0.1` is not WSL's. Use mirrored networking
+(`networkingMode=mirrored` under `[wsl2]` in `%UserProfile%\.wslconfig`, then `wsl --shutdown`), after which `127.0.0.1:8092` is the same port on both sides.

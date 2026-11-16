@@ -9,6 +9,7 @@
 #include "sub0squad/platform_process.hpp"
 #include "sub0squad/platform_file.hpp"
 
+#include <print>
 #include <algorithm>
 #include <cctype>
 #include <chrono>
@@ -285,7 +286,7 @@ int runGateFlow(const GateHooks& hooks, const std::vector<std::string>& args)
     const auto reportMend = [&](const std::string& msg) {
         if (item->persona != "developer") return;
         std::vector<Mend> table = builtinMends();
-        if (const std::string own = slurp(dir / "mends.json"); !own.empty()) { if (auto extra = parseMends(own)) table = mergedMends(std::move(table), *extra); else std::printf("note: %s is ignored: %s\n", (dir / "mends.json").c_str(), extra.error().c_str()); }
+        if (const std::string own = slurp(dir / "mends.json"); !own.empty()) { if (auto extra = parseMends(own)) table = mergedMends(std::move(table), *extra); else std::println("note: {} is ignored: {}", (dir / "mends.json").string(), extra.error()); }
         const auto leafOf = [](const std::string& n) { const auto c = n.find_last_of(":."); return c == std::string::npos ? n : n.substr(c + 1); };
         // Table order; the first mend whose pattern matches the first error AND whose requirement holds (two mends may share a pattern: an undefined
         // reference is a contract function, or a member the file's own class declares).

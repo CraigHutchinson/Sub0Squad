@@ -81,7 +81,7 @@ int runOptimizeJob(const std::vector<std::string>& args)
         w.beginObject().kv("treatment", r.treatment).kv("attempt", r.attempt).kvBool("generated", r.generated).kvBool("passed", r.passed).kv("failing", r.failing).kv("tests", r.tests)
             .kv("tokensIn", r.tokensIn).kv("tokensOut", r.tokensOut).kv("seconds", r.seconds).endObject();
     w.endArray().endObject();
-    std::ofstream(dir / "items" / item / "optimization.json") << w.take();
+    (void)platform::writeFile(dir / "items" / item / "optimization.json", w.take());
     std::printf("\n%-10s %7s %7s %12s %10s %10s %8s\n", "treatment", "rounds", "passed", "fail(avg)", "tokens in", "tokens out", "seconds");
     for (const auto& t : treatments) {
         int n = 0, ok = 0, failN = 0; double fail = 0, tin = 0, tout = 0, secs = 0;

@@ -222,8 +222,8 @@ int runLlmAgent(const std::vector<std::string>& args)
         writeFile(livePath, "(turn " + std::to_string(turn) + " sent; waiting for the first token)\n");
         bool liveStarted = false, inReasoning = false;
         const DeltaSink liveSink = [&](std::string_view content, std::string_view reasoning) {
-            std::ofstream o(livePath, std::ios::app);
-            if (!liveStarted) { o.close(); writeFile(livePath, ""); o.open(livePath, std::ios::app); liveStarted = true; }
+            std::ofstream o(livePath, std::ios::app | std::ios::binary);   // streamed in pieces as tokens arrive
+            if (!liveStarted) { o.close(); writeFile(livePath, ""); o.open(livePath, std::ios::app | std::ios::binary); liveStarted = true; }
             if (!reasoning.empty()) { if (!inReasoning) { o << "[thinking]\n"; inReasoning = true; } o << reasoning; }
             if (!content.empty()) { if (inReasoning) { o << "\n[answer]\n"; inReasoning = false; } o << content; }
         };

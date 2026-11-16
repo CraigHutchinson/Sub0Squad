@@ -3,7 +3,12 @@
 #include "check.hpp"
 #include "sub0squad/platform_file.hpp"
 
+#if defined(_WIN32)
+#include <fcntl.h>
+#include <io.h>   // _pipe(): the test's own fixture
+#else
 #include <unistd.h>   // pipe(): the test's own fixture
+#endif
 
 #include <string>
 
@@ -45,7 +50,11 @@ int main()
             CHECK(!f->append("x").has_value());
         }
         const auto perms = fs::status(dir / "log.ndjson").permissions();
+#if defined(_WIN32)
+        CHECK((perms & fs::perms::owner_write) != fs::perms::none);   // Windows keeps only read-only or not
+#else
         CHECK((perms & (fs::perms::group_all | fs::perms::others_all)) == fs::perms::none);
+#endif
         CHECK(appendToFile(dir / "log.ndjson", "four\n").has_value());
         CHECK(readFileText(dir / "log.ndjson") == "one\nthree\nfour\n");
         CHECK(!AppendFile::open(dir / "no" / "such" / "dir" / "f").has_value());
@@ -57,9 +66,15 @@ int main()
     }
     {   // a descriptor: everything written arrives; end of stream is 0
         int fds[2];
+#if defined(_WIN32)
+        CHECK(::_pipe(fds, 4096, _O_BINARY) == 0);
+        CHECK(writeAll(fds[1], "frame").has_value());
+        ::_close(fds[1]);
+#else
         CHECK(::pipe(fds) == 0);
         CHECK(writeAll(fds[1], "frame").has_value());
         ::close(fds[1]);
+#endif
         char buf[16];
         std::string got;
         for (;;) {
@@ -68,7 +83,11 @@ int main()
             if (!n || *n == 0) break;
             got.append(buf, *n);
         }
+#if defined(_WIN32)
+        ::_close(fds[0]);
+#else
         ::close(fds[0]);
+#endif
         CHECK(got == "frame");
         CHECK(!writeAll(-1, "x").has_value());
     }

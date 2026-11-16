@@ -7,6 +7,7 @@
 #include "sub0squad/platform_proc.hpp"
 #include "sub0squad/scenario_compare.hpp"
 
+#include <print>
 #include <algorithm>
 #include <atomic>
 #include <chrono>
@@ -328,7 +329,7 @@ int runScenarioCommand(const std::vector<std::string>& args)
     }
     w.endArray().endObject();
     writeFile(outDir / "scenario-results.json", w.take());
-    std::printf("\n%d scenario(s) not proven (95%% lower bound below %.2f); results in %s\n", unreliable, minLower, (outDir / "scenario-results.json").c_str());
+    std::println("\n{} scenario(s) not proven (95% lower bound below {:.2f}); results in {}", unreliable, minLower, (outDir / "scenario-results.json").string());
     return unreliable == 0 ? 0 : 1;
 }
 

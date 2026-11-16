@@ -7,6 +7,7 @@
 #include "sub0squad/platform_proc.hpp"
 
 
+#include <print>
 #include <algorithm>
 #include <cstdint>
 #include <cstdlib>
@@ -240,7 +241,7 @@ int runCppIntegrate(const std::vector<std::string>& args)
         w.endArray().endObject();
         writeFile(dir / "deliverables.json", w.take());
     }
-    std::printf("INTEGRATION PASS: %zu items merged, %d tests passed under ASan+UBSan, app ran (try: cd %s && build/calc_cli '2^3^2')\n", plan->items.size(), all.pass, project.c_str());
+    std::println("INTEGRATION PASS: {} items merged, {} tests passed under ASan+UBSan, app ran (try: cd {} && build/calc_cli '2^3^2')", plan->items.size(), all.pass, project.string());
     return 0;
 }
 

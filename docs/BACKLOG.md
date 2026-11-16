@@ -145,8 +145,8 @@ every role. Needs expectation QA, the routed CONCERN channel and the habit score
 - `std::format`/`std::print` and `contains`/`starts_with` ([DECISIONS.md](DECISIONS.md) 25): piloted 2026-11-16 on `replay.cpp` and `sandbox.cpp` (the
   specifier mapping checked byte for byte against `printf`, rounding cases included). Left: about 380 `printf`-family calls in 35 files, 28 `snprintf`,
   77 `find(...) != npos`. One layer per change, kernel upward, with the goldens as the guard; a layer is done when `git grep printf` is empty in it.
-- Windows and macOS builds, after the platform library (about 3,000 lines for Windows: [PLATFORM.md](PLATFORM.md) section 6); the first step is the domain
-  layer and its tests under MSVC, once slices 3 and 4 have taken the sockets and raw descriptors out of it. The HTTP stack on Boost.Beast and Asio
+- Windows and macOS builds, after the platform library (about 3,000 lines for Windows: [PLATFORM.md](PLATFORM.md) section 6). The platform layer's
+  Windows backends are built and tested natively (MinGW-w64); next are slices 4 and 5 with both backends each, then the domain layer under MSVC. The HTTP stack on Boost.Beast and Asio
   behind the seam ([DECISIONS.md](DECISIONS.md) 18).
 - CI for the squad: build, tests, ASan and UBSan, TSan, clang-tidy, and a GCC job (the GCC build was made clean on 2026-11-16).
 - Split the largest files (`test_workflow.cpp`, `client.cpp`, `portal.cpp`).

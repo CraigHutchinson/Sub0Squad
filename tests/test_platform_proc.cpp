@@ -1,5 +1,5 @@
 // Process identity and the tree (platform_proc.hpp, docs/PLATFORM.md): the pure parsers on fixed text, then the live calls against this
-// process and short-lived /bin/sh children started through platform_process.
+// process and short-lived children (tests/platform_child.cpp) started through platform_process.
 #include "check.hpp"
 #include "sub0squad/platform_proc.hpp"
 #include "sub0squad/platform_process.hpp"
@@ -45,18 +45,19 @@ int main()
     }
     {   // descendants: a child and its grandchild; once reaped, the child is gone and its stamp no longer answers
         const auto dir = makeTempDir("platform-proc");
-        auto c = spawn(ProcessSpec{.argv = {"sh", "-c", "sleep 30 & echo $! > gc.pid; wait"}, .cwd = dir});
+        const std::string child = SUB0SQUAD_PLATFORM_CHILD;
+        auto c = spawn(ProcessSpec{.argv = {child, "tree", "gc.pid", child}, .cwd = dir});
         CHECK(c.has_value());
         if (c) {
             ProcessId grandchild = 0;
-            for (int i = 0; i < 100 && grandchild == 0; ++i) { std::this_thread::sleep_for(20ms); std::ifstream(dir / "gc.pid") >> grandchild; }
+            for (int i = 0; i < 250 && grandchild == 0; ++i) { std::this_thread::sleep_for(20ms); std::ifstream(dir / "gc.pid") >> grandchild; }
             const auto tree = descendants(currentProcess());
             CHECK(std::ranges::find(tree, c->id()) != tree.end());
             CHECK(grandchild > 0 && std::ranges::find(tree, grandchild) != tree.end());
             const auto stamp = processStart(c->id());
             CHECK(stamp.has_value());
             CHECK(terminateProcess(grandchild));
-            CHECK(c->wait(5000ms).has_value());   // the shell's `wait` returns once the grandchild is gone, then the shell exits
+            CHECK(c->wait(5000ms).has_value());   // the child's wait returns once the grandchild is gone, then the child exits
             if (stamp) CHECK(!isAlive(c->id(), *stamp));
             CHECK(!terminateProcess(0));
         }
@@ -64,7 +65,7 @@ int main()
     }
     {   // the environment is inherited by children started afterwards
         setEnvironment("SUB0SQUAD_PLATFORM_PROC_TEST", "yes");
-        auto r = runCaptured(ProcessSpec{.argv = {"sh", "-c", "printf %s \"$SUB0SQUAD_PLATFORM_PROC_TEST\""}});
+        auto r = runCaptured(ProcessSpec{.argv = {SUB0SQUAD_PLATFORM_CHILD, "env", "SUB0SQUAD_PLATFORM_PROC_TEST"}});
         CHECK(r.has_value() && r->output == "yes");
         unsetEnvironment("SUB0SQUAD_PLATFORM_PROC_TEST");
         CHECK(std::getenv("SUB0SQUAD_PLATFORM_PROC_TEST") == nullptr);

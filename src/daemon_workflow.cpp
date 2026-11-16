@@ -2,6 +2,7 @@
 /// Daemon: executing workflow actions, advancing workflows, submitting, planning and cancelling them.
 
 #include "daemon_impl.hpp"
+#include "sub0squad/platform_file.hpp"
 
 namespace sub0squad {
 
@@ -50,15 +51,14 @@ void Daemon::Impl::executeWorkflowAction(const std::string& wfId, const Workflow
             else step = nextBriefStep(*wf, *questions);
             if (step.kind == BriefStep::Kind::ask) (void)raiseRequest(wfId, step.request);
             else if (step.kind == BriefStep::Kind::brief) {
-                { std::ofstream o(sandbox / "brief.json", std::ios::trunc); o << step.brief.toJson() << "\n"; }
+                (void)platform::writeFile(sandbox / "brief.json", step.brief.toJson() + "\n");
                 if (const auto keep = step.brief.toRemember(); !keep.empty()) {
                     std::ifstream had(opts.paths.projectAnswersFile());
                     std::stringstream hs;
                     hs << had.rdbuf();
                     auto answers = parseProjectAnswers(hs.str());
                     for (const auto& [k, v] : keep) answers[k] = v;
-                    std::ofstream o(opts.paths.projectAnswersFile(), std::ios::trunc);
-                    o << projectAnswersJson(answers) << "\n";
+                    (void)platform::writeFile(opts.paths.projectAnswersFile(), projectAnswersJson(answers) + "\n");
                 }
                 record("workflowBriefed", wfbody::briefed(wfId, step.brief.task, step.brief.executor, step.brief.toJson()));
                 logf("workflow %s: brief recorded: task '%s', executor '%s'", wfId.c_str(), step.brief.task.c_str(), step.brief.executor.c_str());
@@ -80,7 +80,7 @@ void Daemon::Impl::executeWorkflowAction(const std::string& wfId, const Workflow
             auto fragment = Plan::fromJson(ss.str());
             if (!fragment) reason = "fragment invalid: " + fragment.error();
             else if (auto merged = Plan::amended(*wf->plan, a.item, *fragment)) {
-                { std::ofstream o(sandbox / "plan.json", std::ios::trunc); o << merged->toJson(); }
+                (void)platform::writeFile(sandbox / "plan.json", merged->toJson());
                 const std::size_t before = wf->plan->items.size();
                 record("workflowPlanAmended", wfbody::planAmended(wfId, a.item, *merged));
                 logf("workflow %s: item '%s' divided into %zu items", wfId.c_str(), a.item.c_str(), merged->items.size() - before + 1);
@@ -97,9 +97,9 @@ void Daemon::Impl::executeWorkflowAction(const std::string& wfId, const Workflow
             std::ifstream in(sandbox / "items" / a.fromItem / ("attempt-" + std::to_string(a.attempt)) / "gate.txt");
             std::stringstream ss;
             ss << in.rdbuf();
-            std::ofstream o(sandbox / "items" / a.item / "dispute.txt", std::ios::trunc);
-            o << "Item '" << a.fromItem << "' is graded by your tests and failed them even after several attempts. Some of your tests may contradict the contract. Failures reported:\n"
-              << ss.str() << "Check each failing test against the contract and fix the tests that are wrong; keep the ones that are right.\n";
+            (void)platform::writeFile(sandbox / "items" / a.item / "dispute.txt",
+                                      "Item '" + a.fromItem + "' is graded by your tests and failed them even after several attempts. Some of your tests may contradict the contract. Failures reported:\n" +
+                                          ss.str() + "Check each failing test against the contract and fix the tests that are wrong; keep the ones that are right.\n");
             break;
         }
         case WorkflowAction::Kind::raiseRequest: raiseRequest(wfId, a.request); break;
@@ -110,10 +110,7 @@ void Daemon::Impl::executeWorkflowAction(const std::string& wfId, const Workflow
             bool think = a.note == "think", engine = a.note == "engine";
             for (const auto& dd : wf->decisions) if (dd.item == a.item && dd.action == "strategy") { think = think || dd.tier == "think"; engine = engine || dd.tier == "engine"; }
             const std::filesystem::path f = std::filesystem::path{wf->spec.sandboxDir} / "items" / a.item / "strategy.json";
-            std::error_code ec;
-            std::filesystem::create_directories(f.parent_path(), ec);
-            std::ofstream o(f, std::ios::trunc);
-            o << "{\"think\":" << (think || engine ? "true" : "false") << ",\"engine\":" << (engine ? "true" : "false") << ",\"latest\":\"" << a.note << "\"}\n";
+            (void)platform::writeFile(f, std::string{"{\"think\":"} + (think || engine ? "true" : "false") + ",\"engine\":" + (engine ? "true" : "false") + ",\"latest\":\"" + a.note + "\"}\n");
             logf("workflow %s: manager strategy '%s' for '%s'", wfId.c_str(), a.note.c_str(), a.item.c_str());
             break;
         }
@@ -146,10 +143,9 @@ void Daemon::Impl::executeWorkflowAction(const std::string& wfId, const Workflow
             if (!pick) break;
             int childAttempt = 1;
             for (const auto& j : store.jobs()) if (j.spec.workflow == wfId && j.spec.item == pick->id) childAttempt = std::max<int>(childAttempt, static_cast<int>(j.spec.attempt));
-            std::ofstream o(sandbox / "items" / pick->id / "dispute.txt", std::ios::trunc);
-            o << "Your part of '" << a.item << "' passed its own tests, but the integration of '" << a.item << "' (its tests over all the parts together) failed. Failures reported:\n"
-              << failure << "Fix your part so the combined result passes; keep what already works.\n";
-            o.close();
+            (void)platform::writeFile(sandbox / "items" / pick->id / "dispute.txt",
+                                      "Your part of '" + a.item + "' passed its own tests, but the integration of '" + a.item + "' (its tests over all the parts together) failed. Failures reported:\n" +
+                                          failure + "Fix your part so the combined result passes; keep what already works.\n");
             json::Writer w;
             w.beginObject().kv("action", "disputed").key("reasons").beginArray().str("integration of '" + a.item + "' failed and points at '" + pick->id + "': it is redone").endArray()
                 .key("inputs").beginObject().kv("item", pick->id).kv("attempt", childAttempt).kv("from", a.item).endObject().endObject();
@@ -197,7 +193,7 @@ std::string Daemon::Impl::doWorkflowSubmit(const std::string& specJson)
     std::error_code ec;
     std::filesystem::create_directories(spec->sandboxDir, ec);
     if (ec) return errorReply("cannot create the sandbox " + spec->sandboxDir + ": " + ec.message());
-    if (!spec->mends.empty()) std::ofstream(std::filesystem::path{spec->sandboxDir} / "mends.json") << spec->mends << "\n";   // the gate reads the workflow's own mends from its sandbox
+    if (!spec->mends.empty()) (void)platform::writeFile(std::filesystem::path{spec->sandboxDir} / "mends.json", spec->mends + "\n");   // the gate reads the workflow's own mends from its sandbox
     // A process with a planning stage: what is known about the request, for its `plan-questions` job (the facts are data in the sandbox, so the job
     // is a pure function of a file; the project's remembered answers are among them).
     if (std::any_of(spec->process.stages.begin(), spec->process.stages.end(), [](const Stage& s) { return s.kind == StageKind::job && s.job.accept == "brief"; })) {
@@ -207,7 +203,7 @@ std::string Daemon::Impl::doWorkflowSubmit(const std::string& specJson)
         std::stringstream hs;
         hs << had.rdbuf();
         facts.remembered = parseProjectAnswers(hs.str());
-        std::ofstream(std::filesystem::path{spec->sandboxDir} / "clarify-input.json") << facts.toJson() << "\n";
+        (void)platform::writeFile(std::filesystem::path{spec->sandboxDir} / "clarify-input.json", facts.toJson() + "\n");
     }
     record("workflowSubmitted", wfbody::submitted(id, *spec));
     logf("workflow %s submitted: task '%s', sandbox %s", id.c_str(), spec->task.c_str(), spec->sandboxDir.c_str());
@@ -216,7 +212,7 @@ std::string Daemon::Impl::doWorkflowSubmit(const std::string& specJson)
     if (!plannedByModel && !isKnownTask(spec->task) && spec->process.producesPlan()) {  // the process plans, and no blueprint exists: the architect role is deferred as a file handoff
         TriageResult t = triage(spec->taskText.empty() ? spec->task : spec->taskText);
         const std::filesystem::path packet = std::filesystem::path{spec->sandboxDir} / "needs-plan.md";
-        std::ofstream(packet) << needsPlanPacket(spec->taskText.empty() ? spec->task : spec->taskText, t, id);
+        (void)platform::writeFile(packet, needsPlanPacket(spec->taskText.empty() ? spec->task : spec->taskText, t, id));
         record("workflowAwaitingPlan", wfbody::awaitingPlan(id, packet.string()));
         logf("workflow %s awaits a plan: %s", id.c_str(), packet.c_str());
     }
@@ -233,7 +229,7 @@ std::string Daemon::Impl::doWorkflowPlan(const std::string& id, const std::strin
     if (wf->state != WorkflowState::awaitingPlan) return errorReply("workflow " + id + " is " + toString(wf->state) + ", not awaiting a plan");
     auto plan = Plan::fromJson(planJson);
     if (!plan) return errorReply("plan rejected: " + plan.error());
-    { std::ofstream o(std::filesystem::path{wf->spec.sandboxDir} / "plan.json", std::ios::trunc); o << plan->toJson(); }
+    (void)platform::writeFile(std::filesystem::path{wf->spec.sandboxDir} / "plan.json", plan->toJson());
     record("workflowPlanned", wfbody::planned(id, *plan));
     logf("workflow %s: plan supplied, %zu item(s)", id.c_str(), plan->items.size());
     advanceWorkflows();

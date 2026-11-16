@@ -2,6 +2,7 @@
 /// Daemon: reactor and IPC (epoll loop, clients, request dispatch), construction and run.
 
 #include "daemon_impl.hpp"
+#include "sub0squad/platform_file.hpp"
 
 namespace sub0squad {
 
@@ -268,10 +269,7 @@ std::expected<std::unique_ptr<Daemon>, std::string> Daemon::create(DaemonOptions
         w.beginObject().kv("schema", "run-info-1").kv("build", buildId()).kv("pid", static_cast<std::int64_t>(::getpid())).kv("exe", impl->opts.exe.string())
             .kv("startedAt", duration<double>(system_clock::now().time_since_epoch()).count()).kv("maxJobs", impl->opts.maxJobs).kv("memShedMiB", impl->opts.memShedMiB)
             .kv("frontier", impl->opts.frontier == FrontierMode::off ? "off" : "stub").endObject();
-        const std::filesystem::path file = impl->opts.paths.stateDir / "run-info.json", tmp = impl->opts.paths.stateDir / "run-info.json.tmp";
-        { std::ofstream o(tmp, std::ios::trunc); o << w.take() << "\n"; }
-        std::error_code ec;
-        std::filesystem::rename(tmp, file, ec);
+        (void)platform::writeFileAtomic(impl->opts.paths.stateDir / "run-info.json", w.take() + "\n");
     }
     return std::unique_ptr<Daemon>(new Daemon(std::move(impl)));
 }

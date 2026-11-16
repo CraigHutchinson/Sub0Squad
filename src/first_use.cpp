@@ -9,6 +9,7 @@
 #include "sub0squad/paths.hpp"
 #include "sub0squad/platform_proc.hpp"
 #include "sub0squad/platform_process.hpp"
+#include "sub0squad/platform_file.hpp"
 
 #include <arpa/inet.h>    // portInUse: moves to platform_net (docs/PLATFORM.md slice 4)
 #include <netinet/in.h>
@@ -145,7 +146,7 @@ int runUp(const std::vector<std::string>& args, const std::string& exe)
         else {
             const auto pid = startDetached({exe, "portal", "--port", std::to_string(port)}, upDir / "portal.log");
             if (!pid) { std::fprintf(stderr, "up: %s\n", pid.error().c_str()); return 1; }
-            std::ofstream(upDir / "portal.pid") << *pid << "\n";
+            (void)platform::writeFile(upDir / "portal.pid", std::to_string(*pid) + "\n");
             std::printf("portal: http://127.0.0.1:%d/  (the work graph; click a node to watch its transcript live)\n", port);
         }
     }

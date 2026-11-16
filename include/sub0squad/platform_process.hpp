@@ -53,11 +53,13 @@ public:
     Child() = default;
     /// For the implementation: wraps a started process.
     Child(ProcessId id, bool leadsGroup) : id_(id), leadsGroup_(leadsGroup) {}
+    /// With the native handles a backend keeps (Windows: the process handle and, for a new session, the job object that holds its tree).
+    Child(ProcessId id, bool leadsGroup, std::intptr_t handle, std::intptr_t group) : id_(id), leadsGroup_(leadsGroup), handle_(handle), group_(group) {}
     Child(const Child&) = delete;
     Child& operator=(const Child&) = delete;
-    Child(Child&& o) noexcept : id_(o.id_), leadsGroup_(o.leadsGroup_), status_(o.status_) { o.id_ = 0; }
+    Child(Child&& o) noexcept;
     Child& operator=(Child&& o) noexcept;
-    ~Child() = default;
+    ~Child();   ///< closes what it holds; never waits and never kills
 
     /// Its process id (0 for an empty handle).
     [[nodiscard]] ProcessId id() const { return id_; }
@@ -73,6 +75,9 @@ private:
     ProcessId id_ = 0;
     bool leadsGroup_ = false;
     std::optional<ExitStatus> status_;
+    std::intptr_t handle_ = 0;   ///< native process handle (Windows), 0 when none
+    std::intptr_t group_ = 0;    ///< native group handle (a Windows job object), 0 when none
+    int endedBy_ = 0;            ///< the signal-like cause this side ended it with (15 terminate, 9 kill), where the system keeps none
 };
 
 /// Starts a child. The error names the program and the system's reason (a missing program, a working directory that does not exist, an output file

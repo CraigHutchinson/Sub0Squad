@@ -4,6 +4,7 @@
 #include "sub0squad/event_channel.hpp"
 #include "sub0squad/plan.hpp"
 
+#include <print>
 #include <algorithm>
 #include <filesystem>
 #include <sstream>
@@ -125,7 +126,7 @@ int runPyIntegrate(const std::vector<std::string>& args)
         w.endArray().endObject();
         writeFile(dir / "deliverables.json", w.take());
     }
-    std::printf("INTEGRATION PASS: %zu items merged, %d tests passed (dev mode, warnings as errors), app ran (try: cd %s && python3 -m calc '2^3^2')\n", plan->items.size(), all.pass, project.c_str());
+    std::println("INTEGRATION PASS: {} items merged, {} tests passed (dev mode, warnings as errors), app ran (try: cd {} && python3 -m calc '2^3^2')", plan->items.size(), all.pass, project.string());
     return 0;
 }
 

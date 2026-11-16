@@ -7,6 +7,7 @@
 #include "sub0squad/event_channel.hpp"
 #include "sub0squad/plan.hpp"
 
+#include <print>
 #include <chrono>
 #include <cstdlib>
 #include <filesystem>
@@ -220,7 +221,7 @@ int runHarnessIntegrate(const std::vector<std::string>& args)
         w.endArray().endObject();
         writeFile(dir / "deliverables.json", w.take());
     }
-    std::printf("INTEGRATION PASS: %zu items merged, %d tests passed, page served (try: cd %s && node serve.mjs 8080)\n", plan->items.size(), tap.pass, project.c_str());
+    std::println("INTEGRATION PASS: {} items merged, {} tests passed, page served (try: cd {} && node serve.mjs 8080)", plan->items.size(), tap.pass, project.string());
     return 0;
 }
 

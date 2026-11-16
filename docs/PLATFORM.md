@@ -7,9 +7,12 @@ the shim's own fork waits for slice 5. Slice 2: `platform_proc` and `platform_ho
 and the two `/proc/meminfo` parsers are one each, and `ProcessId` replaced `pid_t` in the public headers. Slice 3: `platform_file`, with a test; the
 journal, ledger, progress, frames and the event channel use it, and the eleven private copies of `slurp`/`readFile`/`writeFile`/`writeFileAtomic` in
 `src/` are gone (two shared helpers, `harnessutil` and `agent`, forward to it). The tests' one `std::system` now runs through the launcher.
-**Not yet:** 21 direct `std::ofstream` writes in text mode (move each onto `writeFile` when its file is next touched), the daemon's pidfd watch
-(`watchExit`, moved to slice 5 with the loop it feeds), and slices 4 and 5. Evidence: a survey of `src/` and `tests/` on that
-date, checked by an independent review of this page against the code.
+The 21 text-mode `std::ofstream` writes are gone (onto `writeFile`, `writeFileAtomic` and `appendToFile`, or binary mode for the streamed sinks).
+**Windows backends** (2026-11-16): each of the four built modules has a `_win32.cpp` sibling, and the platform layer, its four tests and its link proof
+build and pass natively under MinGW-w64 (GCC 16.2, UCRT); the platform tests start a helper of our own (`tests/platform_child.cpp`) instead of `/bin/sh`.
+**Not yet:** the daemon's pidfd watch (`watchExit`, moved to slice 5 with the loop it feeds), and slices 4 and 5, which are what the rest of the
+program needs before it builds on Windows (section 6). Evidence: a survey of `src/` and `tests/` on that date, checked by an independent review of this
+page against the code; the Windows state is from a native build on that date.
 
 ## 1. Why, before any Windows
 
@@ -41,8 +44,11 @@ it. The list may only shrink: a file that stops using the system must be taken o
 ## 3. Shape
 
 * **Its own layer.** `platform` is layer 0, below the kernel. Every layer may use it and it uses nothing else of ours, which its `link_platform` proof checks
-  at link time (`docs/COMPONENTS.md`). Interfaces are in `include/sub0squad/platform_*.hpp` and the POSIX implementation in `src/platform_*.cpp` (the layer
-  files are flat). A Windows implementation becomes a `src/platform_*_win32.cpp` sibling, and CMake picks one of the two for each stem.
+  at link time (`docs/COMPONENTS.md`). Interfaces are in `include/sub0squad/platform_*.hpp`. Each stem has up to three sources (the layer files are flat):
+  `src/platform_<m>.cpp` for what every system shares (the pure parsers, whole-file reads and writes), and one backend, `src/platform_<m>_posix.cpp` or
+  `src/platform_<m>_win32.cpp`, which CMake picks by `SUB0SQUAD_OS`. The layering check counts a backend as its stem. `src/platform_win32_util.hpp`
+  (UTF-8 and UTF-16, the system's error text, a closing `HANDLE`) is private to the Windows backends. Strings cross the interface as UTF-8; paths are
+  `std::filesystem::path`, which is wide on Windows, so code above the layer passes the path or `.string()`, never `.c_str()` to a `char` API.
 * **Types, not descriptors.** Handles are move-only and close themselves (`Child`, and later `TcpStream`, `LocalStream`, `Listener`, `FileLock`). A
   `ProcessId` (64-bit) replaces `pid_t`, and argv is a `std::vector<std::string>`, never a shell string.
 * **Errors:** `std::expected<T, PlatformError>`. `PlatformError` holds the operation, the native code and a message that says what failed on what path
@@ -78,22 +84,42 @@ it. The list may only shrink: a file that stops using the system must be taken o
    kill must still reach. Decide that together with the shim in slice 5. Left: the shim's fork (slice 5); `std::system` in `test_scenarios.cpp`.
 2. **`platform_proc` and `platform_host`** (**done** 2026-11-16): one self path, one memory reader, `ProcessId` out of the public headers. The
    daemon's pidfd watch (`watchExit`) moved to slice 5: it is a descriptor in the daemon's epoll set and belongs with that loop.
-3. **`platform_file`** (**done** 2026-11-16): durable appends, atomic replaces and whole-file reads in one tested place, binary mode throughout. Left:
-   21 direct `std::ofstream` writes in text mode, which on Windows would write CRLF into goldens; `fsync` in `shim.cpp` (slice 5).
+3. **`platform_file`** (**done** 2026-11-16): durable appends, atomic replaces and whole-file reads in one tested place, binary mode throughout. The 21
+   text-mode writes that would have put CRLF into goldens on Windows are moved onto it. Left: `fsync` in `shim.cpp` (slice 5).
 4. **`platform_net` and `platform_ipc`**: engine client, portal, daemon socket, fake engine.
 5. **`platform_wait`**: the daemon and shim loops, the subreaper, the log follower. This needs the most design, so do it once 1 to 4 have settled.
 
 Rough size, POSIX only (library code including tests): slice 1 was about 450 lines; 2 about 300; 3 about 250; 4 about 400; 5 about 600. The call sites
 shrink by a similar amount.
 
-## 6. Windows, afterwards
+## 6. Windows
 
-With slices 0 to 5 done, a Windows build is the `_win32.cpp` siblings plus the following. Estimate (from the review): about 3,000 lines, 3 to 4 weeks of
-focused work, plus about 250 lines of memory-safety work that needs the owner because it means running the engine.
+A Windows build is the `_win32.cpp` siblings plus the following. Estimate (from the review): about 3,000 lines, 3 to 4 weeks of focused work, plus about
+250 lines of memory-safety work that needs the owner because it means running the engine.
 
-* **First milestone: the domain layer and its tests under MSVC or clang-cl.** It is NOT free of the operating system today: `engine.cpp` uses sockets,
-  `ledger.cpp` raw descriptors, `test_stream` sockets. It becomes free of it after slices 3 and 4, and then checks the C++23 portability of most of the
-  code cheaply.
+**Where it stands (2026-11-16, MinGW-w64 GCC 16.2 UCRT, CMake and Ninja; the commands are in [DEV_SETUP.md](DEV_SETUP.md)).** Configure works (the version
+script has a `cmake/git-semver.cmd` twin). The platform layer has its four Windows backends and passes its tests natively:
+
+* `platform_process_win32.cpp`: `CreateProcessW` with arguments quoted for `CommandLineToArgvW`, an explicit inherited-handle list (stdin, stdout,
+  stderr only: the Windows form of `closefrom`), the null device for stdin. A new session is `CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW`, tries
+  `CREATE_BREAKAWAY_FROM_JOB` first, starts suspended and is put in a job object of its own, which `terminate` and `kill` end as a whole. Neither is
+  graceful (see below); they exit with 143 and 137 and `wait` reports signal 15 or 9, so callers read the same status on both systems. A crash status
+  (0xC0000005 and kin) is reported as the nearest signal. `runCaptured` polls an anonymous pipe and stops reading when the child ends, since a grandchild
+  may hold the pipe open.
+* `platform_proc_win32.cpp`: `GetModuleFileNameW`; the creation time as the start stamp; a Toolhelp32 snapshot for the tree (an orphan keeps its dead
+  parent's id, so a child created before the holder of that id is not counted); the command line read through `NtQueryInformationProcess` (looked up in
+  ntdll at run time) and split by `CommandLineToArgvW`; the environment set in both the C runtime's copy and the system's.
+* `platform_host_win32.cpp`: `GlobalMemoryStatusEx` (the commit headroom is what is left of the commit limit), `GetSystemTimes`, `std::filesystem::space`;
+  no load average and no GPU figures yet.
+* `platform_file_win32.cpp`: the C runtime's descriptors in binary, append and no-inherit mode; `_commit` (FlushFileBuffers) for sync, `_chsize_s` to
+  truncate, `GetFileAttributesExW` for the modification time.
+
+Not built natively yet, all of it slices 4 and 5: `unix_socket`, `engine`, `client`, the portal and `first_use` (sockets), and `daemon_impl.hpp`,
+`shim`, `cli_jobs` (the wait loops). `mock_worker` uses POSIX signals and stays a test fixture to port with the shim. `tests/m0_graph_growth.cpp` (a fork
+probe that answered on Linux) is built on POSIX only. Not yet decided: whether `FileLock` and the replace-while-read retry (below) belong with slice 4.
+
+* **First milestone: the domain layer and its tests under MSVC or clang-cl.** It is NOT free of the operating system today: `engine.cpp` uses sockets and
+  `test_stream` sockets. It becomes free of it after slice 4, and then checks the C++23 portability of most of the code cheaply.
 * **Then the CLI and the mock first-use path** (`test_readme`): every module but the limits.
 * **The C++ harness needs a toolchain profile** (compiler, warning and sanitizer flags, object and executable suffixes). Use LLVM `clang++` on Windows, whose
   diagnostics read close enough to GCC's for the mends and the diagnostics table to match. The Python harness is portable; the web harness needs node.
@@ -114,7 +140,7 @@ What Windows will not match exactly, and must be designed for:
 
 ## 7. Recommendation
 
-Slices 0 to 3 are done: they removed duplicated code and kept operating-system types out of the interfaces, at low risk. Move the remaining text-mode
-writes onto `writeFile` as their files are touched. Schedule slices 4 and 5 when the experiments leave room, since they touch the daemon's core loop. Decide on the Windows
-implementation after that; its first step is the domain layer under MSVC. Until then the WSL path in [DEV_SETUP.md](DEV_SETUP.md) is the way to build on a
-Windows host.
+Slices 0 to 3 are done: they removed duplicated code and kept operating-system types out of the interfaces, at low risk, and the platform layer now has
+Windows backends that pass its tests. Schedule slices 4 and 5 when the experiments leave room, since they touch the daemon's core loop; each new module
+gets its POSIX and Windows backends together from now on. Until slice 5 the WSL path in [DEV_SETUP.md](DEV_SETUP.md) is the way to run the program on a
+Windows host; the native MinGW build is for the platform layer and for finding what does not compile yet.

@@ -2,3 +2,6 @@
 # compare files byte for byte with goldens (registry/processes, tests/data). A Windows checkout with core.autocrlf=true turned them into CRLF:
 # the configure failed under WSL ("git version 1.6.5 or later required") and a dozen golden tests failed.
 * text=auto eol=lf
+# Windows batch files keep CRLF: cmd.exe can misread labels and goto in LF files.
+*.cmd text eol=crlf
+*.bat text eol=crlf

@@ -33,7 +33,11 @@ int main()
         const auto t = cpuTimes();
         CHECK(t.has_value() && t->total > 0 && t->busy <= t->total);
         const auto load = loadAverage();
+#if defined(_WIN32)
+        CHECK(!load.has_value());   // Windows keeps no load average
+#else
         CHECK(load.has_value() && *load >= 0);
+#endif
         const auto dir = makeTempDir("platform-host");
         const auto free = freeDiskMiB(dir);
         CHECK(free.has_value() && *free > 0);

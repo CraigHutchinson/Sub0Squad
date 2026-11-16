@@ -9,7 +9,13 @@
 #include "sub0squad/progress.hpp"
 
 #include <fcntl.h>
+#if defined(_WIN32)
+#include <io.h>
+#include <share.h>
+#include <sys/stat.h>
+#else
 #include <unistd.h>
+#endif
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -41,10 +47,17 @@ int main(int argc, char** argv)
     {
         const fs::path d = root / "plain";
         fs::create_directories(d);
-        const int fd = ::open((d / "plain.ndjson").c_str(), O_WRONLY | O_CREAT | O_APPEND, 0600);
         const std::string line = "{\"seq\":1,\"ts\":1.0,\"type\":\"jobStarted\",\"d\":" + body + "}\n";
+#if defined(_WIN32)
+        int fd = -1;
+        (void)::_wsopen_s(&fd, (d / "plain.ndjson").c_str(), _O_WRONLY | _O_CREAT | _O_APPEND | _O_BINARY, _SH_DENYNO, _S_IREAD | _S_IWRITE);
+        runner.run("journal append (no fsync), hand-written write()", [&] { (void)!::_write(fd, line.data(), static_cast<unsigned>(line.size())); });
+        ::_close(fd);
+#else
+        const int fd = ::open((d / "plain.ndjson").c_str(), O_WRONLY | O_CREAT | O_APPEND, 0600);
         runner.run("journal append (no fsync), hand-written write()", [&] { (void)!::write(fd, line.data(), line.size()); });
         ::close(fd);
+#endif
     }
     {
         auto j = Journal::open(root / "journal-nosync");

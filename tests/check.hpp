@@ -5,11 +5,13 @@
 #include <cstdlib>
 #include <filesystem>
 #include <system_error>
-#include <thread>
-#include <chrono>
+#include <cstdint>
+#include <random>
 #include <string>
 #include <thread>
-#include <unistd.h>
+#if !defined(_WIN32)
+#include <unistd.h>   // several tests use POSIX calls and rely on this include
+#endif
 
 inline int gFailures = 0;
 #define CHECK(cond) do { if (!(cond)) { std::fprintf(stderr, "%s:%d: CHECK failed: %s\n", __FILE__, __LINE__, #cond); ++gFailures; } } while (0)
@@ -25,10 +27,18 @@ inline std::filesystem::path makeTempDir(const char* tag)
     const char* base = std::getenv("SUB0SQUAD_TEST_TMP");
     const std::filesystem::path root = base ? std::filesystem::path{base} : std::filesystem::current_path() / "test-tmp";
     std::filesystem::create_directories(root);
-    std::string pattern = (root / (std::string{"s0q-"} + tag + "-XXXXXX")).string();
-    char* made = ::mkdtemp(pattern.data());
-    if (!made) { std::perror("mkdtemp"); std::exit(2); }
-    return made;
+    // create_directory fails on a name that exists, so the first name it makes is this test's alone (what mkdtemp does, on every system).
+    std::mt19937_64 random{std::random_device{}() ^ static_cast<std::uint64_t>(std::chrono::steady_clock::now().time_since_epoch().count())};
+    const char* letters = "abcdefghijklmnopqrstuvwxyz0123456789";
+    for (int attempt = 0; attempt < 100; ++attempt) {
+        std::string suffix(6, 'a');
+        for (char& c : suffix) c = letters[random() % 36];
+        const std::filesystem::path p = root / (std::string{"s0q-"} + tag + "-" + suffix);
+        std::error_code ec;
+        if (std::filesystem::create_directory(p, ec)) return p;
+    }
+    std::fprintf(stderr, "cannot make a temporary directory under %s\n", root.string().c_str());
+    std::exit(2);
 }
 /// Remove a test's directory tree and never throw: cleanup must not fail a test that passed. A process that is still shutting down can write into the tree
 /// for a moment ("Directory not empty" on slower file systems), so it is retried a few times, then left (the build directory's test-tmp is disposable).

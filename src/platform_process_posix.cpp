@@ -93,12 +93,19 @@ std::expected<Child, PlatformError> start(const ProcessSpec& spec, int captureFd
 
 }  // namespace
 
+Child::Child(Child&& o) noexcept : id_(o.id_), leadsGroup_(o.leadsGroup_), status_(o.status_), handle_(o.handle_), group_(o.group_), endedBy_(o.endedBy_) { o.id_ = 0; }
+
+Child::~Child() = default;
+
 Child& Child::operator=(Child&& o) noexcept
 {
     if (this != &o) {
         id_ = o.id_;
         leadsGroup_ = o.leadsGroup_;
         status_ = o.status_;
+        handle_ = o.handle_;   // unused on POSIX: a pid is the whole handle
+        group_ = o.group_;
+        endedBy_ = o.endedBy_;
         o.id_ = 0;
     }
     return *this;

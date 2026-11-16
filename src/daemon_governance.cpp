@@ -2,6 +2,7 @@
 /// Daemon: governance: guidance, the first responder, raising and answering requests.
 
 #include "daemon_impl.hpp"
+#include "sub0squad/platform_file.hpp"
 
 namespace sub0squad {
 
@@ -16,7 +17,7 @@ void Daemon::Impl::applyGuidance(const WorkflowRecord& wf, const std::vector<std
         if (!it || it->persona == "integrator") continue;
         std::error_code ec;
         std::filesystem::create_directories(sandbox / "items" / id, ec);
-        { std::ofstream o(sandbox / "items" / id / "dispute.txt", std::ios::trunc); o << source << " about your work:\n" << text << "\nTake it into account and keep what already works.\n"; }
+        (void)platform::writeFile(sandbox / "items" / id / "dispute.txt", source + " about your work:\n" + text + "\nTake it into account and keep what already works.\n");
         if (voidAccepted && std::filesystem::exists(sandbox / "items" / id / "accepted.json")) {
             int attempt = 1;
             for (const auto& j : store.jobs()) if (j.spec.workflow == wf.id && j.spec.item == id) attempt = std::max<int>(attempt, static_cast<int>(j.spec.attempt));
@@ -67,8 +68,7 @@ void Daemon::Impl::firstResponder(const std::string& wfId, const std::string& ri
         for (const auto& dd : wf->decisions) if (dd.item == item) b.history.push_back("attempt " + std::to_string(dd.attempt) + ": " + dd.action + (dd.tier.empty() ? "" : " (" + dd.tier + ")"));
         std::error_code ec;
         std::filesystem::create_directories(sandbox / "items" / item, ec);
-        std::ofstream o(sandbox / "items" / item / ("briefing-" + rid + ".md"), std::ios::trunc);
-        o << buildBriefing(b);
+        (void)platform::writeFile(sandbox / "items" / item / ("briefing-" + rid + ".md"), buildBriefing(b));
     }
     record("workflowRequestAnalysed", wfbody::requestAnalysed(wfId, rid, v.triage, v.analysis));
     logf("workflow %s: overseer on %s: %s (%s)", wfId.c_str(), rid.c_str(), v.triage.c_str(), v.analysis.c_str());

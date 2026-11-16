@@ -1,4 +1,5 @@
 #include "sub0squad/attempt_failure.hpp"
+#include "sub0squad/platform_file.hpp"
 
 #include <fstream>
 #include <sstream>
@@ -24,7 +25,7 @@ void recordAttemptFailure(const fs::path& attemptDir, const std::string& role, c
     if (!why.empty() && (static_cast<unsigned char>(why.back()) & 0x80) != 0 && why.size() == 700) why.pop_back();
     std::error_code ec;
     fs::create_directories(attemptDir, ec);
-    std::ofstream(attemptDir / "failure.json", std::ios::trunc) << ("{\"schema\":\"attempt-failure-1\",\"role\":\"" + escaped(role) + "\",\"kind\":\"" + escaped(kind) + "\",\"reason\":\"" + escaped(why) + "\"}\n");
+    (void)platform::writeFile(attemptDir / "failure.json", "{\"schema\":\"attempt-failure-1\",\"role\":\"" + escaped(role) + "\",\"kind\":\"" + escaped(kind) + "\",\"reason\":\"" + escaped(why) + "\"}\n");
 }
 
 void clearAttemptFailure(const fs::path& attemptDir)

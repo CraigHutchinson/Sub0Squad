@@ -306,7 +306,7 @@ int runPlanQuestions(const std::vector<std::string>& args)
     const auto facts = ClarifyFacts::fromJson(platform::readFileText(dir / "clarify-input.json"));
     if (!facts) { std::fprintf(stderr, "plan-questions: %s\n", facts.error().c_str()); return 1; }
     const ClarifyPlan plan = clarify(*facts);
-    { std::ofstream o(dir / "questions.json", std::ios::trunc); o << plan.toJson() << "\n"; if (!o) { std::fprintf(stderr, "plan-questions: cannot write questions.json\n"); return 1; } }
+    if (!platform::writeFile(dir / "questions.json", plan.toJson() + "\n")) { std::fprintf(stderr, "plan-questions: cannot write questions.json\n"); return 1; }
     for (const auto& t : plan.settled) std::printf("%-9s %-10s %s%s%s\n", t.key.c_str(), t.source.c_str(), t.value.c_str(), t.value.empty() ? "" : ": ", t.note.c_str());
     for (const auto& q : plan.questions) std::printf("%-9s ASK        %s (default: %s)\n", q.key.c_str(), q.question.c_str(), q.values.front().c_str());
     return 0;

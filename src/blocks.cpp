@@ -10,6 +10,7 @@
 #include "sub0squad/scenario.hpp"
 #include "sub0squad/turn_control.hpp"
 
+#include <print>
 #include <algorithm>
 #include <atomic>
 #include <chrono>
@@ -476,7 +477,7 @@ int runBlockCommand(const std::vector<std::string>& args, const std::string& bui
     std::error_code ec;
     fs::remove_all(o.workDir, ec);
     (void)writeFile(outDir / "block-results.json", w.take() + "\n");
-    std::printf("\nbuild %s; results in %s\n", build.c_str(), (outDir / "block-results.json").c_str());
+    std::println("\nbuild {}; results in {}", build, (outDir / "block-results.json").string());
     return failed ? 1 : 0;
 }
 

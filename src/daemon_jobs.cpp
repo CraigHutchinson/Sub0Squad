@@ -4,6 +4,7 @@
 #include "daemon_impl.hpp"
 
 #include "sub0squad/attempt_failure.hpp"
+#include "sub0squad/platform_file.hpp"
 
 namespace sub0squad {
 
@@ -148,7 +149,7 @@ void Daemon::Impl::startRun(const JobRecord& job, int leaseIndex)
     JobSpec spec = job.spec;
     if (leaseIndex >= 0) spec.env["SUB0SQUAD_LEASE_INDEX"] = std::to_string(leaseIndex);
     if (job.run > 1 && !spec.resumeArgv.empty()) spec.argv = spec.resumeArgv;
-    { std::ofstream o(runDir / "spec.json"); o << spec.toJson(); }
+    (void)platform::writeFile(runDir / "spec.json", spec.toJson());
     auto entry = std::make_unique<Running>();
     entry->id = job.id;
     entry->run = job.run;
