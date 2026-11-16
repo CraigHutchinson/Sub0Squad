@@ -132,6 +132,7 @@ int main()
         CHECK(written.has_value() && written->project == "wordcount");
         const std::string record = slurp(d / "planner.json");
         CHECK(record.find("\"valid\":true") != std::string::npos && record.find("\"turns\":2") != std::string::npos);
+        CHECK(record.find("\"kinds\":[\"plan\",\"edit\"]") != std::string::npos && record.find("\"mends\":[") != std::string::npos);   // what the portal shows per turn
         CHECK(fs::exists(d / "planner" / "turn-1.txt") && fs::exists(d / "planner" / "conversation.md"));
     }
     {   // An edit that does not apply changes nothing and the original problems stand: the next turn is shown the same document and both messages.
@@ -164,7 +165,7 @@ int main()
         fake::Engine engine({{"never used"}});
         CHECK_EQ(runLlmPlanner(plannerArgs(d, engine)), 0);
         CHECK_EQ(engine.requestCount(), static_cast<std::size_t>(0));
-        CHECK(Plan::fromJson(slurp(d / "plan.json")).has_value());
+        CHECK(Plan::fromJson(slurp(d / "plan.json")).has_value() && slurp(d / "planner.json").find("\"supplied\":true") != std::string::npos);
         put(d / "plan.json", "{\"schema\":\"plan-2\"}");
         CHECK_EQ(runLlmPlanner(plannerArgs(d, engine)), 1);   // a supplied plan that is not a plan is refused
     }

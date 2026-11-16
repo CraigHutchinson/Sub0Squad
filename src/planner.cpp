@@ -225,12 +225,20 @@ int runLlmPlanner(const std::vector<std::string>& args)
     if (fs::exists(dir / "plan.supplied")) {
         auto supplied = Plan::fromJson(slurp(dir / "plan.json"));
         if (!supplied) { std::fprintf(stderr, "llm-planner: the supplied plan is refused: %s\n", supplied.error().c_str()); return 1; }
-        for (const auto& m : mendPlan(*supplied)) std::fprintf(stderr, "llm-planner: supplied plan mended: %s\n", m.c_str());
+        const std::vector<std::string> suppliedMends = mendPlan(*supplied);
+        for (const auto& m : suppliedMends) std::fprintf(stderr, "llm-planner: supplied plan mended: %s\n", m.c_str());
         for (const auto& problem : checkPlan(*supplied)) std::fprintf(stderr, "llm-planner: supplied plan: %s\n", problem.c_str());
         if (auto ok = supplied->validate(); !ok) { std::fprintf(stderr, "llm-planner: the supplied plan is refused: %s\n", ok.error().c_str()); return 1; }
         if (const Harness* h = findHarness(supplied->harness); h && h->checkPlanScaffold)
             if (const std::string bad = h->checkPlanScaffold(supplied->toJson()); !bad.empty()) { std::fprintf(stderr, "llm-planner: the supplied plan is refused: %s\n", bad.c_str()); return 1; }
         if (!writeFile(dir / "plan.json", supplied->toJson())) return 1;
+        {   // the record the portal reads: no turns, and what was mended on the way in
+            json::Writer w;
+            w.beginObject().kv("schema", "planner-1").kv("request", request).kvBool("valid", true).kv("turns", static_cast<std::int64_t>(0)).kvBool("supplied", true).key("mends").beginArray();
+            for (const auto& m : suppliedMends) w.beginObject().kv("turn", static_cast<std::int64_t>(0)).kv("text", m).endObject();
+            w.endArray().endObject();
+            writeFile(dir / "planner.json", w.take() + "\n");
+        }
         std::printf("using the supplied plan: %zu item(s)\n", supplied->items.size());
         return 0;
     }
@@ -261,13 +269,19 @@ int runLlmPlanner(const std::vector<std::string>& args)
     long promptTokens = 0, completionTokens = 0;
     std::string lintText;
     std::vector<std::vector<std::string>> problemsByTurn;
+    std::vector<std::string> kindByTurn;                       ///< how each turn's reply was taken: "plan" (a first or whole plan), "edit" (edits to the document), "unreadable"
+    std::vector<std::pair<int, std::string>> mendsMade;        ///< the mechanical mends, by turn: shown by the portal, and the evidence of what the model did not have to fix
     std::string conversation = "# Planner conversation\n\nEngine `" + engine->name + "`, run seed " + std::to_string(engine->seed) + ".\n\n## System\n\n```\n" + messages[0].content + "\n```\n\n## User\n\n" + user + "\n";
     const auto record = [&](bool valid, int turns) {
         json::Writer w;
         w.beginObject().kv("schema", "planner-1").kv("request", request).kvBool("valid", valid).kv("turns", static_cast<std::int64_t>(turns))
             .kv("promptTokens", static_cast<std::int64_t>(promptTokens)).kv("completionTokens", static_cast<std::int64_t>(completionTokens)).key("problems").beginArray();
         for (const auto& turn : problemsByTurn) { w.beginArray(); for (const auto& p : turn) w.str(p); w.endArray(); }
-        w.endArray().kv("lint", lintText).endObject();
+        w.endArray().key("kinds").beginArray();
+        for (const auto& k : kindByTurn) w.str(k);
+        w.endArray().key("mends").beginArray();
+        for (const auto& m : mendsMade) w.beginObject().kv("turn", static_cast<std::int64_t>(m.first)).kv("text", m.second).endObject();
+        w.endArray().kvBool("prose", !prose.empty()).kv("slots", static_cast<std::int64_t>(slots)).kv("lint", lintText).endObject();
         writeFile(dir / "planner.json", w.take() + "\n");
         writeFile(dir / "planner" / "conversation.md", conversation);
     };
@@ -378,7 +392,7 @@ int runLlmPlanner(const std::vector<std::string>& args)
                     auto same = std::find_if(plan->scaffold.begin(), plan->scaffold.end(), [&](const PlanFile& f) { return f.path == b.path; });
                     if (same != plan->scaffold.end()) same->content = b.content; else plan->scaffold.push_back(b);
                 }
-                for (const auto& m : mendPlan(*plan)) std::fprintf(stderr, "llm-planner: turn %d: mended: %s\n", turn, m.c_str());
+                for (const auto& m : mendPlan(*plan)) { std::fprintf(stderr, "llm-planner: turn %d: mended: %s\n", turn, m.c_str()); mendsMade.push_back({turn, m}); }
                 if (auto ok = plan->validate(); !ok) problems.push_back("the plan is refused: " + ok.error());
                 if (problems.empty()) problems = checkPlan(*plan);
                 if (problems.empty())
@@ -386,6 +400,7 @@ int runLlmPlanner(const std::vector<std::string>& args)
                         if (const std::string bad = h->checkPlanScaffold(plan->toJson()); !bad.empty()) problems.push_back(bad);
                 if (problems.empty()) {
                     problemsByTurn.push_back({});
+                    kindByTurn.push_back(edited ? "edit" : "plan");
                     const PlanLint lint = lintPlan(*plan, 5.0, slots);
                     lintText = lint.toText();
                     if (!writeFile(dir / "plan.json", plan->toJson())) { std::fprintf(stderr, "llm-planner: cannot write plan.json\n"); return 1; }
@@ -414,6 +429,7 @@ int runLlmPlanner(const std::vector<std::string>& args)
         // The document is kept on disk, every turn: the planner can be resumed from it, and a reader sees what each repair changed.
         for (const auto& [path, text] : doc) writeFile(dir / "planner" / "doc" / ("turn-" + std::to_string(turn)) / path, text);
         lastProblems = problems;
+        kindByTurn.push_back(edited ? "edit" : json.empty() ? "unreadable" : "plan");
         problemsByTurn.push_back(problems);
         conversation += "\n## Turn " + std::to_string(turn) + " (the harness)\n\n";
         for (const auto& p : problems) conversation += "- " + p + "\n";

@@ -77,7 +77,7 @@ sandbox.getSelection = () => ({ isCollapsed: true, toString: () => '' });
 vm.createContext(sandbox);
 
 // The script, plus one line that hands its own functions to this test (its top-level `const`s are not properties of the global object).
-const source = fs.readFileSync(scriptPath, 'utf8') + '\n;globalThis.__page = { render, openDrawer, tickState, tickLive };\n';
+const source = fs.readFileSync(scriptPath, 'utf8') + '\n;globalThis.__page = { render, openDrawer, tickState, tickLive, loadPkg, loadPlan };\n';
 try {
   vm.runInContext(source, sandbox, { filename: 'portal.js' });
 } catch (err) {
@@ -112,6 +112,18 @@ const shown = () => all.map((e) => e.innerHTML + '\n' + e.textContent).join('\n'
   try { sandbox.__page.openDrawer({ type: 'node', key: 'dev-engine' }); } catch (err) { check(false, 'opening the healed node panel threw: ' + (err && err.stack ? err.stack : err)); }
   page = shown();
   check(page.includes('repaired by the harness, outside the ladder'), 'the healed panel names the mend');
+
+  // The planning card: the layers before any item, from planner.json and the files the planner leaves (a repaired plan, a mend, a refused turn, the lint).
+  answers['/api/files'] = JSON.stringify({ sandbox: '/x', deliverables: null, files: ['plan.json', 'planner.json', 'planner/prose.md', 'planner/conversation.md', 'planner/turn-1.txt', 'planner/turn-2.txt', 'planner/doc/turn-1/plan.json'].map((p) => ({ p, s: 10 })) });
+  answers['/api/file'] = JSON.stringify({ schema: 'planner-1', request: 'r', valid: true, turns: 2, problems: [['the plan is refused: <b>not markup</b> bad bracket'], []], kinds: ['plan', 'edit'],
+    mends: [{ turn: 1, text: "item 'dev-app': depends on 'dev-engine'" }], prose: true, slots: 4, lint: 'slot fill on 4 slots: 41 % busy' });
+  try { await sandbox.__page.loadPkg(true); await sandbox.__page.loadPlan(true); } catch (err) { check(false, 'the planning card threw: ' + err); }
+  for (let i = 0; i < 20; ++i) await new Promise((resolve) => setImmediate(resolve));
+  const planning = byId.get('planning');
+  check(planning && planning.innerHTML.includes('Planning') && planning.innerHTML.includes('plan prose') && planning.innerHTML.includes('planner/prose.md'), 'the planning card shows the prose layer');
+  check(planning && planning.innerHTML.includes('no problems: accepted') && planning.innerHTML.includes('&lt;b&gt;not markup&lt;/b&gt; bad bracket') && !planning.innerHTML.includes('<b>not markup</b>'), 'the planning card shows each turn and escapes the problems');
+  check(planning && planning.innerHTML.includes('depends on') && planning.innerHTML.includes('mechanical mend') && planning.innerHTML.includes('slot fill on 4 slots'), 'the planning card shows the mends and the lint');
+  check(planning && planning.innerHTML.includes('planner/doc/turn-1/plan.json') && planning.innerHTML.includes('planner/turn-2.txt'), 'the planning card links each reply and document');
 
   // An empty state renders the invitation, not an exception.
   answers['/api/state'] = '{"workflows":{"asOf":1,"source":"daemon","workflows":[]},"jobs":{"jobs":[]}}';

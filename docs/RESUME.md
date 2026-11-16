@@ -17,7 +17,7 @@ validation grader outside the harness judges the result.
 | Planner with `--prose` (prose lead, then one formatter call) | 1 of 4 valid: one formatter call for the whole plan does not help; per-item formatting is untested |
 | Supplied plan, all four items accepted, then integration by hand | run `w-000020`: product 12 of 12 black-box cases, 0 wrong test literals (`validation/grade_blackbox.py`) |
 | Full run from the request, planner passed | `w-000022`: engine pair accepted at once; `dev-app` failed 6 attempts (the engine returns NaN on error and the app's card did not say so). Fixed since: a developer's card shows the contracts of the items it builds on |
-| Last run when this was written | `w-000023` (supplied plan from `w-000022`): engine pair and `test-app` accepted, `dev-app` on attempt 4 (a tester wrote `10 / 3 = 3.3333333333333335`, the dispute path is running). Result not recorded here; read `out/e2e/supplied-7` and `sub0squad project status w-000023` if the daemon is still up |
+| Supplied plan, whole workflow (items, dispute, integration, no manual step) | run `w-000023`: **succeeded** ("all items accepted; integration passed"); `validation/grade_blackbox.py out/e2e/supplied-7`: product 12 of 12, 5 literals audited, 0 wrong. The plan came from `w-000022`'s planner; the full run from the request (planner included) has still not passed in one go |
 
 Wrong expected values in the tester's tests (`2 + 3 * 4 - (5 / 5)` = 14, `3 + 4 * 2 / (1 - 5)` = 2, `10 / 3` as a float literal) recur in nearly every run; the dispute rung catches them but costs
 about an hour on this CPU. Nothing in the harness has an oracle (by decision); the structural answer is the expectation QA step below.
@@ -43,7 +43,7 @@ Cheap first; each step names what proves it. Rules in section 5 apply throughout
 4. **Expectation QA** (BACKLOG "Many experts, one result"): an explicit step that checks the tester's expected values against the contract and the worked examples before a developer is graded (a referee call that re-derives each literal), with the failing line as the dispute text. The one-failing-test shortcut was tried and reverted (it breaks `test_nearpass`); the reason and the alternative are in the BACKLOG.
 5. **Work prose** for tester and developer (describe, then write); the concern hand-off from a failing item to the layer above (generalise `reviseTests`); the recorded author per layer.
 6. **Prompt wording A/B** (BACKLOG): prompts as data, variants B to E from the owner against today's wording, at least 10 seeds each.
-7. **Portal**: a planning node and the new signals (BACKLOG "Portal: show the planning layers"); make `up` start the portal by default (it was off only because `--no-portal` was passed); ngrok later (needs the owner: install, account, token, authentication design).
+7. **Portal**: the planning card is built (see BACKLOG); still to do: planning as a graph node, the dispute edges and gate classes in the decision view, a workflow selector (today `?wf=w-000022` in the URL); make `up` start the portal by default (it was off only because `--no-portal` was passed); ngrok later (needs the owner: install, account, token, authentication design).
 8. **Slot save and restore** measurement; per-role windows; the phased design and execution planner (BACKLOG, CLEAN_SLATE section 6).
 9. Fault-injection campaign at every step and role; web and Python scaffolds (only C++ self-scaffolds today); a section-count cap in the fork split (a 15-section skeleton for a 20-line file); the A/B context campaigns.
 

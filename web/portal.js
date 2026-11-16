@@ -50,7 +50,7 @@ function sysTiles(){
   return t;
 }
 const engineKey=base=>base.replace(/\/v1$/,'');
-function currentWf(){const w=((state&&state.workflows&&state.workflows.workflows)||[]);return w.length?w[w.length-1]:null}
+function currentWf(){const w=((state&&state.workflows&&state.workflows.workflows)||[]);const want=((location.search||'').match(/[?&]wf=([^&]+)/)||[])[1];const pick=want&&w.find(x=>x.id===decodeURIComponent(want));return pick||(w.length?w[w.length-1]:null)}   // ?wf=w-000022 shows an earlier workflow
 function profiles(){const m={};const wf=currentWf();((wf&&wf.engines)||[]).forEach(e=>{const head=e.split(',')[0],eq=head.indexOf('=');if(eq<1)return;const name=head.slice(0,eq),url=head.slice(eq+1);
   const g=k=>{const r=e.match(new RegExp('(?:^|,)'+k+'=([^,]*)'));return r?r[1]:''};m[name]={name,base:engineKey(url),model:g('model'),ctx:g('ctx'),slots:g('slots'),seed:g('seed'),cache:g('cache'),thinking:g('thinking'),raw:e}});return m}
 function modelInfo(base){const e=((live&&live.engines)||[]).find(x=>x.base===base);return e&&e.model&&(e.model.file||e.model.alias)?e.model:null}
@@ -208,7 +208,7 @@ let pkg=null,pkgWf=null,pkgAt=0,fileView=null;
 // generated sites are served from the next port: a different origin from this page, with no network access of their own
 const siteBase=()=>location.protocol+'//'+location.hostname+':'+(+location.port+1);
 async function loadPkg(force){const wf=currentWf();if(!wf||document.hidden)return;if(!force&&pkgWf===wf.id&&Date.now()-pkgAt<5000)return;pkgAt=Date.now();pkgWf=wf.id;
-  try{pkg=await (await fetch('/api/files?wf='+encodeURIComponent(wf.id),{cache:'no-store'})).json();renderPkg();if(sel&&sel.type=='node')drawDrawer()}catch(e){}}
+  try{pkg=await (await fetch('/api/files?wf='+encodeURIComponent(wf.id),{cache:'no-store'})).json();renderPkg();renderPlanning();if(sel&&sel.type=='node')drawDrawer()}catch(e){}}
 const fl=(p,label)=>`<a href="#" class="flink" data-p="${esc(p)}">${esc(label||p)}</a>`;
 function groupFiles(files){const g={};files.forEach(f=>{const parts=f.p.split('/');const k=parts[0]==='items'&&parts.length>2?'items/'+parts[1]:parts[0]==='project'?'project':'(workflow)';(g[k]=g[k]||[]).push(f)});return g}
 function renderPkg(){
@@ -226,6 +226,48 @@ function renderPkg(){
     setInner(c.querySelector('summary'),`${esc(k)} <span class="mute">(${g[k].length})</span>`);
     setInner(c.querySelector('.fl'),g[k].sort((a,b)=>a.p<b.p?-1:1).map(f=>`<div>${fl(f.p,f.p.replace(k+'/',''))} <span class="mute">${fmt(f.s)} B</span></div>`).join(''));}})),{tag:'details'});
 }
+// ================= planning layers =================
+// The planner's work before any item exists: the request, the plan in prose (when the prose step ran), the plan form turn by turn (each reply, the document
+// it left, the problems raised, the mechanical mends), the plan-lint scalars, and the planner's own attempts. It reads `planner.json` (written when the
+// planner ends) and the files the planner leaves as it goes (planner/prose.md, turn-N.txt, doc/turn-N/, live.txt), so it shows while the plan is being written.
+let planRec=null,planWf=null,planAt=0;
+async function loadPlan(force){const wf=currentWf();if(!wf||document.hidden)return;if(!force&&planWf===wf.id&&Date.now()-planAt<4000)return;planAt=Date.now();planWf=wf.id;
+  try{const r=await fetch('/api/file?wf='+encodeURIComponent(wf.id)+'&p=planner.json',{cache:'no-store'});planRec=r.ok?JSON.parse(await r.text()):null}catch(e){planRec=null}
+  renderPlanning()}
+function renderPlanning(){
+  const card=$('planning'),wf=currentWf();if(!card||!wf||frozen())return;
+  const files=((pkg&&pkg.files)||[]).map(f=>f.p);const has=p=>files.includes(p);
+  const turnNos=files.map(p=>(p.match(/^planner\/turn-(\d+)\.txt$/)||[])[1]).filter(Boolean).map(Number).sort((a,b)=>a-b);
+  const jobs=((state&&state.jobs&&state.jobs.jobs)||[]).filter(j=>j.workflow===wf.id&&/planner/.test((j.tool||'')+' '+(j.role||'')+' '+(j.step||'')));
+  const rec=planRec&&planWf===wf.id?planRec:null;
+  if(!rec&&!turnNos.length&&!has('planner/prose.md')&&!has('planner/live.txt')&&!jobs.length){card.style.display='none';return}
+  card.style.display='';
+  const live=has('planner/live.txt'),planned=has('plan.json');
+  const running=jobs.some(j=>['running','starting'].includes(j.state));
+  const status=rec&&rec.supplied?['supplied plan','']:live?['writing','']:rec?(rec.valid?['planned','']:['no valid plan','bad']):planned?['planned','']:(turnNos.length||running)?['planning','']:['',''];
+  const kinds=(rec&&rec.kinds)||[],probs=(rec&&rec.problems)||[],mends=(rec&&rec.mends)||[];
+  const turns=(rec&&rec.turns>0)?Array.from({length:Math.max(rec.turns,probs.length)},(_,i)=>i+1):turnNos;
+  const layer=(label,body)=>'<span class="pill" style="margin-right:6px">'+label+'</span>'+body;
+  const plural=n=>n==1?'':'s';
+  const head=layer('request',esc(wf.taskText||wf.task))
+    +' → '+layer('plan prose',has('planner/prose.md')?fl('planner/prose.md','written'):(rec&&rec.prose===false)?'<span class="mute">off</span>':'<span class="mute">—</span>')
+    +' → '+layer('plan form',turns.length+' turn'+plural(turns.length)+(has('planner/conversation.md')?' · '+fl('planner/conversation.md','conversation'):'')+(live?' · '+fl('planner/live.txt','watch live'):''))
+    +' → '+layer('plan',planned?fl('plan.json','plan.json')+((rec&&rec.supplied)?' <span class="mute">supplied</span>':''):'<span class="mute">not yet</span>')
+    +' → '+layer('items',String((wf.items||[]).length));
+  const row=n=>{
+    const i=n-1,p=probs[i]||[],kind=kinds[i]||'';
+    const first=p.length?esc(p[0].slice(0,170))+(p[0].length>170?'…':''):((rec&&i<probs.length)?'<span style="color:var(--accepted)">no problems: accepted</span>':'<span class="mute">…</span>');
+    const count=p.length>1?'<b>'+p.length+'</b> · ':'';
+    const links=(has('planner/turn-'+n+'.txt')?fl('planner/turn-'+n+'.txt','reply'):'')+' '+(has('planner/doc/turn-'+n+'/plan.json')?fl('planner/doc/turn-'+n+'/plan.json','document'):'');
+    return '<tr><td>'+n+'</td><td>'+(kind?'<span class="pill">'+esc(kind)+'</span>':'')+'</td><td title="'+esc(p.join('\n'))+'">'+count+first+'</td><td>'+links+'</td></tr>';
+  };
+  const retry=jobs.length>1?'<div class="mute">The planner ran '+jobs.length+' times (a failed plan is re-planned: <code>retries</code> on the plan stage).</div>':'';
+  const table=turns.length?'<table><thead><tr><th>turn</th><th>reply</th><th>problems raised (first shown)</th><th>files</th></tr></thead><tbody>'+turns.map(row).join('')+'</tbody></table>':'';
+  const mendBox=mends.length?'<details><summary><b>'+mends.length+'</b> mechanical mend'+plural(mends.length)+' <span class="mute">fixed without asking the model again</span></summary><div class="fl">'+mends.map(m=>'<div><span class="mute">'+(m.turn?'turn '+m.turn:'supplied')+'</span> '+esc(m.text)+'</div>').join('')+'</div></details>':'';
+  const lintBox=(rec&&rec.lint)?'<details><summary>plan-lint: how well the plan keeps the slots busy</summary><pre class="viewer" style="max-height:30vh">'+esc(rec.lint)+'</pre></details>':'';
+  const slotsNote=(rec&&rec.slots)?'planned for '+rec.slots+' slots; ':'';
+  setInner(card,'<b>Planning</b> '+(status[0]?'<span class="pill '+status[1]+'">'+esc(status[0])+'</span>':'')+' <span class="mute">the layers before any item: '+slotsNote+'one reply, then edits to it (docs/PLAN_FORMAT.md)</span><div style="margin:6px 0">'+head+'</div>'+retry+table+mendBox+lintBox);
+}
 let searchTimer=null;
 $('q').addEventListener('input',()=>{clearTimeout(searchTimer);searchTimer=setTimeout(runSearch,350)});
 async function runSearch(){
@@ -238,7 +280,7 @@ async function runSearch(){
 const followable=p=>/(^|\/)(conversation(-skeleton)?\.md|gate\.txt|stdout\.log|stderr\.log)$/.test(p);
 function fileUrl(fv){return '/api/file?wf='+encodeURIComponent(fv.wf)+'&p='+encodeURIComponent(fv.p)+(fv.follow?'&tail=200000':'')}
 async function loadFile(){const fv=fileView;if(!fv)return;try{const r=await fetch(fileUrl(fv),{cache:'no-store'});const t=r.ok?await r.text():'(not available: '+r.status+')';if(fileView===fv&&t!==fv.text){fv.text=t;drawDrawer()}}catch(e){if(fileView===fv&&fv.text=='loading…'){fv.text='(error: '+e+')';drawDrawer()}}}
-async function openFile(p){const wf=currentWf();if(!wf)return;sel={type:'file',key:p};fileView={p,text:'loading…',wf:wf.id,follow:/conversation(-skeleton)?\.md$/.test(p)};openDrawerShell();drawDrawer();await loadFile()}
+async function openFile(p){const wf=currentWf();if(!wf)return;sel={type:'file',key:p};fileView={p,text:'loading…',wf:wf.id,follow:/(conversation(-skeleton)?\.md|live\.txt)$/.test(p)};openDrawerShell();drawDrawer();await loadFile()}
 function setFollow(on){if(fileView){fileView.follow=!!on;loadFile()}}
 async function tickFile(){if(document.hidden||busy.file||!fileView||!fileView.follow||!sel||sel.type!='file')return;busy.file=true;try{await loadFile()}finally{busy.file=false}}
 // the link that opens the latest transcript of a node, followed live
@@ -289,7 +331,7 @@ function render(){
   if(frozen()){if(!$('asof').textContent.includes('paused'))$('asof').textContent+=' · paused while text is selected';return}
   const d=state,wfs=(d.workflows&&d.workflows.workflows)||[];
   setText($('asof'),'as of '+new Date((d.workflows.asOf||Date.now()/1000)*1000).toLocaleTimeString()+' · '+(d.workflows.source||''));
-  const wf=wfs.length?wfs[wfs.length-1]:null;
+  const wf=currentWf();
   if(!wf){reconcile($('kpis'),[{k:'none',html:'<span class="mute">No workflows yet. Start one with <code>sub0squad do "…"</code>.</span>'}]);drawGraph([],'');reconcile($('nodes'),[],{tag:'tr'});reconcile($('decisions'),[],{tag:'tr'})}
   else{
     const L=wf.ledger||{},eng=Object.entries(L.byEngine||{}).map(([n,e])=>{const pr=profiles()[n],b=pr?badgeOf(modelInfo(pr.base),pr.model):null;return `${esc(n)}${b?' '+badgeHtml(b,modelTitle(modelInfo(pr.base),pr)):''} ${e.decodeTps.toFixed(1)} tok/s (finished)`}).join(' · ')||'—';
@@ -360,7 +402,7 @@ async function poll(name,url,apply){
   finally{clearTimeout(to);busy[name]=false}}
 // the long series (900 s) behind the drawer's charts, refreshed every 5 s while a chart is open
 function pollBig(force){if(!sel||sel.type=='file'||sel.type=='node')return;if(!force&&Date.now()-bigAt<5000)return;bigAt=Date.now();poll('big','/api/live?n=900',j=>{big=j;drawDrawer()})}
-const tickState=()=>poll('state','/api/state',j=>{state=j;render();loadPkg()});
+const tickState=()=>poll('state','/api/state',j=>{state=j;render();loadPkg();loadPlan()});
 const tickLive=()=>poll('live','/api/live?n=120',j=>{live=j;renderLive();if(state)render();if($('drawer').classList.contains('open'))pollBig(false)});
 // one delegated handler per region instead of handlers re-attached on every refresh
 $('sys').addEventListener('click',ev=>{const t=ev.target.closest('.tile');if(t)openDrawer({type:'tile',key:t.getAttribute('data-k')})});
