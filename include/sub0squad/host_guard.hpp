@@ -1,7 +1,7 @@
 #pragma once
 /// @file host_guard.hpp
-/// Explicit resource guards (Linux backend of IHostFacts): free memory and free disk are checked BEFORE work is admitted, so a model load or a
-/// download refuses with a clear message instead of thrashing the host. This is the M1 stand-in for the arbiter's memory budget (docs/DESIGN.md section 5).
+/// Explicit resource guards (the host facts come from platform_host.hpp): free memory and free disk are checked BEFORE work is admitted, so a model load or a
+/// download refuses with a clear message instead of thrashing the host. This is the M1 stand-in for the arbiter's memory budget (DESIGN.md section 5 (archived: docs/ARCHIVE.md)).
 
 #include <cstdint>
 #include <expected>
@@ -12,7 +12,7 @@
 namespace sub0squad {
 
 struct HostMemory { std::int64_t totalMiB = 0, availableMiB = 0; };
-/// /proc/meminfo: MemTotal and MemAvailable (what can be given to a new process without swapping; page cache counts as available).
+/// Total and available memory (platform::memory) (what can be given to a new process without swapping; page cache counts as available).
 [[nodiscard]] HostMemory readHostMemory();
 /// Free space of the filesystem holding `path` (its nearest existing parent), in MiB; -1 if unknown.
 [[nodiscard]] std::int64_t freeDiskMiB(const std::filesystem::path& path);

@@ -1,7 +1,7 @@
 #pragma once
 /// @file qa.hpp
 /// The QA head's first, rule-based eyes: scan the code a workflow has produced (accepted outputs, or any directory of sources) for what independent workers
-/// tend to leave behind, and say it as findings the design can use while the work is still going on (docs/WORK_GRAPH.md section 24). It never changes
+/// tend to leave behind, and say it as findings the design can use while the work is still going on (WORK_GRAPH.md section 24 (archived: docs/ARCHIVE.md)). It never changes
 /// acceptance; it communicates quality. No engine is needed, so it is free to run whenever there is something new to look at.
 
 #include <filesystem>

@@ -25,8 +25,8 @@ bool writeFile(const std::filesystem::path& p, const std::string& text);
 
 /// The fixed-system-block description of a project harness (empty when the plan has none).
 [[nodiscard]] std::string harnessBrief(const Plan& plan);
-/// The system block: persona-neutral text first (shared by the server's prompt cache), the persona sentence last.
-[[nodiscard]] std::string systemBlock(const std::string& persona, const std::string& brief);
+/// The system block: persona-neutral text first (shared by the server's prompt cache), the stance and persona last (`stance`: baseline | specialist).
+[[nodiscard]] std::string systemBlock(const std::string& persona, const std::string& brief, const std::string& stance = "baseline");
 /// An earlier draft as the worker sees it: numbered, whole when it fits `budget`, else folded with the regions the gate named left open.
 [[nodiscard]] std::string draftView(const std::string& path, const std::string& text, const std::string& gate, std::size_t budget);
 /// Names of the tests a test file defines, one `- name` line each.
@@ -47,7 +47,7 @@ extern const char* const kEditSyntax;
 struct AttemptContext
 {
     std::filesystem::path dir;
-    std::string itemId, tier, treatment;
+    std::string itemId, tier, treatment, stance = "baseline";
     int attempt = 1, maxTokens = 3000, timeoutSec = 1700, repairTurns = 0;
     EngineProfile engine;
     const Plan* plan = nullptr;
@@ -73,8 +73,8 @@ struct AttemptContext
 [[nodiscard]] std::string precheckCanvas(const Canvas& canvas, const Harness* harness, const std::filesystem::path& dir, const std::string& itemId, int attempt, const std::filesystem::path& attemptDir, bool partial = false);
 /// Write `canvas.json` (the log) and every file's current revision under `canvas/` in the attempt directory.
 void persistCanvas(const Canvas& canvas, const std::filesystem::path& attemptDir);
-/// The fixed system block of a canvas worker (transaction forms, a worked LINES example, the read rule), persona last.
-[[nodiscard]] std::string canvasSystemBlock(const std::string& persona, const std::string& brief);
+/// The fixed system block of a canvas worker (transaction forms, a worked LINES example, the read rule), stance and persona last.
+[[nodiscard]] std::string canvasSystemBlock(const std::string& persona, const std::string& brief, const std::string& stance = "baseline");
 /// A seed derived from the run's base seed and a label (item, attempt, turn), so retries differ and a rerun replays; -1 stays -1.
 [[nodiscard]] long long turnSeed(long long base, const std::string& label);
 

@@ -24,6 +24,7 @@ struct ScenarioDelta
 struct ScenarioComparison
 {
     std::string buildA, buildB, engineA, engineB, executorA, executorB, treatmentA, treatmentB;
+    std::string stanceA = "baseline", stanceB = "baseline";   ///< a results file written before stances existed is a baseline run
     std::vector<ScenarioDelta> rows;   ///< A's order, then the scenarios only B has
     int regressions = 0, improvements = 0;
     /// The table and the summary line, as `scenario compare` prints them.

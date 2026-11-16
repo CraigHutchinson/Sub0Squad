@@ -1,6 +1,6 @@
 #pragma once
 /// @file fork.hpp
-/// Forked sections on the canvas (docs/CANVAS.md "As built" and "Assembly convergence", docs/WORK_GRAPH.md section 23, docs/BLOCK_PROVING_GROUNDS.md
+/// Forked sections on the canvas (docs/CANVAS.md "As built" and "Assembly convergence", WORK_GRAPH.md section 23 (archived: docs/ARCHIVE.md), docs/BLOCK_PROVING_GROUNDS.md
 /// block 6). A primer session DECLARES the structure (imports, types, one `@@ signature` line per function) and the HARNESS completes it into a skeleton
 /// with placeholder bodies (`expandSkeleton`), which becomes revision 1 of a canvas once it passes the compile check; every stubbed function is a SECTION
 /// owned by a session of its own; the sessions run side by side up to the idle slots (throughput by default: `planParallel`); each replies with one
@@ -56,7 +56,8 @@ struct ForkOptions
     /// section with the contract's signature (or the file's own prototype of it), put back sections an earlier assembly removed as uncalled, and write ONLY
     /// the new section. Empty: an ordinary attempt.
     std::string mendSection, mendFile;
-    ChatFn chat;                        ///< empty: the engine over HTTP
+    std::string stance = "baseline";    ///< what each section's worker is told it is (stance.hpp): baseline | specialist
+    ChatFn chat;                       ///< empty: the engine over HTTP
     std::function<int()> idleSlots;     ///< empty: the engine's `/slots`, else its configured slot count
     std::function<long()> availableMiB; ///< empty: /proc/meminfo
 };
@@ -68,6 +69,7 @@ struct ForkSection
     double startSec = 0, endSec = 0;    ///< of its first session, from the start of the section phase
     long promptTokens = 0, completionTokens = 0;
     int calls = 0, refused = 0;
+    int concerns = 0;                   ///< CONCERN blocks its replies raised (stance.hpp; recorded in the attempt's concerns.md)
     bool committed = false;
     bool removed = false;               ///< nobody called it: the harness removed it from the assembled file
     std::string lastRefusal;            ///< why its last reply was refused ("" when it was kept)

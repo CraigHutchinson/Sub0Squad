@@ -182,8 +182,8 @@ void Daemon::Impl::onShimStart(const std::string& id, int run, sub0pipeline::Com
         return;
     }
     r.shimPid = *pid;
-    const auto ticks = proc::startTicks(*pid).value_or(0);
-    r.pidfd = static_cast<int>(::syscall(SYS_pidfd_open, *pid, 0));
+    const auto ticks = platform::processStart(*pid).value_or(0);
+    r.pidfd = static_cast<int>(::syscall(SYS_pidfd_open, static_cast<pid_t>(*pid), 0));
     record("jobStarted", journalbody::started(id, run, *pid, ticks));
     if (r.pidfd >= 0) { pidfdToJob[r.pidfd] = id; epollAdd(r.pidfd, EPOLLIN, tag(kPidfd, r.pidfd)); }
     logf("job %s run %d started (shim %d)", id.c_str(), run, static_cast<int>(*pid));
@@ -271,7 +271,7 @@ std::string Daemon::Impl::doCancel(const std::string& id)
     const pid_t shim = static_cast<pid_t>(job->shimPid);
     const std::uint64_t ticks = job->shimStartTicks;
     record("jobCancelRequested", journalbody::cancelRequested(id, run));
-    if (!wasQueued && shim > 0 && proc::isAlive(shim, ticks)) ::kill(shim, SIGTERM);
+    if (!wasQueued && shim > 0 && platform::isAlive(shim, ticks)) ::kill(shim, SIGTERM);
     json::Writer w;
     w.beginObject().kvBool("ok", true).kv("id", id).kv("state", toString(store.find(id)->state)).endObject();
     if (wasQueued) { notifyWaiters(id); }

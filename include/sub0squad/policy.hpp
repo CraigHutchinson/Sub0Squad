@@ -1,6 +1,6 @@
 #pragma once
 /// @file policy.hpp
-/// The decision seam (docs/DESIGN.md section 16): given what is known about an item that just failed, answer retry, escalate or
+/// The decision seam (DESIGN.md section 16 (archived: docs/ARCHIVE.md)): given what is known about an item that just failed, answer retry, escalate or
 /// fail, with reasons and the inputs used so the decision can be audited and replayed offline against a different policy.
 
 #include <set>
@@ -26,7 +26,7 @@ struct DecisionContext
     FrontierMode frontier = FrontierMode::stub;
     int maxLocalAttempts = 2;
     int maxFrontierAttempts = 1;
-    // The escalation ladder (docs/OPTIMIZATION.md): what has been tried for this item, and where it sits in the plan.
+    // The escalation ladder (OPTIMIZATION.md (archived: docs/ARCHIVE.md)): what has been tried for this item, and where it sits in the plan.
     int depth = 0;                 ///< division depth of the item (dots in its id)
     int totalAttempts = 0;         ///< every attempt-like job so far: agent, decompose and rearchitect all count
     int maxTotalAttempts = 10;   // 8 plus the near-pass repair allowance, so repairs never starve the final escalation

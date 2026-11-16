@@ -1,4 +1,4 @@
-// End-to-end gates (docs/M1_PLAN.md): cancel leaves no child; a dead supervisor is `lost`, never `running`; a daemon crash leaves
+// End-to-end gates (M1_PLAN.md (archived: docs/ARCHIVE.md)): cancel leaves no child; a dead supervisor is `lost`, never `running`; a daemon crash leaves
 // jobs running and the next daemon adopts them; status reports progress without parsing logs.
 #include "e2e.hpp"
 

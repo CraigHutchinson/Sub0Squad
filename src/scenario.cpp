@@ -4,6 +4,7 @@
 #include "sub0squad/harness.hpp"
 #include "sub0squad/harness_common.hpp"
 #include "sub0squad/plan.hpp"
+#include "sub0squad/platform_proc.hpp"
 #include "sub0squad/scenario_compare.hpp"
 
 #include <algorithm>
@@ -19,7 +20,6 @@
 #include <set>
 #include <sstream>
 #include <thread>
-#include <unistd.h>
 
 namespace sub0squad {
 
@@ -62,9 +62,8 @@ std::string itemId(const PlatformDef& p, const std::string& key)
 
 std::string selfPath()
 {
-    char buf[4096];
-    const ssize_t n = ::readlink("/proc/self/exe", buf, sizeof buf - 1);
-    return n > 0 ? std::string(buf, static_cast<std::size_t>(n)) : std::string{"sub0squad"};
+    const auto self = platform::selfExecutable();
+    return self.empty() ? std::string{"sub0squad"} : self.string();
 }
 
 /// The sub0squad binary the scenarios drive (its gate and agent commands). Set by the caller: a test binary linking this unit must NOT use its own path (the first
@@ -76,10 +75,10 @@ std::string exePath() { return exeRef(); }
 bool adoptExe(const std::string& exe, std::string& error)
 {
     if (std::getenv("SUB0SQUAD_SCENARIO_ACTIVE")) { error = "refusing to run a scenario inside a scenario run"; return false; }
-    ::setenv("SUB0SQUAD_SCENARIO_ACTIVE", "1", 1);   // set BEFORE anything is executed: children inherit it, so a scenario started from inside one is refused
-    if (exe.empty() || !fs::exists(exe)) { ::unsetenv("SUB0SQUAD_SCENARIO_ACTIVE"); error = "the sub0squad binary '" + exe + "' does not exist"; return false; }
+    platform::setEnvironment("SUB0SQUAD_SCENARIO_ACTIVE", "1");   // set BEFORE anything is executed: children inherit it, so a scenario started from inside one is refused
+    if (exe.empty() || !fs::exists(exe)) { platform::unsetEnvironment("SUB0SQUAD_SCENARIO_ACTIVE"); error = "the sub0squad binary '" + exe + "' does not exist"; return false; }
     const Cmd v = run({fs::absolute(exe).string(), "--version"}, ".", 10);
-    if (v.exitCode != 0 || v.output.rfind("sub0squad", 0) != 0) { ::unsetenv("SUB0SQUAD_SCENARIO_ACTIVE"); error = "'" + exe + "' is not the sub0squad binary (--version said: " + v.output.substr(0, 60) + ")"; return false; }
+    if (v.exitCode != 0 || v.output.rfind("sub0squad", 0) != 0) { platform::unsetEnvironment("SUB0SQUAD_SCENARIO_ACTIVE"); error = "'" + exe + "' is not the sub0squad binary (--version said: " + v.output.substr(0, 60) + ")"; return false; }
     exeRef() = fs::absolute(exe).string();   // absolute: every command changes directory before it starts
     return true;
 }
@@ -203,7 +202,7 @@ std::vector<std::string> scenarioSelfTest(const std::string& only, const std::st
             if (!only.empty() && only != d.element && only != pd.harness && only != name) continue;
             Fixture fx;
             std::string err;
-            const fs::path dir = fs::temp_directory_path() / ("s0q-scenario-" + std::string(pd.harness) + "-" + d.element + "-" + std::to_string(::getpid()));
+            const fs::path dir = fs::temp_directory_path() / ("s0q-scenario-" + std::string(pd.harness) + "-" + d.element + "-" + std::to_string(platform::currentProcess()));
             if (!makeFixture(pd, d, dir, fx, err)) { problems.push_back(name + ": fixture: " + err); continue; }
             const std::string item = itemId(pd, d.itemKey);
             const WorkItem* it = fx.plan.find(item);
@@ -259,6 +258,8 @@ int runScenarioCommand(const std::vector<std::string>& args)
     const double minLower = std::atof(one(a, "min-lower", "0.6").c_str());
     const std::string executor = one(a, "executor", "session");
     const std::string treatment = one(a, "treatment", "baseline"), repairTurns = one(a, "repair-turns", "2"), maxTokens = one(a, "max-tokens", "3500");
+    const std::string stance = one(a, "stance", "baseline");   // stance.hpp: an arm of docs/EXPERIMENTS.md E1
+    if (stance != "baseline" && stance != "specialist") { std::fprintf(stderr, "scenario run: --stance must be baseline or specialist\n"); return 64; }
     const fs::path outDir = one(a, "out", "out/scenarios");
     const long baseSeed = std::atol(one(a, "seed", "1000").c_str());
     if (std::string err; !adoptExe(selfPath(), err)) { std::fprintf(stderr, "scenario run: %s\n", err.c_str()); return 64; }
@@ -268,7 +269,7 @@ int runScenarioCommand(const std::vector<std::string>& args)
     while (!build.empty() && (build.back() == '\n' || build.back() == ' ')) build.pop_back();
 
     json::Writer w;
-    w.beginObject().kv("schema", "scenario-results-1").kv("build", build).kv("engine", engine).kv("treatment", treatment).kv("executor", executor).kv("trials", trials).kv("minLower", minLower).key("results").beginArray();
+    w.beginObject().kv("schema", "scenario-results-1").kv("build", build).kv("engine", engine).kv("treatment", treatment).kv("stance", stance).kv("executor", executor).kv("trials", trials).kv("minLower", minLower).key("results").beginArray();
     std::printf("%-12s %-27s %8s %7s %7s %8s %9s %8s  %s\n", "platform", "element", "passed", "rate", "lower95", "seconds", "tokens", "changed", "verdict");
     int unreliable = 0;
     for (const auto& pd : platforms()) {
@@ -299,7 +300,7 @@ int runScenarioCommand(const std::vector<std::string>& args)
                     }
                     const auto began = std::chrono::steady_clock::now();
                     const Cmd c = run({exe, "llm-agent", "--workflow-dir", dir.string(), "--item", item, "--tier", "local", "--attempt", std::to_string(attempt), "--engine", engine + ",seed=" + std::to_string(baseSeed + i),
-                                       "--max-tokens", maxTokens, "--treatment", treatment, "--repair-turns", repairTurns, "--timeout", "1700", "--executor", executor}, dir, 2400);
+                                       "--max-tokens", maxTokens, "--treatment", treatment, "--stance", stance, "--repair-turns", repairTurns, "--timeout", "1700", "--executor", executor}, dir, 2400);
                     t.generated = c.exitCode == 0;
                     if (t.generated) t.passed = judge(fx, d, item, attempt);
                     t.seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - began).count();

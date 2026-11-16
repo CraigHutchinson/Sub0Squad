@@ -2,7 +2,7 @@
 /// @file recall.hpp
 /// Search over what a workflow already did: every attempt's conversation (messages, replies, reasoning), gate outputs, briefings and sizing
 /// records. It lets a retry, the harness-expert, an architect or the owner ask "what did the worker see and say when this went wrong?" and gives a
-/// later knowledge-gathering agent its raw material (docs/WORK_GRAPH.md section 19). Plain text, deterministic, read only.
+/// later knowledge-gathering agent its raw material (WORK_GRAPH.md section 19 (archived: docs/ARCHIVE.md)). Plain text, deterministic, read only.
 
 #include <filesystem>
 #include <string>

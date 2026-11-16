@@ -102,8 +102,6 @@ struct Live
 /// Monotonic seconds.
 [[nodiscard]] double nowSec();
 [[nodiscard]] std::string slurp(const fs::path& p);
-[[nodiscard]] bool cpuTimes(double& busy, double& total);
-[[nodiscard]] double meminfoKb(const std::string& text, const char* key);
 void sampleSystem(Live& L, double& prevBusy, double& prevTotal);
 void sampleEngine(Live& L, const std::string& base);
 void fetchModel(Live& L, const std::string& base);

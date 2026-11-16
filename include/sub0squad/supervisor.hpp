@@ -1,8 +1,9 @@
 #pragma once
 /// @file supervisor.hpp
-/// Starting a run's shim and reading what the shim recorded. Linux backend of IProcessSupervisor (docs/DESIGN.md section 20).
+/// Starting a run's shim and reading what the shim recorded. Process launch and identity go through the platform library (docs/PLATFORM.md).
 
-#include <sys/types.h>
+#include "sub0squad/platform_process.hpp"
+
 #include <cstdint>
 #include <expected>
 #include <filesystem>
@@ -14,12 +15,12 @@ namespace sub0squad {
 /// Start `<exe> exec-shim <runDir>` as a new session (it outlives the caller). `exe` must be the multi-call `sub0squad` binary: the
 /// daemon passes its own path, tests pass the built binary (never the test executable itself). The run directory must already hold
 /// spec.json. Refuses to run from inside a shim (a recursion guard). Returns the shim's pid.
-[[nodiscard]] std::expected<pid_t, std::string> spawnShim(const std::filesystem::path& exe, const std::filesystem::path& runDir);
+[[nodiscard]] std::expected<platform::ProcessId, std::string> spawnShim(const std::filesystem::path& exe, const std::filesystem::path& runDir);
 
 /// Contents of `<runDir>/shim.json`.
 struct ShimInfo
 {
-    pid_t pid = 0;
+    platform::ProcessId pid = 0;
     std::uint64_t startTicks = 0;
 };
 [[nodiscard]] std::optional<ShimInfo> readShimInfo(const std::filesystem::path& runDir);

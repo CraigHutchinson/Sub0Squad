@@ -1,9 +1,10 @@
 // `optimize-job`: take ONE job in isolation (its inputs fixed: the accepted outputs of its dependencies) and spin on the input. Each prompt
 // treatment is tried for a number of rounds; every attempt goes through the same trusted gate (without publishing), and the report compares
-// pass rate, failing tests, tokens and time, so the input that works best on the current weak model is chosen from data (docs/OPTIMIZATION.md).
+// pass rate, failing tests, tokens and time, so the input that works best on the current weak model is chosen from data (OPTIMIZATION.md (archived: docs/ARCHIVE.md)).
 #include "json_util.hpp"
 #include "sub0squad/harness_web.hpp"
 #include "sub0squad/sandbox.hpp"
+#include "sub0squad/platform_file.hpp"
 
 #include <chrono>
 #include <cstdio>
@@ -17,7 +18,6 @@ namespace sub0squad {
 namespace fs = std::filesystem;
 
 namespace {
-std::string slurp(const fs::path& p) { std::ifstream in(p, std::ios::binary); std::stringstream ss; ss << in.rdbuf(); return ss.str(); }
 std::string arg(const std::vector<std::string>& a, const std::string& key, const std::string& d = {})
 {
     for (std::size_t i = 0; i + 1 < a.size(); ++i) if (a[i] == "--" + key) return a[i + 1];
@@ -60,12 +60,12 @@ int runOptimizeJob(const std::vector<std::string>& args)
             if (rc == 0) {
                 const int g = runHarnessGate({"--workflow-dir", dir.string(), "--item", item, "--attempt", std::to_string(attempt), "--no-publish", "1"});
                 row.passed = g == 0;
-                const std::string gate = slurp(dir / "items" / item / ("attempt-" + std::to_string(attempt)) / "gate.txt");
+                const std::string gate = platform::readFileText(dir / "items" / item / ("attempt-" + std::to_string(attempt)) / "gate.txt");
                 const auto of = gate.find(" of ");
                 if (gate.rfind("GATE FAIL: ", 0) == 0 && of != std::string::npos) { row.failing = std::atoi(gate.c_str() + 11); row.tests = std::atoi(gate.c_str() + of + 4); }
                 else if (row.passed) { row.failing = 0; }
             }
-            const std::string metrics = slurp(dir / "items" / item / ("attempt-" + std::to_string(attempt)) / "agent.json");
+            const std::string metrics = platform::readFileText(dir / "items" / item / ("attempt-" + std::to_string(attempt)) / "agent.json");
             row.tokensIn = numberAfter(metrics, "\"tokensIn\":");
             row.tokensOut = numberAfter(metrics, "\"tokensOut\":");
             row.seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - began).count();

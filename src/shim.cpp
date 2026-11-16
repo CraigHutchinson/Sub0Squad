@@ -2,7 +2,7 @@
 
 #include "json_util.hpp"
 #include "sub0squad/job_spec.hpp"
-#include "sub0squad/process_tree.hpp"
+#include "sub0squad/platform_proc.hpp"
 
 #include <fcntl.h>
 #include <signal.h>
@@ -68,7 +68,7 @@ private:
     int childStatus_ = 0;
     std::string outcome_ = "exited";  // exited | cancelled | timeout | startFailed
     std::string teardown_ = "verified";
-    std::vector<pid_t> survivors_;
+    std::vector<platform::ProcessId> survivors_;
     std::size_t droppedEventLines_ = 0;
     Clock::time_point began_ = Clock::now();
     sigset_t origMask_{};
@@ -173,7 +173,7 @@ bool Shim::start()
         add(timerfd_, kTimer);
     }
 
-    const auto ticks = proc::startTicks(::getpid());
+    const auto ticks = platform::processStart(platform::currentProcess());
     json::Writer w;
     w.beginObject().kv("schema", "shim-1").kv("pid", static_cast<std::int64_t>(::getpid())).kv("startTicks", static_cast<std::int64_t>(ticks.value_or(0)))
         .kv("child", static_cast<std::int64_t>(child_)).endObject();
@@ -243,10 +243,10 @@ void Shim::reapAll()
 void Shim::teardown(std::int64_t graceSec)
 {
     const pid_t self = ::getpid();
-    auto live = [&] { reapAll(); return proc::descendantsOf(self); };
+    auto live = [&] { reapAll(); return platform::descendants(self); };
     auto sendAll = [&](int sig) {
         ::kill(-child_, sig);  // the job's own process group first
-        for (pid_t d : proc::descendantsOf(self)) ::kill(d, sig);  // escapees that left the group
+        for (const platform::ProcessId d : platform::descendants(self)) ::kill(static_cast<pid_t>(d), sig);  // escapees that left the group
     };
     if (!live().empty()) {
         sendAll(SIGTERM);
@@ -262,8 +262,8 @@ void Shim::teardown(std::int64_t graceSec)
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
     reapAll();
-    survivors_ = proc::descendantsOf(self);
-    survivors_.erase(std::remove_if(survivors_.begin(), survivors_.end(), [](pid_t p) { return !proc::startTicks(p); }), survivors_.end());
+    survivors_ = platform::descendants(self);
+    survivors_.erase(std::remove_if(survivors_.begin(), survivors_.end(), [](platform::ProcessId p) { return !platform::processStart(p); }), survivors_.end());
     teardown_ = survivors_.empty() ? "verified" : "survivors";
 }
 
@@ -308,7 +308,7 @@ void Shim::writeExit()
     if (childExited_ && WIFSIGNALED(childStatus_)) w.kv("signal", WTERMSIG(childStatus_));
     w.kv("teardown", teardown_);
     w.key("survivors").beginArray();
-    for (pid_t p : survivors_) w.num(static_cast<std::int64_t>(p));
+    for (const platform::ProcessId p : survivors_) w.num(static_cast<std::int64_t>(p));
     w.endArray();
     w.kv("durationMs", static_cast<std::int64_t>(ms)).kv("eventsDropped", static_cast<std::int64_t>(droppedEventLines_));
     // What the job itself reports about its outcome (`result.json` in its run directory: a small JSON object, e.g. a gate's mend): carried in the exit

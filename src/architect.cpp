@@ -1,4 +1,4 @@
-// Architect jobs: the dedicated roles of the escalation ladder (docs/OPTIMIZATION.md). `decompose` asks the model to divide a failing work
+// Architect jobs: the dedicated roles of the escalation ladder (OPTIMIZATION.md (archived: docs/ARCHIVE.md)). `decompose` asks the model to divide a failing work
 // item into smaller work packages (a plan-2 fragment); `rearchitect` rewrites the item's work card, shorter and focused on the failures.
 // Each is an ordinary job and counts as an attempt. The mock versions are deterministic stand-ins for tests.
 #include "json_util.hpp"
@@ -10,6 +10,7 @@
 #include "sub0squad/harness_web.hpp"
 #include "sub0squad/plan.hpp"
 #include "sub0squad/sandbox.hpp"
+#include "sub0squad/harness_common.hpp"
 
 #include <algorithm>
 #include <set>
@@ -25,15 +26,8 @@ namespace fs = std::filesystem;
 
 namespace {
 
-std::string slurp(const fs::path& p) { std::ifstream in(p, std::ios::binary); std::stringstream ss; ss << in.rdbuf(); return ss.str(); }
-bool writeFile(const fs::path& p, const std::string& text)
-{
-    std::error_code ec;
-    fs::create_directories(p.parent_path(), ec);
-    std::ofstream o(p, std::ios::binary | std::ios::trunc);
-    o << text;
-    return static_cast<bool>(o);
-}
+using harnessutil::slurp;
+using harnessutil::writeFile;
 std::string arg(const std::vector<std::string>& a, const std::string& key, const std::string& d = {})
 {
     for (std::size_t i = 0; i + 1 < a.size(); ++i) if (a[i] == "--" + key) return a[i + 1];

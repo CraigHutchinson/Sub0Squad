@@ -7,10 +7,6 @@
 #include "sub0squad/event_channel.hpp"
 #include "sub0squad/plan.hpp"
 
-#include <poll.h>
-#include <signal.h>
-#include <sys/wait.h>
-#include <unistd.h>
 #include <chrono>
 #include <cstdlib>
 #include <filesystem>
@@ -196,7 +192,7 @@ int runHarnessIntegrate(const std::vector<std::string>& args)
     if (s.exitCode != 0) { std::printf("INTEGRATION FAIL: serve check: %s\n", s.output.substr(0, 500).c_str()); return 1; }
     events::progress(3, 3, "integrated");
     // The deliverables manifest and the final report: what the run produced and how to open it. The web harness decides by rule (the page,
-    // the source tree, the report); other harnesses will have a reporter step decide (docs/WORK_GRAPH.md section 12).
+    // the source tree, the report); other harnesses will have a reporter step decide (WORK_GRAPH.md section 12 (archived: docs/ARCHIVE.md)).
     {
         std::vector<std::string> files;
         for (auto& e : fs::recursive_directory_iterator(project)) if (e.is_regular_file()) files.push_back(fs::relative(e.path(), project).generic_string());

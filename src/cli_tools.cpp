@@ -14,6 +14,7 @@
 #include "sub0squad/qa.hpp"
 #include "sub0squad/recall.hpp"
 #include "sub0squad/replay.hpp"
+#include "sub0squad/stance.hpp"
 #include "sub0squad/job_store.hpp"
 #include "sub0squad/journal.hpp"
 #include "sub0squad/harness.hpp"
@@ -23,11 +24,7 @@
 #include "sub0squad/workflow.hpp"
 #include "sub0squad/workflow_status.hpp"
 #include "sub0squad/unix_socket.hpp"
-#include <sys/inotify.h>
-#include <sys/socket.h>
-#include <sys/time.h>
-#include <poll.h>
-#include <unistd.h>
+#include "sub0squad/platform_proc.hpp"
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -41,9 +38,8 @@ int cmdServe(const RuntimePaths& paths, int argc, char** argv)
 {
     DaemonOptions opts;
     opts.paths = paths;
-    char self[4096];
-    const ssize_t n = ::readlink("/proc/self/exe", self, sizeof self - 1);
-    opts.exe = n > 0 ? std::string(self, static_cast<std::size_t>(n)) : std::string{argv[0]};
+    const auto self = platform::selfExecutable();
+    opts.exe = self.empty() ? std::filesystem::path{argv[0]} : self;
     for (int i = 2; i + 1 < argc; ++i) {
         if (std::string_view{argv[i]} == "--mem-shed-mib") opts.memShedMiB = std::max(0, std::atoi(argv[i + 1]));
         if (std::string_view{argv[i]} == "--max-jobs") opts.maxJobs = std::max(1, std::atoi(argv[i + 1]));
@@ -117,6 +113,15 @@ int cmdReplay(const RuntimePaths& paths, int argc, char** argv)
         else if (a == "--max-tokens") ro.maxTokens = std::atoi(val().c_str());
         else if (a == "--repair-turns") ro.repairTurns = std::atoi(val().c_str());
         else if (a == "--treatment") ro.treatment = val();
+        else if (a == "--stance") {
+            ro.stance = val();
+            if (!sub0squad::isKnownStance(ro.stance)) { std::fprintf(stderr, "--stance must be baseline or specialist\n"); return 2; }
+        }
+        else if (a == "--accepted") {
+            auto ov = sub0squad::parseAcceptedOverride(val());
+            if (ov.item.empty()) { std::fprintf(stderr, "--accepted takes ITEM:FILE=PATH (a dependency, a file inside its accepted/, the file to put there)\n"); return 2; }
+            ro.accepted.push_back(std::move(ov));
+        }
     }
     if (ro.seeds.empty()) ro.seeds = {1};
     bool offline = false;
@@ -137,9 +142,8 @@ int cmdReplay(const RuntimePaths& paths, int argc, char** argv)
     if (ro.sandbox.empty()) { std::fprintf(stderr, "no such workflow: %s\n", argv[2]); return 2; }
     if (ro.engineProfile.empty()) ro.engineProfile = firstEngine;
     {
-        char self[4096];
-        const ssize_t n = ::readlink("/proc/self/exe", self, sizeof self - 1);
-        ro.exe = n > 0 ? std::string(self, static_cast<std::size_t>(n)) : std::string{argv[0]};
+        const auto self = platform::selfExecutable();
+        ro.exe = self.empty() ? std::filesystem::path{argv[0]} : self;
     }
     return sub0squad::runReplay(ro);
 }

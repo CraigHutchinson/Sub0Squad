@@ -1,6 +1,7 @@
 #include "sub0squad/frame.hpp"
 
-#include <unistd.h>
+#include "sub0squad/platform_file.hpp"
+
 #include <cerrno>
 #include <cstring>
 
@@ -31,14 +32,7 @@ std::expected<bool, std::string> FrameBuffer::next(std::string& out)
 std::expected<void, std::string> writeFrameBlocking(int fd, std::string_view payload)
 {
     const std::string f = encodeFrame(payload);
-    const char* p = f.data();
-    std::size_t left = f.size();
-    while (left > 0) {
-        const ssize_t n = ::write(fd, p, left);
-        if (n < 0) { if (errno == EINTR) continue; return std::unexpected(std::string{"write: "} + std::strerror(errno)); }
-        p += n;
-        left -= static_cast<std::size_t>(n);
-    }
+    if (auto w = platform::writeAll(fd, f); !w) return std::unexpected("write: " + w.error().message);
     return {};
 }
 
@@ -51,10 +45,10 @@ std::expected<std::string, std::string> readFrameBlocking(int fd)
         auto got = fb.next(out);
         if (!got) return std::unexpected(got.error());
         if (*got) return out;
-        const ssize_t n = ::read(fd, buf, sizeof buf);
-        if (n < 0) { if (errno == EINTR) continue; return std::unexpected(std::string{"read: "} + std::strerror(errno)); }
-        if (n == 0) return std::unexpected("connection closed");
-        fb.append(buf, static_cast<std::size_t>(n));
+        const auto n = platform::readSome(fd, buf, sizeof buf);
+        if (!n) return std::unexpected("read: " + n.error().message);
+        if (*n == 0) return std::unexpected("connection closed");
+        fb.append(buf, *n);
     }
 }
 

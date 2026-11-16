@@ -1,4 +1,4 @@
-// M0 open question (docs/DESIGN.md section 11): can a Sub0Pipeline job add jobs to the graph WHILE it runs?
+// M0 open question (DESIGN.md section 11 (archived: docs/ARCHIVE.md)): can a Sub0Pipeline job add jobs to the graph WHILE it runs?
 // The probe runs in a forked child so a crash or hang is an answer, not a test failure. The fallback (staged pipelines:
 // a plan stage whose output builds the next Pipeline, and a job that runs sub-pipelines) is asserted to work.
 #include "sub0pipeline/sub0pipeline.hpp"
@@ -104,7 +104,7 @@ int main()
     std::printf("m0 probe (emplace during run): %s\n", answer.c_str());
     // If a future Sub0Pipeline makes this work, this assertion fails on purpose: update DESIGN section 11 and the M4 plan.
     if (!hung && !WIFSIGNALED(status) && WEXITSTATUS(status) == kRanInSameRun) {
-        std::puts("FAIL: mid-run growth now works; revisit docs/DESIGN.md section 11");
+        std::puts("FAIL: mid-run growth now works; revisit DESIGN.md section 11 (archived: docs/ARCHIVE.md)");
         ++failures;
     }
     if (!stagedPipelines()) { std::puts("FAIL: staged pipelines"); ++failures; } else std::puts("staged pipelines: ok");

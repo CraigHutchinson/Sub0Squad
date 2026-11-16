@@ -2,9 +2,6 @@
 
 #include "json_util.hpp"
 
-#include <fcntl.h>
-#include <sys/stat.h>
-#include <unistd.h>
 #include <cerrno>
 #include <chrono>
 #include <cstring>
@@ -84,15 +81,12 @@ std::expected<Journal, std::string> Journal::open(const std::filesystem::path& d
     std::error_code ec;
     std::filesystem::create_directories(dir, ec);
     const auto path = dir / kSegment;
-    const int fd = ::open(path.c_str(), O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC, 0600);
-    if (fd < 0) return std::unexpected("cannot open " + path.string() + ": " + std::strerror(errno));
-    if (replayed->tornTail && ::ftruncate(fd, static_cast<off_t>(replayed->validBytes)) != 0) {
-        const int err = errno;
-        ::close(fd);
-        return std::unexpected("cannot truncate torn tail of " + path.string() + ": " + std::strerror(err));
-    }
+    auto file = platform::AppendFile::open(path);
+    if (!file) return std::unexpected("cannot open " + path.string() + ": " + file.error().message);
+    if (replayed->tornTail)
+        if (auto cut = file->truncate(replayed->validBytes); !cut) return std::unexpected("cannot truncate torn tail of " + path.string() + ": " + cut.error().message);
     Journal j;
-    j.fd_ = fd;
+    j.file_ = std::move(*file);
     j.records_ = std::move(replayed->records);
     j.nextSeq_ = j.records_.empty() ? 1 : j.records_.back().seq + 1;
     return j;
@@ -100,25 +94,16 @@ std::expected<Journal, std::string> Journal::open(const std::filesystem::path& d
 
 std::expected<std::uint64_t, std::string> Journal::append(std::string_view type, std::string_view bodyJson, bool durable)
 {
-    if (fd_ < 0) return std::unexpected("journal not open");
+    if (!file_.isOpen()) return std::unexpected("journal not open");
     const std::uint64_t seq = nextSeq_;
     json::Writer w;
     const double ts = wallNow();
     w.beginObject().key("seq").num(static_cast<std::int64_t>(seq)).key("ts").num(ts).kv("type", type).kvRaw("d", bodyJson).endObject();
     std::string line{w.view()};
     line.push_back('\n');
-    const char* p = line.data();
-    std::size_t left = line.size();
-    while (left > 0) {
-        const ssize_t n = ::write(fd_, p, left);
-        if (n < 0) {
-            if (errno == EINTR) continue;
-            return std::unexpected(std::string{"journal write failed: "} + std::strerror(errno));
-        }
-        p += n;
-        left -= static_cast<std::size_t>(n);
-    }
-    if (durable && ::fdatasync(fd_) != 0) return std::unexpected(std::string{"journal fdatasync failed: "} + std::strerror(errno));
+    if (auto w = file_.append(line); !w) return std::unexpected("journal write failed: " + w.error().message);
+    if (durable)
+        if (auto s = file_.sync(); !s) return std::unexpected("journal fdatasync failed: " + s.error().message);
     JournalRecord rec;
     rec.seq = seq;
     rec.ts = ts;
@@ -128,21 +113,5 @@ std::expected<std::uint64_t, std::string> Journal::append(std::string_view type,
     ++nextSeq_;
     return seq;
 }
-
-Journal::Journal(Journal&& other) noexcept : fd_(other.fd_), nextSeq_(other.nextSeq_), records_(std::move(other.records_)) { other.fd_ = -1; }
-
-Journal& Journal::operator=(Journal&& other) noexcept
-{
-    if (this != &other) {
-        if (fd_ >= 0) ::close(fd_);
-        fd_ = other.fd_;
-        nextSeq_ = other.nextSeq_;
-        records_ = std::move(other.records_);
-        other.fd_ = -1;
-    }
-    return *this;
-}
-
-Journal::~Journal() { if (fd_ >= 0) ::close(fd_); }
 
 }  // namespace sub0squad

@@ -12,6 +12,7 @@
 #include "sub0squad/trace.hpp"
 #include "sub0squad/turn_control.hpp"
 #include "sub0squad/sandbox.hpp"
+#include "sub0squad/stance.hpp"
 
 #include <algorithm>
 #include <regex>
@@ -41,7 +42,9 @@ int runLlmAgent(const std::vector<std::string>& args)
     int timeoutSec = std::atoi(arg(args, "timeout", "1700").c_str());
     const int repairTurns = std::max(0, std::atoi(arg(args, "repair-turns", "0").c_str()));  // extra turns after the first: run the tests, feed failures back, repeat
     const long sizeBudget = std::atol(arg(args, "size-budget", "0").c_str());  // plan phase: above this estimate an item with tests is handed back to be divided
-    const std::string treatment = arg(args, "treatment", "baseline");  // baseline | index | planfirst (docs/OPTIMIZATION.md)
+    const std::string treatment = arg(args, "treatment", "baseline");  // baseline | index | planfirst (the card's shape)
+    const std::string stance = arg(args, "stance", "baseline");        // baseline | specialist (who the worker is told it is: stance.hpp, docs/EXPERIMENTS.md E1)
+    if (!isKnownStance(stance)) { std::fprintf(stderr, "llm-agent: --stance must be baseline or specialist\n"); return 64; }
     bool strategyThink = false;  // the manager's strategy for this item (written by the daemon): reasoning on and a bigger budget
     { std::ifstream sf(fs::path(arg(args, "workflow-dir")) / "items" / arg(args, "item") / "strategy.json"); std::stringstream sss; sss << sf.rdbuf(); strategyThink = sss.str().find("\"think\":true") != std::string::npos; }
     const auto began = std::chrono::steady_clock::now();
@@ -67,7 +70,7 @@ int runLlmAgent(const std::vector<std::string>& args)
     if (!item) { std::fprintf(stderr, "llm-agent: no item '%s'\n", itemId.c_str()); return 1; }
 
     // ---- the prompt: a fixed system block, the work card, included files from accepted dependencies, and the previous failure only ----
-    const std::string system = systemBlock(item->persona, harnessBrief(*plan));
+    const std::string system = systemBlock(item->persona, harnessBrief(*plan), stance);
     long testCount = 0;
     std::ostringstream card;
     card << buildCard(dir, *plan, *item, itemId, treatment, testCount);
@@ -145,7 +148,7 @@ int runLlmAgent(const std::vector<std::string>& args)
     if (executor != "session" && executor != "canvas") { std::fprintf(stderr, "llm-agent: --executor must be session or canvas (forked sections are the llm-fork command)\n"); return 64; }
     if (executor == "canvas") {   // docs/CANVAS.md slice 0: the attempt runs on a revisioned canvas
         AttemptContext ctx;
-        ctx.dir = dir; ctx.itemId = itemId; ctx.tier = tier; ctx.treatment = treatment;
+        ctx.dir = dir; ctx.itemId = itemId; ctx.tier = tier; ctx.treatment = treatment; ctx.stance = stance;
         ctx.attempt = attempt; ctx.maxTokens = maxTokens; ctx.timeoutSec = timeoutSec; ctx.repairTurns = repairTurns;
         ctx.engine = *engine; ctx.plan = &*plan; ctx.item = item;
         ctx.card = card.str(); ctx.guidance = disputeText;
@@ -199,7 +202,7 @@ int runLlmAgent(const std::vector<std::string>& args)
     std::size_t lastFiles = 0, lastRejected = 0;
     std::string partialPath, partialText;               // a file cut off at the token limit, and what was written of it: the next turn continues it instead of starting over
     std::map<std::string, std::string> carryFiles;      // the files that were complete before the cut
-    int continuations = 0, reads = 0, aborts = 0;
+    int continuations = 0, reads = 0, aborts = 0, concernCount = 0, concernOnly = 0;
     std::string partialEdit;                            // an EDIT reply cut off at the token limit, so far: the next reply is appended to it
     std::map<std::string, std::string> currentFiles = baselineFiles;  // the files of the latest turn (or the best earlier attempt): what an edit applies to
     int turnLimit = repairTurns;   // continuing a cut-off file does not use up a repair turn
@@ -251,6 +254,20 @@ int runLlmAgent(const std::vector<std::string>& args)
         }
         // A cut-off EDIT reply is continued by appending, like a cut-off file (row 34); the overlap a continuation repeats is trimmed (row 35).
         if (!partialEdit.empty()) { reply->content = partialEdit + continuationText(partialEdit, reply->content); partialEdit.clear(); }
+        // Concerns (stance.hpp) come out before the reply is read as files or edits: recorded, never applied, never counted as stray prose.
+        if (const auto concerns = takeConcerns(reply->content); !concerns.empty()) {
+            concernCount += static_cast<int>(concerns.size());
+            (void)recordConcerns(attemptDir, itemId, turn, concerns);
+            traceVerdict(tracePath, turn, std::to_string(concerns.size()) + " concern(s) recorded in concerns.md");
+            events::note("worker raised " + std::to_string(concerns.size()) + " concern(s)");
+            std::printf("turn %d: %zu concern(s) recorded\n", turn, concerns.size());
+            if (reply->content.find("=== ") == std::string::npos) {   // concerns and no work: acknowledged; the first such reply costs no repair turn
+                if (++concernOnly == 1) ++turnLimit;
+                if (turn == turnLimit) break;
+                continueWith(reply->content, false, concernAcknowledgement(concerns));
+                continue;
+            }
+        }
         if (reply->finishReason == "length" && partialPath.empty() && continuations < 3 && cutOffInsideEdit(reply->content)) {
             ++continuations;
             ++turnLimit;
@@ -261,7 +278,7 @@ int runLlmAgent(const std::vector<std::string>& args)
             continue;
         }
         if (!currentFiles.empty() && reply->content.find("=== EDIT:") == std::string::npos && reply->content.find("=== FILE:") == std::string::npos) {
-            // A read request (docs/FOLDED_VIEWS.md): the worker asks for folded lines before editing. Answered in the same conversation; it costs no repair turn.
+            // A read request (docs/CANVAS.md (Folded views)): the worker asks for folded lines before editing. Answered in the same conversation; it costs no repair turn.
             const auto requests = parseReadRequests(reply->content);
             if (!requests.empty()) {
                 std::string answer;
@@ -399,6 +416,7 @@ int runLlmAgent(const std::vector<std::string>& args)
     events::metric("agent.turns", static_cast<double>(turns));
     events::metric("agent.selfcheck_passed", verified ? 1.0 : 0.0);
     events::metric("agent.stagnated", stagnated ? 1.0 : 0.0);
+    events::metric("agent.concerns", static_cast<double>(concernCount));
     if (decodeTps > 0) events::metric("engine.decode_tps", decodeTps);
     if (prefillTps > 0) events::metric("engine.prefill_tps", prefillTps);
     if (const Harness* hs = findHarness(plan->harness); hs && hs->scaffoldBytes) events::metric("harness.bytes", static_cast<double>(hs->scaffoldBytes()));
@@ -412,7 +430,7 @@ int runLlmAgent(const std::vector<std::string>& args)
     {
         const double secs = std::chrono::duration<double>(std::chrono::steady_clock::now() - began).count();
         std::ostringstream m;
-        m << "{\"treatment\":\"" << treatment << "\",\"engine\":\"" << engine->name << "\",\"tokensIn\":" << totIn << ",\"tokensOut\":" << totOut
+        m << "{\"treatment\":\"" << treatment << "\",\"stance\":\"" << stance << "\",\"concerns\":" << concernCount << ",\"engine\":\"" << engine->name << "\",\"tokensIn\":" << totIn << ",\"tokensOut\":" << totOut
           << ",\"tokensWork\":" << static_cast<long>(lastWork) << ",\"turns\":" << turns << ",\"selfcheck\":" << (verified ? "true" : "false") << ",\"seconds\":" << secs << "}";
         writeFile(attemptDir / "agent.json", m.str());
     }

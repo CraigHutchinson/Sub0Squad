@@ -23,11 +23,6 @@
 #include "sub0squad/workflow.hpp"
 #include "sub0squad/workflow_status.hpp"
 #include "sub0squad/unix_socket.hpp"
-#include <sys/inotify.h>
-#include <sys/socket.h>
-#include <sys/time.h>
-#include <poll.h>
-#include <unistd.h>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -216,6 +211,7 @@ int parseWorkflowFlags(int argc, char** argv, int from, WorkflowSpec& spec)
             spec.mends = text;
         }
         else if (a == "--treatment") spec.treatment = val();
+        else if (a == "--stance") spec.stance = val();
         else if (a == "--executor") spec.executor = val();
         else if (a == "--process") {
             auto p = findProcess(val(), RuntimePaths::fromEnvironment().stateDir / "processes");

@@ -12,6 +12,7 @@
 #include "sub0squad/event_channel.hpp"
 #include "sub0squad/harness.hpp"
 #include "sub0squad/outline.hpp"
+#include "sub0squad/stance.hpp"
 #include "sub0squad/trace.hpp"
 #include "sub0squad/turn_control.hpp"
 
@@ -40,14 +41,12 @@ const char* const kCanvasSyntax =
     "Never copy the file or the numbered view back. To see folded lines, reply with ONLY read requests: `=== READ: <path> LINES a-b ===` or `=== READ: <path> SYMBOL name ===`; "
     "at most two replies may be reads, then you must edit. Every transaction is checked before it is kept: one that does not compile or parse is refused and changes nothing.\n";
 
-std::string canvasSystemBlock(const std::string& persona, const std::string& brief)
+std::string canvasSystemBlock(const std::string& persona, const std::string& brief, const std::string& stance)
 {
     std::string s = kCanvasSyntax;
+    if (stance == "specialist") s += "(A CONCERN block, described below, may come before the transaction.)\n";
     if (!brief.empty()) s += brief + "\n";
-    s += "You are the " + persona + " on a small software squad: you own one small, focused piece of a whole solution. Be the expert and do it as well as it can be done, "
-         "keep to your contract and the exact interfaces you are given so the other pieces fit, and change only the files you are asked to write. ";
-    s += persona == "tester" ? "Write tests for the contract; do not write the implementation.\n" : "Implement the contract so that the provided tests pass.\n";
-    return s;
+    return s + stanceText(stance, persona, WorkerShape::canvas);
 }
 
 long long turnSeed(long long base, const std::string& label)
@@ -130,7 +129,7 @@ int runCanvasAttempt(const AttemptContext& a)
     fs::create_directories(out, ec);
     const std::set<std::string> allowed(a.item->files.begin(), a.item->files.end());
     const Harness* harness = findHarness(a.plan->harness);
-    const std::string system = canvasSystemBlock(a.item->persona, harnessBrief(*a.plan));
+    const std::string system = canvasSystemBlock(a.item->persona, harnessBrief(*a.plan), a.stance);
 
     Canvas canvas;
     for (const auto& [path, text] : a.baselineFiles) canvas.addFile(path, text);
@@ -145,7 +144,7 @@ int runCanvasAttempt(const AttemptContext& a)
     std::string focus = a.draftGate;      // the text whose file:line references keep regions of the view open
     std::string partial;                  // a reply cut off at the token limit, so far: the next reply is appended to it
     int spent = 0;                        // turns used of repairTurns + 1
-    int readReplies = 0, rejects = 0, aborts = 0, continuations = 0, calls = 0, commits = 0, reverts = 0;
+    int readReplies = 0, rejects = 0, aborts = 0, continuations = 0, calls = 0, commits = 0, reverts = 0, concernCount = 0, concernOnly = 0;
     const int freeRejects = 3, freeAborts = 2, freeReads = 2, freeContinuations = 3;
     bool verified = false, haveFiles = false, stagnated = false;
     int bestFailing = -1;                 // fewest failing tests of any committed revision, and where it was
@@ -223,7 +222,7 @@ int runCanvasAttempt(const AttemptContext& a)
             events::note("reply cancelled early: " + runaway.kind);
             continue;
         }
-        const std::string text = partial.empty() ? reply->content : partial + continuationText(partial, reply->content);
+        std::string text = partial.empty() ? reply->content : partial + continuationText(partial, reply->content);
         if (reply->finishReason == "length" && continuations < freeContinuations && (text.find("=== EDIT:") != std::string::npos || text.find("=== FILE:") != std::string::npos)) {
             ++continuations;
             partial = text;
@@ -233,10 +232,23 @@ int runCanvasAttempt(const AttemptContext& a)
         }
         partial.clear();
 
+        // Concerns (stance.hpp) come out before the transaction is read: recorded, never applied, never counted as stray text.
+        if (const auto concerns = takeConcerns(text); !concerns.empty()) {
+            concernCount += static_cast<int>(concerns.size());
+            (void)recordConcerns(attemptDir, a.itemId, call, concerns);
+            traceVerdict(tracePath, call, std::to_string(concerns.size()) + " concern(s) recorded in concerns.md");
+            events::note("worker raised " + std::to_string(concerns.size()) + " concern(s)");
+            if (text.find("=== ") == std::string::npos) {   // concerns and no work: acknowledged; the first such reply costs no turn
+                if (++concernOnly > 1) ++spent;
+                verdict = concernAcknowledgement(concerns);
+                continue;
+            }
+        }
+
         const CanvasReply parsed = parseCanvasReply(text);
         if (parsed.error.empty() && !parsed.hasEdits()) {
             if (!parsed.reads.empty() && !canvas.paths().empty()) {
-                // A read (docs/FOLDED_VIEWS.md): the first two read-only replies are answered without using a turn; after that the worker must edit.
+                // A read (docs/CANVAS.md (Folded views)): the first two read-only replies are answered without using a turn; after that the worker must edit.
                 std::string answer;
                 for (const auto& rq : parsed.reads)
                     answer += canvas.has(rq.path) ? answerRead(rq, canvas.text(rq.path), isPythonPath(rq.path)) : "=== " + rq.path + ": not one of the files of this item ===\n";
@@ -335,6 +347,7 @@ int runCanvasAttempt(const AttemptContext& a)
     events::metric("canvas.aborted", static_cast<double>(aborts));
     events::metric("canvas.reads", static_cast<double>(readReplies));
     events::metric("canvas.changed_lines", static_cast<double>(changedLines));
+    events::metric("agent.concerns", static_cast<double>(concernCount));
     if (decodeTps > 0) events::metric("engine.decode_tps", decodeTps);
     if (prefillTps > 0) events::metric("engine.prefill_tps", prefillTps);
     std::printf("done after %d call(s): canvas, %d commit(s), %d refused, %d read(s), %d cancelled, %d reverted, self-check %s, finish=%s\n", calls, commits, rejects, readReplies, aborts, reverts, verified ? "passed" : "not passed", lastFinish.c_str());
@@ -345,7 +358,7 @@ int runCanvasAttempt(const AttemptContext& a)
     {
         const double secs = std::chrono::duration<double>(std::chrono::steady_clock::now() - a.began).count();
         std::ostringstream m;
-        m << "{\"treatment\":\"" << a.treatment << "\",\"engine\":\"" << a.engine.name << "\",\"tokensIn\":" << totIn << ",\"tokensOut\":" << totOut << ",\"turns\":" << calls
+        m << "{\"treatment\":\"" << a.treatment << "\",\"stance\":\"" << a.stance << "\",\"concerns\":" << concernCount << ",\"engine\":\"" << a.engine.name << "\",\"tokensIn\":" << totIn << ",\"tokensOut\":" << totOut << ",\"turns\":" << calls
           << ",\"selfcheck\":" << (verified ? "true" : "false") << ",\"seconds\":" << secs
           << ",\"canvas\":{\"commits\":" << commits << ",\"refused\":" << rejects << ",\"reads\":" << readReplies << ",\"aborted\":" << aborts << ",\"continued\":" << continuations
           << ",\"reverted\":" << reverts << ",\"changedLines\":" << changedLines << ",\"fileLines\":" << fileLines << "}}";

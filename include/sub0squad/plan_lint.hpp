@@ -1,7 +1,7 @@
 #pragma once
 /// @file plan_lint.hpp
 /// A cheap audit of a plan's shape before any work runs: how wide it is, how long its critical path is, and where it is serial.
-/// Rule based and advisory (the orchestration rule of docs/WORK_GRAPH.md section 11: front-load parallelism and small packages).
+/// Rule based and advisory (the orchestration rule of WORK_GRAPH.md section 11 (archived: docs/ARCHIVE.md): front-load parallelism and small packages).
 
 #include "sub0squad/plan.hpp"
 

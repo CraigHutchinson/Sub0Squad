@@ -1,4 +1,4 @@
-// The calculator on three platforms (docs/PROVING_GROUND.md): web, native C++ and Python share ONE contract. This test pins that down (the plans
+// The calculator on three platforms (PROVING_GROUND.md (archived: docs/ARCHIVE.md)): web, native C++ and Python share ONE contract. This test pins that down (the plans
 // have the same shape), then runs the real toolchains without a model: correct files pass every gate and integrate, each injected defect fails its
 // own gate with feedback that names the failing test and the values, and a file that does not compile or parse is reported with its location.
 #include "check.hpp"

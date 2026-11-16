@@ -2,6 +2,7 @@
 
 #include "json_util.hpp"
 #include "sub0squad/triage.hpp"
+#include "sub0squad/platform_file.hpp"
 
 #include <algorithm>
 #include <cstdio>
@@ -13,13 +14,6 @@ namespace sub0squad {
 
 namespace {
 
-std::string readFile(const std::filesystem::path& p)
-{
-    std::ifstream in(p);
-    std::stringstream ss;
-    ss << in.rdbuf();
-    return ss.str();
-}
 
 void writeTopics(json::Writer& w, const std::vector<ClarifyTopic>& topics)
 {
@@ -309,7 +303,7 @@ int runPlanQuestions(const std::vector<std::string>& args)
     std::filesystem::path dir;
     for (std::size_t i = 0; i + 1 < args.size(); ++i) if (args[i] == "--workflow-dir") dir = args[i + 1];
     if (dir.empty()) { std::fprintf(stderr, "plan-questions: --workflow-dir D\n"); return 64; }
-    const auto facts = ClarifyFacts::fromJson(readFile(dir / "clarify-input.json"));
+    const auto facts = ClarifyFacts::fromJson(platform::readFileText(dir / "clarify-input.json"));
     if (!facts) { std::fprintf(stderr, "plan-questions: %s\n", facts.error().c_str()); return 1; }
     const ClarifyPlan plan = clarify(*facts);
     { std::ofstream o(dir / "questions.json", std::ios::trunc); o << plan.toJson() << "\n"; if (!o) { std::fprintf(stderr, "plan-questions: cannot write questions.json\n"); return 1; } }

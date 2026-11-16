@@ -3,7 +3,7 @@
 /// The first responder to an escalation: before the owner is asked, the failure evidence is analysed and the request is classed as
 /// `guidance` (a mechanical cause with actionable advice: answer it and let the node try again), `fatal` (an environment or tooling fault no
 /// worker can fix: say so plainly) or `owner` (nothing mechanical found: this needs a decision). Rule based and deterministic; a model-backed
-/// overseer would slot in behind the same verdict. See docs/WORK_GRAPH.md section 17.
+/// overseer would slot in behind the same verdict. See WORK_GRAPH.md section 17 (archived: docs/ARCHIVE.md).
 
 #include <string>
 #include <vector>

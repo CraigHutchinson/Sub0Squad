@@ -36,7 +36,7 @@ public:
     Writer& kvRaw(std::string_view k, std::string_view v) { return key(k).raw(v); }
 
     /// The text so far (valid until the next write or clear()).
-    [[nodiscard]] std::string_view view() { std::string_view v; (void)buffer_.view().get(v); return v; }
+    [[nodiscard]] std::string_view view() { std::string_view v; if (buffer_.view().get(v)) return {}; return v; }   // GCC ignores a (void) cast on simdjson's [[nodiscard]]
     [[nodiscard]] std::string take() { return std::string{view()}; }
     void clear() { buffer_.clear(); first_.clear(); pendingKey_ = false; }
 

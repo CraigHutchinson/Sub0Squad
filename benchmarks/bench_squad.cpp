@@ -1,4 +1,4 @@
-// Sub0Squad micro-benchmarks, run through Sub0Math's sub0perf tooling (docs/M1_PLAN.md, "Verification with sub0perf").
+// Sub0Squad micro-benchmarks, run through Sub0Math's sub0perf tooling (M1_PLAN.md (archived: docs/ARCHIVE.md), "Verification with sub0perf").
 // Naming follows sub0perf: a "hand-written" reference and its library twin share the text before the comma and form a pair group.
 #define ANKERL_NANOBENCH_IMPLEMENT
 #include "bench_runner.hpp"

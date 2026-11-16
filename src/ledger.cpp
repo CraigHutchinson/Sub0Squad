@@ -2,8 +2,8 @@
 
 #include "json_util.hpp"
 
-#include <fcntl.h>
-#include <unistd.h>
+#include "sub0squad/platform_file.hpp"
+
 #include <algorithm>
 #include <fstream>
 #include <set>
@@ -29,13 +29,9 @@ std::string toJson(const LedgerRecord& r)
 
 bool appendLedger(const std::filesystem::path& file, const LedgerRecord& r)
 {
-    const int fd = ::open(file.c_str(), O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC, 0600);
-    if (fd < 0) return false;
     std::string line = toJson(r);
     line.push_back('\n');
-    const ssize_t n = ::write(fd, line.data(), line.size());
-    ::close(fd);
-    return n == static_cast<ssize_t>(line.size());
+    return platform::appendToFile(file, line).has_value();
 }
 
 std::vector<LedgerRecord> readLedger(const std::filesystem::path& file)

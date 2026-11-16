@@ -1,6 +1,6 @@
 #pragma once
 /// @file harness_py.hpp
-/// The `py-unittest` project harness (docs/PROVING_GROUND.md section 1, third platform): Python 3, standard library only, tests are `unittest` classes in
+/// The `py-unittest` project harness (PROVING_GROUND.md section 1 (archived: docs/ARCHIVE.md), third platform): Python 3, standard library only, tests are `unittest` classes in
 /// `tests/NAME_test.py` run by a harness-supplied runner that prints the same TAP report as the other harnesses. Its gate byte-compiles every written file
 /// (file, line, message), runs the gate's test files and judges the report with the shared flow; its integrator runs everything in Python's development
 /// mode with warnings as errors, runs the app and stores its text frame as the capture.

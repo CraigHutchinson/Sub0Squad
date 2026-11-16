@@ -2,7 +2,7 @@
 /// @file replay.hpp
 /// Isolate and iterate: take one node of a workflow (a failing one, usually), rebuild just its inputs (the plan, the accepted outputs of everything it
 /// depends on, its earlier failure text) in a scratch directory and run it again against the engine, several seeds side by side. Minutes instead of
-/// a whole workflow's hours, so a prompt, a setting or a strategy can be tried, compared and kept (docs/WORK_GRAPH.md section 21).
+/// a whole workflow's hours, so a prompt, a setting or a strategy can be tried, compared and kept (WORK_GRAPH.md section 21 (archived: docs/ARCHIVE.md)).
 
 #include <filesystem>
 #include <string>
@@ -24,7 +24,15 @@ struct ReplayOptions
     bool fork = false;                  ///< run the node as forked sessions (skeleton, then one session per function) instead of one worker session
     bool decompose = false;             ///< replay the division of the node (the architect job) instead of the worker
     std::string treatment = "baseline";
+    std::string stance = "baseline";    ///< what the worker is told it is (stance.hpp): baseline | specialist
+    /// A dependency's accepted file replaced in every variant: (item, file inside its accepted/, the file to copy). One archived run then serves as
+    /// several cases (docs/EXPERIMENTS.md E1: the tests a tester actually wrote against the reference-agreeing ones).
+    struct AcceptedOverride { std::string item, file; std::filesystem::path from; };
+    std::vector<AcceptedOverride> accepted;
 };
+
+/// Reads one `--accepted ITEM:FILE=PATH` value; nullopt-like empty `item` when it is malformed.
+[[nodiscard]] ReplayOptions::AcceptedOverride parseAcceptedOverride(const std::string& value);
 
 /// Prints a table of the variants (result, turns, completion tokens, wall seconds, first failure, where the conversation trace is). Exit 0 when at
 /// least one variant passed, 1 otherwise, 2 on a setup error.

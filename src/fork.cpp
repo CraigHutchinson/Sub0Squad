@@ -26,6 +26,7 @@
 #include "sub0squad/host_guard.hpp"
 #include "sub0squad/outline.hpp"
 #include "sub0squad/sandbox.hpp"
+#include "sub0squad/stance.hpp"
 #include "sub0squad/trace.hpp"
 
 #include <algorithm>
@@ -104,19 +105,19 @@ std::pair<int, int> testCounts(const std::string& gateText)
     return {-1, -1};
 }
 
-std::string forkSystemBlock(const std::string& persona, const std::string& brief)
+std::string forkSystemBlock(const std::string& persona, const std::string& brief, const std::string& stance)
 {
     std::string s = "You write ONE function of a file that several workers are writing at the same time. You are shown the file with line numbers (`N| text`; the numbers are not "
-                    "part of the file): every function is declared, and a function that is not written yet has a body that only raises `not implemented: <name>`. "
-                    "Reply with exactly one block and nothing else (no explanations, no markdown fences):\n"
-                    "=== EDIT: <path> SYMBOL <function name> ===\n<your function: its declaration, then its body>\n=== END EDIT ===\n"
-                    "Rules. The declaration is fixed: the harness keeps the one in the file whatever you write, so do not change the name, the parameters or the return type. "
-                    "Write only your own function, complete, returning a value on every path. Call only what the file declares (the other functions, by their signatures) and the "
-                    "standard library; if you need a helper of your own, write it INSIDE your function (a lambda or a nested function), never as another function. "
-                    "Do not write, change or repeat any other function.\n";
+                    "part of the file): every function is declared, and a function that is not written yet has a body that only raises `not implemented: <name>`. ";
+    s += stance == "specialist" ? "Reply with exactly one edit block (a CONCERN block, described below, may come before it) and nothing else (no explanations, no markdown fences):\n"
+                                : "Reply with exactly one block and nothing else (no explanations, no markdown fences):\n";
+    s += "=== EDIT: <path> SYMBOL <function name> ===\n<your function: its declaration, then its body>\n=== END EDIT ===\n"
+         "Rules. The declaration is fixed: the harness keeps the one in the file whatever you write, so do not change the name, the parameters or the return type. "
+         "Write only your own function, complete, returning a value on every path. Call only what the file declares (the other functions, by their signatures) and the "
+         "standard library; if you need a helper of your own, write it INSIDE your function (a lambda or a nested function), never as another function. "
+         "Do not write, change or repeat any other function.\n";
     if (!brief.empty()) s += brief + "\n";
-    s += "You are the " + persona + " on a small software squad.\n";
-    return s;
+    return s + stanceText(stance, persona, WorkerShape::section);
 }
 
 const char* const kPrimerAsk =
@@ -310,18 +311,18 @@ std::vector<CompileFinding> compileFindings(const std::string& output, const std
 std::string ForkResult::toJson() const
 {
     const auto joined = [](const std::vector<std::string>& v) { std::string out; for (const auto& x : v) out += (out.empty() ? "" : ",") + x; return out; };
-    int progressTurns = 0, thrashTurns = 0;
-    for (const auto& s : sections) { progressTurns += s.progress; thrashTurns += s.thrash; }
+    int progressTurns = 0, thrashTurns = 0, concerns = 0;
+    for (const auto& s : sections) { progressTurns += s.progress; thrashTurns += s.thrash; concerns += s.concerns; }
     json::Writer w;
     w.beginObject().kvBool("passed", passed).kv("exitCode", exitCode).kv("failure", failure).kv("resumedFrom", resumedFrom).kv("width", width).kv("widthReason", widthReason).kvBool("shed", shed)
         .kvBool("budgetSpent", budgetSpent).kv("budgetSec", budgetSec).kv("skeletonTries", skeletonTries).kv("rounds", rounds).kv("targeted", targeted).kv("mechanicalMends", mechanicalMends).kv("contractSections", contractSections).kv("memberSections", memberSections).kv("routedByMessage", routedByMessage)
         .kv("testsTotal", testsTotal).kv("testsFailed", testsFailed).kvBool("nearPass", nearPass).kv("reverted", reverted)
-        .kv("conflicts", conflicts).kv("lostEdits", lostEdits).kv("refused", refused).kv("progressTurns", progressTurns).kv("thrashTurns", thrashTurns)
+        .kv("conflicts", conflicts).kv("lostEdits", lostEdits).kv("refused", refused).kv("progressTurns", progressTurns).kv("thrashTurns", thrashTurns).kv("concerns", concerns)
         .kv("skeletonTokens", static_cast<std::int64_t>(skeletonTokens)).kv("sectionTokens", static_cast<std::int64_t>(sectionTokens)).kv("integrationTokens", static_cast<std::int64_t>(integrationTokens))
         .kv("wallSec", wallSec).kv("sectionWallSec", sectionWallSec).kv("idleShare", idleShare).kv("error", error).key("sections").beginArray();
     for (const auto& s : sections)
         w.beginObject().kv("name", s.name).kv("file", s.file).kv("symbol", s.symbol).kv("signature", s.signature).kv("indent", s.indent).kv("startSec", s.startSec).kv("endSec", s.endSec)
-            .kv("promptTokens", static_cast<std::int64_t>(s.promptTokens)).kv("completionTokens", static_cast<std::int64_t>(s.completionTokens)).kv("calls", s.calls).kv("refused", s.refused)
+            .kv("promptTokens", static_cast<std::int64_t>(s.promptTokens)).kv("completionTokens", static_cast<std::int64_t>(s.completionTokens)).kv("calls", s.calls).kv("refused", s.refused).kv("concerns", s.concerns)
             .kvBool("committed", s.committed).kvBool("removed", s.removed).kv("lastRefusal", s.lastRefusal.substr(0, 400))
             .kv("progress", s.progress).kv("thrash", s.thrash).kv("identicalReplies", s.identicalReplies).kvBool("thought", s.thought).kv("hinted", joined(s.hinted)).kv("mended", joined(s.mended)).endObject();
     w.endArray().endObject();
@@ -659,7 +660,7 @@ ForkResult runCanvasFork(const ForkOptions& o)
     std::printf("fork width: %d of %zu section(s) at once (%s)\n", res.width, res.sections.size(), width.reason.c_str());
     events::note("forked sections: " + std::to_string(res.sections.size()) + ", " + std::to_string(res.width) + " at once (" + width.reason + ")");
 
-    const std::string system = forkSystemBlock(item.persona, harnessBrief(*plan));
+    const std::string system = forkSystemBlock(item.persona, harnessBrief(*plan), o.stance);
     std::map<std::string, std::string> committedText;   // section name -> the function text it committed
     /// A stub's marker is still in the file: the section was never written.
     const auto unwritten = [&](const ForkSection& s) {
@@ -709,13 +710,22 @@ ForkResult runCanvasFork(const ForkOptions& o)
             { std::lock_guard<std::mutex> l(mu); phaseTokens += r->promptTokens + r->completionTokens; }
             // The reply as ONE function: a replaceSymbol block on the section's own function, or the function alone. Its declaration is then replaced by
             // the skeleton's (run-v9: sections dropped a `Class::` qualifier or changed parameters, and each such slip broke the file for all).
+            // Concerns (stance.hpp) come out first: recorded with the attempt, never read as the function.
+            const std::vector<Concern> concerns = takeConcerns(r->content);
+            if (!concerns.empty()) {
+                std::lock_guard<std::mutex> l(mu);
+                s.concerns += static_cast<int>(concerns.size());
+                (void)recordConcerns(attemptDir, s.name, tryNo, concerns);
+                traceVerdict(trace, tryNo, std::to_string(concerns.size()) + " concern(s) recorded in concerns.md");
+            }
             CanvasReply cr = parseCanvasReply(r->content);
             std::string refusal = cr.error, written;
             if (refusal.empty() && !cr.hasEdits()) {
                 written = r->content;
                 if (written.rfind("```", 0) == 0) { const auto nl = written.find('\n'); written = nl == std::string::npos ? "" : written.substr(nl + 1); }
                 if (const auto fence = written.rfind("```"); fence != std::string::npos && written.find_first_not_of(" \t\r\n", fence + 3) == std::string::npos) written.erase(fence);
-                if (trimmed(written).empty() || written.find("=== READ:") != std::string::npos) refusal = "the reply held no === EDIT: " + s.file + " SYMBOL " + s.symbol + " === block";
+                if (trimmed(written).empty() || written.find("=== READ:") != std::string::npos)
+                    refusal = (concerns.empty() || !trimmed(written).empty() ? std::string{} : concernAcknowledgement(concerns)) + "the reply held no === EDIT: " + s.file + " SYMBOL " + s.symbol + " === block";
             } else if (refusal.empty()) {
                 if (!cr.wholeFiles.empty() || !cr.searchEdits.empty()) refusal = "you own only `" + s.symbol + "`: reply with one === EDIT: " + s.file + " SYMBOL " + s.symbol + " === block, not a file or a search edit";
                 int ops = 0;
@@ -1065,6 +1075,8 @@ int runLlmFork(const std::vector<std::string>& args)
     o.thrashControl = arg(args, "thrash-control", "1") != "0";
     o.mendSection = arg(args, "mend-section");
     o.mendFile = arg(args, "mend-file");
+    o.stance = arg(args, "stance", "baseline");
+    if (!isKnownStance(o.stance)) { std::fprintf(stderr, "llm-fork: --stance must be baseline or specialist\n"); return 64; }
     auto profile = EngineProfile::parse(arg(args, "engine"));
     if (!profile) { std::fprintf(stderr, "llm-fork: %s\n", profile.error().c_str()); return 64; }
     o.engine = *profile;

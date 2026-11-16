@@ -1,5 +1,7 @@
 #include "sub0squad/build_id.hpp"
 
+#include "sub0squad/platform_proc.hpp"
+
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -14,7 +16,9 @@ std::string& version() { static std::string v = "unknown"; return v; }
 /// A daemon started before a rebuild still reads the file it was started from, so its fingerprint stays the old one.
 std::string fingerprint()
 {
-    std::FILE* f = std::fopen("/proc/self/exe", "rb");
+    const auto self = platform::selfExecutable();
+    if (self.empty()) return {};
+    std::FILE* f = std::fopen(self.c_str(), "rb");
     if (!f) return {};
     std::uint64_t h = 1469598103934665603ULL;
     unsigned char buf[65536];

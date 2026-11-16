@@ -1,4 +1,5 @@
-# Component layering check (docs/COMPONENTS.md): a source or header may include only its own layer or a lower one.
+# Component layering check (docs/COMPONENTS.md): a source or header may include only its own layer or a lower one; and only the platform library
+# includes operating-system headers (docs/PLATFORM.md).
 # Run as: cmake -DSRC_DIR=<repo> -P CheckLayers.cmake (without SRC_DIR it is an error: it used to check nothing and say ok). Known upward includes are listed in KNOWN_VIOLATIONS; the list may only shrink
 # (a listed violation that no longer exists is an error, so fixed ones are removed and cannot come back).
 if(NOT SRC_DIR OR NOT EXISTS "${SRC_DIR}/src")
@@ -10,7 +11,9 @@ set(KNOWN_VIOLATIONS
   )
 
 function(layer_of stem out)
-  foreach(n RANGE 0 6)
+  list(LENGTH SUB0SQUAD_LAYER_NAMES layerCount)
+  math(EXPR lastLayer "${layerCount} - 1")
+  foreach(n RANGE 0 ${lastLayer})
     list(FIND LAYER${n} ${stem} idx)
     if(NOT idx EQUAL -1)
       set(${out} ${n} PARENT_SCOPE)
@@ -67,8 +70,44 @@ endforeach()
 if(unmapped)
   list(APPEND bad "files not assigned to a layer: ${unmapped}")
 endif()
+# The platform rule (docs/PLATFORM.md section 2): only the platform library (stems platform_*) includes operating-system headers or reads /proc.
+# The files that still do are listed here; the list may only shrink, exactly like KNOWN_VIOLATIONS. Each entry names the slice that removes it.
+set(KNOWN_SYSTEM_USERS
+  include/sub0squad/unix_socket.hpp src/unix_socket.cpp src/engine.cpp src/portal_impl.hpp src/first_use.cpp src/client.cpp               # 4: platform_net, platform_ipc
+  src/cli_jobs.cpp                                                                                                                         # 5: inotify (following a log)
+  src/daemon_impl.hpp src/shim.cpp                                                                                                         # 5: platform_wait (epoll, eventfd, signals, the shim's fork)
+  src/mock_worker.cpp                                                                                                                      # a test program that forks escapees on purpose: may stay
+  )
+set(systemHeader "^#include <((unistd|spawn|poll|signal|fcntl|dirent|termios|pty|netdb|pwd|grp|dlfcn|windows|winsock2|ws2tcpip)\\.h|csignal|(sys|arpa|netinet|linux)/[a-z_0-9]+\\.h)>")
+set(systemUsers "")
+file(GLOB platformScoped "${SRC_DIR}/src/*.cpp" "${SRC_DIR}/src/*.hpp" "${SRC_DIR}/include/sub0squad/*.hpp")
+foreach(f ${platformScoped})
+  get_filename_component(stem "${f}" NAME_WE)
+  if(stem MATCHES "^platform_")
+    continue()
+  endif()
+  file(STRINGS "${f}" sys REGEX "${systemHeader}|\"/proc/")
+  if(sys)
+    file(RELATIVE_PATH rel "${SRC_DIR}" "${f}")
+    list(APPEND systemUsers "${rel}")
+  endif()
+endforeach()
+foreach(u ${systemUsers})
+  list(FIND KNOWN_SYSTEM_USERS "${u}" idx)
+  if(idx EQUAL -1)
+    list(APPEND bad "new operating-system dependency outside the platform library (use a platform_* interface): ${u}")
+  endif()
+endforeach()
+foreach(u ${KNOWN_SYSTEM_USERS})
+  list(FIND systemUsers "${u}" idx)
+  if(idx EQUAL -1)
+    list(APPEND bad "no longer uses the operating system directly, remove from KNOWN_SYSTEM_USERS: ${u}")
+  endif()
+endforeach()
+
 if(bad)
   string(REPLACE ";" "\n  " msg "${bad}")
   message(FATAL_ERROR "layering check failed:\n  ${msg}")
 endif()
-message(STATUS "layering ok (${found} known upward includes remain)")
+list(LENGTH systemUsers systemUserCount)
+message(STATUS "layering ok (${found} known upward includes remain; ${systemUserCount} files still use the operating system outside the platform library)")

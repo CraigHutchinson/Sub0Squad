@@ -1,6 +1,6 @@
 #pragma once
 /// @file edits.hpp
-/// Edit-style replies: instead of writing a whole file again to change a few lines, a worker replies with search and replace blocks (docs/PROMPT_REVIEW.md:
+/// Edit-style replies: instead of writing a whole file again to change a few lines, a worker replies with search and replace blocks (docs/PROMPTS.md:
 /// only about 19 % of the lines of repair replies had changed). Whole files stay the fallback.
 
 #include <map>

@@ -23,8 +23,7 @@
 #include "sub0squad/workflow_status.hpp"
 #include "sub0squad/unix_socket.hpp"
 
-#include <sys/inotify.h>
-#include <sys/socket.h>
+#include <sys/socket.h>   // the daemon socket: moves to platform_ipc (docs/PLATFORM.md slice 4)
 #include <sys/time.h>
 #include <poll.h>
 #include <unistd.h>

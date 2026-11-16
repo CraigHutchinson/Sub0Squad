@@ -1,4 +1,4 @@
-// sub0squad (WORKING TITLE): the native agent worker daemon described in docs/DESIGN.md.
+// sub0squad (WORKING TITLE): the native agent worker daemon described in DESIGN.md (archived: docs/ARCHIVE.md).
 // Today it is only a dependency smoke test: it proves the pinned Sub0Pipeline and Sub0Pub link and cooperate here:
 // a DAG with a job that completes from another thread (deferred completion) and typed events delivered to a subscriber.
 #include "sub0pipeline/sub0pipeline.hpp"

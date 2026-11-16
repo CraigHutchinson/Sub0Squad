@@ -6,11 +6,9 @@
 #include "sub0squad/event_channel.hpp"
 #include "sub0squad/harness.hpp"
 #include "sub0squad/mends.hpp"
+#include "sub0squad/platform_process.hpp"
+#include "sub0squad/platform_file.hpp"
 
-#include <poll.h>
-#include <signal.h>
-#include <sys/wait.h>
-#include <unistd.h>
 #include <algorithm>
 #include <cctype>
 #include <chrono>
@@ -75,49 +73,18 @@ std::string one(const Args& m, const std::string& k, const std::string& d)
     auto it = m.find(k);
     return it == m.end() || it->second.empty() ? d : it->second.back();
 }
-std::string slurp(const fs::path& p) { std::ifstream in(p, std::ios::binary); std::stringstream ss; ss << in.rdbuf(); return ss.str(); }
-bool writeFile(const fs::path& p, const std::string& text)
-{
-    std::error_code ec;
-    fs::create_directories(p.parent_path(), ec);
-    std::ofstream o(p, std::ios::binary | std::ios::trunc);
-    o << text;
-    return static_cast<bool>(o);
-}
+std::string slurp(const fs::path& p) { return platform::readFileText(p); }
+bool writeFile(const fs::path& p, const std::string& text) { return platform::writeFile(p, text).has_value(); }
 
 
 Cmd run(const std::vector<std::string>& argv, const fs::path& cwd, int timeoutSec)
 {
     Cmd r;
-    int fds[2];
-    if (::pipe(fds) != 0) return r;
-    const pid_t pid = ::fork();
-    if (pid == 0) {
-        ::dup2(fds[1], 1); ::dup2(fds[1], 2); ::close(fds[0]); ::close(fds[1]);
-        if (::chdir(cwd.c_str()) != 0) _exit(126);
-        std::vector<char*> a;
-        for (const auto& s : argv) a.push_back(const_cast<char*>(s.c_str()));
-        a.push_back(nullptr);
-        ::execvp(a[0], a.data());
-        _exit(127);
-    }
-    ::close(fds[1]);
-    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(timeoutSec);
-    char buf[4096];
-    for (;;) {
-        const auto left = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - std::chrono::steady_clock::now()).count();
-        if (left <= 0) { r.timedOut = true; ::kill(pid, SIGKILL); break; }
-        pollfd p{fds[0], POLLIN, 0};
-        if (::poll(&p, 1, static_cast<int>(left)) <= 0) continue;
-        const ssize_t n = ::read(fds[0], buf, sizeof buf);
-        if (n <= 0) break;
-        r.output.append(buf, static_cast<std::size_t>(n));
-        if (r.output.size() > 512 * 1024) r.output.erase(0, 256 * 1024);
-    }
-    ::close(fds[0]);
-    int st = 0;
-    ::waitpid(pid, &st, 0);
-    r.exitCode = WIFEXITED(st) ? WEXITSTATUS(st) : -1;
+    const auto ran = platform::runCaptured({.argv = argv, .cwd = cwd}, {.timeout = std::chrono::seconds(timeoutSec), .maxBytes = 512 * 1024});
+    if (!ran) { r.exitCode = 127; r.output = ran.error().message + "\n"; return r; }   // said, so a gate shows "cannot start 'g++'" rather than nothing
+    r.timedOut = ran->timedOut;
+    r.exitCode = ran->status.exited() ? ran->status.code : -1;
+    r.output = ran->output;
     return r;
 }
 

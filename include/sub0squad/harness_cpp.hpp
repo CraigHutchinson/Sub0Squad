@@ -1,6 +1,6 @@
 #pragma once
 /// @file harness_cpp.hpp
-/// The `cpp-cmake` project harness (docs/PROVING_GROUND.md section 5): a native C++20 project built with CMake and Ninja. The harness supplies the
+/// The `cpp-cmake` project harness (PROVING_GROUND.md section 5 (archived: docs/ARCHIVE.md)): a native C++20 project built with CMake and Ninja. The harness supplies the
 /// CMake file, the contract header, a tiny TAP-printing test framework and stubs, so an agent writes only deliverable files. Its gate checks the
 /// allowlist, then `-fsyntax-only` of every written file, then builds only the gate's test targets and judges the TAP report; its integrator builds the
 /// merged project under AddressSanitizer and UBSan, runs every test and the app, and stores the app's text frame as the capture.

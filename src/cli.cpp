@@ -23,11 +23,6 @@
 #include "sub0squad/workflow.hpp"
 #include "sub0squad/workflow_status.hpp"
 #include "sub0squad/unix_socket.hpp"
-#include <sys/inotify.h>
-#include <sys/socket.h>
-#include <sys/time.h>
-#include <poll.h>
-#include <unistd.h>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -61,14 +56,14 @@ const char* const kUsage =
     "  every submit (submit, do, project submit) is refused when the running daemon is another build of this program: restart it, or pass --allow-build-mismatch\n"
     "  do \"<task in words>\" [project options]   triage first, then run: a known blueprint starts at once, otherwise a needs-plan.md handoff is written\n"
     "  project submit --task calculator-web|calculator-cpp|calculator-py (any blueprint of a registered harness starts at once) [--sandbox DIR] [--inject ITEM[:N]]... [--max-local N]\n"
-    "         [--agent mock|llm] [--engine NAME=http://127.0.0.1:PORT/v1[,model=..][,ctx=N][,slots=N]]... [--engine-for PERSONA=NAME]... [--max-tokens N] [--treatment baseline|index|planfirst] [--executor session|canvas|fork] [--process NAME] [--mends FILE (a mends-1 table of this workflow's own, merged over the built-in one: `process mends`)] [--repair-turns N] [--size-budget TOKENS] [--fallback-engine NAME] [--ask]\n"
+    "         [--agent mock|llm] [--engine NAME=http://127.0.0.1:PORT/v1[,model=..][,ctx=N][,slots=N]]... [--engine-for PERSONA=NAME]... [--max-tokens N] [--treatment baseline|index|planfirst] [--stance baseline|specialist] [--executor session|canvas|fork] [--process NAME] [--mends FILE (a mends-1 table of this workflow's own, merged over the built-in one: `process mends`)] [--repair-turns N] [--size-budget TOKENS] [--fallback-engine NAME] [--ask]\n"
     "  project plan ID --file plan.json     supply the plan a workflow is awaiting (the deferred architect's answer)\n"
     "  --process clarified                  a planning stage first: what the request leaves open (platform, executor) is asked ONCE in the inbox\n"
     "                                       (`request list`, then `request answer ID r-1 --answer go` or `--answer platform=python`); --defaults asks nothing\n"
     "  project answers [--forget]           the remembered answers to the planning questions\n"
     "  request list [WF] | raise WF --kind K [--scope a,b] [--blocking] [--title T] [--detail D] [--option O]... | answer WF RID [--resolution retry|stop] [--answer TEXT]\n"
     "                                       the inbox: questions, clarifications, requirements, blockers, proposals, escalations\n"
-    "  replay WF NODE [--seeds 1,2,3] [--think] [--decompose] [--fork [--parallel N | --sequential-reason TEXT]]   run one node again in isolation, several seeds side by side (minutes, not a whole workflow)\n"
+    "  replay WF NODE [--seeds 1,2,3] [--think] [--decompose] [--fork [--parallel N | --sequential-reason TEXT]] [--stance baseline|specialist] [--accepted ITEM:FILE=PATH]...   run one node again in isolation, several seeds side by side (minutes, not a whole workflow); --accepted replaces a dependency's accepted file in every variant (an A/B case: correct against faulty tests)\n"
     "  qa DIR|WORKFLOW                      quality findings over sources: duplicated code, the same helper declared twice, very long functions\n"
     "  recall WF words... [--item NODE] [--limit N]   search what a workflow already did: conversations, replies, gate outputs, briefings\n"
     "  plan-lint FILE [--tps N] [--slots N [--sigma X]]   audit a plan: width, critical path, rough time, serial tails; with --slots, the slot fill expected when item sizes are unknown\n"

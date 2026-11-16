@@ -4,8 +4,8 @@
 #include "sub0squad/event_channel.hpp"
 #include "sub0squad/harness_common.hpp"
 #include "sub0squad/plan.hpp"
+#include "sub0squad/platform_proc.hpp"
 
-#include <unistd.h>
 
 #include <algorithm>
 #include <cstdint>
@@ -132,7 +132,7 @@ std::string cppCheckPlanScaffold(const std::string& planJson)
     auto plan = Plan::fromJson(planJson);
     if (!plan) return "the plan does not parse: " + plan.error();
     std::error_code ec;
-    const fs::path ws = fs::temp_directory_path(ec) / ("s0q-plan-scaffold-" + std::to_string(::getpid()) + "-" + std::to_string(reinterpret_cast<std::uintptr_t>(&planJson)));
+    const fs::path ws = fs::temp_directory_path(ec) / ("s0q-plan-scaffold-" + std::to_string(platform::currentProcess()) + "-" + std::to_string(reinterpret_cast<std::uintptr_t>(&planJson)));
     fs::remove_all(ws, ec);
     writeScaffold(*plan, cppScaffold(), ws);
     std::string bad;

@@ -169,7 +169,7 @@ int main()
         put(d / "plan.json", "{\"schema\":\"plan-2\"}");
         CHECK_EQ(runLlmPlanner(plannerArgs(d, engine)), 1);   // a supplied plan that is not a plan is refused
     }
-    {   // Prose first (docs/PLAN_FORMAT.md): the lead's prose is kept on disk and given to the formatter, which turns it into the plan.
+    {   // Prose first (docs/CLEAN_SLATE.md section 8): the lead's prose is kept on disk and given to the formatter, which turns it into the plan.
         const fs::path d = makeTempDir("planner-prose");
         const std::string lead = "PROJECT: wordcount, a C++ library.\nSPLIT: one library, so one tester item and one developer item.\nITEM test-wc (tester): tests for countWords, tests/wc.test.cpp.\nITEM dev-wc (developer): implements countWords in src/wc.cpp.\nINTERFACE: size_t wc::countWords(const std::string&).\nEXAMPLES: hello world = 2; a = 1; empty = 0; a b c = 3.\n";
         fake::Engine engine({{lead}, {good}});

@@ -1,6 +1,6 @@
 #pragma once
 /// @file outline.hpp
-/// Folded views of source files for small models (docs/FOLDED_VIEWS.md): like an editor that collapses braced regions, a file is shown as its structure
+/// Folded views of source files for small models (docs/CANVAS.md (Folded views)): like an editor that collapses braced regions, a file is shown as its structure
 /// (includes, class and namespace lines, function signatures) with long bodies folded to one line that names the folded line range, and the worker asks
 /// for the lines it needs with a READ request. Language-light and deterministic: braces for C++, JavaScript and the like, indentation for Python.
 

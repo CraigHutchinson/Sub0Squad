@@ -8,6 +8,8 @@
 #include "sub0squad/plan.hpp"
 #include "sub0squad/plan_checks.hpp"
 #include "sub0squad/plan_lint.hpp"
+#include "sub0squad/stance.hpp"
+#include "sub0squad/harness_common.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -25,15 +27,8 @@ namespace fs = std::filesystem;
 
 namespace {
 
-std::string slurp(const fs::path& p) { std::ifstream in(p, std::ios::binary); std::stringstream ss; ss << in.rdbuf(); return ss.str(); }
-bool writeFile(const fs::path& p, const std::string& text)
-{
-    std::error_code ec;
-    fs::create_directories(p.parent_path(), ec);
-    std::ofstream o(p, std::ios::binary | std::ios::trunc);
-    o << text;
-    return static_cast<bool>(o);
-}
+using harnessutil::slurp;
+using harnessutil::writeFile;
 std::string arg(const std::vector<std::string>& a, const std::string& key, const std::string& d = {})
 {
     for (std::size_t i = 0; i + 1 < a.size(); ++i) if (a[i] == "--" + key) return a[i + 1];
@@ -173,7 +168,7 @@ std::string prosePlannerPrompt(int slots)
     return s;
 }
 
-std::string plannerSystemPrompt(int slots)
+std::string plannerSystemPrompt(int slots, const std::string& stance)
 {
     std::string harnesses;
     for (const auto& name : harnessNames()) {
@@ -182,7 +177,13 @@ std::string plannerSystemPrompt(int slots)
         harnesses += "- \"" + name + "\" (gate kind \"" + h->gateKind + "\", test files end in \"" + h->testSuffix + "\"): " + (h->ownScaffoldBrief ? h->ownScaffoldBrief() : h->brief ? h->brief() : std::string{}) + "\n";
     }
     std::string s;
-    s += "You are the PLANNER of a small software squad. You turn a request into a plan the squad can build and verify. The workers are small local models: each sees ONLY its own work card, so every card must be exact and short. ";
+    if (stance == "specialist")
+        s += "You are the PLANNER of this project: a dedicated, specialised assignment. You turn a request into a plan the squad can build and verify. Every item you write "
+             "becomes a dedicated, specialised assignment for one worker, who owns it, is the expert for it, and may contest your contract, examples or tests with evidence. "
+             "The workers are small local models and each sees ONLY its own work card, so every card must be exact, self-sufficient and short: what the piece is for (one "
+             "line of why in the context), its exact interface, and the worked facts it is checked against. ";
+    else
+        s += "You are the PLANNER of a small software squad. You turn a request into a plan the squad can build and verify. The workers are small local models: each sees ONLY its own work card, so every card must be exact and short. ";
     s += "Reply with ONE JSON object in `plan-2` form, then the scaffold file blocks described below, and nothing else (no markdown fences, no commentary).\n\n";
     s += "PROJECT HARNESSES (set \"harness\" to the one that fits the request; if the request names a platform, use it):\n" + harnesses + "\n";
     s += "THE FORM (angle brackets are placeholders):\n";
@@ -221,6 +222,8 @@ int runLlmPlanner(const std::vector<std::string>& args)
     const int wallSec = std::atoi(arg(args, "wall", "7000").c_str());           // the whole job: no turn is started that cannot finish inside it
     const auto started = std::chrono::steady_clock::now();
     if (dir.empty() || request.empty()) { std::fprintf(stderr, "llm-planner: --workflow-dir and --request are required\n"); return 64; }
+    const std::string stance = arg(args, "stance", "baseline");   // stance.hpp: an arm of docs/EXPERIMENTS.md E1 for the planner
+    if (!isKnownStance(stance)) { std::fprintf(stderr, "llm-planner: --stance must be baseline or specialist\n"); return 64; }
     // A plan the owner supplied (`do --plan-file`): not re-planned. It still goes through the mends and the plan's checks, so a plan from any source is held to the same bar.
     if (fs::exists(dir / "plan.supplied")) {
         auto supplied = Plan::fromJson(slurp(dir / "plan.json"));
@@ -249,7 +252,7 @@ int runLlmPlanner(const std::vector<std::string>& args)
     std::string answers = slurp(dir / "brief.json");
     std::string user = "Request: " + request + "\n";
     if (!answers.empty()) user += "\nThe owner's answers to the planning questions (settled; follow them):\n" + answers + "\n";
-    // Two disciplines, two steps (docs/PLAN_FORMAT.md): the planning lead writes the plan in PROSE, a formatter turns the prose into the plan form. The
+    // Two disciplines, two steps (docs/CLEAN_SLATE.md section 8): the planning lead writes the plan in PROSE, a formatter turns the prose into the plan form. The
     // prose is kept on disk (planner/prose.md): it is the layer a formatting or a building problem is raised to.
     std::string prose;
     if (std::find(args.begin(), args.end(), "--prose") != args.end()) {
@@ -265,7 +268,7 @@ int runLlmPlanner(const std::vector<std::string>& args)
     user += "\nWrite the plan.";
 
     const int slots = std::atoi(arg(args, "slots", std::to_string(engine->maxConcurrent)).c_str());
-    std::vector<ChatMessage> messages = {{"system", plannerSystemPrompt(slots)}, {"user", user}};
+    std::vector<ChatMessage> messages = {{"system", plannerSystemPrompt(slots, stance)}, {"user", user}};
     long promptTokens = 0, completionTokens = 0;
     std::string lintText;
     std::vector<std::vector<std::string>> problemsByTurn;
@@ -332,7 +335,7 @@ int runLlmPlanner(const std::vector<std::string>& args)
             std::string fix = "Request: " + request + "\n\nYou wrote the plan below (as files; `N| ` is a line number, not part of the file). It was refused for these reasons:\n";
             for (const auto& p : lastProblems) fix += "- " + p + "\n";
             fix += "\nFix exactly these problems with the SMALLEST edits; do not rewrite what is right. A missing bracket is an insert at that line. A new file (for example a header) is a === FILE: path === block.\n\n" + documentView(lastProblems) + "\n" + agent::kEditSyntax + "\n";
-            messages = {{"system", plannerSystemPrompt(slots)}, {"user", fix}};
+            messages = {{"system", plannerSystemPrompt(slots, stance)}, {"user", fix}};
             conversation += "\n## Turn " + std::to_string(turn) + " (the harness: the document and the problems)\n\n" + fix.substr(0, fix.find("=== plan.json ===")) + "...\n";
         }
         // The reply streams into planner/live.txt so a watcher can read the plan as it is written; the file goes when the turn ends.
@@ -424,7 +427,7 @@ int runLlmPlanner(const std::vector<std::string>& args)
         if (!haveDocument) {   // nothing to edit (no JSON at all, or cut off): the request is asked again with the reasons
             std::string again = user + "\n\nAn earlier reply was refused for these reasons; write the COMPLETE plan again, fixing them:\n";
             for (const auto& p : problems) again += "- " + p + "\n";
-            messages = {{"system", plannerSystemPrompt(slots)}, {"user", again}};
+            messages = {{"system", plannerSystemPrompt(slots, stance)}, {"user", again}};
         }
         // The document is kept on disk, every turn: the planner can be resumed from it, and a reader sees what each repair changed.
         for (const auto& [path, text] : doc) writeFile(dir / "planner" / "doc" / ("turn-" + std::to_string(turn)) / path, text);

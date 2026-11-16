@@ -1,6 +1,6 @@
 #pragma once
 /// @file plan.hpp
-/// `plan-1`: the data a planner produces. A plan is validated as data and never executed on trust (docs/DESIGN.md section 6).
+/// `plan-1`: the data a planner produces. A plan is validated as data and never executed on trust (DESIGN.md section 6 (archived: docs/ARCHIVE.md)).
 
 #include <expected>
 #include <string>
@@ -9,7 +9,7 @@
 
 namespace sub0squad {
 
-/// The whole input of one small item (docs/SQUAD_UX_AND_HARNESS.md section 3).
+/// The whole input of one small item (SQUAD_UX_AND_HARNESS.md section 3 (archived: docs/ARCHIVE.md)).
 struct WorkCard
 {
     std::string context;                  ///< one or two sentences: why this item exists

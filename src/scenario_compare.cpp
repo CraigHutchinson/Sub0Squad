@@ -11,7 +11,7 @@ namespace sub0squad {
 namespace {
 
 struct Row { std::string platform, element; int passed = 0, trials = 0; double seconds = 0, tokens = 0; };
-struct File { std::string build, engine, executor, treatment; std::vector<Row> rows; };
+struct File { std::string build, engine, executor, treatment, stance = "baseline"; std::vector<Row> rows; };
 
 /// One bound of the 95 % Wilson score interval; `sign` -1 for the lower bound, +1 for the upper.
 double wilson(int passes, int trials, double sign)
@@ -36,6 +36,7 @@ std::expected<File, std::string> read(std::string_view text, const char* side)
                 else if (k == "engine") f.engine = json::toString(v);
                 else if (k == "executor") f.executor = json::toString(v);
                 else if (k == "treatment") f.treatment = json::toString(v);
+                else if (k == "stance") f.stance = json::toString(v);
                 else if (k == "results") {
                     for (auto element : v.get_array()) {
                         Row r;
@@ -74,6 +75,7 @@ std::expected<ScenarioComparison, std::string> compareScenarioResults(std::strin
     ScenarioComparison c;
     c.buildA = fa->build; c.buildB = fb->build; c.engineA = fa->engine; c.engineB = fb->engine;
     c.executorA = fa->executor; c.executorB = fb->executor; c.treatmentA = fa->treatment; c.treatmentB = fb->treatment;
+    c.stanceA = fa->stance; c.stanceB = fb->stance;
     const auto find = [](const File& f, const Row& r) -> const Row* { for (const auto& x : f.rows) if (x.platform == r.platform && x.element == r.element) return &x; return nullptr; };
     const auto delta = [&](const Row* ra, const Row* rb) {
         ScenarioDelta d;
@@ -99,12 +101,12 @@ std::string ScenarioComparison::text() const
 {
     std::string out;
     char line[400];
-    const auto side = [&](const char* name, const std::string& build, const std::string& engine, const std::string& executor, const std::string& treatment) {
-        std::snprintf(line, sizeof line, "%s: build %s, engine %s, executor %s, treatment %s\n", name, build.c_str(), engine.c_str(), executor.c_str(), treatment.c_str());
+    const auto side = [&](const char* name, const std::string& build, const std::string& engine, const std::string& executor, const std::string& treatment, const std::string& stance) {
+        std::snprintf(line, sizeof line, "%s: build %s, engine %s, executor %s, treatment %s, stance %s\n", name, build.c_str(), engine.c_str(), executor.c_str(), treatment.c_str(), stance.c_str());
         out += line;
     };
-    side("A", buildA, engineA, executorA, treatmentA);
-    side("B", buildB, engineB, executorB, treatmentB);
+    side("A", buildA, engineA, executorA, treatmentA, stanceA);
+    side("B", buildB, engineB, executorB, treatmentB, stanceB);
     if (engineA != engineB) out += "note: the engines differ, so a difference is the engine's as much as the build's\n";
     std::snprintf(line, sizeof line, "%-12s %-27s %9s %13s %9s %13s %9s %9s  %s\n", "platform", "element", "A passed", "A interval", "B passed", "B interval", "seconds", "tokens", "verdict");
     out += line;

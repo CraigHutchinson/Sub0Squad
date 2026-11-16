@@ -1,6 +1,6 @@
 #pragma once
 /// @file calculator_spec.hpp
-/// The calculator proving-ground project stated ONCE, independent of platform (docs/PROVING_GROUND.md section 1): the expression language, the
+/// The calculator proving-ground project stated ONCE, independent of platform (PROVING_GROUND.md section 1 (archived: docs/ARCHIVE.md)): the expression language, the
 /// engine's error behaviour and the command-line app's output are the same contract on the web, in native C++ and in Python. Each platform supplies
 /// only a `CalculatorSurface` (file names, how the engine is declared, how a test runs the app, style) and gets its plan-2 from here. A platform
 /// whose blueprint needs more than a surface is a sign the abstraction is wrong, which is the point of having several platforms.

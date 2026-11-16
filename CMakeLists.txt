@@ -12,6 +12,12 @@ include(cmake/dependencies.cmake)
 find_package(Threads REQUIRED)
 
 set(SUB0SQUAD_STRICT -Wall -Wextra -Werror)
+if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+  # clang is the strict reference compiler. GCC 15 adds two flow-based diagnostics that are not errors here, so GCC can still build (WSL has only GCC):
+  # -Warray-bounds fires inside simdjson's json_escape.h after inlining (a false positive in third-party code that SYSTEM includes do not suppress), and
+  # -Wformat-truncation fires on snprintf into small line-number buffers whose values cannot reach the width it assumes. Both stay visible as warnings.
+  list(APPEND SUB0SQUAD_STRICT -Wno-error=array-bounds -Wno-error=format-truncation)
+endif()
 
 # One static library per component layer (docs/COMPONENTS.md), made from the same lists the include check reads (cmake/Layers.cmake) and linked in
 # layer order: a layer links only the layers below it, so an upward CALL is an unresolved symbol exactly as an upward include fails the layering test.
@@ -90,6 +96,10 @@ target_include_directories(test_wizard PRIVATE src)
 set_tests_properties(test_wizard PROPERTIES TIMEOUT 600)
 target_include_directories(test_portal PRIVATE src)
 sub0squad_add_test(test_job_spec kernel)
+sub0squad_add_test(test_platform_process platform)
+sub0squad_add_test(test_platform_proc platform)
+sub0squad_add_test(test_platform_host platform)
+sub0squad_add_test(test_platform_file platform)
 sub0squad_add_test(test_journal kernel)
 sub0squad_add_test(test_job_store kernel)
 sub0squad_add_test(test_predicate domain)
@@ -97,6 +107,7 @@ sub0squad_add_test(test_mends agents)
 target_compile_definitions(test_mends PRIVATE SUB0SQUAD_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
 sub0squad_add_test(test_process domain)
 sub0squad_add_test(test_clarify domain)
+sub0squad_add_test(test_stance domain)
 set_tests_properties(test_clarify PROPERTIES TIMEOUT 600)
 target_compile_definitions(test_process PRIVATE SUB0SQUAD_REGISTRY_DIR="${CMAKE_CURRENT_SOURCE_DIR}/registry")
 # The domain layer's tests, one program per unit; the three engine programs share tests/workflow_sim.hpp and the golden action logs in tests/data/actions.

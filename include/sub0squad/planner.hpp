@@ -12,13 +12,14 @@
 
 namespace sub0squad {
 
-/// `llm-planner --workflow-dir DIR --engine PROFILE --request TEXT [--max-turns N] [--timeout SEC] [--max-tokens N] [--wall SEC] [--slots N] [--prose]` (slots default to the engine profile's): exit 0 plan written, 1 no valid plan
-/// within the turns, 2 the engine failed, 64 usage.
+/// `llm-planner --workflow-dir DIR --engine PROFILE --request TEXT [--max-turns N] [--timeout SEC] [--max-tokens N] [--wall SEC] [--slots N] [--prose]
+/// [--stance baseline|specialist]` (slots default to the engine profile's): exit 0 plan written, 1 no valid plan within the turns, 2 the engine failed, 64 usage.
 [[nodiscard]] int runLlmPlanner(const std::vector<std::string>& args);
 
 /// The system prompt: the planner's role, the plan-2 form and its rules, and what each registered harness is and does. Exposed so a test can read it.
 /// `slots` > 0 tells the planner how many requests the engine runs at once and asks it to over-allocate ready work (plan-lint measures the result).
-[[nodiscard]] std::string plannerSystemPrompt(int slots = 0);
+/// `stance` (stance.hpp): `specialist` says every item becomes a dedicated assignment whose owner may contest the plan, so cards must carry the why.
+[[nodiscard]] std::string plannerSystemPrompt(int slots = 0, const std::string& stance = "baseline");
 
 /// The prompt of the prose step (`--prose`): the planning lead decides the split, contracts and examples in plain words; a formatter turns them into the plan form.
 [[nodiscard]] std::string prosePlannerPrompt(int slots = 0);

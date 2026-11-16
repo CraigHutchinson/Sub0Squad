@@ -1,6 +1,6 @@
 #pragma once
 /// @file division.hpp
-/// Harness-side completion of a division written by a small model (docs/WORK_GRAPH.md section 22).
+/// Harness-side completion of a division written by a small model (WORK_GRAPH.md section 22 (archived: docs/ARCHIVE.md)).
 
 #include "sub0squad/plan.hpp"
 

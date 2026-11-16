@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Campaign driver: run the same squad project many times with different seeds and record what happened (docs/CAMPAIGN.md).
+"""Campaign driver: run the same squad project many times with different seeds and record what happened (docs/EXPERIMENTS.md sections 4 and 5).
 
     scripts/campaign.py run    --name baseline --runs 20            # real model (the engine must be running)
     scripts/campaign.py run    --name smoke --runs 2 --mock         # mock agent: no model, about a minute per run
@@ -102,7 +102,7 @@ SIGNATURES = [
     (r"sections never accepted", "assembly:section-unaccepted"),
     (r"timed out", "budget:timeout"),
 ]
-# a heuristic first-cause class (docs/CAMPAIGN.md section 4); every class is a hypothesis to confirm by reading the run
+# a heuristic first-cause class (docs/EXPERIMENTS.md section 5); every class is a hypothesis to confirm by reading the run
 CLASS_OF = {
     "link:undefined-reference": "A/P (assembly or contract)",
     "compile:unused": "A (assembly)",

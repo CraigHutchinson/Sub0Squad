@@ -2,7 +2,9 @@
 
 #include "json_util.hpp"
 
-#include <sys/stat.h>
+#include "sub0squad/platform_file.hpp"
+
+#include <filesystem>
 #include <fstream>
 
 namespace sub0squad {
@@ -11,12 +13,14 @@ Progress readProgress(const std::filesystem::path& runDir)
 {
     Progress p;
     const auto path = runDir / "events.ndjson";
-    struct stat st{};
-    if (::stat(path.c_str(), &st) != 0 || st.st_size == 0) return p;
-    p.lastEventAt = static_cast<double>(st.st_mtim.tv_sec) + static_cast<double>(st.st_mtim.tv_nsec) / 1e9;
+    std::error_code ec;
+    const auto size = static_cast<std::streamoff>(std::filesystem::file_size(path, ec));
+    const auto modified = platform::modifiedSeconds(path);
+    if (ec || size == 0 || !modified) return p;
+    p.lastEventAt = *modified;
     constexpr std::streamoff kTail = 256 * 1024;
     std::ifstream in(path, std::ios::binary);
-    std::streamoff start = st.st_size > kTail ? st.st_size - kTail : 0;
+    std::streamoff start = size > kTail ? size - kTail : 0;
     in.seekg(start);
     std::string data((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
     std::size_t pos = 0;
@@ -103,11 +107,7 @@ Progress readProgress(const std::filesystem::path& runDir, const ProgressAdapter
     p.adapterSchema = a.adapterSchema;
     if (!p.hasProgress) { p.hasProgress = a.hasProgress; p.done = a.done; p.total = a.total; p.phase = a.phase; }
     for (const auto& [name, v] : a.metrics) p.metrics.emplace(name, v);  // events win on a name clash
-    struct stat st{};
-    if (::stat(path.c_str(), &st) == 0) {
-        const double mt = static_cast<double>(st.st_mtim.tv_sec) + static_cast<double>(st.st_mtim.tv_nsec) / 1e9;
-        if (mt > p.lastEventAt) p.lastEventAt = mt;  // the tool's own record counts as liveness
-    }
+    if (const auto mt = platform::modifiedSeconds(path); mt && *mt > p.lastEventAt) p.lastEventAt = *mt;  // the tool's own record counts as liveness
     return p;
 }
 

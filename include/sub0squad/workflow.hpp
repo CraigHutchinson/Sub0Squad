@@ -41,7 +41,8 @@ struct WorkflowSpec
     /// A mends table of this workflow's own (`mends-1` JSON, mends.hpp), "" for none: kept in the spec so the journal says which mends could apply, and
     /// written by the daemon to `<sandbox>/mends.json`, where the gate merges it over the built-in table.
     std::string mends;
-    std::string treatment = "baseline";           ///< prompt treatment of llm agents: baseline | index | planfirst (see docs/OPTIMIZATION.md)
+    std::string treatment = "baseline";           ///< prompt treatment of llm agents: baseline | index | planfirst (the card's shape)
+    std::string stance = "baseline";              ///< what llm workers are told they are: baseline | specialist (stance.hpp; docs/EXPERIMENTS.md E1)
     int repairTurns = 2;                          ///< extra turns an llm agent takes to run the tests and fix failures before it says done
     int sizeBudget = 1800;                        ///< estimated completion tokens above which an item that has tests is divided BEFORE the first attempt (0 = never)
     int maxTokens = 3000;                         ///< completion budget of one llm attempt

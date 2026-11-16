@@ -1,6 +1,6 @@
 #pragma once
 /// @file mends.hpp
-/// The self-mending ledger (docs/INTERVENTIONS.md, docs/BUILDING_BLOCKS.md; catalogue rows 59 to 63): a KNOWN, MECHANICAL error is repaired by the harness
+/// The self-mending ledger (docs/INTERVENTIONS.md, BUILDING_BLOCKS.md (archived: docs/ARCHIVE.md); catalogue rows 59 to 63): a KNOWN, MECHANICAL error is repaired by the harness
 /// itself. `registry/mends.json` is a table of mends; each is a SIGNATURE (patterns matched against the FIRST error of a gate's output, capturing the name it
 /// is about), what the signature requires before it applies, a named deterministic ACTION, and the fixture that proves it. The gate looks its failure up here
 /// and reports the match in its result; the engine then records the decision `mend` (which is journaled) and starts the action as the next attempt, without

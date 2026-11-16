@@ -1,7 +1,7 @@
 #pragma once
 /// @file paths.hpp
 /// Where the daemon keeps its state and its control socket. Linux backend of the future IRuntimePaths seam
-/// (docs/DESIGN.md section 20); nothing else in the tree decides a location.
+/// (DESIGN.md section 20 (archived: docs/ARCHIVE.md)); nothing else in the tree decides a location.
 
 #include <filesystem>
 #include <string>

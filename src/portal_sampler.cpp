@@ -1,6 +1,9 @@
 // The portal's sampler (portal_impl.hpp): the host and each engine, once a second, into bounded series; `liveJson` renders them.
 #include "portal_impl.hpp"
 
+#include "sub0squad/platform_file.hpp"
+#include "sub0squad/platform_host.hpp"
+
 namespace sub0squad::portal {
 
 void rates(std::deque<std::array<double, 3>>& win, double dt, double dec, double pre, double& decTps, double& preTps)
@@ -15,56 +18,20 @@ void rates(std::deque<std::array<double, 3>>& win, double dt, double dec, double
 
 double nowSec() { return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count(); }
 
-std::string slurp(const fs::path& p)
-{
-    std::ifstream in(p);
-    std::ostringstream o;
-    o << in.rdbuf();
-    return o.str();
-}
-
-bool cpuTimes(double& busy, double& total)
-{
-    std::istringstream in(slurp("/proc/stat"));
-    std::string tag;
-    double user = 0, nice = 0, sys = 0, idle = 0, iowait = 0, irq = 0, softirq = 0, steal = 0;
-    if (!(in >> tag >> user >> nice >> sys >> idle >> iowait >> irq >> softirq >> steal) || tag != "cpu") return false;
-    total = user + nice + sys + idle + iowait + irq + softirq + steal;
-    busy = total - idle - iowait;
-    return true;
-}
-
-double meminfoKb(const std::string& text, const char* key)
-{
-    const auto p = text.find(key);
-    return p == std::string::npos ? 0.0 : std::atof(text.c_str() + p + std::strlen(key));
-}
-
-double sysfsNum(const fs::path& p) { const std::string t = slurp(p); return t.empty() ? -1.0 : std::atof(t.c_str()); }
+std::string slurp(const fs::path& p) { return platform::readFileText(p); }
 
 void sampleSystem(Live& L, double& prevBusy, double& prevTotal)
 {
-    double busy = 0, total = 0;
+    const auto times = platform::cpuTimes().value_or(platform::CpuTimes{});
     double cpu = 0;
-    if (cpuTimes(busy, total) && prevTotal > 0 && total > prevTotal) cpu = 100.0 * (busy - prevBusy) / (total - prevTotal);
-    prevBusy = busy;
-    prevTotal = total;
-    const std::string mi = slurp("/proc/meminfo");
-    const double memTotal = meminfoKb(mi, "MemTotal:") / 1024.0, memAvail = meminfoKb(mi, "MemAvailable:") / 1024.0;
-    const double swapTotal = meminfoKb(mi, "SwapTotal:") / 1024.0, swapFree = meminfoKb(mi, "SwapFree:") / 1024.0;
-    const double load = std::atof(slurp("/proc/loadavg").c_str());
-    double gpu = -1, vram = -1, gtt = -1, vramTotal = 0, gttTotal = 0;
-    std::error_code ec;
-    for (const auto& e : fs::directory_iterator("/sys/class/drm", ec)) {
-        const fs::path d = e.path() / "device";
-        if (e.path().filename().string().find('-') != std::string::npos || !fs::exists(d / "gpu_busy_percent", ec)) continue;
-        gpu = sysfsNum(d / "gpu_busy_percent");
-        vram = sysfsNum(d / "mem_info_vram_used") / 1048576.0;
-        gtt = sysfsNum(d / "mem_info_gtt_used") / 1048576.0;
-        vramTotal = sysfsNum(d / "mem_info_vram_total") / 1048576.0;
-        gttTotal = sysfsNum(d / "mem_info_gtt_total") / 1048576.0;
-        break;
-    }
+    if (prevTotal > 0 && times.total > prevTotal) cpu = 100.0 * (times.busy - prevBusy) / (times.total - prevTotal);
+    prevBusy = times.busy;
+    prevTotal = times.total;
+    const platform::MemoryFacts mem = platform::memory();
+    const double memTotal = static_cast<double>(mem.totalMiB), memAvail = static_cast<double>(mem.availableMiB);
+    const double swapTotal = static_cast<double>(mem.swapTotalMiB), swapFree = static_cast<double>(mem.swapFreeMiB);
+    const double load = platform::loadAverage().value_or(0.0);
+    const auto card = platform::gpu();
     std::lock_guard lock(L.m);
     L.cpu.push(cpu);
     L.mem.push(memTotal > 0 ? 100.0 * (memTotal - memAvail) / memTotal : 0);
@@ -72,8 +39,8 @@ void sampleSystem(Live& L, double& prevBusy, double& prevTotal)
     L.load.push(load);
     L.memTotalMiB = memTotal;
     L.swapTotalMiB = swapTotal;
-    L.hasGpu = gpu >= 0;
-    if (L.hasGpu) { L.gpu.push(gpu); L.vram.push(vram); L.gtt.push(gtt); L.vramTotalMiB = vramTotal; L.gttTotalMiB = gttTotal; }
+    L.hasGpu = card && card->busyPercent >= 0;
+    if (L.hasGpu) { L.gpu.push(card->busyPercent); L.vram.push(card->vramUsedMiB); L.gtt.push(card->gttUsedMiB); L.vramTotalMiB = card->vramTotalMiB; L.gttTotalMiB = card->gttTotalMiB; }
 }
 
 // llama-server `/slots`: per slot processing flag, prompt tokens and how many were processed (prefill progress), tokens decoded so far.

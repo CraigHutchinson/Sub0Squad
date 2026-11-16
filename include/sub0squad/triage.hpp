@@ -1,6 +1,6 @@
 #pragma once
 /// @file triage.hpp
-/// Triage is the first call (docs/SQUAD_UX_AND_HARNESS.md section 1): a cheap, rule-based decision (a small local model later) about
+/// Triage is the first call (SQUAD_UX_AND_HARNESS.md section 1 (archived: docs/ARCHIVE.md)): a cheap, rule-based decision (a small local model later) about
 /// what kind of project this is, whether a known blueprint covers it, how it should be split and whether an architect is needed.
 /// Architect and project manager roles exist only when triage says so; an unknown task is DEFERRED as a file handoff, never sent anywhere.
 

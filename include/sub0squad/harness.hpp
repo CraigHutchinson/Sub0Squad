@@ -1,6 +1,6 @@
 #pragma once
 /// @file harness.hpp
-/// The harness registry (docs/DESIGN_AUDIT.md section 3.1): a project harness is described by one entry, so the workflow, the agents and the plan
+/// The harness registry (DESIGN_AUDIT.md section 3.1 (archived: docs/ARCHIVE.md)): a project harness is described by one entry, so the workflow, the agents and the plan
 /// validator ask the registry instead of comparing harness names. Entries are plain function pointers and data; a new harness is one new entry.
 ///
 /// The registry itself is kernel code (layer 0) and starts EMPTY: the layers above fill it. The harnesses layer provides `registerBuiltinHarnesses()`

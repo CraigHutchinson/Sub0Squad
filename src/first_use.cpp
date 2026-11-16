@@ -7,24 +7,23 @@
 #include "sub0squad/harness.hpp"
 #include "sub0squad/host_guard.hpp"
 #include "sub0squad/paths.hpp"
+#include "sub0squad/platform_proc.hpp"
+#include "sub0squad/platform_process.hpp"
 
-#include <arpa/inet.h>
-#include <fcntl.h>
+#include <arpa/inet.h>    // portInUse: moves to platform_net (docs/PLATFORM.md slice 4)
 #include <netinet/in.h>
-#include <signal.h>
-#include <spawn.h>
 #include <sys/socket.h>
-#include <unistd.h>
+#include <unistd.h>       // access() in onPath and resolveProgram
 
+#include <algorithm>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
+#include <expected>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
 #include <thread>
-
-extern char** environ;
 
 namespace sub0squad {
 
@@ -87,25 +86,12 @@ bool portInUse(int port)
     return used;
 }
 
-/// Start `argv` detached (its own session, output appended to `log`); returns its pid or -1.
-pid_t startDetached(std::vector<std::string> argv, const fs::path& log)
+/// Start `argv` detached (its own session, output appended to `log`); returns its process id, or the reason it could not start.
+std::expected<platform::ProcessId, std::string> startDetached(std::vector<std::string> argv, const fs::path& log)
 {
-    posix_spawn_file_actions_t fa;
-    posix_spawn_file_actions_init(&fa);
-    posix_spawn_file_actions_addopen(&fa, 0, "/dev/null", O_RDONLY, 0);
-    posix_spawn_file_actions_addopen(&fa, 1, log.c_str(), O_WRONLY | O_CREAT | O_APPEND, 0644);
-    posix_spawn_file_actions_adddup2(&fa, 1, 2);
-    posix_spawnattr_t attr;
-    posix_spawnattr_init(&attr);
-    posix_spawnattr_setflags(&attr, POSIX_SPAWN_SETSID);
-    std::vector<char*> cargv;
-    for (auto& s : argv) cargv.push_back(s.data());
-    cargv.push_back(nullptr);
-    pid_t pid = -1;
-    const int rc = posix_spawn(&pid, argv[0].c_str(), &fa, &attr, cargv.data(), environ);
-    posix_spawn_file_actions_destroy(&fa);
-    posix_spawnattr_destroy(&attr);
-    return rc == 0 ? pid : -1;
+    auto child = platform::spawn({.argv = std::move(argv), .outputFile = log, .appendOutput = true, .newSession = true});
+    if (!child) return std::unexpected(child.error().message);
+    return child->id();   // not waited for: it outlives this command
 }
 
 int portalPort(const std::vector<std::string>& args)
@@ -146,7 +132,7 @@ int runUp(const std::vector<std::string>& args, const std::string& exe)
     }
     else {
         std::vector<std::string> argv = {exe, "serve", "--max-jobs", option(args, "max-jobs", "4"), "--frontier", option(args, "frontier", "stub")};
-        if (startDetached(argv, upDir / "daemon.log") < 0) { std::fprintf(stderr, "up: cannot start the daemon\n"); return 1; }
+        if (const auto started = startDetached(argv, upDir / "daemon.log"); !started) { std::fprintf(stderr, "up: %s\n", started.error().c_str()); return 1; }
         bool up = false;
         for (int i = 0; i < 100 && !up; ++i) { std::this_thread::sleep_for(std::chrono::milliseconds(100)); up = daemonAnswers(paths); }
         if (!up) { std::fprintf(stderr, "up: the daemon did not come up; see %s\n", (upDir / "daemon.log").c_str()); return 1; }
@@ -157,9 +143,9 @@ int runUp(const std::vector<std::string>& args, const std::string& exe)
         const int port = portalPort(args);
         if (portInUse(port)) std::printf("portal: port %d is already in use; open http://127.0.0.1:%d/ (or pick another with --portal-port N)\n", port, port);
         else {
-            const pid_t pid = startDetached({exe, "portal", "--port", std::to_string(port)}, upDir / "portal.log");
-            if (pid < 0) { std::fprintf(stderr, "up: cannot start the portal\n"); return 1; }
-            std::ofstream(upDir / "portal.pid") << pid << "\n";
+            const auto pid = startDetached({exe, "portal", "--port", std::to_string(port)}, upDir / "portal.log");
+            if (!pid) { std::fprintf(stderr, "up: %s\n", pid.error().c_str()); return 1; }
+            std::ofstream(upDir / "portal.pid") << *pid << "\n";
             std::printf("portal: http://127.0.0.1:%d/  (the work graph; click a node to watch its transcript live)\n", port);
         }
     }
@@ -184,12 +170,10 @@ int runDown(const std::vector<std::string>&)
     long pid = 0;
     if (in >> pid && pid > 1) {
         // Only a process that is still this program's portal is signalled: a pid can be reused after a reboot.
-        std::ifstream cmd("/proc/" + std::to_string(pid) + "/cmdline", std::ios::binary);
-        std::stringstream ss;
-        ss << cmd.rdbuf();
-        std::string line = ss.str();
-        for (char& c : line) if (c == '\0') c = ' ';
-        if (line.find("sub0squad") != std::string::npos && line.find(" portal ") != std::string::npos) { ::kill(static_cast<pid_t>(pid), SIGTERM); std::printf("portal: stopped\n"); }
+        const auto args = platform::commandLine(pid).value_or(std::vector<std::string>{});
+        const bool isPortal = std::ranges::any_of(args, [](const std::string& a) { return a.find("sub0squad") != std::string::npos; }) &&
+                              std::ranges::find(args, std::string{"portal"}) != args.end();
+        if (isPortal && platform::terminateProcess(pid)) std::printf("portal: stopped\n");
         else std::printf("portal: not running\n");
     } else std::printf("portal: not started by `up`\n");
     std::error_code ec;

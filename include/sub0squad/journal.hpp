@@ -3,6 +3,8 @@
 /// Append-only durable record of everything that changes job state (`journal-1`, NDJSON). The journal is the source of truth;
 /// live events are a view of it. One segment file in M1; a torn final line (crash mid-write) is discarded on open.
 
+#include "sub0squad/platform_file.hpp"
+
 #include <cstdint>
 #include <expected>
 #include <filesystem>
@@ -36,9 +38,9 @@ public:
     Journal() = default;
     Journal(const Journal&) = delete;
     Journal& operator=(const Journal&) = delete;
-    Journal(Journal&& other) noexcept;
-    Journal& operator=(Journal&& other) noexcept;
-    ~Journal();
+    Journal(Journal&&) noexcept = default;
+    Journal& operator=(Journal&&) noexcept = default;
+    ~Journal() = default;
 
     /// Read every good record without modifying the file. Error: unreadable file, or corruption before the final line.
     [[nodiscard]] static std::expected<JournalReplay, std::string> replay(const std::filesystem::path& dir);
@@ -53,7 +55,7 @@ public:
     [[nodiscard]] std::uint64_t nextSeq() const { return nextSeq_; }
 
 private:
-    int fd_ = -1;
+    platform::AppendFile file_;
     std::uint64_t nextSeq_ = 1;
     std::vector<JournalRecord> records_;
 };

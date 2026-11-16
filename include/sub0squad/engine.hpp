@@ -1,6 +1,6 @@
 #pragma once
 /// @file engine.hpp
-/// Engine profiles and a blocking OpenAI-compatible chat client (docs/DESIGN.md section 8). An engine is data: where it listens and
+/// Engine profiles and a blocking OpenAI-compatible chat client (DESIGN.md section 8 (archived: docs/ARCHIVE.md)). An engine is data: where it listens and
 /// what it can do. Two kinds are used today and both speak the same protocol, which is the point of the seam:
 ///   - `external-server`: already running (for example the Ubuntu `qwen3-6` inference snap on 127.0.0.1:8342);
 ///   - `spawned-server`: started and torn down by the squad as a process job (llama.cpp `llama-server`).

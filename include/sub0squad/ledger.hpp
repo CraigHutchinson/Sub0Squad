@@ -1,7 +1,7 @@
 #pragma once
 /// @file ledger.hpp
 /// `ledger-1`: an append-only record of every resource use a workflow job made (who, what, tier, tokens, notional cost), so local
-/// versus frontier share is measurable and accountable (docs/DESIGN.md sections 15, 16). Costs are NOTIONAL for the stub tiers;
+/// versus frontier share is measurable and accountable (DESIGN.md sections 15 (archived: docs/ARCHIVE.md), 16). Costs are NOTIONAL for the stub tiers;
 /// nothing is ever sent anywhere.
 
 #include <filesystem>
@@ -21,7 +21,7 @@ struct LedgerRecord
     double tokensIn = 0, tokensOut = 0;
     double costUnits = 0;    ///< notional
     std::string engine;      ///< engine profile name for llm attempts, empty otherwise
-    double tokensSystem = 0, tokensCard = 0, tokensFeedback = 0;  ///< where the prompt tokens went (docs/SQUAD_UX_AND_HARNESS.md section 5)
+    double tokensSystem = 0, tokensCard = 0, tokensFeedback = 0;  ///< where the prompt tokens went (SQUAD_UX_AND_HARNESS.md section 5 (archived: docs/ARCHIVE.md))
     double tokensWork = 0;   ///< completion tokens that were deliverable file content
     double harnessBytes = 0; ///< bytes the harness supplied itself
     double decodeTps = 0;

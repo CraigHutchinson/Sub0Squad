@@ -4,6 +4,8 @@
 
 #include "sub0squad/harness.hpp"
 #include "sub0squad/outline.hpp"
+#include "sub0squad/stance.hpp"
+#include "sub0squad/platform_file.hpp"
 
 #include <algorithm>
 #include <cstdlib>
@@ -24,15 +26,8 @@ std::string harnessBrief(const Plan& plan)
     return h->brief ? h->brief() : std::string{};
 }
 
-std::string slurp(const fs::path& p) { std::ifstream in(p, std::ios::binary); std::stringstream ss; ss << in.rdbuf(); return ss.str(); }
-bool writeFile(const fs::path& p, const std::string& text)
-{
-    std::error_code ec;
-    fs::create_directories(p.parent_path(), ec);
-    std::ofstream o(p, std::ios::binary | std::ios::trunc);
-    o << text;
-    return static_cast<bool>(o);
-}
+std::string slurp(const fs::path& p) { return platform::readFileText(p); }
+bool writeFile(const fs::path& p, const std::string& text) { return platform::writeFile(p, text).has_value(); }
 std::string arg(const std::vector<std::string>& a, const std::string& key, const std::string& d)
 {
     for (std::size_t i = 0; i + 1 < a.size(); ++i) if (a[i] == "--" + key) return a[i + 1];
@@ -52,16 +47,16 @@ std::string draftView(const std::string& path, const std::string& text, const st
 }
 
 
-std::string systemBlock(const std::string& persona, const std::string& brief)
+std::string systemBlock(const std::string& persona, const std::string& brief, const std::string& stance)
 {
-    // Persona-neutral text first (the same for every item, so the server's prompt cache shares it), the persona sentence last.
-    std::string s = "Reply with the complete content of every file you are asked for, in exactly this format and nothing else (no explanations, no markdown fences):\n"
-                    "=== FILE: <path> ===\n<file content>\n=== END FILE ===\n";
+    // Persona-neutral text first (the same for every item, so the server's prompt cache shares it), the stance and persona last (stance.hpp).
+    std::string s = stance == "specialist"
+                        ? "Reply with the complete content of every file you are asked for, in exactly this format (a CONCERN block, described below, may come first; no other "
+                          "explanations, no markdown fences):\n"
+                        : "Reply with the complete content of every file you are asked for, in exactly this format and nothing else (no explanations, no markdown fences):\n";
+    s += "=== FILE: <path> ===\n<file content>\n=== END FILE ===\n";
     if (!brief.empty()) s += brief + "\n";
-    s += "You are the " + persona + " on a small software squad: you own one small, focused piece of a whole solution. Be the expert and do it as well as it can be done, "
-         "keep to your contract and the exact interfaces you are given so the other pieces fit, and write only the files you are asked to write. ";
-    s += persona == "tester" ? "Write tests for the contract; do not write the implementation.\n" : "Implement the contract so that the provided tests pass.\n";
-    return s;
+    return s + stanceText(stance, persona, WorkerShape::files);
 }
 
 // Names of the tests a test file defines: test('name' ... / it("name" ...

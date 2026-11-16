@@ -1,6 +1,6 @@
 #pragma once
 /// @file mock_worker.hpp
-/// `sub0squad mock-worker`: a scripted stand-in for real work (docs/DESIGN.md section 13). It emits `sub0squad-event-1` progress on
+/// `sub0squad mock-worker`: a scripted stand-in for real work (DESIGN.md section 13 (archived: docs/ARCHIVE.md)). It emits `sub0squad-event-1` progress on
 /// the inherited event channel and can be told to misbehave in the ways the gates need: fail, crash, stall, ignore SIGTERM,
 /// leave a server child behind, or escape its process group with setsid and a double fork.
 ///

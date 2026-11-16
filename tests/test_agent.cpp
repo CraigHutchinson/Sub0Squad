@@ -110,6 +110,49 @@ int main()
         const auto rq = engine.requests();
         CHECK(rq.size() == 3 && rq[2].last().find("MUST be an edit") != std::string::npos);
     }
+    // ---- the stance and the CONCERN channel (stance.hpp, docs/EXPERIMENTS.md E1) ----
+    {   // Baseline: the system block is the wording of every earlier run, and says nothing of concerns.
+        const fs::path d = workflow("agent-stance-baseline");
+        fake::Engine engine({{fileBlock(ref)}});
+        CHECK_EQ(runLlmAgent(agentArgs(d, engine, 1)), 0);
+        const auto rq = engine.requests();
+        const std::string system = rq.empty() || rq[0].messages.empty() ? std::string{} : rq[0].messages[0].second;
+        CHECK(system.find("You are the developer on a small software squad: you own one small, focused piece of a whole solution.") != std::string::npos);
+        CHECK(system.find("Implement the contract so that the provided tests pass.") != std::string::npos);
+        CHECK(system.find("CONCERN") == std::string::npos);
+        CHECK(slurp(attemptDir(d, 1) / "agent.json").find("\"stance\":\"baseline\",\"concerns\":0") != std::string::npos);
+    }
+    {   // Specialist: the assignment and standing are stated; a concern before the file is recorded and the file still counts.
+        const fs::path d = workflow("agent-stance-concern");
+        fake::Engine engine({{"=== CONCERN: Wrong ===\ntests/test_engine.py:12 expects 2 + 3 * 4 to be 7; the contract's precedence gives 14.\n=== END CONCERN ===\n" + fileBlock(ref)}});
+        CHECK_EQ(runLlmAgent(agentArgs(d, engine, 1, 2, {"--stance", "specialist"})), 0);
+        CHECK_EQ(engine.requestCount(), static_cast<std::size_t>(1));
+        CHECK_EQ(slurp(attemptDir(d, 1) / "out" / kFile), ref);   // the concern is not part of the file
+        const std::string raised = slurp(attemptDir(d, 1) / "concerns.md");
+        CHECK(raised.find("## CONCERN: wrong") != std::string::npos);
+        CHECK(raised.find("the contract's precedence gives 14") != std::string::npos);
+        CHECK(slurp(attemptDir(d, 1) / "agent.json").find("\"stance\":\"specialist\",\"concerns\":1") != std::string::npos);
+        const auto rq = engine.requests();
+        const std::string system = rq.empty() || rq[0].messages.empty() ? std::string{} : rq[0].messages[0].second;
+        CHECK(system.find("a dedicated, specialised assignment that is yours alone") != std::string::npos);
+        CHECK(system.find("=== CONCERN: <kind> ===") != std::string::npos);
+        CHECK(system.find("raise a concern and keep the code that is right") != std::string::npos);
+    }
+    {   // A reply that holds only a concern is acknowledged and costs no repair turn: with none left, the file still comes on the next call.
+        const fs::path d = workflow("agent-stance-concern-only");
+        fake::Engine engine({{"=== CONCERN: underspecified ===\nThe contract does not say how division by zero is reported.\n=== END CONCERN ===\n"}, {fileBlock(ref)}});
+        CHECK_EQ(runLlmAgent(agentArgs(d, engine, 1, 0, {"--stance", "specialist"})), 0);
+        CHECK_EQ(engine.requestCount(), static_cast<std::size_t>(2));
+        const auto rq = engine.requests();
+        CHECK(rq.size() == 2 && rq[1].last().find("recorded for the owner of what you questioned") != std::string::npos);
+        CHECK(rq.size() == 2 && rq[1].last().find("(underspecified)") != std::string::npos);
+    }
+    {   // An unknown stance is a usage error, before any engine call.
+        const fs::path d = workflow("agent-stance-unknown");
+        fake::Engine engine({{fileBlock(ref)}});
+        CHECK_EQ(runLlmAgent(agentArgs(d, engine, 1, 0, {"--stance", "bold"})), 64);
+        CHECK_EQ(engine.requestCount(), static_cast<std::size_t>(0));
+    }
     {   // A reply with no usable file fails the attempt with exit 3 (nothing was written), after the turns it was given.
         const fs::path d = workflow("agent-prose");
         fake::Engine engine({{"I think the answer is to use a recursive descent parser."}});

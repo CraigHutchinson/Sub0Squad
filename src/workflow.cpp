@@ -5,6 +5,7 @@
 #include "sub0squad/harness.hpp"
 #include "sub0squad/mends.hpp"
 #include "sub0squad/predicate.hpp"
+#include "sub0squad/stance.hpp"
 #include <algorithm>
 #include <set>
 #include <cstdio>
@@ -29,6 +30,7 @@ std::string WorkflowSpec::toJson() const
     w.endObject();
     if (!mends.empty()) w.kvRaw("mends", mends);
     if (defaults) w.kvBool("defaults", true);   // written only when set, like `mends`
+    if (stance != "baseline") w.kv("stance", stance);   // the same: a baseline spec reads exactly as before stances existed
     w.endObject();
     return w.take();
 }
@@ -49,6 +51,7 @@ std::expected<WorkflowSpec, std::string> WorkflowSpec::fromJson(std::string_view
                 else if (k == "inject") { for (auto x : v.get_array()) s.inject.push_back(json::toString(x.value())); }
                 else if (k == "agent") s.agent = json::toString(v);
                 else if (k == "treatment") s.treatment = json::toString(v);
+                else if (k == "stance") s.stance = json::toString(v);
                 else if (k == "executor") s.executor = json::toString(v);
                 else if (k == "process") {
                     std::string_view r = v.raw_json();
@@ -80,6 +83,7 @@ std::expected<WorkflowSpec, std::string> WorkflowSpec::fromJson(std::string_view
     if (!s.fallbackEngine.empty() && !names.count(s.fallbackEngine)) return std::unexpected("fallback engine '" + s.fallbackEngine + "' names an unknown engine");
     for (const auto& [persona, name] : s.route) if (!names.count(name)) return std::unexpected("route " + persona + "=" + name + " names an unknown engine");
     if (s.treatment != "baseline" && s.treatment != "index" && s.treatment != "planfirst") return std::unexpected("treatment must be baseline, index or planfirst");
+    if (!isKnownStance(s.stance)) return std::unexpected("stance must be baseline or specialist");
     if (!s.executor.empty() && s.executor != "session" && s.executor != "canvas" && s.executor != "fork") return std::unexpected("executor must be session, canvas or fork");
     if (s.maxTokens < 256 || s.maxTokens > 32768) return std::unexpected("maxTokens must be 256..32768");
     return s;
@@ -479,6 +483,7 @@ JobSpec agentJob(const WorkflowRecord& wf, const WorkflowSettings& st, const Wor
             if (mend) s.argv.insert(s.argv.end(), {"--mend-section", mend->symbol, "--mend-file", mend->file});   // add-section: only the missing function is written
         }
         else if (executor != "session") s.argv.insert(s.argv.end(), {"--executor", "canvas"});
+        if (wf.spec.stance != "baseline") s.argv.insert(s.argv.end(), {"--stance", wf.spec.stance});   // only when set, so a baseline job's command line is unchanged
     } else {
         s.argv = {st.exe, "mock-agent", "--workflow-dir", wf.spec.sandboxDir, "--item", it.id, "--tier", tier, "--attempt", std::to_string(attempt)};
         for (const auto& i : wf.spec.inject) { s.argv.push_back("--inject"); s.argv.push_back(i); }

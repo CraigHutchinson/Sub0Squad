@@ -4,11 +4,8 @@
 #include "sub0squad/clarify.hpp"
 #include "sub0squad/engine.hpp"
 #include "sub0squad/paths.hpp"
-
-#include <fcntl.h>
-#include <spawn.h>
-#include <sys/wait.h>
-#include <unistd.h>
+#include "sub0squad/platform_process.hpp"
+#include "sub0squad/platform_file.hpp"
 
 #include <chrono>
 #include <cstdio>
@@ -18,8 +15,6 @@
 #include <optional>
 #include <sstream>
 #include <thread>
-
-extern char** environ;
 
 namespace sub0squad {
 
@@ -34,41 +29,18 @@ std::string option(const std::vector<std::string>& a, const std::string& key, co
 }
 bool flag(const std::vector<std::string>& a, const std::string& key) { for (const auto& x : a) if (x == "--" + key) return true; return false; }
 
-std::string readFile(const fs::path& p)
-{
-    std::ifstream in(p);
-    std::stringstream ss;
-    ss << in.rdbuf();
-    return ss.str();
-}
 
 /// One command of this program, run as a child with its output captured (stdout and stderr together). The program's path was passed in by main.
 struct Ran { int code = -1; std::string out; };
 Ran runCommand(const std::string& exe, std::vector<std::string> args)
 {
     Ran r;
-    int fd[2];
-    if (::pipe2(fd, O_CLOEXEC) != 0) return r;   // close-on-exec: a daemon the command starts must not inherit the pipe, or this read would never end
-    posix_spawn_file_actions_t fa;
-    posix_spawn_file_actions_init(&fa);
-    posix_spawn_file_actions_adddup2(&fa, fd[1], 1);
-    posix_spawn_file_actions_adddup2(&fa, fd[1], 2);
-    posix_spawn_file_actions_addclose(&fa, fd[0]);
-    posix_spawn_file_actions_addopen(&fa, 0, "/dev/null", O_RDONLY, 0);
-    std::vector<char*> argv{const_cast<char*>(exe.c_str())};
-    for (auto& a : args) argv.push_back(a.data());
-    argv.push_back(nullptr);
-    pid_t pid = 0;
-    const int rc = ::posix_spawn(&pid, exe.c_str(), &fa, nullptr, argv.data(), environ);
-    posix_spawn_file_actions_destroy(&fa);
-    ::close(fd[1]);
-    if (rc != 0) { ::close(fd[0]); return r; }
-    char buf[4096];
-    for (ssize_t n; (n = ::read(fd[0], buf, sizeof buf)) > 0;) r.out.append(buf, static_cast<std::size_t>(n));
-    ::close(fd[0]);
-    int st = 0;
-    ::waitpid(pid, &st, 0);
-    r.code = WIFEXITED(st) ? WEXITSTATUS(st) : -1;
+    args.insert(args.begin(), exe);
+    // A daemon the command starts never holds the capture open: the launcher passes only the standard streams, and `up` points the daemon's at its log.
+    const auto ran = platform::runCaptured({.argv = std::move(args)}, {.maxBytes = 4 * 1024 * 1024});
+    if (!ran) { r.out = ran.error().message + "\n"; return r; }
+    r.code = ran->status.exited() ? ran->status.code : -1;
+    r.out = ran->output;
     return r;
 }
 
@@ -263,7 +235,7 @@ int runWizard(const std::vector<std::string>& args, const std::string& exe, cons
         if (fs::exists(sandbox / "brief.json")) { settled = true; break; }
         const Ran inbox = runCommand(exe, {"request", "list", wf});
         if (inbox.out.find("planner") != std::string::npos && inbox.out.find("open") != std::string::npos) {
-            const auto questions = ClarifyPlan::fromJson(readFile(sandbox / "questions.json"));
+            const auto questions = ClarifyPlan::fromJson(platform::readFileText(sandbox / "questions.json"));
             if (questions) std::printf("\n%s", questions->requestDetail().c_str());
             for (int tries = 0; tries < 3 && !settled; ++tries) {
                 const auto answer = w.ask("Your answer", "go");
@@ -276,7 +248,7 @@ int runWizard(const std::vector<std::string>& args, const std::string& exe, cons
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
     for (int i = 0; i < 100 && !fs::exists(sandbox / "brief.json"); ++i) std::this_thread::sleep_for(std::chrono::milliseconds(100));
-    if (const auto brief = readFile(sandbox / "brief.json"); !brief.empty()) {
+    if (const auto brief = platform::readFileText(sandbox / "brief.json"); !brief.empty()) {
         const auto at = brief.find("\"task\":\"");
         std::printf("planned as: %s\n", at == std::string::npos ? "?" : brief.substr(at + 8, brief.find('"', at + 8) - at - 8).c_str());
     }

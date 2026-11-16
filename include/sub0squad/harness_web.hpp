@@ -1,6 +1,6 @@
 #pragma once
 /// @file harness_web.hpp
-/// The `web-static` project harness (docs/SQUAD_UX_AND_HARNESS.md section 4): code that creates the workspace, scaffolding and stubs
+/// The `web-static` project harness (SQUAD_UX_AND_HARNESS.md section 4 (archived: docs/ARCHIVE.md)): code that creates the workspace, scaffolding and stubs
 /// itself so an agent only writes the deliverable files, plus the gate and the integrator for web projects. Also the mock deliverables
 /// (correct and deliberately broken) and the hand-written calculator-web blueprint, which stands in for a frontier architect's plan.
 

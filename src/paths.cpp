@@ -1,6 +1,5 @@
 #include "sub0squad/paths.hpp"
 
-#include <sys/stat.h>
 #include <cstdlib>
 #include <system_error>
 
@@ -32,7 +31,8 @@ std::string RuntimePaths::ensureDirectories() const
         fs::create_directories(d, ec);
         if (ec) return "cannot create " + d.string() + ": " + ec.message();
     }
-    if (::chmod(runtimeDir.c_str(), 0700) != 0) return "cannot chmod " + runtimeDir.string();
+    fs::permissions(runtimeDir, fs::perms::owner_all, fs::perm_options::replace, ec);   // the daemon socket's directory: the owner only
+    if (ec) return "cannot restrict " + runtimeDir.string() + " to its owner: " + ec.message();
     return {};
 }
 

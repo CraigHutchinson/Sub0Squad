@@ -137,7 +137,7 @@ PlanLint lintPlan(const Plan& plan, double tps, int slots, double sigma)
         r.fillP10 = fills[fills.size() / 10];
         r.expectedSpeedup = speedup / kTrials;
         r.backfillRate = freed > 0 ? static_cast<double>(backfilled) / freed : 1.0;
-        char buf[320];
+        char buf[512];   // the message below is over 320 characters with its numbers: a smaller buffer cut it off
         if (slots >= 2 && r.fill < 0.7) {
             std::snprintf(buf, sizeof buf, "on %d slots this plan is expected to keep them %.0f %% busy (a bad draw of sizes: %.0f %%; no schedule can beat %.1fx of the %d): only %d item(s) can be ready at once, so a slot that finishes early finds nothing to take. Make more independent items ready at the start (smaller, with no shared files), aiming at about %.0f.",
                           slots, 100 * r.fill, 100 * r.fillP10, r.boundSpeedup, slots, r.maxWidth, 1.5 * slots);

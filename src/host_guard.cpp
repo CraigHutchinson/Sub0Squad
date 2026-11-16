@@ -1,10 +1,9 @@
 #include "sub0squad/host_guard.hpp"
 
 #include "sub0squad/event_channel.hpp"
+#include "sub0squad/platform_host.hpp"
+#include "sub0squad/platform_process.hpp"
 
-#include <sys/statvfs.h>
-#include <sys/wait.h>
-#include <unistd.h>
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>
@@ -16,26 +15,13 @@ namespace fs = std::filesystem;
 
 HostMemory readHostMemory()
 {
-    HostMemory m;
-    std::ifstream in("/proc/meminfo");
-    std::string key;
-    long long kb;
-    std::string unit;
-    while (in >> key >> kb >> unit) {
-        if (key == "MemTotal:") m.totalMiB = kb / 1024;
-        else if (key == "MemAvailable:") m.availableMiB = kb / 1024;
-    }
-    return m;
+    const platform::MemoryFacts m = platform::memory();
+    return {.totalMiB = m.totalMiB, .availableMiB = m.availableMiB};
 }
 
 std::int64_t freeDiskMiB(const fs::path& path)
 {
-    fs::path p = fs::absolute(path);
-    std::error_code ec;
-    while (!p.empty() && !fs::exists(p, ec)) p = p.parent_path();
-    struct statvfs sv{};
-    if (p.empty() || ::statvfs(p.c_str(), &sv) != 0) return -1;
-    return static_cast<std::int64_t>(sv.f_bavail) * static_cast<std::int64_t>(sv.f_frsize) / (1024 * 1024);
+    return platform::freeDiskMiB(path).value_or(-1);
 }
 
 std::expected<void, std::string> requireMemory(std::int64_t needMiB, std::int64_t reserveMiB)
@@ -63,31 +49,22 @@ std::string arg(const std::vector<std::string>& a, const std::string& k, const s
     return d;
 }
 
+/// A helper program's exit code and, when captured, its stdout (stderr goes to ours, so curl's errors reach the person running the fetch).
 struct Run { int code = -1; std::string out; };
 Run run(const std::vector<std::string>& argv, bool capture)
 {
     Run r;
-    int fds[2] = {-1, -1};
-    if (capture && ::pipe(fds) != 0) return r;
-    const pid_t pid = ::fork();
-    if (pid == 0) {
-        if (capture) { ::dup2(fds[1], 1); ::close(fds[0]); ::close(fds[1]); }
-        std::vector<char*> a;
-        for (const auto& s : argv) a.push_back(const_cast<char*>(s.c_str()));
-        a.push_back(nullptr);
-        ::execvp(a[0], a.data());
-        _exit(127);
-    }
     if (capture) {
-        ::close(fds[1]);
-        char buf[4096];
-        ssize_t n;
-        while ((n = ::read(fds[0], buf, sizeof buf)) > 0) r.out.append(buf, static_cast<std::size_t>(n));
-        ::close(fds[0]);
+        const auto ran = platform::runCaptured({.argv = argv, .nullInput = false}, {.maxBytes = 1024 * 1024, .includeStderr = false});
+        if (!ran) { std::fprintf(stderr, "%s\n", ran.error().message.c_str()); return r; }
+        r.code = ran->status.exited() ? ran->status.code : -1;
+        r.out = ran->output;
+        return r;
     }
-    int st = 0;
-    ::waitpid(pid, &st, 0);
-    r.code = WIFEXITED(st) ? WEXITSTATUS(st) : -1;
+    auto child = platform::spawn({.argv = argv, .nullInput = false});
+    if (!child) { std::fprintf(stderr, "%s\n", child.error().message.c_str()); return r; }
+    const auto status = child->wait().value_or(platform::ExitStatus{});
+    r.code = status.exited() ? status.code : -1;
     return r;
 }
 }  // namespace

@@ -20,7 +20,7 @@
 #include "sub0squad/progress.hpp"
 #include "sub0squad/workflow.hpp"
 #include "sub0squad/workflow_status.hpp"
-#include "sub0squad/process_tree.hpp"
+#include "sub0squad/platform_proc.hpp"
 #include "sub0squad/status.hpp"
 #include "sub0squad/supervisor.hpp"
 #include "sub0squad/unix_socket.hpp"

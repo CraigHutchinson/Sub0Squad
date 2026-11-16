@@ -1,30 +1,24 @@
 #include "sub0squad/replay.hpp"
 
 #include "sub0squad/plan.hpp"
-
-#include <fcntl.h>
-#include <spawn.h>
-#include <sys/wait.h>
-#include <unistd.h>
+#include "sub0squad/platform_process.hpp"
+#include "sub0squad/platform_file.hpp"
 
 #include <algorithm>
 #include <cctype>
 #include <chrono>
 #include <cstdio>
+#include <print>
 #include <cstdlib>
 #include <fstream>
 #include <set>
 #include <sstream>
-
-extern char** environ;
 
 namespace fs = std::filesystem;
 
 namespace sub0squad {
 
 namespace {
-
-std::string slurp(const fs::path& p) { std::ifstream in(p); std::stringstream ss; ss << in.rdbuf(); return ss.str(); }
 
 std::set<std::string> closureOf(const Plan& plan, const std::string& id)
 {
@@ -47,7 +41,7 @@ std::string withSeed(const std::string& profile, long seed, bool think)
     std::stringstream ss(profile);
     bool first = true;
     for (std::string part; std::getline(ss, part, ',');) {
-        if (!first && (part.rfind("seed=", 0) == 0 || (think && part.rfind("thinking=", 0) == 0))) continue;
+        if (!first && (part.starts_with("seed=") || (think && part.starts_with("thinking=")))) continue;
         out += (first ? "" : ",") + part;
         first = false;
     }
@@ -60,7 +54,7 @@ struct Variant
 {
     long seed = 0;
     fs::path dir;
-    pid_t pid = -1;
+    platform::Child child;
     std::chrono::steady_clock::time_point began;
     double seconds = 0;
     int exitCode = -1;
@@ -68,13 +62,25 @@ struct Variant
 
 }  // namespace
 
+ReplayOptions::AcceptedOverride parseAcceptedOverride(const std::string& value)
+{
+    const auto colon = value.find(':'), eq = value.find('=');
+    if (colon == std::string::npos || eq == std::string::npos || colon == 0 || eq < colon + 2 || eq + 1 >= value.size()) return {};
+    return {value.substr(0, colon), value.substr(colon + 1, eq - colon - 1), value.substr(eq + 1)};
+}
+
 int runReplay(const ReplayOptions& o)
 {
-    auto plan = Plan::fromJson(slurp(o.sandbox / "plan.json"));
-    if (!plan) { std::fprintf(stderr, "replay: cannot read the workflow's plan: %s\n", plan.error().c_str()); return 2; }
+    auto plan = Plan::fromJson(platform::readFileText(o.sandbox / "plan.json"));
+    if (!plan) { std::println(stderr, "replay: cannot read the workflow's plan: {}", plan.error()); return 2; }
     const WorkItem* node = plan->find(o.node);
-    if (!node) { std::fprintf(stderr, "replay: the plan has no node '%s'\n", o.node.c_str()); return 2; }
-    if (o.engineProfile.empty()) { std::fprintf(stderr, "replay: no engine profile (give --engine NAME=URL,model=..)\n"); return 2; }
+    if (!node) { std::println(stderr, "replay: the plan has no node '{}'", o.node); return 2; }
+    if (o.engineProfile.empty()) { std::println(stderr, "replay: no engine profile (give --engine NAME=URL,model=..)"); return 2; }
+    for (const auto& ov : o.accepted) {
+        std::error_code e;
+        if (ov.item.empty() || !fs::is_regular_file(ov.from, e)) { std::println(stderr, "replay: --accepted needs ITEM:FILE=PATH with an existing PATH ('{}')", ov.from.string()); return 2; }
+        if (!closureOf(*plan, o.node).count(ov.item)) { std::println(stderr, "replay: --accepted names '{}', which '{}' does not depend on", ov.item, o.node); return 2; }
+    }
     const auto stamp = std::to_string(std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count());
     const fs::path base = o.sandbox / "replays" / (o.node + "-" + stamp);
     std::error_code ec;
@@ -89,10 +95,15 @@ int runReplay(const ReplayOptions& o)
             const fs::path acc = o.sandbox / "items" / dep / "accepted";
             if (fs::exists(acc, ec)) fs::copy(acc, v.dir / "items" / dep / "accepted", fs::copy_options::recursive | fs::copy_options::overwrite_existing, ec);
         }
+        for (const auto& ov : o.accepted) {   // the case under test: a dependency's accepted file replaced (validated above)
+            const fs::path to = v.dir / "items" / ov.item / "accepted" / ov.file;
+            fs::create_directories(to.parent_path(), ec);
+            fs::copy_file(ov.from, to, fs::copy_options::overwrite_existing, ec);
+        }
         if (fs::exists(o.sandbox / "items" / o.node / "card-override.json", ec)) fs::copy_file(o.sandbox / "items" / o.node / "card-override.json", v.dir / "items" / o.node / "card-override.json", fs::copy_options::overwrite_existing, ec);
         for (const auto& e : fs::directory_iterator(o.sandbox / "items" / o.node, ec)) {   // earlier failures: a division is asked with them in view
             const std::string n = e.path().filename().string();
-            if (n.rfind("attempt-", 0) == 0 && fs::exists(e.path() / "gate.txt", ec)) {
+            if (n.starts_with("attempt-") && fs::exists(e.path() / "gate.txt", ec)) {
                 fs::create_directories(v.dir / "items" / o.node / n, ec);
                 fs::copy_file(e.path() / "gate.txt", v.dir / "items" / o.node / n / "gate.txt", fs::copy_options::overwrite_existing, ec);
             }
@@ -103,37 +114,30 @@ int runReplay(const ReplayOptions& o)
         if (o.fork && o.parallel > 0) argv.insert(argv.end(), {"--parallel", std::to_string(o.parallel)});
         if (o.fork && !o.sequentialReason.empty()) argv.insert(argv.end(), {"--sequential-reason", o.sequentialReason});
         if (o.fork) argv.insert(argv.end(), {"--fresh", "1"});   // a replay compares like with like: every variant starts from its own skeleton
+        if (o.fork && o.stance != "baseline") argv.insert(argv.end(), {"--stance", o.stance});
         else if (o.decompose) argv.insert(argv.end(), {"llm-architect", "--mode", "decompose", "--workflow-dir", v.dir.string(), "--item", o.node, "--attempt", "9", "--engine", profile, "--timeout", "3600"});
         else argv.insert(argv.end(), {"llm-agent", "--workflow-dir", v.dir.string(), "--item", o.node, "--tier", "local", "--attempt", "1", "--engine", profile, "--max-tokens", std::to_string(o.think ? std::max(o.maxTokens, 6000) : o.maxTokens),
-                                      "--timeout", "3600", "--treatment", o.treatment, "--repair-turns", std::to_string(o.repairTurns), "--size-budget", "0"});
-        std::vector<char*> cargv;
-        for (auto& s : argv) cargv.push_back(s.data());
-        cargv.push_back(nullptr);
-        posix_spawn_file_actions_t fa;
-        posix_spawn_file_actions_init(&fa);
-        const std::string log = (v.dir / "replay.log").string();
-        posix_spawn_file_actions_addopen(&fa, 1, log.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
-        posix_spawn_file_actions_adddup2(&fa, 1, 2);
+                                      "--timeout", "3600", "--treatment", o.treatment, "--stance", o.stance, "--repair-turns", std::to_string(o.repairTurns), "--size-budget", "0"});
         v.began = std::chrono::steady_clock::now();
-        if (posix_spawn(&v.pid, argv[0].c_str(), &fa, nullptr, cargv.data(), environ) != 0) { std::fprintf(stderr, "replay: cannot start a variant\n"); return 2; }
-        posix_spawn_file_actions_destroy(&fa);
+        auto child = platform::spawn({.argv = std::move(argv), .outputFile = v.dir / "replay.log", .nullInput = false});
+        if (!child) { std::println(stderr, "replay: cannot start a variant: {}", child.error().message); return 2; }
+        v.child = std::move(*child);
         vs.push_back(std::move(v));
     }
-    std::printf("replaying '%s' (%s) with %zu variant(s) in %s\n", o.node.c_str(), o.decompose ? "the division" : "the worker", vs.size(), base.string().c_str());
+    std::println("replaying '{}' ({}) with {} variant(s) in {}", o.node, o.decompose ? "the division" : "the worker", vs.size(), base.string());
     std::fflush(stdout);
     for (auto& v : vs) {
-        int status = 0;
-        waitpid(v.pid, &status, 0);
+        const auto status = v.child.wait().value_or(platform::ExitStatus{});
         v.seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - v.began).count();
-        v.exitCode = WIFEXITED(status) ? WEXITSTATUS(status) : 128 + WTERMSIG(status);
+        v.exitCode = status.shellCode();
     }
     int passed = 0;
-    std::printf("%-6s %-8s %5s %12s %7s  %s\n", "seed", "result", "turns", "completion", "wall s", "first failure / note");
+    std::println("{:<6} {:<8} {:>5} {:>12} {:>7} {:>8}  {}", "seed", "result", "turns", "completion", "wall s", "concerns", "first failure / note");
     for (const auto& v : vs) {
         const fs::path attempt = v.dir / "items" / o.node / (o.decompose ? "attempt-9" : "attempt-1");
-        const std::string log = slurp(v.dir / "replay.log");
+        const std::string log = platform::readFileText(v.dir / "replay.log");
         int turns = 0;
-        for (const auto& e : fs::directory_iterator(attempt, ec)) if (e.path().filename().string().rfind("reply-", 0) == 0) ++turns;
+        for (const auto& e : fs::directory_iterator(attempt, ec)) if (e.path().filename().string().starts_with("reply-")) ++turns;
         long completion = 0;
         for (std::size_t at = 0; (at = log.find(" completion tokens", at)) != std::string::npos; at += 18) {
             std::size_t b = at;
@@ -147,17 +151,21 @@ int runReplay(const ReplayOptions& o)
             const auto d = log.find("DECLINED:");
             note = ok ? "a valid division was proposed" : d != std::string::npos ? log.substr(d, log.find('\n', d) - d).substr(0, 140) : "no division";
         } else {
-            const std::string gate = slurp(attempt / "gate.txt");
-            const bool ok = gate.rfind("GATE PASS", 0) == 0;
+            const std::string gate = platform::readFileText(attempt / "gate.txt");
+            const bool ok = gate.starts_with("GATE PASS");
             result = ok ? "PASS" : (v.exitCode == 0 || v.exitCode == 3 || v.exitCode == 5 || v.exitCode == 7 ? "FAIL" : "ERROR");
             note = ok ? "" : gate.substr(0, gate.find('\n')).substr(0, 140);
             if (note.empty()) note = "exit " + std::to_string(v.exitCode);
         }
         if (result == "PASS") ++passed;
-        std::printf("%-6ld %-8s %5d %12ld %7.0f  %s\n", v.seed, result.c_str(), turns, completion, v.seconds, note.c_str());
-        std::printf("       trace: %s\n", (attempt / "conversation.md").string().c_str());
+        int concerns = 0;   // CONCERN blocks the worker raised (stance.hpp): recorded one heading each in concerns.md
+        const std::string raised = platform::readFileText(attempt / "concerns.md");
+        for (std::size_t at = raised.find("## CONCERN:"); at != std::string::npos; at = raised.find("## CONCERN:", at + 1)) ++concerns;
+        std::println("{:<6} {:<8} {:5} {:12} {:7.0f} {:8}  {}", v.seed, result, turns, completion, v.seconds, concerns, note);
+        if (concerns > 0) std::println("       concerns: {}", (attempt / "concerns.md").string());
+        std::println("       trace: {}", (attempt / "conversation.md").string());
     }
-    std::printf("%d of %zu variant(s) passed\n", passed, vs.size());
+    std::println("{} of {} variant(s) passed", passed, vs.size());
     return passed > 0 ? 0 : 1;
 }
 
