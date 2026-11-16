@@ -1,6 +1,6 @@
 # Resume here (written 2026-11-16, to continue on a faster machine)
 
-Read this first; it supersedes the "next steps" of the old `HANDOFF.md`, `NEXT_SESSION_PROMPT.md` and `ITERATION_PROGRESS.md` (in git history: [ARCHIVE.md](ARCHIVE.md)). The owner's goal is unchanged: prove the
+Follow-up work with its own brief: [sessions/](sessions/README.md) (handoff docs, one per task). Read this first; it supersedes the "next steps" of the old `HANDOFF.md`, `NEXT_SESSION_PROMPT.md` and `ITERATION_PROGRESS.md` (in git history: [ARCHIVE.md](ARCHIVE.md)). The owner's goal is unchanged: prove the
 harness builds sandbox projects from a bare request with local models; the Qwen3.6-35B-A3B (Q4_K_M) is the minimum bar and nothing leaves the machine (frontier stays OFF).
 
 ## 1. Where things stand

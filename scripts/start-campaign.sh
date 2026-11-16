@@ -7,16 +7,23 @@
 #
 # Idempotent: units that are already active are left alone; a campaign resumes from its campaign.jsonl. Transient systemd units do not survive a
 # reboot, which is why this script exists: run it after every boot. Nothing leaves the machine (frontier off, engine on 127.0.0.1).
-# Environment overrides: MODEL, ENGINE_PORT, CTX, SLOTS, THREADS, EXECUTOR, PORTAL_PORT, BINARY.
+# Environment overrides: MODEL, ENGINE_HOST, ENGINE_PORT, CTX, SLOTS, SQUAD_CTX, THREADS, EXECUTOR, PORTAL_PORT, BINARY.
+#
+# An engine already answering at ENGINE_HOST:ENGINE_PORT is used as it is (no systemd unit, no llama-server or model needed here): for example
+# one started on a Windows host by Sub0LlmEngine (`python -m sub0llmengine start`, https://github.com/CraigHutchinson/Sub0LlmEngine), whose
+# `status` prints the SLOTS and SQUAD_CTX to use. SQUAD_CTX is the context each request may plan for (the squad's ctx=), CTX the server's total.
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 GITHUB_DIR="$(dirname "$REPO")"
 MODEL="${MODEL:-/mnt/development/Models/Qwen3.6-35B-A3B-GGUF/Qwen3.6-35B-A3B-UD-Q4_K_M.gguf}"
 LLAMA="${LLAMA:-$GITHUB_DIR/Sub0Llm/out/build/llama-optimizer/bin/llama-server}"
+ENGINE_HOST="${ENGINE_HOST:-127.0.0.1}"
 ENGINE_PORT="${ENGINE_PORT:-8092}"
+ENGINE_ROOT="http://$ENGINE_HOST:$ENGINE_PORT"
 CTX="${CTX:-65536}"
 SLOTS="${SLOTS:-4}"
+SQUAD_CTX="${SQUAD_CTX:-8192}"
 THREADS="${THREADS:-16}"
 EXECUTOR="${EXECUTOR:-fork}"
 PORTAL_PORT="${PORTAL_PORT:-8780}"
@@ -45,15 +52,21 @@ NAME="${1:-baseline}"; RUNS="${2:-20}"; SEED_BASE="${3:-1000}"
 
 # --- preflight --------------------------------------------------------------------------------------------------------------------------
 [ -x "$BINARY" ] || { echo "no binary at $BINARY: build it first (cmake --build out/build/dev -j2)"; exit 1; }
-[ -x "$LLAMA" ] || { echo "no llama-server at $LLAMA (set LLAMA=...)"; exit 1; }
-[ -f "$MODEL" ] || { echo "no model at $MODEL (set MODEL=...)"; exit 1; }
-avail_mib=$(awk '/MemAvailable/ {print int($2/1024)}' /proc/meminfo)
-if ! unitActive sub0-llama35 && [ "$avail_mib" -lt 26000 ]; then
-  echo "only ${avail_mib} MiB of memory is available; the 35B needs about 25 GiB. Close something first."; exit 1
+external=0
+if ! unitActive sub0-llama35 && curl -fsS "$ENGINE_ROOT/health" >/dev/null 2>&1; then external=1; fi
+if [ "$external" = 0 ]; then
+  [ -x "$LLAMA" ] || { echo "no llama-server at $LLAMA (set LLAMA=..., or start an engine at $ENGINE_ROOT first, e.g. with Sub0LlmEngine)"; exit 1; }
+  [ -f "$MODEL" ] || { echo "no model at $MODEL (set MODEL=...)"; exit 1; }
+  avail_mib=$(awk '/MemAvailable/ {print int($2/1024)}' /proc/meminfo)
+  if ! unitActive sub0-llama35 && [ "$avail_mib" -lt 26000 ]; then
+    echo "only ${avail_mib} MiB of memory is available; the 35B needs about 25 GiB. Close something first."; exit 1
+  fi
 fi
 
 # --- the engine: a contained service (memory capped, no swap, the first thing the kernel kills if memory runs out) ---------------------------
-if unitActive sub0-llama35; then
+if [ "$external" = 1 ]; then
+  echo "engine: using the engine already answering at $ENGINE_ROOT (not managed here)"
+elif unitActive sub0-llama35; then
   echo "engine: sub0-llama35 already running"
 else
   systemctl --user reset-failed sub0-llama35 2>/dev/null || true
@@ -64,13 +77,13 @@ else
 fi
 printf 'engine: waiting for it to answer'
 for _ in $(seq 1 180); do
-  if curl -fsS "http://127.0.0.1:$ENGINE_PORT/health" >/dev/null 2>&1; then break; fi
+  if curl -fsS "$ENGINE_ROOT/health" >/dev/null 2>&1; then break; fi
   printf '.'; sleep 5
 done
 echo
-curl -fsS "http://127.0.0.1:$ENGINE_PORT/health" >/dev/null || { echo "the engine did not come up: journalctl --user -u sub0-llama35 -n 30"; exit 1; }
-curl -fsS "http://127.0.0.1:$ENGINE_PORT/metrics" >/dev/null || { echo "the engine answers but has no /metrics (needs --metrics): the tick counters would be missing"; exit 1; }
-model_id=$(curl -fsS "http://127.0.0.1:$ENGINE_PORT/v1/models" | python3 -I -c 'import json,sys; print(json.load(sys.stdin)["data"][0]["id"])' || true)
+curl -fsS "$ENGINE_ROOT/health" >/dev/null || { echo "the engine did not come up: journalctl --user -u sub0-llama35 -n 30"; exit 1; }
+curl -fsS "$ENGINE_ROOT/metrics" >/dev/null || { echo "the engine answers but has no /metrics (needs --metrics): the tick counters would be missing"; exit 1; }
+model_id=$(curl -fsS "$ENGINE_ROOT/v1/models" | python3 -I -c 'import json,sys; print(json.load(sys.stdin)["data"][0]["id"])' || true)
 echo "engine: ready (model alias: ${model_id:-unknown})"
 
 # --- the campaign: a contained service; it resumes from <home>/campaign.jsonl --------------------------------------------------------------
@@ -84,7 +97,8 @@ systemd-run --user --unit=sub0-campaign \
   -p "WorkingDirectory=$REPO" \
   --setenv="PATH=$PATH" --setenv="SUB0_GITHUB_DIR=$GITHUB_DIR" \
   python3 -I "$REPO/scripts/campaign.py" run --name "$NAME" --runs "$RUNS" --seed-base "$SEED_BASE" \
-    --home "$HOME_DIR" --binary "$BINARY" --executor "$EXECUTOR" --portal-port "$PORTAL_PORT" >/dev/null
+    --home "$HOME_DIR" --binary "$BINARY" --executor "$EXECUTOR" --portal-port "$PORTAL_PORT" \
+    --engine-url "$ENGINE_ROOT/v1" --ctx "$SQUAD_CTX" --slots "$SLOTS" >/dev/null
 echo "campaign: started '$NAME' ($RUNS runs from seed $SEED_BASE)"
 echo "  portal:  http://127.0.0.1:$PORTAL_PORT/"
 echo "  report:  $HOME_DIR/campaign-report.md"

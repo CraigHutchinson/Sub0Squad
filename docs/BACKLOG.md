@@ -103,10 +103,24 @@ The queue, with hypotheses, arms, measures and commands, is [EXPERIMENTS.md](EXP
 - `project submit --task calculator-cpp` should consult the harness registry (`harnessWithBlueprint`) instead of stopping at `needs a plan`.
 - `up` warns when an older daemon is running; `up` starts the portal by default in the scripts (`scripts/start-campaign.sh`) and prints its address.
 - The daemon writes `run-info.json` at workflow start and the portal shows it. No `v*` tag exists yet, so the version is 0.0.0 plus the commit count.
-- Wizard, not built: building and supervising `llama-server`, offering and fetching models (each a download, install or service: the owner's go-ahead), the plan
-  shown and editable before it runs, a blueprint picker ([PROCESS_DESIGN.md](PROCESS_DESIGN.md) section 16).
+- Wizard, not built: the plan shown and editable before it runs, a blueprint picker ([PROCESS_DESIGN.md](PROCESS_DESIGN.md) section 16). Building and
+  supervising `llama-server` moved to Sub0LlmEngine's backlog (`docs/BACKLOG.md` there); offering and fetching models to Sub0LlmModelRegistry's providers
+  (`python -m sub0llmregistry fetch`, which asks before any download). The wizard calls both.
 - Planning questions not yet asked: the bar for done and the engine (they need the process and engines replaceable after submission; section 15), choices from the
   harness registry instead of the calculator's three.
+
+**The engine and models from Sub0LlmEngine and Sub0LlmModelRegistry** (owner, 2026-11-16; both are ready to use, the squad does not use them yet; session brief: [sessions/engine-registry-integration.md](sessions/engine-registry-integration.md))
+- Start, stop and query the engine through `python -m sub0llmengine start|status|stop` instead of `scripts/start-campaign.sh` building its own `llama-server`
+  line (`LLAMA=`, its flags and model path). The campaign reads the slot count, context per slot and endpoint from `status` (the `squadCtx` key is the context to
+  plan per request), so E2 (the window plan) takes its KV cost per token from the engine's facts, not the start log.
+- Name models by registry alias (`qwen36-35b-a3b`, `qwen38-27b-q4_0`), resolved by `sub0llmregistry`; record the registry id and the engine's build label in
+  `run-info.json` and the campaign report, so every result names its exact weights and build.
+- Choose the engine configuration from evidence: the runtime explorer's *Export selection + evidence* proposal (`python -m sub0llmengine selection`) is the
+  configuration a campaign starts with, kept with the run; an A/B on the engine is an experiment like any other (same seeds, both selections recorded).
+- Take the bench lock (`out/bench.lock`) into account: a campaign must not run while Sub0LlmEngine benches, and benches refuse while the engine serves.
+- Later: workload-adaptive configuration (a prefill-tuned engine for the planner's long first prompt, then the serving configuration with the KV kept, measured in
+  Sub0LlmEngine's reconfiguration spike) once the engine offers it as a request-level switch. Known model faults to avoid meanwhile: Qwen3.8-27B UD-IQ3_XXS is wrong with
+  CUDA offload (use `qwen38-27b-q4_0`), and Qwen3.8-Flash-Next differs on the first long prefill after load (Sub0LlmEngine `docs/issues/`).
 
 ## Later
 
