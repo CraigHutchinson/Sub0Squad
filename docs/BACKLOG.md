@@ -132,7 +132,13 @@ The queue, with hypotheses, arms, measures and commands, is [EXPERIMENTS.md](EXP
     cost all running work. Reactions: retry with back-off, re-prefill from the host prompt cache; and avoid the case:
     admission control on pool headroom (start or grow a request only with room left), a ceiling per slot above the
     fair share (`--kv-unified-per-slot` at about half the pool), and an upstream fix to end only the largest sequence.
-  - Fixed budgets stay available as a mode for experiments (same seeds must mean the same limits).
+  - Early warning into the agent's context: the engine's pool watermark (Sub0LlmEngine backlog: used / reclaimable /
+    free, levels at 70, 85 and 95 %) becomes one line in the agent's latest message, for example `context: you hold 9.1k;
+    shared pool 23k of 64k free; 3 of 4 agents busy (notice)`. At `warning` the agent is asked to finish the current
+    step and compact; at `critical` the squad stops admitting or growing requests. Put the line at the end of the newest
+    message, never in the system prompt or earlier turns, so the cached prefix is kept; quantise it to bands so it does
+    not change every turn.
+  - Fixed budgets stay available as a mode for experiments (same seeds must mean the same limits). The watermark line is off or fixed in experiments, since it depends on the other agents.
 - Later: workload-adaptive configuration (a prefill-tuned engine for the planner's long first prompt, then the serving configuration with the KV kept, measured in
   Sub0LlmEngine's reconfiguration spike) once the engine offers it as a request-level switch. Known model faults to avoid meanwhile: Qwen3.8-27B UD-IQ3_XXS is wrong with
   CUDA offload (use `qwen38-27b-q4_0`), and Qwen3.8-Flash-Next differs on the first long prefill after load (Sub0LlmEngine `docs/issues/`).
