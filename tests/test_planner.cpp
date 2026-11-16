@@ -158,6 +158,27 @@ int main()
         if (plan) for (const auto& x : checkPlan(*plan)) said = said || x.find("declares a namespace or type 'calc'") != std::string::npos;
         CHECK(said);
     }
+    {   // The parallelism bar: a valid but serial plan goes back to the planner as a problem; when no turn reaches the bar the best valid plan stands and the record says so.
+        const fs::path d = makeTempDir("planner-bar");
+        fake::Engine engine({{good}, {good}});
+        auto args = plannerArgs(d, engine, 2);
+        args.push_back("--slots"); args.push_back("4");
+        args.push_back("--min-speedup"); args.push_back("3.5");
+        CHECK_EQ(runLlmPlanner(args), 0);
+        const auto rq = engine.requests();
+        CHECK_EQ(rq.size(), static_cast<std::size_t>(2));
+        if (rq.size() == 2) CHECK(rq[1].last().find("too serial") != std::string::npos && rq[1].last().find("INDEPENDENT") != std::string::npos);
+        const std::string record = slurp(d / "planner.json");
+        CHECK(record.find("\"barMet\":false") != std::string::npos && record.find("\"minSpeedup\":3.5") != std::string::npos && fs::exists(d / "plan.json"));
+        const fs::path d2 = makeTempDir("planner-bar-met");   // a bar the plan meets is not a problem: one turn
+        fake::Engine engine2({{good}});
+        auto args2 = plannerArgs(d2, engine2, 2);
+        args2.push_back("--slots"); args2.push_back("1");
+        args2.push_back("--min-speedup"); args2.push_back("0.9");
+        CHECK_EQ(runLlmPlanner(args2), 0);
+        CHECK_EQ(engine2.requestCount(), static_cast<std::size_t>(1));
+        CHECK(slurp(d2 / "planner.json").find("\"barMet\":true") != std::string::npos);
+    }
     {   // A supplied plan is not re-planned (the engine is never called) but goes through the same mends and checks.
         const fs::path d = makeTempDir("planner-supplied");
         put(d / "plan.json", good);

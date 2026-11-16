@@ -12,8 +12,9 @@
 
 namespace sub0squad {
 
-/// `llm-planner --workflow-dir DIR --engine PROFILE --request TEXT [--max-turns N] [--timeout SEC] [--max-tokens N] [--wall SEC] [--slots N] [--prose]
-/// [--stance baseline|specialist]` (slots default to the engine profile's): exit 0 plan written, 1 no valid plan within the turns, 2 the engine failed, 64 usage.
+/// `llm-planner --workflow-dir DIR --engine PROFILE --request TEXT [--max-turns N] [--timeout SEC] [--max-tokens N] [--wall SEC] [--slots N] [--prose] [--min-speedup X]
+/// [--stance baseline|specialist]` (slots default to the engine profile's): exit 0 plan written (with `--min-speedup`, the plan that reaches that expected speedup on the
+/// slots, else the best valid one, said so in `planner.json` as `barMet`), 1 no valid plan within the turns, 2 the engine failed, 64 usage.
 [[nodiscard]] int runLlmPlanner(const std::vector<std::string>& args);
 
 /// The system prompt: the planner's role, the plan-2 form and its rules, and what each registered harness is and does. Exposed so a test can read it.

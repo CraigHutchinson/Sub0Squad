@@ -218,8 +218,14 @@ int runLlmPlanner(const std::vector<std::string>& args)
     const std::string request = arg(args, "request");
     const int maxTurns = std::atoi(arg(args, "max-turns", "4").c_str());
     const int timeoutSec = std::atoi(arg(args, "timeout", "3300").c_str());   // one engine call; a small model on a CPU writes a plan at a few tokens a second
-    const int maxTokens = std::atoi(arg(args, "max-tokens", "3500").c_str());
-    const int wallSec = std::atoi(arg(args, "wall", "7000").c_str());           // the whole job: no turn is started that cannot finish inside it
+    const int maxTokensArg = std::atoi(arg(args, "max-tokens", "0").c_str());
+    const int wallSec = std::atoi(arg(args, "wall", "7000").c_str());
+    // The parallelism bar (owner: iterate the plan until the nodes can keep the slots busy): a plan that passes every check but whose expected speedup on the
+    // engine's slots (plan-lint's Monte Carlo over unknown item sizes) is below this goes back to the planner like any other problem. 0 = no bar.
+    const double minSpeedup = std::atof(arg(args, "min-speedup", "0").c_str());
+    std::string bestPlanJson, bestLintText;
+    double bestSpeedup = -1, lastSpeedup = 0;
+    bool barMet = minSpeedup <= 0;           // the whole job: no turn is started that cannot finish inside it
     const auto started = std::chrono::steady_clock::now();
     if (dir.empty() || request.empty()) { std::fprintf(stderr, "llm-planner: --workflow-dir and --request are required\n"); return 64; }
     const std::string stance = arg(args, "stance", "baseline");   // stance.hpp: an arm of docs/EXPERIMENTS.md E1 for the planner
@@ -247,6 +253,8 @@ int runLlmPlanner(const std::vector<std::string>& args)
     }
     auto engine = EngineProfile::parse(arg(args, "engine"));
     if (!engine) { std::fprintf(stderr, "llm-planner: %s\n", engine.error().c_str()); return 64; }
+    // A reply may use up to 45 % of a slot's window (3.7k of 8192: what the small window allowed; 7k of 16384), unless `--max-tokens` says otherwise.
+    const int maxTokens = maxTokensArg > 0 ? maxTokensArg : std::clamp(engine->contextTokens * 45 / 100, 2000, 7000);
 
     // What the owner settled when the planning stage asked (clarify): the platform and the executor are data in the sandbox.
     std::string answers = slurp(dir / "brief.json");
@@ -284,7 +292,7 @@ int runLlmPlanner(const std::vector<std::string>& args)
         for (const auto& k : kindByTurn) w.str(k);
         w.endArray().key("mends").beginArray();
         for (const auto& m : mendsMade) w.beginObject().kv("turn", static_cast<std::int64_t>(m.first)).kv("text", m.second).endObject();
-        w.endArray().kvBool("prose", !prose.empty()).kv("slots", static_cast<std::int64_t>(slots)).kv("lint", lintText).endObject();
+        w.endArray().kvBool("prose", !prose.empty()).kv("slots", static_cast<std::int64_t>(slots)).kv("minSpeedup", minSpeedup).kv("speedup", lastSpeedup).kvBool("barMet", barMet).kv("lint", lintText).endObject();
         writeFile(dir / "planner.json", w.take() + "\n");
         writeFile(dir / "planner" / "conversation.md", conversation);
     };
@@ -343,7 +351,7 @@ int runLlmPlanner(const std::vector<std::string>& args)
         std::error_code ec;
         fs::create_directories(live.parent_path(), ec);
         std::ofstream liveOut(live, std::ios::binary | std::ios::trunc);
-        auto reply = chatCompleteMessages(*engine, messages, haveDocument ? std::min(maxTokens, 2000) : maxTokens, std::min(timeoutSec, left), [&](std::string_view content, std::string_view) { liveOut << content << std::flush; });
+        auto reply = chatCompleteMessages(*engine, messages, haveDocument ? std::min(maxTokens, 3500) : maxTokens, std::min(timeoutSec, left), [&](std::string_view content, std::string_view) { liveOut << content << std::flush; });
         liveOut.close();
         fs::remove(live, ec);
         if (!reply) { std::fprintf(stderr, "llm-planner: engine call failed: %s\n", reply.error().c_str()); record(false, turn - 1); return 2; }
@@ -401,10 +409,25 @@ int runLlmPlanner(const std::vector<std::string>& args)
                 if (problems.empty())
                     if (const Harness* h = findHarness(plan->harness); h && h->checkPlanScaffold)
                         if (const std::string bad = h->checkPlanScaffold(plan->toJson()); !bad.empty()) problems.push_back(bad);
+                PlanLint barLint;
+                if (problems.empty()) {
+                    barLint = lintPlan(*plan, 5.0, slots);
+                    lastSpeedup = barLint.expectedSpeedup;
+                    if (minSpeedup > 0 && barLint.expectedSpeedup + 1e-9 < minSpeedup) {
+                        if (barLint.expectedSpeedup > bestSpeedup) { bestSpeedup = barLint.expectedSpeedup; bestPlanJson = plan->toJson(); bestLintText = barLint.toText(); }
+                        char num[400];
+                        std::snprintf(num, sizeof num, "the plan is valid but too serial: its expected speedup on %d slots is %.2fx and the bar is %.2fx (at most %d items can be ready at once; no schedule can beat %.2fx)", slots, barLint.expectedSpeedup, minSpeedup, barLint.maxWidth, barLint.boundSpeedup);
+                        std::string why = num;
+                        why += ". Raise it by splitting the work into more INDEPENDENT deliverables: modules that share no files and depend on nothing but their own tester item, each with its own tester item and developer item, so that several items can start at once and a slot that frees finds work waiting. Do not pad with invented parts; do not split one file's internals into items. Keep every card short";
+                        problems.push_back(why);
+                        std::fprintf(stderr, "llm-planner: turn %d: valid, but %.2fx is below the %.2fx bar\n", turn, barLint.expectedSpeedup, minSpeedup);
+                    }
+                }
                 if (problems.empty()) {
                     problemsByTurn.push_back({});
                     kindByTurn.push_back(edited ? "edit" : "plan");
-                    const PlanLint lint = lintPlan(*plan, 5.0, slots);
+                    barMet = true;
+                    const PlanLint& lint = barLint;
                     lintText = lint.toText();
                     if (!writeFile(dir / "plan.json", plan->toJson())) { std::fprintf(stderr, "llm-planner: cannot write plan.json\n"); return 1; }
                     events::metric("plan.items", static_cast<double>(plan->items.size()));
@@ -437,6 +460,15 @@ int runLlmPlanner(const std::vector<std::string>& args)
         conversation += "\n## Turn " + std::to_string(turn) + " (the harness)\n\n";
         for (const auto& p : problems) conversation += "- " + p + "\n";
         std::fprintf(stderr, "llm-planner: turn %d refused: %zu problem(s); first: %s\n", turn, problems.size(), problems.front().substr(0, 200).c_str());
+    }
+    if (!bestPlanJson.empty()) {   // valid plans exist but none reached the bar: the best one stands, and the record says the bar was not met
+        if (!writeFile(dir / "plan.json", bestPlanJson)) return 1;
+        lintText = bestLintText;
+        lastSpeedup = bestSpeedup;
+        record(true, static_cast<int>(problemsByTurn.size()));
+        std::printf("%s", lintText.c_str());
+        std::printf("planned with the BAR NOT MET: best expected speedup %.2fx, bar %.2fx, after %zu turn(s)\n", bestSpeedup, minSpeedup, problemsByTurn.size());
+        return 0;
     }
     record(false, static_cast<int>(problemsByTurn.size()));
     std::fprintf(stderr, "llm-planner: no valid plan in %zu turn(s)\n", problemsByTurn.size());
