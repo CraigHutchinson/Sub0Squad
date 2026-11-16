@@ -39,6 +39,10 @@ new one has run a campaign; do not remove it in the same change.
 * Models to avoid for now: Qwen3.8-27B UD-IQ3_XXS (wrong with CUDA offload; use `qwen38-27b-q4_0`) and
   Qwen3.8-Flash-Next (its first long prefill after a load differs from later ones). See Sub0LlmEngine `docs/issues/`.
 
+* Context per request is dynamic by default (backlog, "Dynamic context by default"): `squadCtx` is a planning target,
+  not a ceiling. The integration must not hard-cap requests at `squadCtx`, and must handle both exhaustion signals
+  (one request truncated with `finish_reason: "length"`; all active requests failed when the shared pool is full).
+
 ## Steps
 
 1. **Engine through Sub0LlmEngine.** In `scripts/start-campaign.sh`, an `ENGINE=sub0llmengine` mode (or the default once

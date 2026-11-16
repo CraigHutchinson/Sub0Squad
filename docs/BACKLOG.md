@@ -118,6 +118,21 @@ The queue, with hypotheses, arms, measures and commands, is [EXPERIMENTS.md](EXP
 - Choose the engine configuration from evidence: the runtime explorer's *Export selection + evidence* proposal (`python -m sub0llmengine selection`) is the
   configuration a campaign starts with, kept with the run; an A/B on the engine is an experiment like any other (same seeds, both selections recorded).
 - Take the bench lock (`out/bench.lock`) into account: a campaign must not run while Sub0LlmEngine benches, and benches refuse while the engine serves.
+- **Dynamic context by default** (owner, 2026-11-16): a request plans against a soft target (`squadCtx`), not a hard ceiling,
+  keeps going past it while the shared KV pool has room, and reacts when it runs out, so one agent can take more while
+  others are idle. What llama-server does (upstream `c7518db`, `tools/server/server-context.cpp`), which the reactions must
+  follow:
+  - With unified KV a slot's own limit is the whole pool (`llama_n_ctx_seq`), unless `--kv-unified-per-slot N` caps it.
+    Reaching it ends that request with `finish_reason: "length"` (truncated). Reaction: compact or summarise the
+    agent's context and continue, or split the task.
+  - When the pool is full, the server first clears idle slots (saved to the host prompt cache with `--cache-idle-slots`),
+    then halves the batch. Idle capacity is reclaimed automatically, which is the case this design wants.
+  - When it is still full with every slot busy, it fails **every** active request ("Context size has been exceeded.")
+    and clears their contexts (an upstream TODO says it should end only the largest). One greedy agent can therefore
+    cost all running work. Reactions: retry with back-off, re-prefill from the host prompt cache; and avoid the case:
+    admission control on pool headroom (start or grow a request only with room left), a ceiling per slot above the
+    fair share (`--kv-unified-per-slot` at about half the pool), and an upstream fix to end only the largest sequence.
+  - Fixed budgets stay available as a mode for experiments (same seeds must mean the same limits).
 - Later: workload-adaptive configuration (a prefill-tuned engine for the planner's long first prompt, then the serving configuration with the KV kept, measured in
   Sub0LlmEngine's reconfiguration spike) once the engine offers it as a request-level switch. Known model faults to avoid meanwhile: Qwen3.8-27B UD-IQ3_XXS is wrong with
   CUDA offload (use `qwen38-27b-q4_0`), and Qwen3.8-Flash-Next differs on the first long prefill after load (Sub0LlmEngine `docs/issues/`).
