@@ -335,4 +335,39 @@ journal, concerns, mends), and show which of them become layers and which stay w
 
 ## Slice 1 on tier 0
 
-See the measurement below, recorded when the runs finished.
+Measured 2026-11-17 on build `0.0.0-151-g44db273` (slice 1 plus the shim switch on base 973b9e6; the branch was later rebased, and the later commits change
+only the item key, JSON and docs). Engine `qwen35` (llama server on port 8092, ctx 16384, 4 slots), 4 jobs at once. One build, two arms, chosen per run by
+`SUB0SQUAD_ISSUE_LAYER` (0 = the gate's clipped text as before, 1 = the issues summary). Every run's own `agent.json` records which arm it ran in, and every
+run matches its arm. Three runs per case per arm, 24 runs in total, and all 24 passed. Defects per turn is the gate's measure: defects × passed runs ÷ turns
+of the passed runs. Tokens are means per run. Seconds are not compared, because the runs shared the server with other sessions.
+
+| case | defects | off: turns per run | on: turns per run | off: defects/turn | on: defects/turn | off: first attempt | on: first attempt | prompt tokens off → on | out tokens off → on | issue reads (on) |
+|---|---|---|---|---|---|---|---|---|---|---|
+| bugs-3 | 3 | 1 1 3 | 2 1 4 | 1.80 | **1.29** (worse) | 3/3 | 3/3 | 8,342 → 11,749 | 446 → 1,349 | 0 |
+| bugs-6 | 6 | 4 5 3 | 4 3 2 | 1.50 | **2.00** | 3/3 | 2/3 | 20,074 → 15,128 | 1,073 → 1,518 | 0 |
+| bugs-10 | 10 | 4 3 6 | 1 4 3 | 2.31 | **3.75** | 1/3 | 3/3 | 21,699 → 14,121 | 2,304 → 2,524 | 1 |
+| fix-many | 5 | 1 1 1 | 1 3 1 | 5.00 | **3.00** (worse) | 3/3 | 3/3 | 5,106 → 8,550 | 590 → 621 | 0 |
+| all | 72 | 33 turns | 29 turns | 2.18 | 2.48 | 10/12 | 11/12 | 13,805 → 12,387 (−10%) | 1,103 → 1,503 (+36%) | 1 |
+
+What this shows, and what it does not:
+
+* **Where the layer was meant to help, it helped.** On bugs-6 and bugs-10 the gate's excerpt keeps six failures and clips the rest. There, defects per turn
+  rose by 33% and 62%, and prompt tokens fell by 25% and 35% (the summary replaces the clipped text and its repeats). bugs-10 also passed on the first
+  attempt in all three runs, against one in three without the layer.
+* **Where the old text already listed everything, it did not help.** bugs-3 and fix-many got worse: one extra turn in one run of fix-many, and in two runs of
+  bugs-3. Their prompts grew, because the summary's localisation (the function's line range) is added to a verdict that was already short. Completion tokens
+  rose in every case.
+* **A quality regression.** In bugs-10 with the layer on, run 2 changed 105 lines where 10 were needed, 45 of them collateral (quality_t0.py). Without the
+  layer, the worst bugs-10 run changed 18 lines, 1 of them collateral. One run is not a pattern, but the next slice must watch this: a summary that names
+  whole functions may invite rewriting them.
+* **The worker hardly asks for detail.** It read one issue in 12 runs (`=== READ: ISSUE n ===`). The summary alone carried the effect. The query costs
+  nothing when it is not used, but its value is not shown yet.
+* **The noise is as large as the effect.** Three runs per arm, and per-run turns vary from 1 to 6 within one arm (bugs-10 off: 4 3 6). The overall gain,
+  2.18 to 2.48 defects per turn (+14%), is not significant at n = 3. An earlier build of the same slice (before the prompt session's changes, layer on only)
+  measured bugs-3 1.29, bugs-6 2.0 and bugs-10 3.33 (two runs), which agrees with this arm.
+* **A first attempt was void.** The switch was read in the agent's own process, but the shim rebuilds a job's environment, so every "off" run in that attempt
+  ran with the layer on. The shim now passes `SUB0SQUAD_ISSUE_LAYER` through (commit "Shim: pass SUB0SQUAD_ISSUE_LAYER through"), and those runs are not
+  counted here.
+
+Next, from this: keep the summary for long verdicts and fall back to the gate's own text when it already fits unclipped (that alone removes both
+regressions above); measure the collateral; and give the A/B five runs per arm before reading anything into a gap smaller than about 30%.
