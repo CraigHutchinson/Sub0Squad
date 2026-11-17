@@ -220,8 +220,12 @@ There are two audiences, and they get two formats:
  "blocks":[{"id","path","name","signature","first","last"}],
  "retired":[{"id","path","name","mergedInto"}],
  "events":[{"turn","carry","id","path","name","detail"}],
- "layers":{"issues":[{"number","kind","title","detail","anchors":[{"blockId","path","line","confidence"}]}]}}
+ "layers":{"issues":[{"id","number","kind","title","detail","anchors":[{"blockId","path","line","confidence"}]}]}}
 ```
+
+`events` is the index's whole log up to this turn (cumulative; each event carries its turn, so a reader takes `turn == N` for one turn's changes).
+`retired` is the set retired as of this turn. An item's `id` is stable across turns while its `number` is not: `issues/test/<name>` for a failing test,
+`issues/<kind>/<hash of the message without numbers>` for a diagnostic. An anchor's `line` is in the revision given in `files` for that turn.
 
 Considered: **YAML** (more readable, fewer tokens, but its indentation and implicit typing make it error-prone, and that matters only if a model writes it);
 **BAML** (a typed schema-and-prompt language: worth it if a model is ever asked to *produce* layer items, such as a reviewer writing notes, because the parser
@@ -255,10 +259,12 @@ rather than reinvents:
 
 ## Visualisation: sub0canvas
 
-The viewer is its own project, **sub0canvas** (a new repository, created by its own session). It reads `layers/turn-N.json` and the canvas log. It centres
+The viewer is its own project, **sub0canvas** ([github.com/CraigHutchinson/sub0canvas](https://github.com/CraigHutchinson/sub0canvas), public), built by its own session. It reads `layers/turn-N.json` and the canvas log. It centres
 the view on any layer (code, prose, issues, review or others; nothing about the set is hard-coded), drills down from prose to code and back, shows a block's
-identity history and the revisions that touched it, and steps through the anchors of a 1-N item. Whether the C++ index itself moves into sub0canvas as a
-library, with Sub0Squad consuming it, is an open decision for the owner.
+identity history and the revisions that touched it, and steps through the anchors of a 1-N item. The owner decided (2026-11-17) that the C++ index and layers move into
+sub0canvas as a library (`sub0canvas::layers`, pure, with block discovery passed in), with Sub0Squad consuming it pinned to a tag, and one golden set of turn
+files tested on both sides. That move is the next step after slice 1. The viewer's further schema requests (anchor columns, a proposed `fix` per item,
+`mergedFrom` for unified reports, a `revision` on loose anchors, a `layerMeta` map) are listed in its repository and are not built here yet.
 
 ## Out of scope (for now)
 
@@ -279,7 +285,9 @@ library, with Sub0Squad consuming it, is an open decision for the owner.
   carry it through.
 * The canvas loop (`src/canvas_agent.cpp`) shows the summary for every failing verdict (the starting files, a staged revision that does not compile, a
   failing commit, a reverted commit), answers `=== READ: ISSUE n ===` as a read, writes `layers/turn-N.json`, and records `issueLayer` and `issueReads` in
-  `agent.json`. `SUB0SQUAD_ISSUE_LAYER=0` turns it off, so one build can be measured both ways. The verdict about an earlier attempt's draft (attempt 2 and
+  `agent.json`. `SUB0SQUAD_ISSUE_LAYER=0` turns it off, so one build can be measured both ways. A job's environment is rebuilt by the shim, so the
+  shim passes this switch through (`src/shim.cpp`). Without that, an A/B silently measures the default twice, which is what the first attempt at this
+  measurement did. The verdict about an earlier attempt's draft (attempt 2 and
   later) is still the gate's text.
 * The summary header names the query only. It does not tell the worker to fix everything in one reply: that instruction is the prompt session's, so the two
   effects can be measured apart.

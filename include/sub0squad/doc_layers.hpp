@@ -106,6 +106,7 @@ struct LayerItem
     std::string title;            ///< one line
     std::string detail;           ///< the producer's full text (of the first occurrence when there are several)
     std::vector<Anchor> anchors;  ///< where it belongs, the first the primary; empty: nowhere known
+    std::string key;              ///< the same item across turns while its number changes: issues use the test's name, or a hash of the message with numbers removed
 };
 
 /// The issues in a verdict: every compiler diagnostic (`path:line:col: error: ...`, Python's `path:line: msg`) anchored exactly to the block holding the

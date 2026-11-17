@@ -387,7 +387,7 @@ std::vector<LayerItem> parseIssues(const std::string& verdict, const BlockIndex&
             const std::string name = rest.substr(0, colon), message = colon == std::string::npos ? std::string{} : rest.substr(colon + 2);
             testNames[items.size()] = name;
             current = items.size();
-            items.push_back({"issues", 0, "test", "test " + name + (message.empty() ? "" : ": " + message), line, {}});
+            items.push_back({"issues", 0, "test", "test " + name + (message.empty() ? "" : ": " + message), line, {}, "issues/test/" + name});
             continue;
         }
         std::smatch m;
@@ -410,7 +410,9 @@ std::vector<LayerItem> parseIssues(const std::string& verdict, const BlockIndex&
             }
             byKey[key] = items.size();
             current = items.size();
-            items.push_back({"issues", 0, kind, kind + " " + path + ":" + std::to_string(at) + ": " + message, line, {a}});
+            char hash[17];
+            std::snprintf(hash, sizeof hash, "%016llx", static_cast<unsigned long long>(std::hash<std::string>{}(key)));
+            items.push_back({"issues", 0, kind, kind + " " + path + ":" + std::to_string(at) + ": " + message, line, {a}, "issues/" + kind + "/" + hash});
             continue;
         }
         if (current && raw.size() > 1 && raw[0] == ' ') items[*current].detail += "\n" + raw;   // a context line (the source line, the caret, expected/actual)
@@ -544,7 +546,7 @@ std::string layeredJson(int turn, const std::map<std::string, std::string>& file
     for (const auto& [name, items] : layers) {
         w.key(name).beginArray();
         for (const auto& it : items) {
-            w.beginObject().kv("number", it.number).kv("kind", it.kind).kv("title", it.title).kv("detail", it.detail).key("anchors").beginArray();
+            w.beginObject().kv("id", it.key).kv("number", it.number).kv("kind", it.kind).kv("title", it.title).kv("detail", it.detail).key("anchors").beginArray();
             for (const auto& a : it.anchors) w.beginObject().kv("blockId", a.blockId).kv("path", a.path).kv("line", a.line).kv("confidence", confidenceName(a.confidence)).endObject();
             w.endArray().endObject();
         }

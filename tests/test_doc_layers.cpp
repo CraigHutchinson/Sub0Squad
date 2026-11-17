@@ -174,7 +174,7 @@ int main()
         const std::string without = replaceOnce(kCalc, callText, "");
         index.update(path, without);
         CHECK(index.resolve(call) == nullptr && hasEvent(index, Carry::retired, call));
-        LayerItem orphan{"issues", 1, "test", "test logarithms: log(100) is 4.6 but 2", "FAIL 9 - logarithms: ...", {{call, path, 30, Anchor::Confidence::suspect}}};
+        LayerItem orphan{"issues", 1, "test", "test logarithms: log(100) is 4.6 but 2", "FAIL 9 - logarithms: ...", {{call, path, 30, Anchor::Confidence::suspect}}, "issues/test/logarithms"};
         CHECK(layerDetail(orphan, index, {{path, without}}).find("no longer exists") != std::string::npos);
         CHECK(layerSummary({orphan}, index).find("a function that no longer exists") != std::string::npos);
         index.update(path, kCalc);                                      // written again (the canvas's "FILE first, then SYMBOL each function")
@@ -209,6 +209,7 @@ int main()
             CHECK(issues[0].kind == "test" && issues[0].number == 1 && issues[0].anchors.size() == 1 && issues[0].anchors[0].blockId == idOf(index, path, "term"));
             CHECK(issues[0].anchors[0].confidence == Anchor::Confidence::suspect);
             CHECK(issues[1].anchors.size() == 1 && issues[1].anchors[0].blockId == idOf(index, path, "factorial"));
+            CHECK_EQ(issues[1].key, std::string{"issues/test/factorial"});   // the same issue next turn, whatever its number
             CHECK(issues[2].anchors.size() == 1 && issues[2].anchors[0].blockId == idOf(index, path, "call"));
             const std::string summary = layerSummary(issues, index);
             CHECK(summary.rfind("3 issues (`=== READ: ISSUE n ===`", 0) == 0);
@@ -237,6 +238,7 @@ int main()
         CHECK_EQ(errs.size(), static_cast<std::size_t>(2));
         if (errs.size() == 2) {
             CHECK(errs[0].kind == "error" && errs[0].anchors.size() == 3);                       // 1-N: one issue, three places
+            CHECK(errs[0].key.rfind("issues/error/", 0) == 0 && errs[0].key != errs[1].key);
             CHECK(errs[0].anchors[0].blockId == idOf(index, path, "expr") && errs[0].anchors[0].confidence == Anchor::Confidence::exact);
             CHECK(errs[0].anchors[2].blockId == idOf(index, path, "evaluate"));
             CHECK(errs[0].detail.find("^~~~~") != std::string::npos);                            // the first occurrence keeps its caret
