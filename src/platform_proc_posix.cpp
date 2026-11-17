@@ -56,6 +56,33 @@ bool isAlive(ProcessId id, std::uint64_t expectedStart)
     return st && st->state != 'Z' && st->state != 'X' && st->start == expectedStart;
 }
 
+std::optional<ProcessUsage> processUsage(ProcessId id)
+{
+    // /proc/PID/stat: utime and stime are fields 14 and 15 (the 12th and 13th after the state, read after the last ')').
+    auto stat = slurp("/proc/" + std::to_string(id) + "/stat");
+    if (!stat) return std::nullopt;
+    const auto close = stat->rfind(')');
+    if (close == std::string::npos || close + 2 > stat->size()) return std::nullopt;
+    std::istringstream rest(stat->substr(close + 2));
+    std::string tok;
+    for (int i = 0; i < 11; ++i) rest >> tok;
+    long long utime = 0, stime = 0;
+    if (!(rest >> utime >> stime)) return std::nullopt;
+    ProcessUsage u;
+    u.cpuSeconds = static_cast<double>(utime + stime) / static_cast<double>(::sysconf(_SC_CLK_TCK));
+    if (auto status = slurp("/proc/" + std::to_string(id) + "/status")) {
+        std::uint64_t total = 0;
+        bool any = false;
+        for (const char* key : {"voluntary_ctxt_switches:", "nonvoluntary_ctxt_switches:"})
+            if (auto p = status->find(key); p != std::string::npos) {
+                total += std::strtoull(status->c_str() + p + std::char_traits<char>::length(key), nullptr, 10);
+                any = true;
+            }
+        if (any) u.contextSwitches = total;
+    }
+    return u;
+}
+
 std::vector<ProcessId> allProcesses()
 {
     std::vector<ProcessId> out;
@@ -99,6 +126,8 @@ bool killProcess(ProcessId id) { return id > 0 && ::kill(static_cast<pid_t>(id),
 
 void becomeSubreaper() { ::prctl(PR_SET_CHILD_SUBREAPER, 1); }
 void ignoreBrokenPipes() { ::signal(SIGPIPE, SIG_IGN); }
+
+void useBinaryStandardStreams() {}
 void ignoreStopRequests()
 {
     ::signal(SIGTERM, SIG_IGN);

@@ -129,12 +129,33 @@ script has a `cmake/git-semver.cmd` twin). The platform layer has its four Windo
 
 `platform_net_win32.cpp` and `platform_ipc_win32.cpp` (slice 4) are Winsock 2 and AF_UNIX, and `test_platform_net` passes natively.
 `platform_wait_win32.cpp` (slice 5) and the pipes of `platform_process_win32.cpp` pass `test_platform_wait` natively, including a stop request to
-another process through its named event. Every unit of the program now compiles natively. The four daemon units and `src/sub0squad.cpp` fail only
-against the local Sub0Pipeline checkout that `CPM_Sub0Pipeline_SOURCE` points at on this machine (it lacks `Completion` and `Pipeline::emplaceDeferred`);
-compiled against the pinned version (the copy the WSL build fetched), the daemon units compile cleanly. Nothing of ours to change. MinGW needs
-`libstdc++exp` for `std::print`'s console output; CMake links it. `tests/m0_graph_growth.cpp` (a fork probe that answered on Linux) is built on POSIX only.
-Not yet decided: whether the replace-while-read retry (below) belongs in `platform_file` now or with the first Windows run. Not yet run natively: the
-program itself (the daemon, a shim, a job), which needs the Sub0Pipeline checkout brought level first.
+another process through its named event. MinGW needs `libstdc++exp` for `std::print`'s console output; CMake links it. `tests/m0_graph_growth.cpp`
+(a fork probe that answered on Linux) is built on POSIX only.
+
+**The program runs natively (2026-11-16).** The daemon, the shim, jobs, workflows and the CLI run on Windows. These pass natively: the platform
+tests, `test_e2e` (cancel leaves no process, lost supervisors, a daemon crash and adoption, the polled-shim fallback), `test_shim`, `test_idle`,
+`test_archive`, `test_fork`, `test_scenarios`, `test_planner`, `test_wizard`, `test_project` (Python, C++ and web projects, cancel, crash and adoption), `test_readme`, `test_clarify` and the rest of the unit suite.
+What it took, beyond the platform layer:
+
+* **Line ends.** The program puts its standard streams in binary mode at start (`platform::useBinaryStandardStreams`): in text mode every `\n` became `\r\n`,
+  so a captured workflow id read back as `w-000001\r`. A checkout made before `.gitattributes` still had CRLF fixtures and goldens; re-checking those
+  files out fixed a dozen golden tests. Test fixtures are written in binary mode.
+* **Paths.** A workflow sandbox must be rooted (`has_root_directory`, so `C:\x` and `/x` both qualify), not "start with `/`"; the portal's sandbox check
+  compares generic strings and refuses a root name (`C:x`, `\\server`); `mend-apply` refuses any rooted file. The compile-to-nowhere checks use
+  `platform::nullDevice()` (`NUL`).
+* **The C++ harness on MinGW.** `_USE_MATH_DEFINES` everywhere (`M_PI` is hidden under `-std=c++20` otherwise); the app's test helper uses
+  `_popen` with cmd.exe quoting and reads in text mode; the app is `calc_cli.exe`; the integration builds with AddressSanitizer and UBSan only where
+  the compiler can link them (probed once: MinGW's GCC has neither, and the report then says "WITHOUT sanitizers"); a link error is quoted from
+  "undefined reference" on, since MinGW's `ld.exe` path is longer than the cut.
+* **The web harness on node 22 and later.** `node --test` takes the test files by name, not the `tests/` directory (on every system).
+* **A `thread_local` simdjson parser** crashed threads at exit under MinGW (its destructor ran after the thread's storage was freed). Parsers now come
+  from a small process-wide pool (`json::PooledParser`).
+* **Job containment.** A job's job object does not allow breakaway: a process of the job that starts a new session of its own (the escapee in
+  `test_e2e`) stays in the job, so cancel reaches it. A daemon's shims leave the caller's job when that job allows it; a crashed daemon's job has no
+  kill-on-close, so its shims live on and the next daemon adopts them (`test_project`'s crash scenario passes natively).
+
+The full suite passes natively (55 of 55, 2026-11-17, with node 24 and Python on `PATH`). Without node, the web-platform cases fail on any system
+(`test_platforms`, `test_clarify`, `test_scenarios`, `test_project`) and `test_portal_page` is disabled. MSVC and clang-cl are untried.
 
 * **First milestone: the domain layer and its tests under MSVC or clang-cl.** It is free of the operating system since slice 4, so this checks the C++23
   portability of most of the code cheaply.
@@ -161,6 +182,6 @@ What Windows will not match exactly, and must be designed for:
 ## 7. Recommendation
 
 Slices 0 to 5 are done: they removed duplicated code and kept operating-system types out of the interfaces, and the platform layer has Windows
-backends that pass its tests. The next Windows step is a first native run of the program (the daemon, a shim and the mock first-use path), which needs
-the local Sub0Pipeline checkout brought level with the pinned version (the owner's call: it is another repository). Until then the WSL path in
-[DEV_SETUP.md](DEV_SETUP.md) is the way to run the program on a Windows host.
+backends that pass its tests. The program runs natively on Windows (section 6). The platform primitives are benchmarked against hand-written twins on
+both systems (`benchmarks/bench_platform.cpp`, part of `Sub0Squad_Bench`; [DEV_SETUP.md](DEV_SETUP.md), "Tests and benchmarks"). Next: the remaining
+native project scenarios, then MSVC or clang-cl.

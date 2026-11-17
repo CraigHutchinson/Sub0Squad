@@ -12,9 +12,28 @@ void Daemon::Impl::post(std::move_only_function<void()> fn)
     waiter.wake();
 }
 
-void Daemon::Impl::watchShim(const std::string& id, platform::ProcessId shim)
+bool Daemon::Impl::watchShim(const std::string& id, platform::ProcessId shim)
 {
-    if (waiter.watchExit(shim, tag(kShimExit, shim))) shimToJob[shim] = id;
+    const char* forcePoll = std::getenv("SUB0SQUAD_TEST_POLL_SHIMS");   // tests take the fallback on purpose
+    if ((forcePoll && *forcePoll) || !waiter.watchExit(shim, tag(kShimExit, shim))) {
+        const auto start = platform::processStart(shim);
+        if (!start || !platform::isAlive(shim, *start)) return false;
+        polledShims[shim] = *start;
+        logf("job %s: shim %lld is watched by polling (the waiter could not take it)", id.c_str(), static_cast<long long>(shim));
+    }
+    shimToJob[shim] = id;
+    return true;
+}
+
+void Daemon::Impl::checkPolledShims()
+{
+    std::vector<platform::ProcessId> gone;
+    for (const auto& [shim, start] : polledShims)
+        if (!platform::isAlive(shim, start)) gone.push_back(shim);
+    for (const auto shim : gone) {
+        polledShims.erase(shim);
+        onShimExit(shim);
+    }
 }
 
 void Daemon::Impl::notifyWaiters(const std::string& id)
@@ -196,8 +215,12 @@ int Daemon::Impl::loop()
 {
     while (!stopping) {
         // Blocks when there is nothing to watch (the idle state: no wake-ups); with jobs running or queued it wakes every 5 s (1 s near the reserve) to check memory.
-        auto events = waiter.wait(hasWorkToWatch() ? std::optional{std::chrono::milliseconds(watchMs)} : std::nullopt);
+        std::optional<std::chrono::milliseconds> timeout;
+        if (hasWorkToWatch()) timeout = std::chrono::milliseconds(watchMs);
+        if (!polledShims.empty()) timeout = std::min(timeout.value_or(std::chrono::milliseconds(1000)), std::chrono::milliseconds(1000));
+        auto events = waiter.wait(timeout);
         if (!events) { logf("%s", events.error().what().c_str()); return 1; }
+        if (!polledShims.empty()) checkPolledShims();
         if (const auto now = std::chrono::steady_clock::now(); now - lastMemCheck >= std::chrono::milliseconds(watchMs) && hasWorkToWatch()) {
             lastMemCheck = now;
             shedIfPressured();

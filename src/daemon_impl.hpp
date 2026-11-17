@@ -137,7 +137,9 @@ struct Daemon::Impl
     bool stopping = false;
     std::map<platform::NativeSocket, Client> clients;
     std::map<std::string, std::unique_ptr<Running>> running;
-    std::map<platform::ProcessId, std::string> shimToJob;   ///< the shims whose exit the waiter watches
+    std::map<platform::ProcessId, std::string> shimToJob;   ///< the shims whose exit is watched (by the waiter, or by polling below)
+    std::map<platform::ProcessId, std::uint64_t> polledShims;   ///< shims the waiter could not watch (its limit, no pidfd): their start stamp, checked each second
+    void checkPolledShims();
     std::mutex postMutex;
     std::deque<std::move_only_function<void()>> posted;
     sub0pipeline::PriorityExecutor executor{{.threadCount = 2}};
@@ -148,7 +150,8 @@ struct Daemon::Impl
     }
     // ---- reactor plumbing ------------------------------------------------------------------------------------------
     void post(std::move_only_function<void()> fn);
-    void watchShim(const std::string& id, platform::ProcessId shim);   ///< false from the waiter: already gone (onShimExit runs at once)
+    /// Watch a shim's exit; false when it is already gone. One the waiter refuses while it lives is polled instead (checkPolledShims).
+    bool watchShim(const std::string& id, platform::ProcessId shim);
     // ---- journal ---------------------------------------------------------------------------------------------------
     bool record(std::string_view type, const std::string& body);
     // ---- startup reconciliation ------------------------------------------------------------------------------------

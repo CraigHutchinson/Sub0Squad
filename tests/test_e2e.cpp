@@ -29,9 +29,9 @@ int main(int, char** argv)
         sq.startDaemon();
         const std::string id = sq.submitWorker("l1", {"--steps", "10000", "--step-ms", "20"});
         CHECK(sq.waitState(id, "running"));
-        const pid_t shim = static_cast<pid_t>(std::atoi(sq.statusField(id, "shimPid").c_str()));
+        const ProcessId shim = std::atoll(sq.statusField(id, "shimPid").c_str());
         CHECK(shim > 0);
-        kill(shim, SIGKILL);  // the supervisor dies without writing an exit record
+        CHECK(sub0squad::platform::killProcess(shim));  // the supervisor dies without writing an exit record
         CHECK(sq.waitState(id, "lost"));
         CHECK(sq.statusField(id, "note").find("vanished") != std::string::npos);
         killByTag("l1");
@@ -65,6 +65,20 @@ int main(int, char** argv)
         CHECK(sq.waitState(id, "succeeded"));
     }
 
+    { // Shims the waiter cannot watch (its handle limit on Windows, no pidfd on an old kernel) are polled: a job still finishes, a cancel still lands.
+        sub0squad::platform::setEnvironment("SUB0SQUAD_TEST_POLL_SHIMS", "1");
+        Squad sq(exe, "polled");
+        sq.startDaemon();
+        sub0squad::platform::unsetEnvironment("SUB0SQUAD_TEST_POLL_SHIMS");   // the daemon has it; the CLI and the jobs need not
+        const std::string done = sq.submitWorker("q1", {"--steps", "3", "--step-ms", "20"});
+        CHECK(sq.waitState(done, "succeeded"));
+        const std::string live = sq.submitWorker("q2", {"--steps", "10000", "--step-ms", "20"}, {"--grace", "1"});
+        CHECK(sq.waitState(live, "running"));
+        CHECK(sq.cli({"cancel", live}).exitCode == 0);
+        CHECK(sq.waitState(live, "cancelled"));
+        CHECK(slurp(sq.home() / "daemon.log").find("watched by polling") != std::string::npos);
+    }
+
     { // Gate: status reports progress without parsing logs (logs deleted, garbage in them, progress still correct).
         Squad sq(exe, "progress");
         sq.startDaemon();
@@ -73,7 +87,8 @@ int main(int, char** argv)
         sleepMs(400);
         const auto runDir = sq.home() / "state" / "jobs" / id / "run-1";
         { std::ofstream o(runDir / "stdout.log", std::ios::trunc); o << "done 99/99 garbage that must not be parsed\n"; }
-        std::filesystem::remove(runDir / "stderr.log");
+        std::error_code ignored;
+        std::filesystem::remove(runDir / "stderr.log", ignored);   // Windows refuses while the job holds it open; either way status must not read it
         const std::string s = sq.cli({"status", id, "--json"}).out;
         const auto p = s.find("\"progress\":{\"done\":");
         CHECK(p != std::string::npos);
@@ -163,7 +178,7 @@ int main(int, char** argv)
         CHECK(peak == 2);
         for (const auto& id : ids) CHECK(sq.waitState(id, "succeeded"));
     }
-    { // OOM priority: jobs run with oom_score_adj 600 and servers 900, so the kernel's last resort takes them before the owner's session.
+    if (std::filesystem::exists("/proc/self/oom_score_adj")) { // OOM priority (Linux): jobs run with oom_score_adj 600 and servers 900, so the kernel's last resort takes them before the owner's session.
         Squad sq(exe, "oomadj");
         sq.startDaemon();
         const std::string job = sq.submitWorker("oj", {"--steps", "200", "--step-ms", "50"});
@@ -206,7 +221,7 @@ int main(int, char** argv)
     { // Memory pressure: below the reserve the daemon sheds the newest job and admits nothing; servers only when critically low; it recovers.
         const std::string fake = (std::filesystem::current_path() / "fake-memavail.txt").string();
         { std::ofstream o(fake); o << 100000; }
-        ::setenv("SUB0SQUAD_FAKE_MEMAVAILABLE_FILE", fake.c_str(), 1);
+        sub0squad::platform::setEnvironment("SUB0SQUAD_FAKE_MEMAVAILABLE_FILE", fake);
         Squad sq(exe, "shed");
         sq.startDaemon(4, {"--mem-shed-mib", "2000"});
         const std::string older = sq.submitWorker("sa", {"--steps", "400", "--step-ms", "50"});
@@ -229,7 +244,7 @@ int main(int, char** argv)
         const std::string after = sq.submitWorker("sc", {"--steps", "2", "--step-ms", "20"});
         CHECK_EQ(sq.cli({"check"}).exitCode, 0);
         CHECK(sq.waitState(after, "succeeded", 60000));          // admission resumes once memory recovers
-        ::unsetenv("SUB0SQUAD_FAKE_MEMAVAILABLE_FILE");
+        sub0squad::platform::unsetEnvironment("SUB0SQUAD_FAKE_MEMAVAILABLE_FILE");
         (void)sq.cli({"cancel", older});
         (void)sq.cli({"cancel", srv});
     }

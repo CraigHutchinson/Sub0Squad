@@ -32,6 +32,15 @@ namespace sub0squad::platform {
 /// descendant when `root` is a subreaper, because it was reparented to `root`.
 [[nodiscard]] std::vector<ProcessId> descendants(ProcessId root);
 
+/// What a process has used so far: CPU time (user and system) and, where the system counts them, its context switches.
+struct ProcessUsage
+{
+    double cpuSeconds = 0;
+    std::optional<std::uint64_t> contextSwitches{};   ///< POSIX: voluntary and involuntary; Windows: not counted per process (nullopt)
+};
+/// nullopt when `id` does not exist or cannot be read.
+[[nodiscard]] std::optional<ProcessUsage> processUsage(ProcessId id);
+
 /// Every process this user can see, live or zombie, in no particular order.
 [[nodiscard]] std::vector<ProcessId> allProcesses();
 
@@ -49,6 +58,9 @@ namespace sub0squad::platform {
 void becomeSubreaper();
 /// A write to a pipe or socket whose reader is gone fails with an error instead of ending this process (POSIX: SIGPIPE ignored). Windows: always so.
 void ignoreBrokenPipes();
+/// The standard streams write the bytes they are given: a line ends in one LF, as every reader of this program's output and logs expects
+/// (Windows: stdin, stdout and stderr leave the C runtime's text mode, which wrote CR LF). POSIX: no effect.
+void useBinaryStandardStreams();
 /// Stop requests (terminateProcess, Ctrl+C) no longer end this process: for a test program that plays a process which will not stop.
 void ignoreStopRequests();
 /// The name the system shows for this process (POSIX: PR_SET_NAME, at most 15 bytes, what `ps -o comm` and /proc/PID/stat show). Windows: no effect.

@@ -25,6 +25,9 @@ namespace sub0squad::platform {
 /// temporary file is flushed to the device before the rename, so after a crash the file holds the old content or the whole new one.
 [[nodiscard]] std::expected<void, PlatformError> writeFileAtomic(const std::filesystem::path& path, std::string_view text, bool durable = false);
 
+/// The path of the device that discards what is written to it ("/dev/null", "NUL"), for a tool's output argument.
+[[nodiscard]] const char* nullDevice();
+
 /// Seconds since the epoch of the last change to `path`; nullopt when it does not exist.
 [[nodiscard]] std::optional<double> modifiedSeconds(const std::filesystem::path& path);
 

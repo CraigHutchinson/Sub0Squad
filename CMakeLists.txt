@@ -175,6 +175,7 @@ sub0squad_add_test(test_project kernel)
 add_executable(test_readme tests/test_readme.cpp)
 target_compile_options(test_readme PRIVATE ${SUB0SQUAD_STRICT})
 target_include_directories(test_readme PRIVATE tests)
+target_link_libraries(test_readme PRIVATE sub0squad_platform)   # its runner and the free-port probe
 add_test(NAME test_readme COMMAND test_readme $<TARGET_FILE:sub0squad> ${CMAKE_CURRENT_SOURCE_DIR}/README.md)
 add_dependencies(test_readme sub0squad)
 set_tests_properties(test_readme PROPERTIES TIMEOUT 900)
@@ -209,6 +210,10 @@ if(NOT WIN32)
 endif()
 
 # sub0perf benchmark (Sub0Math tooling): Sub0Squad_Bench, plus _json, _runs, _check and _baseline targets.
-sub0math_add_benchmark(Sub0Squad_Bench benchmarks/bench_squad.cpp)
+# One executable, so one baseline per host (perf/baselines/<host>.json): the kernel's pairs and the platform primitives' (bench_platform.cpp).
+sub0math_add_benchmark(Sub0Squad_Bench benchmarks/bench_squad.cpp benchmarks/bench_platform.cpp)
 target_include_directories(Sub0Squad_Bench PRIVATE include src)
-target_link_libraries(Sub0Squad_Bench PRIVATE sub0squad_kernel simdjson::simdjson)
+target_link_libraries(Sub0Squad_Bench PRIVATE sub0squad_kernel sub0squad_platform simdjson::simdjson)
+if(WIN32)
+  target_link_libraries(Sub0Squad_Bench PRIVATE ws2_32)   # the hand-written socket twin calls Winsock directly
+endif()

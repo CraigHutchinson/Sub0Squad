@@ -133,7 +133,7 @@ int main(int, char** argv)
         CHECK(s.find("\"harnessBytes\":3") != std::string::npos);  // the harness supplied its scaffold: work the agents did not do
         const auto project = sq.home() / "state" / "workflows" / wf / "project";
         CHECK(std::filesystem::exists(project / "index.html") && std::filesystem::exists(project / "src" / "calc.js") && std::filesystem::exists(project / "serve.mjs"));
-        const Result t = sq.cli({"submit", "--cwd", project.string(), "--wall", "60", "--", "node", "--test", "tests/"});
+        const Result t = sq.cli({"submit", "--cwd", project.string(), "--wall", "60", "--", "node", "--test", "tests/eval.test.mjs", "tests/ui.test.mjs"});   // node 22+ takes files, not a directory
         CHECK(t.exitCode == 0);
     }
 

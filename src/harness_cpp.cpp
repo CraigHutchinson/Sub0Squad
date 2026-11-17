@@ -4,6 +4,7 @@
 #include "sub0squad/event_channel.hpp"
 #include "sub0squad/harness_common.hpp"
 #include "sub0squad/plan.hpp"
+#include "sub0squad/platform_file.hpp"
 #include "sub0squad/platform_proc.hpp"
 
 
@@ -35,9 +36,9 @@ std::string diagnostics(const std::string& output, int maxErrors)
     std::string line, shown;
     int errors = 0, context = 0;
     while (std::getline(in, line)) {
-        if (line.find("undefined reference to") != std::string::npos) {  // a link error: the symbol is the evidence ("collect2: error: ld returned 1" says nothing)
+        if (const auto at = line.find("undefined reference to"); at != std::string::npos) {  // a link error: the symbol is the evidence ("collect2: error: ld returned 1" says nothing)
             if (errors++ >= maxErrors) break;
-            shown += "  " + line.substr(0, 240) + "\n";
+            shown += "  " + line.substr(at, 240) + "\n";   // from the words on: the linker's own path before them can be longer than the cut (MinGW's ld.exe)
         } else if (line.find(" error: ") != std::string::npos || line.find(" error:") != std::string::npos) {
             if (errors++ >= maxErrors) break;
             context = 2;
@@ -59,6 +60,22 @@ std::string testTarget(const std::string& testFile)
 }
 
 struct Build { bool ok = false; std::string log; };
+
+/// Whether this compiler can link a program with AddressSanitizer and UBSan: GCC on Linux can; MinGW-w64's GCC ships neither runtime. Probed once
+/// per process (a one-line program in a scratch directory); without them the integration builds plainly and says so in its report.
+bool sanitizersLink()
+{
+    static const bool ok = [] {
+        std::error_code ec;
+        const fs::path dir = fs::temp_directory_path(ec) / ("s0q-sanitizer-probe-" + std::to_string(platform::currentProcess()));
+        fs::create_directories(dir, ec);
+        writeFile(dir / "probe.cpp", "int main() { return 0; }\n");
+        const Cmd c = run({compiler(), "-fsanitize=address,undefined", "probe.cpp", "-o", "probe"}, dir, 60);
+        fs::remove_all(dir, ec);
+        return c.exitCode == 0;
+    }();
+    return ok;
+}
 
 Build configureAndBuild(const fs::path& src, const fs::path& build, const std::vector<std::string>& targets, bool sanitize, int timeoutSec)
 {
@@ -90,7 +107,7 @@ std::string cppCheck(const fs::path& out, const fs::path& ws, bool partial)
         const std::string rel = fs::relative(e.path(), out).generic_string();
         // A real compile to nowhere, not -fsyntax-only: the checks that judge a whole function or a whole file (a path with no return, a function nobody
         // calls) run after parsing, and the build would otherwise be the first to report them (run-v9: every merged file failed on exactly those).
-        std::vector<std::string> argv = {compiler(), "-std=c++20", "-c", "-o", "/dev/null", "-Wall", "-Wextra", "-Werror", "-Iinclude", "-Isrc", "-Itests", "-DCALC_CLI_PATH=\"x\""};
+        std::vector<std::string> argv = {compiler(), "-std=c++20", "-c", "-o", platform::nullDevice(), "-Wall", "-Wextra", "-Werror", "-D_USE_MATH_DEFINES", "-Iinclude", "-Isrc", "-Itests", "-DCALC_CLI_PATH=\"x\""};
         // A file still being written in sections: what is unused is expected (a stub calls nothing), so it is not an error until the file is whole.
         if (partial) argv.insert(argv.end(), {"-Wno-unused-function", "-Wno-unused-parameter", "-Wno-unused-variable", "-Wno-unused-but-set-variable"});
         argv.push_back(rel);
@@ -139,14 +156,14 @@ std::string cppCheckPlanScaffold(const std::string& planJson)
     std::string bad;
     for (const auto& f : plan->scaffold) {
         if (fs::path(f.path).extension() != ".cpp") continue;
-        const Cmd c = run({compiler(), "-std=c++20", "-c", "-o", "/dev/null", "-Wall", "-Wextra", "-Werror", "-Iinclude", "-Isrc", f.path}, ws, 60);
+        const Cmd c = run({compiler(), "-std=c++20", "-c", "-o", platform::nullDevice(), "-Wall", "-Wextra", "-Werror", "-D_USE_MATH_DEFINES", "-Iinclude", "-Isrc", f.path}, ws, 60);
         if (c.exitCode != 0) bad += "the scaffold file '" + f.path + "' does not compile (a stub ignores its parameters: leave them unnamed, for example `double evaluate(const std::string&)`, and never use a name the stub does not read):\n" + diagnostics(c.output, 4);
     }
     // The stubs must LINK as the build links them (every src/*.cpp with src/main.cpp): a function the headers declare that no stub defines would fail every
     // tester's build with an undefined reference, and nobody could pass (the first supplied-plan run: `calc::run` was declared and called, never defined).
     const bool hasMain = std::any_of(plan->scaffold.begin(), plan->scaffold.end(), [](const PlanFile& f) { return f.path == "src/main.cpp"; });
     if (bad.empty() && hasMain) {
-        std::vector<std::string> cmd = {compiler(), "-std=c++20", "-Wall", "-Wextra", "-Werror", "-Iinclude", "-Isrc", "-o", "linkcheck"};
+        std::vector<std::string> cmd = {compiler(), "-std=c++20", "-Wall", "-Wextra", "-Werror", "-D_USE_MATH_DEFINES", "-Iinclude", "-Isrc", "-o", "linkcheck"};
         for (const auto& f : plan->scaffold) if (fs::path(f.path).extension() == ".cpp") cmd.push_back(f.path);
         const Cmd c = run(cmd, ws, 90);
         if (c.exitCode != 0) bad += "the scaffold stubs do not link together (as src/main.cpp with the other src files): every function a header declares and a stub or main calls needs a stub body in some src file (main.cpp itself defines only main):\n" + diagnostics(c.output, 4);
@@ -177,7 +194,8 @@ int runCppIntegrate(const std::vector<std::string>& args)
     }
 
     events::progress(1, 4, "build");
-    const Build build = configureAndBuild(project, project / "build", {}, true, 240);  // sanitizers on: a leak or an out-of-bounds read fails the integration
+    const bool sanitized = sanitizersLink();   // where the toolchain has them: a leak or an out-of-bounds read fails the integration
+    const Build build = configureAndBuild(project, project / "build", {}, sanitized, 240);
     if (!build.ok) { std::printf("INTEGRATION FAIL: the merged project does not build:\n%s\n", build.log.c_str()); return 1; }
 
     events::progress(2, 4, "test");
@@ -196,7 +214,8 @@ int runCppIntegrate(const std::vector<std::string>& args)
     }
 
     events::progress(3, 4, "run");
-    const fs::path app = project / "build" / "calc_cli";
+    fs::path app = project / "build" / "calc_cli";
+    if (!fs::exists(app) && fs::exists(project / "build" / "calc_cli.exe")) app += ".exe";   // a Windows build
     std::string captured;
     if (!plan->scaffold.empty()) {
         // A plan a planner wrote has no calculator in it: nothing here may assume what the program takes. The tests already ran every behaviour the plan
@@ -228,7 +247,7 @@ int runCppIntegrate(const std::vector<std::string>& args)
             for (std::size_t i = 0; i < it.files.size(); ++i) md += (i ? ", " : "") + it.files[i];
             md += " |\n";
         }
-        md += "\n## Verification\n\n" + std::to_string(all.pass) + " tests passed over the merged project, built with AddressSanitizer and UBSan; the app ran a smoke expression.\n\n## The app's screen (capture)\n\n```\n" + captured + "```\n\n## Run it\n\n```sh\ncd project\ncmake -S . -B build -G Ninja && cmake --build build\nbuild/calc_cli '2^3^2'\n```\n";
+        md += "\n## Verification\n\n" + std::to_string(all.pass) + " tests passed over the merged project, " + std::string(sanitized ? "built with AddressSanitizer and UBSan" : "built WITHOUT sanitizers (this compiler has no AddressSanitizer or UBSan runtime)") + "; the app ran a smoke expression.\n\n## The app's screen (capture)\n\n```\n" + captured + "```\n\n## Run it\n\n```sh\ncd project\ncmake -S . -B build -G Ninja && cmake --build build\nbuild/calc_cli '2^3^2'\n```\n";
         md += provenanceMarkdown(*plan, dir);
         if (!plan->reasons.empty()) { md += "\n## Why this split\n\n"; for (const auto& r : plan->reasons) md += "- " + r + "\n"; }
         writeFile(dir / "report.md", md);
@@ -241,7 +260,8 @@ int runCppIntegrate(const std::vector<std::string>& args)
         w.endArray().endObject();
         writeFile(dir / "deliverables.json", w.take());
     }
-    std::println("INTEGRATION PASS: {} items merged, {} tests passed under ASan+UBSan, app ran (try: cd {} && build/calc_cli '2^3^2')", plan->items.size(), all.pass, project.string());
+    std::println("INTEGRATION PASS: {} items merged, {} tests passed {}, app ran (try: cd {} && build/calc_cli '2^3^2')", plan->items.size(), all.pass,
+                 sanitized ? "under ASan+UBSan" : "WITHOUT sanitizers (none on this compiler)", project.string());
     return 0;
 }
 

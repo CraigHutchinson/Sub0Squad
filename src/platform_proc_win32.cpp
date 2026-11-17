@@ -4,6 +4,8 @@
 
 #include "platform_win32_util.hpp"
 
+#include <fcntl.h>
+#include <io.h>
 #include <tlhelp32.h>
 #include <shellapi.h>
 
@@ -68,6 +70,15 @@ bool isAlive(ProcessId id, std::uint64_t expectedStart)
     if (!h.valid()) return false;
     const auto start = created(h.get());
     return start && *start == expectedStart && running(h.get());
+}
+
+std::optional<ProcessUsage> processUsage(ProcessId id)
+{
+    const Handle h = openProcess(id);
+    if (!h.valid()) return std::nullopt;
+    FILETIME creation{}, exit{}, kernel{}, user{};
+    if (!::GetProcessTimes(h.get(), &creation, &exit, &kernel, &user)) return std::nullopt;
+    return ProcessUsage{static_cast<double>(win32::ticks(kernel) + win32::ticks(user)) / 1e7, std::nullopt};
 }
 
 std::vector<ProcessId> allProcesses()
@@ -166,6 +177,11 @@ bool killProcess(ProcessId id)
 }
 
 void becomeSubreaper() {}      // a job object holds a tree on Windows (platform_process: a new session gets one)
+void useBinaryStandardStreams()
+{
+    for (FILE* f : {stdin, stdout, stderr}) (void)::_setmode(::_fileno(f), _O_BINARY);
+}
+
 void ignoreBrokenPipes() {}    // a write to a broken pipe is already an error, never a signal
 void ignoreStopRequests() { ::SetConsoleCtrlHandler(nullptr, TRUE); }   // Ctrl+C; terminateProcess without a stop event cannot be ignored
 void setProcessName(const std::string&) {}

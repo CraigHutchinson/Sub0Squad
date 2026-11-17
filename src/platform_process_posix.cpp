@@ -1,6 +1,10 @@
 // The POSIX implementation of platform_process.hpp: posix_spawnp for every child (glibc reports a failed exec as the spawn's own error), a pipe
 // and poll for capture, waitpid for the end. A Win32 sibling (CreateProcessW and a Job object per group) is the plan in docs/PLATFORM.md.
 #include "sub0squad/platform_process.hpp"
+#include "sub0squad/platform_file.hpp"
+
+#include "platform_posix_util.hpp"
+#include "platform_util.hpp"
 
 #include <fcntl.h>
 #include <poll.h>
@@ -24,22 +28,8 @@ namespace {
 namespace fs = std::filesystem;
 using Clock = std::chrono::steady_clock;
 
-PlatformError errorOf(std::string operation, int code)
-{
-    PlatformError e;
-    e.code = code;
-    e.message = "cannot " + operation + ": " + std::strerror(code);
-    e.operation = std::move(operation);
-    return e;
-}
-
-ExitStatus statusOf(int raw)
-{
-    ExitStatus s;
-    if (WIFEXITED(raw)) s.code = WEXITSTATUS(raw);
-    else if (WIFSIGNALED(raw)) s.signal = WTERMSIG(raw);
-    return s;
-}
+PlatformError errorOf(std::string operation, int code) { return posix::sysError(std::move(operation), code); }
+ExitStatus statusOf(int raw) { return posix::exitStatusOf(raw); }
 
 /// Owns the posix_spawn attribute objects for one start.
 struct SpawnSetup
@@ -75,7 +65,7 @@ struct ChildPipe
 };
 
 /// Starts `spec`; when `captureFd` is a descriptor, stdout (and stderr when `captureStderr`) are connected to it instead of spec.outputFile.
-std::expected<Child, PlatformError> start(const ProcessSpec& spec, int captureFd, bool captureStderr)
+std::expected<Child, PlatformError> start(const ProcessSpec& spec, int captureFd, bool captureStderr, bool discardStderr = false)
 {
     if (spec.argv.empty() || spec.argv.front().empty()) return std::unexpected(PlatformError{"start a process", EINVAL, "cannot start a process: no program was named"});
     const std::string program = spec.argv.front();
@@ -91,6 +81,7 @@ std::expected<Child, PlatformError> start(const ProcessSpec& spec, int captureFd
     if (captureFd >= 0) {
         posix_spawn_file_actions_adddup2(&s.actions, captureFd, 1);
         if (captureStderr) posix_spawn_file_actions_adddup2(&s.actions, captureFd, 2);
+        else if (discardStderr) posix_spawn_file_actions_addopen(&s.actions, 2, "/dev/null", O_WRONLY, 0);
     }
     else if (spec.pipeOutput) {
         posix_spawn_file_actions_adddup2(&s.actions, outPipe.write, 1);
@@ -169,12 +160,10 @@ std::expected<std::optional<std::size_t>, PlatformError> Pipe::readSome(char* bu
 {
     if (native_ == -1) return std::unexpected(PlatformError{"read", EBADF, "cannot read: the pipe is not open"});
     const int fd = static_cast<int>(native_);
-    const auto deadline = timeout ? std::optional{Clock::now() + *timeout} : std::nullopt;
+    const detail::Deadline deadline{timeout};
     for (;;) {
-        int ms = -1;
-        if (deadline) ms = static_cast<int>(std::clamp<long long>(std::chrono::duration_cast<std::chrono::milliseconds>(*deadline - Clock::now()).count(), 0, 1 << 30));
         pollfd p{fd, POLLIN, 0};
-        const int ready = ::poll(&p, 1, ms);
+        const int ready = ::poll(&p, 1, static_cast<int>(deadline.msLeft()));
         if (ready < 0 && errno == EINTR) continue;
         if (ready < 0) return std::unexpected(errorOf("wait on a pipe", errno));
         if (ready == 0) return std::optional<std::size_t>{};
@@ -190,16 +179,7 @@ std::expected<void, PlatformError> writeToInherited(std::string_view handleText,
     const auto [end, ec] = std::from_chars(handleText.data(), handleText.data() + handleText.size(), fd);
     if (ec != std::errc{} || end != handleText.data() + handleText.size() || fd < 0)
         return std::unexpected(PlatformError{"write to an inherited pipe", EBADF, "cannot write to an inherited pipe: '" + std::string{handleText} + "' names none"});
-    const char* p = data.data();
-    std::size_t left = data.size();
-    while (left > 0) {
-        const ssize_t n = ::write(fd, p, left);
-        if (n < 0 && errno == EINTR) continue;
-        if (n <= 0) return std::unexpected(errorOf("write to an inherited pipe", n < 0 ? errno : EPIPE));
-        p += n;
-        left -= static_cast<std::size_t>(n);
-    }
-    return {};
+    return writeAll(fd, data);   // platform_file: the one loop that writes all of it, retrying interrupted writes
 }
 
 Child::Child(Child&& o) noexcept
@@ -288,7 +268,7 @@ std::expected<Captured, PlatformError> runCaptured(const ProcessSpec& spec, cons
     if (!spec.outputFile.empty()) return std::unexpected(PlatformError{"capture output", EINVAL, "cannot capture output: the process spec also names an output file"});
     int fds[2];
     if (::pipe2(fds, O_CLOEXEC) != 0) return std::unexpected(errorOf("create a pipe", errno));   // close-on-exec: only the dup onto stdout crosses
-    auto child = start(spec, fds[1], options.includeStderr);
+    auto child = start(spec, fds[1], options.includeStderr, options.discardStderr);
     ::close(fds[1]);
     if (!child) { ::close(fds[0]); return std::unexpected(child.error()); }
 

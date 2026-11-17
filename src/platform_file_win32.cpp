@@ -137,4 +137,6 @@ std::expected<std::size_t, PlatformError> readSome(int descriptor, char* buffer,
     }
 }
 
+const char* nullDevice() { return "NUL"; }
+
 }  // namespace sub0squad::platform

@@ -175,7 +175,14 @@ int runHarnessIntegrate(const std::vector<std::string>& args)
         copyTree(acc, project);
     }
     events::progress(1, 3, "test");
-    const Cmd t = run({"node", "--test", "--test-reporter=tap", "tests/"}, project, 120);
+    // The test files by name: node 22 and later no longer take a directory (`node --test tests/` looks for a module named `tests`).
+    std::vector<std::string> suite = {"node", "--test", "--test-reporter=tap"};
+    std::vector<std::string> testFiles;
+    for (const auto& e : fs::directory_iterator(project / "tests", ec))
+        if (e.is_regular_file() && e.path().filename().string().ends_with(".test.mjs")) testFiles.push_back("tests/" + e.path().filename().string());
+    std::sort(testFiles.begin(), testFiles.end());
+    suite.insert(suite.end(), testFiles.begin(), testFiles.end());
+    const Cmd t = run(suite, project, 120);
     const Tap tap = parseTap(t.output);
     if (t.exitCode != 0 || tap.fail != 0 || tap.tests < 1) { std::printf("INTEGRATION FAIL: the whole suite: %d of %d failed\n%s\n", tap.fail, tap.tests, tap.excerpt.c_str()); return 1; }
     events::progress(2, 3, "serve");
@@ -204,7 +211,7 @@ int runHarnessIntegrate(const std::vector<std::string>& args)
             for (std::size_t i = 0; i < it.files.size(); ++i) md += (i ? ", " : "") + it.files[i];
             md += " |\n";
         }
-        md += "\n## Verification\n\n" + std::to_string(tap.pass) + " tests passed over the merged project; the page and its modules were fetched from the static server.\n\n## Run it\n\n```sh\ncd project\nnode --test tests/\nnode serve.mjs 8080   # then open http://127.0.0.1:8080\n```\n";
+        md += "\n## Verification\n\n" + std::to_string(tap.pass) + " tests passed over the merged project; the page and its modules were fetched from the static server.\n\n## Run it\n\n```sh\ncd project\nnode --test tests/*.test.mjs\nnode serve.mjs 8080   # then open http://127.0.0.1:8080\n```\n";
         {   // Quality (advisory): duplicated blocks, helpers declared twice, long functions. Never a gate; findings go into the report and qa.txt for the next iteration.
             const std::string q = qaText(qaScan(project / "src"));
             writeFile(dir / "qa.txt", q);

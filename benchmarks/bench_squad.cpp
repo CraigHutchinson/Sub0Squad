@@ -2,6 +2,7 @@
 // Naming follows sub0perf: a "hand-written" reference and its library twin share the text before the comma and form a pair group.
 #define ANKERL_NANOBENCH_IMPLEMENT
 #include "bench_runner.hpp"
+#include "bench_platform.hpp"
 
 #include "sub0squad/frame.hpp"
 #include "sub0squad/job_spec.hpp"
@@ -26,6 +27,7 @@ namespace fs = std::filesystem;
 
 int main(int argc, char** argv)
 {
+    if (argc > 1 && std::strcmp(argv[1], kBenchExitNow) == 0) return 0;   // the child the spawn pair starts
     sub0bench::BenchRunner runner(argc, argv, "sub0squad");
     const fs::path root = fs::path{argc > 0 ? argv[0] : "."}.parent_path() / "bench-tmp";
     fs::remove_all(root);
@@ -88,6 +90,7 @@ int main(int argc, char** argv)
         o.close();
         runner.run("progress tail 400 events, readProgress()", [&] { auto p = readProgress(d); ankerl::nanobench::doNotOptimizeAway(p); });
     }
+    runPlatformBenchmarks(runner, fs::absolute(argv[0]), root / "platform");
     const int rc = runner.finish();
     fs::remove_all(root);
     return rc;

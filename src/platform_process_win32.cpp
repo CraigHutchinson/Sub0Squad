@@ -90,7 +90,7 @@ Handle inheritable(HANDLE h)
     return Handle{dup};
 }
 
-std::expected<Child, PlatformError> start(const ProcessSpec& spec, HANDLE captureWrite, bool captureStderr)
+std::expected<Child, PlatformError> start(const ProcessSpec& spec, HANDLE captureWrite, bool captureStderr, bool discardStderr = false)
 {
     if (spec.argv.empty()) return std::unexpected(PlatformError{"start a process", ERROR_INVALID_PARAMETER, "cannot start a process: no program was given"});
     const std::string what = "start '" + spec.argv.front() + "'";
@@ -107,7 +107,7 @@ std::expected<Child, PlatformError> start(const ProcessSpec& spec, HANDLE captur
     std::wstring command;
     for (const auto& a : spec.argv) command += (command.empty() ? L"" : L" ") + quoted(win32::widen(a));
 
-    Handle nul, file;
+    Handle nul, nulOut, file;
     HANDLE in = ::GetStdHandle(STD_INPUT_HANDLE), out = ::GetStdHandle(STD_OUTPUT_HANDLE), err = ::GetStdHandle(STD_ERROR_HANDLE);
     if (spec.nullInput) {
         nul.reset(::CreateFileW(L"NUL", GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING, 0, nullptr));
@@ -121,6 +121,10 @@ std::expected<Child, PlatformError> start(const ProcessSpec& spec, HANDLE captur
     } else if (captureWrite) {
         out = captureWrite;
         if (captureStderr) err = captureWrite;
+        else if (discardStderr) {
+            nulOut.reset(::CreateFileW(L"NUL", GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING, 0, nullptr));
+            err = nulOut.get();
+        }
     } else if (spec.pipeOutput) {
         out = outPipe.write.get();
         err = errPipe.write.get();
@@ -168,6 +172,8 @@ std::expected<Child, PlatformError> start(const ProcessSpec& spec, HANDLE captur
     Handle thread{pi.hThread};
     Handle job;
     if (spec.newSession) {
+        // No JOB_OBJECT_LIMIT_BREAKAWAY_OK: the job is the containment. A job's process that starts a new session of its own (an escapee) stays in
+        // this job, so terminate and kill still reach it; on POSIX the shim finds such a process as a descendant instead.
         job.reset(::CreateJobObjectW(nullptr, nullptr));
         if (job.valid() && !::AssignProcessToJobObject(job.get(), pi.hProcess)) job.reset();   // no job: terminate() then ends the process alone
         ::ResumeThread(pi.hThread);
@@ -335,7 +341,7 @@ std::expected<Captured, PlatformError> runCaptured(const ProcessSpec& spec, cons
     HANDLE readEnd = nullptr, writeEnd = nullptr;
     if (!::CreatePipe(&readEnd, &writeEnd, nullptr, 0)) return std::unexpected(win32::lastError("create a pipe"));
     Handle reader{readEnd};
-    auto child = start(spec, writeEnd, options.includeStderr);
+    auto child = start(spec, writeEnd, options.includeStderr, options.discardStderr);
     ::CloseHandle(writeEnd);   // the child holds its own copy: the pipe breaks when every writer is gone
     if (!child) return std::unexpected(child.error());
 

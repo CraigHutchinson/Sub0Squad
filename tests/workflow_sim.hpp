@@ -146,6 +146,6 @@ inline void checkGoldens(const std::filesystem::path& dir, const std::string& ow
     if (!write && std::filesystem::exists(dir))
         for (const auto& e : std::filesystem::directory_iterator(dir)) {
             const std::string name = e.path().stem().string();
-            if (goldenOwner(name) == owner && !gTrace.count(name)) { std::fprintf(stderr, "stale golden %s\n", e.path().filename().c_str()); CHECK(false); }
+            if (goldenOwner(name) == owner && !gTrace.count(name)) { std::fprintf(stderr, "stale golden %s\n", e.path().filename().string().c_str()); CHECK(false); }
         }
 }

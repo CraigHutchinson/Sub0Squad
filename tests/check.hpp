@@ -9,9 +9,6 @@
 #include <random>
 #include <string>
 #include <thread>
-#if !defined(_WIN32)
-#include <unistd.h>   // several tests use POSIX calls and rely on this include
-#endif
 
 inline int gFailures = 0;
 #define CHECK(cond) do { if (!(cond)) { std::fprintf(stderr, "%s:%d: CHECK failed: %s\n", __FILE__, __LINE__, #cond); ++gFailures; } } while (0)
@@ -20,8 +17,8 @@ inline int gFailures = 0;
 #define CHECK_GE(a, b) do { auto&& _a = (a); auto&& _b = (b); if (!(_a >= _b)) { std::fprintf(stderr, "%s:%d: CHECK_GE failed: %s < %s\n", __FILE__, __LINE__, #a, #b); ++gFailures; } } while (0)
 
 /// A fresh directory under `$SUB0SQUAD_TEST_TMP`, or `test-tmp` in the working directory (ctest runs in the build directory, so
-/// tests never write to shared locations like /tmp). Unix socket paths are limited to ~107 bytes: socket code uses the
-/// /proc/self/fd trick, so a long base is fine.
+/// tests never write to shared locations like /tmp). Local socket paths are limited to ~107 bytes: the POSIX socket code uses the
+/// /proc/self/fd trick, so a long base is fine there; on Windows the path itself must fit.
 inline std::filesystem::path makeTempDir(const char* tag)
 {
     const char* base = std::getenv("SUB0SQUAD_TEST_TMP");

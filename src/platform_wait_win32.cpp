@@ -5,6 +5,7 @@
 #include "sub0squad/platform_wait.hpp"
 
 #include "platform_win32_util.hpp"
+#include "platform_util.hpp"
 
 #include <algorithm>
 #include <atomic>
@@ -15,7 +16,6 @@ namespace sub0squad::platform {
 namespace {
 
 using win32::Handle;
-using Clock = std::chrono::steady_clock;
 
 constexpr std::size_t kMaxProcesses = MAXIMUM_WAIT_OBJECTS - 4;   // the socket, wake and stop events, and one spare
 
@@ -120,7 +120,7 @@ void Waiter::wake() { ::SetEvent(state_->wakeEvent.get()); }
 
 std::expected<std::vector<WaitEvent>, PlatformError> Waiter::wait(std::optional<std::chrono::milliseconds> timeout)
 {
-    const auto deadline = timeout ? std::optional{Clock::now() + *timeout} : std::nullopt;
+    const detail::Deadline deadline{timeout};
     std::vector<WaitEvent> out;
     for (;;) {
         // The sockets as they are now. The event is reset first, so a change after the look still ends the wait below.
@@ -138,36 +138,40 @@ std::expected<std::vector<WaitEvent>, PlatformError> Waiter::wait(std::optional<
             }
         }
 
-        std::vector<HANDLE> handles{state_->socketEvent.get(), state_->wakeEvent.get()};
-        if (state_->stopEvent.valid()) handles.push_back(state_->stopEvent.get());
-        const std::size_t firstProcess = handles.size();
-        for (const auto& p : state_->processes) handles.push_back(p.handle.get());
-        DWORD ms = 0;
-        if (out.empty()) {
-            ms = INFINITE;
-            if (deadline) ms = static_cast<DWORD>(std::clamp<long long>(std::chrono::duration_cast<std::chrono::milliseconds>(*deadline - Clock::now()).count(), 0, INFINITE - 1));
-        }
-        const DWORD r = ::WaitForMultipleObjects(static_cast<DWORD>(handles.size()), handles.data(), FALSE, ms);
+        // The rare stop event first, then the socket and wake events, then the processes. WaitForMultipleObjects names the lowest signalled
+        // index, so every handle before it was quiet at that moment: only it and the ones after it need a look (no heap, no probe per wake).
+        HANDLE handles[MAXIMUM_WAIT_OBJECTS];
+        DWORD count = 0;
+        const DWORD stopAt = state_->stopEvent.valid() ? count++ : MAXIMUM_WAIT_OBJECTS;
+        if (stopAt != MAXIMUM_WAIT_OBJECTS) handles[stopAt] = state_->stopEvent.get();
+        handles[count++] = state_->socketEvent.get();
+        const DWORD wakeAt = count;
+        handles[count++] = state_->wakeEvent.get();
+        const DWORD firstProcess = count;
+        for (const auto& p : state_->processes) handles[count++] = p.handle.get();
+        const DWORD ms = out.empty() ? static_cast<DWORD>(deadline.msLeft(INFINITE, INFINITE - 1)) : 0;
+        const DWORD r = ::WaitForMultipleObjects(count, handles, FALSE, ms);
         if (r == WAIT_FAILED) return std::unexpected(win32::lastError("wait for events"));
-        if (r != WAIT_TIMEOUT) {
-            // WaitForMultipleObjects names only the first signalled handle: look at each of the others too, without waiting.
-            for (std::size_t i = 1; i < firstProcess; ++i) {
-                if (i != r - WAIT_OBJECT_0 && ::WaitForSingleObject(handles[i], 0) != WAIT_OBJECT_0) continue;   // auto reset: the look consumes it
-                if (i == 1) out.push_back(WaitEvent{.kind = WaitEvent::Kind::woken});
-                else out.push_back(WaitEvent{.kind = WaitEvent::Kind::stopRequested, .tag = state_->stopTag});
-            }
-            for (auto it = state_->processes.begin(); it != state_->processes.end();) {
-                if (::WaitForSingleObject(it->handle.get(), 0) != WAIT_OBJECT_0) { ++it; continue; }
-                WaitEvent ev{.kind = WaitEvent::Kind::exited, .tag = it->tag};
+        if (r >= WAIT_OBJECT_0 && r < WAIT_OBJECT_0 + count) {
+            const DWORD first = r - WAIT_OBJECT_0;
+            // Signalled or not, by the look (auto-reset events: the look consumes the signal, as the wait did for `first`).
+            const auto signalled = [&](DWORD i) { return i == first || (i > first && ::WaitForSingleObject(handles[i], 0) == WAIT_OBJECT_0); };
+            if (stopAt != MAXIMUM_WAIT_OBJECTS && signalled(stopAt)) out.push_back(WaitEvent{.kind = WaitEvent::Kind::stopRequested, .tag = state_->stopTag});
+            if (signalled(wakeAt)) out.push_back(WaitEvent{.kind = WaitEvent::Kind::woken});
+            std::size_t kept = 0;
+            for (std::size_t i = 0; i < state_->processes.size(); ++i) {
+                auto& proc = state_->processes[i];
+                if (!signalled(firstProcess + static_cast<DWORD>(i))) { if (kept != i) state_->processes[kept] = std::move(proc); ++kept; continue; }
+                WaitEvent ev{.kind = WaitEvent::Kind::exited, .tag = proc.tag};
                 DWORD code = 0;
-                if (::GetExitCodeProcess(it->handle.get(), &code)) ev.status = win32::exitStatusOf(code);
+                if (::GetExitCodeProcess(proc.handle.get(), &code)) ev.status = win32::exitStatusOf(code);
                 out.push_back(ev);
-                it = state_->processes.erase(it);
             }
+            state_->processes.resize(kept);
         }
         if (!out.empty()) return out;
         if (r == WAIT_TIMEOUT && ms != 0) return out;   // the time passed
-        if (deadline && Clock::now() >= *deadline) return out;
+        if (deadline.passed()) return out;
         // Only the socket event fired and no socket is ready now (its event was for a state already gone): look again.
     }
 }

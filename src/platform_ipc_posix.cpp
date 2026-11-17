@@ -2,6 +2,8 @@
 // sockaddr_un's 107-byte limit out of the design; created under umask 0177 (owner-only); the peer checked by SO_PEERCRED.
 #include "sub0squad/platform_ipc.hpp"
 
+#include "platform_posix_util.hpp"
+
 #include <fcntl.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
@@ -16,10 +18,7 @@ namespace sub0squad::platform {
 
 namespace {
 
-PlatformError sysError(const std::string& operation, int code = errno)
-{
-    return PlatformError{operation, code, "cannot " + operation + ": " + std::strerror(code)};
-}
+using posix::sysError;
 
 /// The address of `path`, through a descriptor of its directory that the caller closes after bind or connect.
 struct Address

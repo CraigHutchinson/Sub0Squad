@@ -4,6 +4,8 @@
 #include <simdjson.h>
 
 #include <cstdint>
+#include <memory>
+#include <mutex>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -52,13 +54,43 @@ private:
     bool pendingKey_ = false;
 };
 
+/// A parser borrowed from a process-wide pool and returned when it goes out of scope, so parsers (and their grown buffers) are reused without
+/// thread_local: MinGW-w64 runs thread_local destructors after the thread's TLS storage is freed, which crashed threads that had parsed JSON.
+class PooledParser
+{
+public:
+    PooledParser()
+    {
+        std::lock_guard lock{pool().mutex};
+        if (!pool().free.empty()) { parser_ = std::move(pool().free.back()); pool().free.pop_back(); }
+        else parser_ = std::make_unique<simdjson::ondemand::parser>();
+    }
+    ~PooledParser()
+    {
+        std::lock_guard lock{pool().mutex};
+        pool().free.push_back(std::move(parser_));
+    }
+    PooledParser(const PooledParser&) = delete;
+    PooledParser& operator=(const PooledParser&) = delete;
+    simdjson::ondemand::parser& operator*() { return *parser_; }
+
+private:
+    struct Pool
+    {
+        std::mutex mutex;
+        std::vector<std::unique_ptr<simdjson::ondemand::parser>> free;   ///< at most the peak number of parses at once
+    };
+    static Pool& pool() { static Pool p; return p; }
+    std::unique_ptr<simdjson::ondemand::parser> parser_;
+};
+
 /// Parse `text` and call `fn(object)` for the top-level object. Throws simdjson::simdjson_error on malformed input.
 template <class F>
 void withObject(std::string_view text, F&& fn)
 {
-    thread_local simdjson::ondemand::parser parser;  // reused per thread: no per-call parser allocation
+    PooledParser parser;
     simdjson::padded_string padded{text};
-    auto doc = parser.iterate(padded);
+    auto doc = (*parser).iterate(padded);
     simdjson::ondemand::object obj = doc.get_object();
     fn(obj);
 }

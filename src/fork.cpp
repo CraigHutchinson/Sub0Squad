@@ -1036,7 +1036,7 @@ int runMendApply(const std::vector<std::string>& args)
     const fs::path dir = arg(args, "workflow-dir");
     const std::string itemId = arg(args, "item"), action = arg(args, "action"), file = arg(args, "file"), symbol = arg(args, "symbol");
     const int attempt = std::atoi(arg(args, "attempt", "0").c_str()), line = std::atoi(arg(args, "line", "0").c_str()), column = std::atoi(arg(args, "column", "0").c_str());
-    if (dir.empty() || itemId.empty() || attempt < 2 || file.empty() || file[0] == '/' || file.find("..") != std::string::npos) { std::fprintf(stderr, "mend-apply: --workflow-dir D --item I --attempt N (2 or more) --action A --file F --line L --column C --symbol S\n"); return 64; }
+    if (dir.empty() || itemId.empty() || attempt < 2 || file.empty() || std::filesystem::path{file}.has_root_path() || file.find("..") != std::string::npos) { std::fprintf(stderr, "mend-apply: --workflow-dir D --item I --attempt N (2 or more) --action A --file F --line L --column C --symbol S\n"); return 64; }
     if (action != "silence-unused") { std::fprintf(stderr, "mend-apply: '%s' is not an action the harness applies without a model (silence-unused is)\n", action.c_str()); return 64; }
     const fs::path itemDir = dir / "items" / itemId, before = itemDir / ("attempt-" + std::to_string(attempt - 1)), now = itemDir / ("attempt-" + std::to_string(attempt));
     const std::string text = slurp(before / "out" / file);

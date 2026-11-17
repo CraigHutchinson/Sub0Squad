@@ -90,7 +90,14 @@ std::string breakSyntax(const std::string& text, const std::string& harness)
     return text + (harness == "py-unittest" ? "\ndef (:\n" : "\n();\n");
 }
 
-struct Fixture { fs::path dir; Plan plan; const Harness* harness = nullptr; const PlatformDef* platform = nullptr; };
+struct Fixture
+{
+    fs::path dir;
+    Plan plan;
+    const Harness* harness = nullptr;
+    const PlatformDef* platform = nullptr;
+    mutable std::string lastGateOutput;   ///< what the last gate run printed: the evidence when a reference fails
+};
 
 bool makeFixture(const PlatformDef& pd, const Def& def, const fs::path& dir, Fixture& fx, std::string& err)
 {
@@ -121,6 +128,7 @@ bool makeFixture(const PlatformDef& pd, const Def& def, const fs::path& dir, Fix
 bool gatePasses(const Fixture& fx, const std::string& item, int attempt)
 {
     const Cmd c = run({exePath(), fx.harness->gateCommand, "--workflow-dir", fx.dir.string(), "--item", item, "--attempt", std::to_string(attempt), "--no-publish", "1"}, fx.dir, 300);
+    fx.lastGateOutput = c.output;
     return c.exitCode == 0;
 }
 
@@ -220,7 +228,9 @@ std::vector<std::string> scenarioSelfTest(const std::string& only, const std::st
             }
             // 2. The reference solution must pass the judge.
             writeAttempt(fx, item, 2, referenceFiles(fx, *it, false));
-            if (!judge(fx, d, item, 2)) problems.push_back(name + ": the reference solution does not pass the judge (the fixture or the reference is wrong)");
+            if (!judge(fx, d, item, 2))
+                problems.push_back(name + ": the reference solution does not pass the judge (the fixture or the reference is wrong); the gate said:\n" +
+                                   fx.lastGateOutput.substr(fx.lastGateOutput.size() > 1500 ? fx.lastGateOutput.size() - 1500 : 0));
             std::error_code ec;
             fs::remove_all(dir, ec);
         }

@@ -65,27 +65,29 @@ quiet machine. sub0perf git hooks and the after-build check are **off** by defau
 
 ## A Windows host (WSL)
 
-The program runs on Linux only. On Windows, build inside WSL (Ubuntu 24.04 with GCC 15 or clang, Ninja, CMake): clone inside WSL, or sync a Windows
+The program runs on Linux and natively on Windows (MinGW-w64, below). To run it the Linux way on a Windows host, build inside WSL (Ubuntu 24.04 with GCC 15 or clang, Ninja, CMake): clone inside WSL, or sync a Windows
 checkout into a WSL directory, never build on `/mnt/c` or `/mnt/d` directly (slow, and the tests create Unix sockets). `.gitattributes` makes every text file
 LF on checkout; a working tree made before it, or with `core.autocrlf=true`, still has CRLF files: the configure fails (`cmake/git-semver.sh`) and the golden
 tests fail byte for byte. Convert them in the copy (`grep -rlIZ $'\r' . | xargs -0 sed -i 's/\r$//'`) or re-checkout. If the first configure failed, delete
 the empty `$CPM_SOURCE_CACHE/version.cmake` it left. GCC is supported: two flow-based GCC diagnostics in third-party and generated code are warnings rather than
 errors (`CMakeLists.txt`).
 
-### A native Windows build (the platform layer only, for now)
+### A native Windows build
 
-The platform layer builds and passes its tests natively, and every other unit compiles; the daemon units and `sub0squad.cpp` need a Sub0Pipeline
-checkout level with the pinned version ([PLATFORM.md](PLATFORM.md) section 6 lists what is left). Toolchain: MinGW-w64 with the UCRT runtime (GCC 16.2 is what was tested), CMake and Ninja on
+The program builds and runs natively: the daemon, shims, jobs, workflows and the CLI, and the full test suite runs ([PLATFORM.md](PLATFORM.md) section 6
+lists what it took and what is left). Toolchain: MinGW-w64 with the UCRT runtime (GCC 16.2 is what was tested), CMake and Ninja on
 `PATH`. Configure uses `cmake/git-semver.cmd` in place of the shell script. From PowerShell in the checkout:
 
 ```powershell
 $env:CPM_SOURCE_CACHE = "$PWD\out\cpm-cache"
 cmake -S . -B out/build/mingw -G Ninja -DCMAKE_CXX_COMPILER=g++ -DCMAKE_C_COMPILER=gcc -DCMAKE_BUILD_TYPE=Release
-cmake --build out/build/mingw -j4 --target test_platform_process test_platform_proc test_platform_host test_platform_file test_platform_net test_platform_wait link_platform
-ctest --test-dir out/build/mingw -R "test_platform_|link_platform" --output-on-failure
+cmake --build out/build/mingw -j6
+ctest --test-dir out/build/mingw --timeout 900 --output-on-failure
 ```
 
-A full `cmake --build out/build/mingw -- -k 0` lists what still fails to compile.
+MinGW's GCC has no AddressSanitizer or UBSan runtime: the C++ harness probes for them and integrates without them there (its report says so). The
+benchmarks' sub0perf baselines are per host name; a WSL instance on the same machine needs its own name (`-DSUB0MATH_PERF_HOST=...` at configure, for example `croglegion` natively
+and `croglegion-wsl` in WSL), since both baselines live in the same `perf/baselines/` folder.
 
 ### The engine on a Windows host
 

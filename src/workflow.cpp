@@ -7,6 +7,7 @@
 #include "sub0squad/predicate.hpp"
 #include "sub0squad/stance.hpp"
 #include <algorithm>
+#include <filesystem>
 #include <set>
 #include <cstdio>
 
@@ -74,7 +75,7 @@ std::expected<WorkflowSpec, std::string> WorkflowSpec::fromJson(std::string_view
     catch (const std::runtime_error& e) { return std::unexpected(std::string{"bad workflow spec: "} + e.what()); }   // the process it carries is invalid
     if (s.task.empty()) return std::unexpected("workflow needs a task");
     if (s.taskText.size() > 4000) return std::unexpected("task text is too long");
-    if (!s.sandboxDir.empty() && s.sandboxDir[0] != '/') return std::unexpected("workflow sandbox must be an absolute directory");  // empty: the daemon chooses
+    if (!s.sandboxDir.empty() && !std::filesystem::path{s.sandboxDir}.has_root_directory()) return std::unexpected("workflow sandbox must be an absolute directory");  // empty: the daemon chooses
     if (s.maxLocalAttempts < 1 || s.maxLocalAttempts > 5) return std::unexpected("maxLocalAttempts must be 1..5");
     if (s.agent != "mock" && s.agent != "llm") return std::unexpected("agent must be mock or llm");
     std::set<std::string> names;

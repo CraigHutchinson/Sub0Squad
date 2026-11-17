@@ -23,6 +23,7 @@
 #include "sub0squad/planner.hpp"
 #include "sub0squad/sandbox.hpp"
 #include "sub0squad/shim.hpp"
+#include "sub0squad/platform_proc.hpp"
 
 #include <atomic>
 #include <cstdio>
@@ -105,6 +106,7 @@ int selftest()
 
 int main(int argc, char** argv)
 {
+    sub0squad::platform::useBinaryStandardStreams();   // one LF per line on every system: the tests, the logs and the portal compare bytes
     sub0squad::setBuildId(std::string(sub0squad::version::version_full));
     sub0squad::registerBuiltinHarnesses();   // the composition root fills the registry: every command below may ask it
     if (argc > 2 && std::strcmp(argv[1], "exec-shim") == 0) return sub0squad::runShim(argv[2]);

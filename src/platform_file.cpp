@@ -32,9 +32,13 @@ std::string readFileText(const fs::path& path) { return readFile(path).value_or(
 
 std::expected<void, PlatformError> writeFile(const fs::path& path, std::string_view text)
 {
-    std::error_code ec;
-    if (path.has_parent_path()) fs::create_directories(path.parent_path(), ec);
     std::ofstream o(path, std::ios::binary | std::ios::trunc);
+    if (!o && path.has_parent_path()) {   // the parent is missing only the first time: create it then, not a stat of every ancestor on every write
+        std::error_code ec;
+        fs::create_directories(path.parent_path(), ec);
+        o.clear();
+        o.open(path, std::ios::binary | std::ios::trunc);
+    }
     if (!o) return std::unexpected(fromErrno("open " + path.string()));
     o.write(text.data(), static_cast<std::streamsize>(text.size()));
     o.close();

@@ -2,51 +2,25 @@
 // built binary), against a private home and a free portal port, with the mock agent (no model). Every command must succeed, the project the README
 // promises must exist where it says, and nothing may be left running. argv[1] is the binary, argv[2] the README.
 #include "check.hpp"
+#include "sub0squad/platform_proc.hpp"
 
-#include <arpa/inet.h>
-#include <fcntl.h>
-#include <netinet/in.h>
-#include <spawn.h>
-#include <sys/socket.h>
-#include <sys/wait.h>
+#include "sub0squad/platform_net.hpp"
+#include "sub0squad/platform_process.hpp"
 
 #include <fstream>
 #include <sstream>
 #include <string>
 #include <vector>
 
-extern char** environ;
 namespace fs = std::filesystem;
 
 struct Result { int exitCode = -1; std::string out; };
 
 static Result run(std::vector<std::string> argv)
 {
-    int pipefd[2];
-    if (pipe(pipefd) != 0) return {};
-    posix_spawn_file_actions_t fa;
-    posix_spawn_file_actions_init(&fa);
-    posix_spawn_file_actions_adddup2(&fa, pipefd[1], 1);
-    posix_spawn_file_actions_adddup2(&fa, pipefd[1], 2);
-    posix_spawn_file_actions_addclose(&fa, pipefd[0]);
-    posix_spawn_file_actions_addclose(&fa, pipefd[1]);
-    std::vector<char*> cargv;
-    for (auto& a : argv) cargv.push_back(a.data());
-    cargv.push_back(nullptr);
-    pid_t pid = -1;
-    const int rc = posix_spawn(&pid, argv[0].c_str(), &fa, nullptr, cargv.data(), environ);
-    posix_spawn_file_actions_destroy(&fa);
-    close(pipefd[1]);
-    Result r;
-    if (rc != 0) { close(pipefd[0]); return r; }
-    char buf[4096];
-    ssize_t n;
-    while ((n = read(pipefd[0], buf, sizeof buf)) > 0) r.out.append(buf, static_cast<std::size_t>(n));
-    close(pipefd[0]);
-    int st = 0;
-    waitpid(pid, &st, 0);
-    r.exitCode = WIFEXITED(st) ? WEXITSTATUS(st) : -1;
-    return r;
+    auto ran = sub0squad::platform::runCaptured(sub0squad::platform::ProcessSpec{.argv = std::move(argv)}, {.timeout = std::chrono::minutes(10), .maxBytes = 16u << 20});
+    if (!ran) return Result{-1, ran.error().message};
+    return Result{ran->status.exited() ? ran->status.code : -1, ran->output};
 }
 
 /// Words of a shell-like line; double quotes group, a `#` outside quotes starts a comment.
@@ -68,16 +42,8 @@ static std::vector<std::string> words(const std::string& line)
 
 static int freePort()
 {
-    const int fd = ::socket(AF_INET, SOCK_STREAM, 0);
-    sockaddr_in a{};
-    a.sin_family = AF_INET;
-    a.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-    a.sin_port = 0;
-    ::bind(fd, reinterpret_cast<sockaddr*>(&a), sizeof a);
-    socklen_t len = sizeof a;
-    ::getsockname(fd, reinterpret_cast<sockaddr*>(&a), &len);
-    ::close(fd);
-    return ntohs(a.sin_port);
+    auto l = sub0squad::platform::listenLoopback(0);   // the system picks a free port; closing the listener frees it again
+    return l ? l->port() : 0;
 }
 
 int main(int argc, char** argv)
@@ -110,8 +76,8 @@ int main(int argc, char** argv)
     CHECK(commands.size() >= 11);   // doctor, up, do, wait, status, process list/add, do --process, wait, process show, down
 
     const fs::path home = makeTempDir("readme");
-    ::setenv("SUB0SQUAD_HOME", home.c_str(), 1);
-    ::setenv("SUB0SQUAD_PORTAL_PORT", std::to_string(freePort()).c_str(), 1);   // never the default port: a real portal may be using it
+    sub0squad::platform::setEnvironment("SUB0SQUAD_HOME", home.string());
+    sub0squad::platform::setEnvironment("SUB0SQUAD_PORTAL_PORT", std::to_string(freePort()));   // never the default port: a real portal may be using it
     bool sawDo = false, sawUp = false, sawDown = false, sawDoctor = false, sawProcessAdd = false;
     int doCount = 0;
     for (const auto& c : commands) {
@@ -134,7 +100,7 @@ int main(int argc, char** argv)
     // What the README says is there, is there.
     const fs::path wf = home / "state" / "workflows" / "w-000001";
     CHECK(fs::exists(wf / "report.md"));
-    CHECK(fs::exists(wf / "project" / "build" / "calc_cli"));
+    CHECK(fs::exists(wf / "project" / "build" / "calc_cli") || fs::exists(wf / "project" / "build" / "calc_cli.exe"));
     // The second workflow ran the process the README made, kept in its spec (the daemon is down: the journal is read offline).
     CHECK(fs::exists(home / "state" / "workflows" / "w-000002" / "report.md"));
     CHECK(fs::exists(home / "state" / "processes" / "my-flow.json"));

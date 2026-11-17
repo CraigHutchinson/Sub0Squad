@@ -2,13 +2,14 @@
 // is rendered by test_portal_page (tests/portal_page_test.js, with node); the server's routes run in test_readme (`up` starts a portal).
 #include "check.hpp"
 #include "portal_impl.hpp"
+#include "sub0squad/platform_proc.hpp"
 
 #include <fstream>
 
 using namespace sub0squad;
 using namespace sub0squad::portal;
 
-static void put(const fs::path& p, const std::string& text) { fs::create_directories(p.parent_path()); std::ofstream(p) << text; }
+static void put(const fs::path& p, const std::string& text) { fs::create_directories(p.parent_path()); std::ofstream(p, std::ios::binary) << text; }
 
 int main()
 {
@@ -32,7 +33,7 @@ int main()
         CHECK_EQ(std::string(mimeOf("noext")), std::string("text/plain; charset=utf-8"));
     }
     {   // The file view never leaves the sandbox: no absolute path, no `..`, no symbolic link that points outside; a job's files only by their exact names.
-        const fs::path home = fs::temp_directory_path() / ("s0q-portal-" + std::to_string(::getpid()));
+        const fs::path home = fs::temp_directory_path() / ("s0q-portal-" + std::to_string(sub0squad::platform::currentProcess()));
         const fs::path root = home / "state" / "workflows" / "w-000001";
         put(root / "items" / "a" / "gate.txt", "GATE PASS\n");
         put(root / "items" / "a" / "attempt-1" / "ws" / "copy.txt", "x");
@@ -42,8 +43,9 @@ int main()
         fs::path out;
         CHECK(insideSandbox(root, "items/a/gate.txt", out) && out.filename() == "gate.txt");
         CHECK(!insideSandbox(root, "/etc/passwd", out) && !insideSandbox(root, "../../secret.txt", out) && !insideSandbox(root, "items/../../x", out) && !insideSandbox(root, "", out));
-        CHECK(!ec && !insideSandbox(root, "link.txt", out));
-        CHECK(jobFilePath(root, "@jobs/j-000006/run-1/stdout.log", out) && out.string().find("/state/jobs/j-000006/run-1/stdout.log") != std::string::npos);
+        if (!ec) CHECK(!insideSandbox(root, "link.txt", out));
+        else std::fprintf(stderr, "test_portal: no symbolic link could be made here (%s): the link check is skipped\n", ec.message().c_str());   // Windows without developer mode
+        CHECK(jobFilePath(root, "@jobs/j-000006/run-1/stdout.log", out) && out.generic_string().find("/state/jobs/j-000006/run-1/stdout.log") != std::string::npos);
         CHECK(!jobFilePath(root, "@jobs/j-000006/run-1/other.txt", out) && !jobFilePath(root, "@jobs/../run-1/stdout.log", out) && !jobFilePath(root, "@jobs/j-6x/run-1/stdout.log", out) && !jobFilePath(root, "items/a/gate.txt", out));
         const std::string listing = filesJson(root);
         CHECK(listing.find("{\"p\":\"items/a/gate.txt\",\"s\":10}") != std::string::npos && listing.find("copy.txt") == std::string::npos && listing.find("\"deliverables\":null") != std::string::npos);

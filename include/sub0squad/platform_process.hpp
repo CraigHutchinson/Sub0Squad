@@ -138,6 +138,7 @@ struct CaptureOptions
     std::optional<std::chrono::milliseconds> timeout{}; ///< killed when it runs longer (its group when spec.newSession); none: no limit
     std::size_t maxBytes = 512 * 1024;                  ///< at most this much is kept: the END of the output, where a failure is reported
     bool includeStderr = true;                          ///< stderr is captured with stdout, interleaved; false: stderr is inherited
+    bool discardStderr = false;                         ///< with includeStderr false: stderr goes to the null device instead
 };
 
 /// What runCaptured saw.

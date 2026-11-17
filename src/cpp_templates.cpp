@@ -14,6 +14,7 @@ project(calc LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 add_compile_options(-Wall -Wextra -Werror)
+add_compile_definitions(_USE_MATH_DEFINES)   # M_PI and kin on every C library (glibc has them anyway; MinGW and MSVC only with this)
 option(SANITIZE "build with AddressSanitizer and UBSan" OFF)
 if(SANITIZE)
   add_compile_options(-fsanitize=address,undefined -fno-omit-frame-pointer)
@@ -122,6 +123,27 @@ namespace app {
 
 struct Result { std::string output; int code; };  // stdout and stderr together; the exit code (0 = success)
 
+#if defined(_WIN32)
+inline Result runLine(const std::string& line)
+{
+    // cmd.exe /c strips the outer pair of quotes, so the whole line gets one more pair; the program's path is quoted for spaces.
+    const std::string cmd = "\"\"" + std::string(CALC_CLI_PATH) + "\" " + line + " 2>&1\"";
+    Result r{"", -1};
+    if (FILE* p = _popen(cmd.c_str(), "r")) {   // text mode: the program's CR LF lines read as LF, as on POSIX
+        char buf[256];
+        while (std::fgets(buf, sizeof buf, p)) r.output += buf;
+        r.code = _pclose(p);
+    }
+    return r;
+}
+
+inline std::string quoted(const std::string& arg)
+{
+    std::string q = "\"";
+    for (const char c : arg) { if (c == '"') q += "\\\""; else q += c; }
+    return q + "\"";
+}
+#else
 inline Result runLine(const std::string& line)
 {
     const std::string cmd = std::string(CALC_CLI_PATH) + " " + line + " 2>&1";
@@ -141,6 +163,7 @@ inline std::string quoted(const std::string& arg)
     for (const char c : arg) { if (c == '\'') q += "'\\''"; else q += c; }
     return q + "'";
 }
+#endif
 
 inline Result run(const std::string& args) { return !args.empty() && args[0] == '-' ? runLine(args) : runLine(quoted(args)); }
 inline Result run() { return runLine(""); }   // the program with no arguments (a test of its usage message is natural; the first full runs wrote app::run() and could not compile)

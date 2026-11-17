@@ -1,6 +1,8 @@
 // POSIX backend of platform_net.hpp: BSD sockets, non-blocking and close-on-exec, waited on with poll; MSG_NOSIGNAL so a gone peer is an error
 // and never a SIGPIPE.
 #include "sub0squad/platform_net.hpp"
+#include "platform_posix_util.hpp"
+#include "platform_util.hpp"
 
 #include <arpa/inet.h>
 #include <fcntl.h>
@@ -19,12 +21,8 @@ namespace sub0squad::platform {
 
 namespace {
 
-using Clock = std::chrono::steady_clock;
-
-PlatformError sysError(const std::string& operation, int code = errno)
-{
-    return PlatformError{operation, code, "cannot " + operation + ": " + std::strerror(code)};
-}
+using detail::Deadline;
+using posix::sysError;
 
 void setNonBlocking(int fd)
 {
@@ -33,24 +31,14 @@ void setNonBlocking(int fd)
 }
 
 /// poll() on one descriptor until `events`, the deadline or an error; EINTR restarts with the time left. 1 ready, 0 timed out, -1 failed.
-int waitOne(int fd, short events, std::optional<Clock::time_point> deadline)
+int waitOne(int fd, short events, const Deadline& deadline)
 {
     for (;;) {
-        int ms = -1;
-        if (deadline) {
-            const auto left = std::chrono::duration_cast<std::chrono::milliseconds>(*deadline - Clock::now()).count();
-            ms = static_cast<int>(std::clamp<long long>(left, 0, 1 << 30));
-        }
         pollfd p{fd, events, 0};
-        const int r = ::poll(&p, 1, ms);
+        const int r = ::poll(&p, 1, static_cast<int>(deadline.msLeft()));
         if (r >= 0) return r > 0 ? 1 : 0;
         if (errno != EINTR) return -1;
     }
-}
-
-std::optional<Clock::time_point> deadlineOf(std::optional<std::chrono::milliseconds> timeout)
-{
-    return timeout ? std::optional{Clock::now() + *timeout} : std::nullopt;
 }
 
 }  // namespace
@@ -83,7 +71,7 @@ std::expected<void, PlatformError> SocketStream::writeAll(std::string_view data)
         if (n > 0) { p += n; left -= static_cast<std::size_t>(n); continue; }
         if (n < 0 && errno == EINTR) continue;
         if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
-            if (waitOne(fd, POLLOUT, std::nullopt) < 0) return std::unexpected(sysError("wait to write"));
+            if (waitOne(fd, POLLOUT, Deadline{std::nullopt}) < 0) return std::unexpected(sysError("wait to write"));
             continue;
         }
         return std::unexpected(sysError("write to the socket", n == 0 ? EPIPE : errno));
@@ -107,7 +95,7 @@ std::expected<std::optional<std::size_t>, PlatformError> SocketStream::readSome(
 {
     if (socket_ == -1) return std::unexpected(PlatformError{"read", EBADF, "cannot read: the socket is not open"});
     const int fd = static_cast<int>(socket_);
-    const auto deadline = deadlineOf(timeout);
+    const Deadline deadline{timeout};
     for (;;) {
         const ssize_t n = ::recv(fd, buffer, size, 0);
         if (n >= 0) return std::optional<std::size_t>{static_cast<std::size_t>(n)};
@@ -136,7 +124,7 @@ std::expected<std::optional<SocketStream>, PlatformError> SocketListener::accept
 {
     if (socket_ == -1) return std::unexpected(PlatformError{"accept", EBADF, "cannot accept: the listener is not open"});
     const int fd = static_cast<int>(socket_);
-    const auto deadline = deadlineOf(timeout);
+    const Deadline deadline{timeout};
     for (;;) {
         const int c = ::accept4(fd, nullptr, nullptr, SOCK_NONBLOCK | SOCK_CLOEXEC);
         if (c >= 0) return std::optional<SocketStream>{SocketStream{c}};
@@ -199,11 +187,9 @@ std::optional<std::size_t> waitForConnection(std::span<const SocketListener* con
 {
     std::vector<pollfd> fds;
     for (const auto* l : listeners) fds.push_back(pollfd{static_cast<int>(l->native()), POLLIN, 0});
-    const auto deadline = deadlineOf(timeout);
+    const Deadline deadline{timeout};
     for (;;) {
-        int ms = -1;
-        if (deadline) ms = static_cast<int>(std::clamp<long long>(std::chrono::duration_cast<std::chrono::milliseconds>(*deadline - Clock::now()).count(), 0, 1 << 30));
-        const int r = ::poll(fds.data(), fds.size(), ms);
+        const int r = ::poll(fds.data(), fds.size(), static_cast<int>(deadline.msLeft()));
         if (r < 0 && errno == EINTR) continue;
         if (r <= 0) return std::nullopt;
         for (std::size_t i = 0; i < fds.size(); ++i)

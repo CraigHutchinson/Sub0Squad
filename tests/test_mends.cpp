@@ -277,7 +277,7 @@ int main()
         const fs::path d = makeTempDir("mend-apply");
         const fs::path before = d / "items" / "dev" / "attempt-3" / "out";
         fs::create_directories(before / "src");
-        { std::ofstream(before / "src" / "calc.cpp") << "static double parseNumber()\n{\n    bool hasExp = false;\n    return 0;\n}\n"; std::ofstream(before / "src" / "other.cpp") << "int other;\n"; }
+        { std::ofstream(before / "src" / "calc.cpp", std::ios::binary) << "static double parseNumber()\n{\n    bool hasExp = false;\n    return 0;\n}\n"; std::ofstream(before / "src" / "other.cpp", std::ios::binary) << "int other;\n"; }
         { std::ofstream(d / "items" / "dev" / "attempt-3" / "fork.json") << "{\"failure\":\"compile\"}\n"; }
         const std::vector<std::string> base = {"--workflow-dir", d.string(), "--item", "dev", "--attempt", "4", "--file", "src/calc.cpp", "--symbol", "hasExp"};
         const auto with = [&](std::vector<std::string> extra) { auto a = base; a.insert(a.end(), extra.begin(), extra.end()); return a; };

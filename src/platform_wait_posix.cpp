@@ -2,6 +2,9 @@
 // signalfd for SIGTERM and SIGINT (blocked in the calling thread, and in every thread it starts afterwards).
 #include "sub0squad/platform_wait.hpp"
 
+#include "platform_posix_util.hpp"
+#include "platform_util.hpp"
+
 #include <signal.h>
 #include <sys/epoll.h>
 #include <sys/eventfd.h>
@@ -19,10 +22,7 @@ namespace sub0squad::platform {
 
 namespace {
 
-PlatformError sysError(const std::string& operation, int code = errno)
-{
-    return PlatformError{operation, code, "cannot " + operation + ": " + std::strerror(code)};
-}
+using posix::sysError;
 
 }  // namespace
 
@@ -125,15 +125,11 @@ void Waiter::wake()
 
 std::expected<std::vector<WaitEvent>, PlatformError> Waiter::wait(std::optional<std::chrono::milliseconds> timeout)
 {
-    using Clock = std::chrono::steady_clock;
-    const auto deadline = timeout ? std::optional{Clock::now() + *timeout} : std::nullopt;
+    const detail::Deadline deadline{timeout};
     epoll_event evs[64];
     int n = 0;
     for (;;) {
-        int ms = -1;
-        if (deadline)
-            ms = static_cast<int>(std::clamp<long long>(std::chrono::duration_cast<std::chrono::milliseconds>(*deadline - Clock::now()).count(), 0, 1 << 30));
-        n = ::epoll_wait(state_->epoll, evs, 64, ms);
+        n = ::epoll_wait(state_->epoll, evs, 64, static_cast<int>(deadline.msLeft()));
         if (n >= 0) break;
         if (errno != EINTR) return std::unexpected(sysError("wait for events"));
     }
@@ -159,12 +155,8 @@ std::expected<std::vector<WaitEvent>, PlatformError> Waiter::wait(std::optional<
             state_->exits.erase(x);
             WaitEvent ev{.kind = WaitEvent::Kind::exited, .tag = tag};
             int raw = 0;
-            if (::waitpid(static_cast<pid_t>(pid), &raw, WNOHANG) == static_cast<pid_t>(pid)) {   // our child: reaped, and how it ended is known
-                ExitStatus st;
-                if (WIFEXITED(raw)) st.code = WEXITSTATUS(raw);
-                else if (WIFSIGNALED(raw)) st.signal = WTERMSIG(raw);
-                ev.status = st;
-            }
+            if (::waitpid(static_cast<pid_t>(pid), &raw, WNOHANG) == static_cast<pid_t>(pid))   // our child: reaped, and how it ended is known
+                ev.status = posix::exitStatusOf(raw);
             out.push_back(ev);
         }
     }

@@ -2,99 +2,63 @@
 // End-to-end harness: a real daemon process and the real CLI, in an isolated SUB0SQUAD_HOME under the build directory.
 #include "check.hpp"
 
-#include <dirent.h>
-#include <fcntl.h>
-#include <signal.h>
-#include <spawn.h>
-#include <sys/wait.h>
+#include "tagged.hpp"
+#include "sub0squad/platform_proc.hpp"
+#include "sub0squad/platform_process.hpp"
+
 #include <chrono>
 #include <fstream>
+#include <optional>
 #include <sstream>
 #include <thread>
 #include <vector>
 
-extern char** environ;
-
 namespace e2e {
 
-inline std::string slurp(const std::filesystem::path& p) { std::ifstream in(p); std::stringstream ss; ss << in.rdbuf(); return ss.str(); }
+using sub0squad::platform::ProcessId;
+
+inline std::string slurp(const std::filesystem::path& p) { std::ifstream in(p, std::ios::binary); std::stringstream ss; ss << in.rdbuf(); return ss.str(); }
 inline void sleepMs(int ms) { std::this_thread::sleep_for(std::chrono::milliseconds(ms)); }
 
-/// Live (non-zombie) processes whose comm contains `tag` and starts with "s0q-".
-inline std::vector<pid_t> pidsByTag(const std::string& tag)
-{
-    std::vector<pid_t> out;
-    DIR* d = opendir("/proc");
-    while (const dirent* e = readdir(d)) {
-        if (e->d_name[0] < '0' || e->d_name[0] > '9') continue;
-        const std::string base = std::string{"/proc/"} + e->d_name;
-        const std::string comm = slurp(base + "/comm");
-        if (comm.find("s0q-") != 0 || comm.find(tag) == std::string::npos) continue;
-        if (slurp(base + "/status").find("State:\tZ") != std::string::npos) continue;
-        out.push_back(static_cast<pid_t>(std::atoi(e->d_name)));
-    }
-    closedir(d);
-    return out;
-}
-inline void killByTag(const std::string& tag) { for (pid_t p : pidsByTag(tag)) kill(p, SIGKILL); }
+/// Live processes of the mock worker run tagged `tag` (tagged.hpp).
+inline std::vector<ProcessId> pidsByTag(const std::string& tag) { return tagged::processes(tag); }
+inline void killByTag(const std::string& tag) { tagged::killAll(tag); }
 
 struct Result { int exitCode = -1; std::string out; };
 
 class Squad
 {
 public:
-    Squad(std::string exe, const char* tag) : exe_(std::move(exe)), home_(makeTempDir(tag)) { setenv("SUB0SQUAD_HOME", home_.c_str(), 1); }
+    Squad(std::string exe, const char* tag) : exe_(std::move(exe)), home_(makeTempDir(tag)) { sub0squad::platform::setEnvironment("SUB0SQUAD_HOME", home_.string()); }
     ~Squad() { stopDaemon(); removeTree(home_); }
 
     void startDaemon(int maxJobs = 2, std::vector<std::string> extra = {})
     {
-        const std::string mj = std::to_string(maxJobs);
-        const std::string log = (home_ / "daemon.log").string();
-        posix_spawn_file_actions_t fa;
-        posix_spawn_file_actions_init(&fa);
-        posix_spawn_file_actions_addopen(&fa, 1, log.c_str(), O_WRONLY | O_CREAT | O_APPEND, 0600);
-        posix_spawn_file_actions_adddup2(&fa, 1, 2);
-        std::vector<std::string> all = {exe_, "serve", "--max-jobs", mj};
-        for (auto& e : extra) all.push_back(e);
-        std::vector<char*> argv;
-        for (auto& a : all) argv.push_back(a.data());
-        argv.push_back(nullptr);
-        CHECK(posix_spawn(&daemon_, exe_.c_str(), &fa, nullptr, argv.data(), environ) == 0);
-        posix_spawn_file_actions_destroy(&fa);
+        sub0squad::platform::ProcessSpec spec{.argv = {exe_, "serve", "--max-jobs", std::to_string(maxJobs)}, .outputFile = home_ / "daemon.log", .appendOutput = true};
+        for (auto& e : extra) spec.argv.push_back(e);
+        auto child = sub0squad::platform::spawn(spec);
+        CHECK(child.has_value());
+        if (!child) return;
+        daemon_ = std::move(*child);
         for (int i = 0; i < 500; ++i) { if (cli({"ping"}).exitCode == 0) return; sleepMs(10); }
         CHECK(false && "daemon did not come up");
     }
-    void stopDaemon() { if (daemon_ > 0) { kill(daemon_, SIGTERM); int st; waitpid(daemon_, &st, 0); daemon_ = 0; } }
-    void killDaemon() { if (daemon_ > 0) { kill(daemon_, SIGKILL); int st; waitpid(daemon_, &st, 0); daemon_ = 0; } }
-    [[nodiscard]] pid_t daemonPid() const { return daemon_; }
+    /// Ask the daemon to stop (SIGTERM; on Windows its stop event) and wait for it.
+    void stopDaemon() { if (daemon_.id() > 0) { (void)sub0squad::platform::terminateProcess(daemon_.id()); (void)daemon_.wait(); daemon_ = {}; } }
+    void killDaemon() { if (daemon_.id() > 0) { daemon_.kill(); (void)daemon_.wait(); daemon_ = {}; } }
+    [[nodiscard]] ProcessId daemonPid() const { return daemon_.id(); }
     [[nodiscard]] const std::filesystem::path& home() const { return home_; }
     [[nodiscard]] const std::string& exe() const { return exe_; }
 
-    Result cli(std::vector<std::string> args)
+    /// Run the CLI to its end: its stdout, and its stderr too when `withStderr` (otherwise discarded).
+    Result cli(std::vector<std::string> args, bool withStderr = false)
     {
-        int pipefd[2];
-        CHECK(pipe(pipefd) == 0);
-        posix_spawn_file_actions_t fa;
-        posix_spawn_file_actions_init(&fa);
-        posix_spawn_file_actions_adddup2(&fa, pipefd[1], 1);
-        posix_spawn_file_actions_addopen(&fa, 2, "/dev/null", O_WRONLY, 0);
-        posix_spawn_file_actions_addclose(&fa, pipefd[0]);
-        std::vector<char*> argv{const_cast<char*>(exe_.c_str())};
-        for (auto& a : args) argv.push_back(a.data());
-        argv.push_back(nullptr);
-        pid_t pid;
-        CHECK(posix_spawn(&pid, exe_.c_str(), &fa, nullptr, argv.data(), environ) == 0);
-        posix_spawn_file_actions_destroy(&fa);
-        close(pipefd[1]);
-        Result r;
-        char buf[4096];
-        ssize_t n;
-        while ((n = read(pipefd[0], buf, sizeof buf)) > 0) r.out.append(buf, static_cast<std::size_t>(n));
-        close(pipefd[0]);
-        int st = 0;
-        waitpid(pid, &st, 0);
-        r.exitCode = WIFEXITED(st) ? WEXITSTATUS(st) : -1;
-        return r;
+        sub0squad::platform::ProcessSpec spec{.argv = {exe_}};
+        for (auto& a : args) spec.argv.push_back(a);
+        auto ran = sub0squad::platform::runCaptured(spec, {.timeout = std::chrono::minutes(10), .maxBytes = 64u << 20, .includeStderr = withStderr, .discardStderr = !withStderr});
+        CHECK(ran.has_value());
+        if (!ran) return {};
+        return Result{ran->status.exited() ? ran->status.code : -1, ran->output};
     }
 
     /// Submit `exe mock-worker <workerArgs>` with extra submit options; returns the job id.
@@ -132,7 +96,7 @@ public:
 private:
     std::string exe_;
     std::filesystem::path home_;
-    pid_t daemon_ = 0;
+    sub0squad::platform::Child daemon_;
 };
 
 }  // namespace e2e

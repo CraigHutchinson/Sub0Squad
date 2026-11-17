@@ -4,10 +4,11 @@
 #include "sub0squad/job_spec.hpp"
 #include "sub0squad/supervisor.hpp"
 
-#include <signal.h>
-#include <sys/wait.h>
+#include "tagged.hpp"
+#include "sub0squad/platform_proc.hpp"
+#include "sub0squad/platform_wait.hpp"
+
 #include <chrono>
-#include <dirent.h>
 #include <fstream>
 #include <sstream>
 #include <thread>
@@ -17,26 +18,11 @@ namespace fs = std::filesystem;
 
 static std::string gExe;
 
-static std::string slurp(const fs::path& p) { std::ifstream in(p); std::stringstream ss; ss << in.rdbuf(); return ss.str(); }
+static std::string slurp(const fs::path& p) { std::ifstream in(p, std::ios::binary); std::stringstream ss; ss << in.rdbuf(); return ss.str(); }
 
-// Live (non-zombie) processes whose name carries our tag.
-static int countByTag(const std::string& tag)
-{
-    int n = 0;
-    DIR* d = opendir("/proc");
-    while (const dirent* e = readdir(d)) {
-        if (e->d_name[0] < '0' || e->d_name[0] > '9') continue;
-        const std::string base = std::string{"/proc/"} + e->d_name;
-        std::string comm = slurp(base + "/comm");
-        if (comm.find("s0q-") != 0 || comm.find(tag) == std::string::npos) continue;
-        if (slurp(base + "/status").find("State:\tZ") != std::string::npos) continue;
-        ++n;
-    }
-    closedir(d);
-    return n;
-}
+static int countByTag(const std::string& tag) { return tagged::count(tag); }
 
-struct Run { fs::path dir; pid_t shim = 0; };
+struct Run { fs::path dir; platform::ProcessId shim = 0; };
 
 static Run startRun(const char* tag, std::vector<std::string> workerArgs, std::int64_t wall = 0, std::int64_t grace = 1)
 {
@@ -54,11 +40,17 @@ static Run startRun(const char* tag, std::vector<std::string> workerArgs, std::i
     return r;
 }
 
-static int waitShim(const Run& r)
+/// Wait (up to two minutes) for the shim to end; it is this process's child, so the wait also reaps it.
+static void waitShim(const Run& r)
 {
-    int status = 0;
-    waitpid(r.shim, &status, 0);
-    return status;
+    auto w = platform::Waiter::create();
+    CHECK(w.has_value());
+    if (!w || !w->watchExit(r.shim, 1)) return;   // already gone
+    for (int i = 0; i < 240; ++i) {
+        auto events = w->wait(std::chrono::milliseconds(500));
+        if (events && !events->empty()) return;
+    }
+    CHECK(false && "the shim did not end");
 }
 
 static bool waitForFile(const fs::path& p, int ms = 5000)
@@ -91,7 +83,7 @@ int main(int, char** argv)
         auto r = startRun("c1", {"--steps", "4", "--step-ms", "5", "--crash-at", "2"});
         waitShim(r);
         auto ex = readExitRecord(r.dir);
-        CHECK(ex && ex->signal == SIGSEGV);
+        CHECK(ex && ex->signal == 11);   // SIGSEGV, or the access violation on Windows
     }
     { // main exits but leaves a server and an escapee behind: both must be gone and the record says verified
         auto r = startRun("l1", {"--steps", "1", "--step-ms", "50", "--server", "--escape"});
@@ -106,7 +98,7 @@ int main(int, char** argv)
         CHECK(waitForFile(r.dir / "shim.json"));
         for (int i = 0; i < 300 && countByTag(tag) < 3; ++i) std::this_thread::sleep_for(std::chrono::milliseconds(10));
         CHECK(countByTag(tag) >= 3);  // worker, server and escapee are all alive before the cancel
-        kill(r.shim, SIGTERM);
+        CHECK(platform::terminateProcess(r.shim));
         waitShim(r);
         auto ex = readExitRecord(r.dir);
         CHECK(ex && ex->outcome == "cancelled" && ex->teardown == "verified");

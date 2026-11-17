@@ -38,11 +38,10 @@ void Daemon::Impl::reconcileAtStart()
 
 void Daemon::Impl::adopt(const JobRecord& job)
 {
-    if (!waiter.watchExit(job.shimPid, tag(kShimExit, job.shimPid))) {
+    if (!watchShim(job.id, job.shimPid)) {
         record("jobFinished", journalbody::finished(job.id, job.run, JobState::lost, "", "supervisor vanished while adopting"));
         return;
     }
-    shimToJob[job.shimPid] = job.id;
     auto r = std::make_unique<Running>();
     r->id = job.id;
     r->run = job.run;
@@ -185,8 +184,8 @@ void Daemon::Impl::onShimStart(const std::string& id, int run, sub0pipeline::Com
     r.shimPid = *pid;
     const auto ticks = platform::processStart(*pid).value_or(0);
     record("jobStarted", journalbody::started(id, run, *pid, ticks));
-    // A shim that is already gone (it failed at once) is not watched; it is a lost job, as before, found by the next reconcile.
-    watchShim(id, *pid);
+    // A shim already gone (it failed at once) ends the run now, as its exit would have.
+    if (!watchShim(id, *pid)) post([this, shim = *pid, id] { shimToJob[shim] = id; onShimExit(shim); });
     logf("job %s run %d started (shim %lld)", id.c_str(), run, static_cast<long long>(*pid));
 }
 

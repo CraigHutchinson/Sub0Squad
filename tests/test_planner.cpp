@@ -150,6 +150,7 @@ int main()
     {   // A real planner's scaffold whose main calls `calc::run`, declared in a header and defined in no stub: it compiles file by file and does not link.
         const std::string bad = cppCheckPlanScaffold(data("planner-unlinked.json"));
         CHECK(bad.find("do not link together") != std::string::npos && bad.find("calc::run") != std::string::npos);
+        if (bad.find("do not link together") == std::string::npos) std::fprintf(stderr, "scaffold check said: %s\n", bad.c_str());
     }
     {   // The contract says calc::evaluate, the header declares a global evaluate (a real plan; the build then fails to link).
         auto plan = Plan::fromJson(data("planner-nsmismatch.json"));

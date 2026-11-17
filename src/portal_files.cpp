@@ -60,12 +60,14 @@ std::string queryParam(const std::string& target, const std::string& name)
 // A path inside the sandbox: relative, no "..", and after resolving symbolic links still under the sandbox root.
 bool insideSandbox(const fs::path& root, const std::string& rel, fs::path& out)
 {
-    if (rel.empty() || rel[0] == '/' || rel.find("..") != std::string::npos || rel.find('\0') != std::string::npos) return false;
+    if (rel.empty() || rel.find("..") != std::string::npos || rel.find('\0') != std::string::npos) return false;
+    const fs::path relative{rel};
+    if (relative.has_root_name() || relative.has_root_directory()) return false;   // "/etc", "C:x", "\\server\share"
     std::error_code ec;
     const fs::path base = fs::weakly_canonical(root, ec);
-    const fs::path full = fs::weakly_canonical(base / rel, ec);
+    const fs::path full = fs::weakly_canonical(base / relative, ec);
     if (ec) return false;
-    const std::string b = base.string() + "/", f = full.string() + "/";
+    const std::string b = base.generic_string() + "/", f = full.generic_string() + "/";
     if (f.compare(0, b.size(), b) != 0) return false;
     out = full;
     return true;

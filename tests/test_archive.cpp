@@ -15,37 +15,12 @@ static std::string field(const std::string& json, const std::string& key)
     const auto p = json.find(pat);
     return p == std::string::npos ? std::string{} : json.substr(p + pat.size(), json.find('"', p + pat.size()) - p - pat.size());
 }
-/// The CLI's stderr is discarded by the harness; this runs it through a shell-free spawn with stderr joined to stdout.
-static Result cliAll(Squad& sq, std::vector<std::string> args)
-{
-    int pipefd[2];
-    CHECK(pipe(pipefd) == 0);
-    posix_spawn_file_actions_t fa;
-    posix_spawn_file_actions_init(&fa);
-    posix_spawn_file_actions_adddup2(&fa, pipefd[1], 1);
-    posix_spawn_file_actions_adddup2(&fa, pipefd[1], 2);
-    posix_spawn_file_actions_addclose(&fa, pipefd[0]);
-    std::vector<char*> argv{const_cast<char*>(sq.exe().c_str())};
-    for (auto& a : args) argv.push_back(a.data());
-    argv.push_back(nullptr);
-    pid_t pid;
-    CHECK(posix_spawn(&pid, sq.exe().c_str(), &fa, nullptr, argv.data(), environ) == 0);
-    posix_spawn_file_actions_destroy(&fa);
-    close(pipefd[1]);
-    Result r;
-    char buf[4096];
-    ssize_t n;
-    while ((n = read(pipefd[0], buf, sizeof buf)) > 0) r.out.append(buf, static_cast<std::size_t>(n));
-    close(pipefd[0]);
-    int st = 0;
-    waitpid(pid, &st, 0);
-    r.exitCode = WIFEXITED(st) ? WEXITSTATUS(st) : -1;
-    return r;
-}
+/// The CLI with its stderr joined to its stdout.
+static Result cliAll(Squad& sq, std::vector<std::string> args) { return sq.cli(std::move(args), true); }
 
 int main(int, char** argv)
 {
-    ::unsetenv("SUB0SQUAD_BUILD_ID");
+    sub0squad::platform::unsetEnvironment("SUB0SQUAD_BUILD_ID");
     Squad sq(argv[1], "archive");
     const fs::path state = sq.home() / "state";
 
@@ -59,7 +34,7 @@ int main(int, char** argv)
     CHECK_EQ(sq.cli({"submit", "--", "true"}).exitCode, 0);
 
     // Another build on the command line (the test-only override): every kind of submit is refused, and the message says both builds and what to do.
-    ::setenv("SUB0SQUAD_BUILD_ID", "newer-build", 1);
+    sub0squad::platform::setEnvironment("SUB0SQUAD_BUILD_ID", "newer-build");
     for (const std::vector<std::string>& cmd : {std::vector<std::string>{"submit", "--", "true"}, std::vector<std::string>{"project", "submit", "--task", "calculator-py"}, std::vector<std::string>{"do", "write a calculator in Python"}}) {
         const Result r = cliAll(sq, cmd);
         CHECK(r.exitCode != 0);
@@ -70,10 +45,10 @@ int main(int, char** argv)
     {
         const Result warned = cliAll(sq, {"up", "--no-portal"});
         CHECK(contains(warned.out, "ANOTHER BUILD") && contains(warned.out, "'newer-build'") == false && contains(warned.out, "this command is newer-build") && contains(warned.out, "sub0squad down"));
-        ::unsetenv("SUB0SQUAD_BUILD_ID");
+        sub0squad::platform::unsetEnvironment("SUB0SQUAD_BUILD_ID");
         const Result same = cliAll(sq, {"up", "--no-portal"});
         CHECK(contains(same.out, "daemon: already running") && !contains(same.out, "ANOTHER BUILD"));
-        ::setenv("SUB0SQUAD_BUILD_ID", "newer-build", 1);
+        sub0squad::platform::setEnvironment("SUB0SQUAD_BUILD_ID", "newer-build");
     }
     // reading is never refused: status and ping work across builds
     CHECK_EQ(sq.cli({"status"}).exitCode, 0);
@@ -84,7 +59,7 @@ int main(int, char** argv)
     CHECK_EQ(forced.exitCode, 0);
     CHECK(contains(forced.out, "w-000001"));
     CHECK_EQ(sq.cli({"project", "wait", "w-000001", "--timeout", "120"}).exitCode, 0);
-    ::unsetenv("SUB0SQUAD_BUILD_ID");
+    sub0squad::platform::unsetEnvironment("SUB0SQUAD_BUILD_ID");
 
     // A process with no plan and no items (two job stages) runs through the daemon: no "awaiting a plan", both jobs run, the workflow succeeds (row 56).
     {
