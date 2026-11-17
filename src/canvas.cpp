@@ -268,6 +268,7 @@ CanvasReply parseCanvasReply(const std::string& reply)
     for (std::size_t i = 0; i < lines.size(); ++i) {
         const bool edit = startsWith(lines[i], "=== EDIT:"), file = startsWith(lines[i], "=== FILE:");
         if (!edit && !file) continue;
+        const std::string headerLine = lines[i];
         std::string head = lines[i].substr(9);
         if (const auto close = head.rfind("==="); close != std::string::npos) head.erase(close);
         head.erase(0, head.find_first_not_of(" \t"));
@@ -276,6 +277,11 @@ CanvasReply parseCanvasReply(const std::string& reply)
         std::size_t j = i + 1;
         for (; j < lines.size() && !isHeader(lines[j]); ++j) body.push_back(lines[j]);
         i = j - 1;
+        // A header written twice (seen from the 35B in write-function, the reply refused as an empty SYMBOL edit): the empty first copy is not a block.
+        const auto trimmedEq = [](std::string a, std::string b) { for (auto* s : {&a, &b}) s->erase(s->find_last_not_of(" \t\r") + 1); return a == b; };
+        if (j < lines.size() && trimmedEq(lines[j], headerLine) &&
+            std::all_of(body.begin(), body.end(), [](const std::string& l) { return l.find_first_not_of(" \t\r") == std::string::npos; }))
+            continue;
         std::string raw;
         for (const auto& l : body) raw += l + "\n";
         const bool search = raw.find("<<<<<<< SEARCH") != std::string::npos;

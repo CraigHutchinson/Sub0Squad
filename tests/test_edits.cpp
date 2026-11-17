@@ -134,6 +134,12 @@ int main()
             const CanvasReply r = parseCanvasReply("=== EDIT: src/main.cpp LINES 67-68 ===\n    a();\n    b();\n=======\n    c();\n>>>>>>> REPLACE\n=== END EDIT ===\n");
             CHECK(r.error.empty() && r.transactions.size() == 1 && r.transactions[0].ops.size() == 1 && r.transactions[0].ops[0].text == "    c();\n");
         }
+        {   // A header written twice: the empty first copy is skipped, the block under the second applies (tier 0 write-function).
+            const CanvasReply r = parseCanvasReply("=== EDIT: src/calc.cpp SYMBOL call ===\n=== EDIT: src/calc.cpp SYMBOL call ===\nint call()\n{\n    return 1;\n}\n=== END EDIT ===\n");
+            CHECK(r.error.empty() && r.transactions.size() == 1 && r.transactions[0].ops.size() == 1 && r.transactions[0].ops[0].symbol == "call");
+            const CanvasReply empty = parseCanvasReply("=== EDIT: src/calc.cpp SYMBOL call ===\n=== END EDIT ===\n");
+            CHECK(!empty.error.empty());   // an empty block on its own is still refused
+        }
         CHECK(replacementOfMarkedBlock("a\nb\n") == "a\nb\n");
         CHECK(replacementOfMarkedBlock("<<<<<<< SEARCH\nold\n=======\nnew\n>>>>>>> REPLACE\n") == "new\n");
         CHECK(replacementOfMarkedBlock("old\n=======\n>>>>>>> REPLACE\n").empty());   // an empty replacement deletes
