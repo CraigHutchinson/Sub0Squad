@@ -61,6 +61,10 @@ struct Plan
     std::vector<WorkItem> items;
     std::vector<std::string> reasons;  ///< why the planner chose this split (or none), kept with the decision record
     std::vector<PlanFile> scaffold;    ///< the project's interface and stubs, written into every workspace over the harness's own defaults
+    /// Acceptance tests the plan's AUTHOR supplies (the owner or an architect writing the plan by hand, `project plan --file`): files under `tests/`,
+    /// written into every workspace and the integrated project, editable by no item, graded like a tester's. A model planner may not supply them: the
+    /// squad's own tests come from tester items, never from the plan that is judged by them.
+    std::vector<PlanFile> given;
 
     [[nodiscard]] std::string toJson() const;
     /// Parse and validate: unique ids, known deps, acyclic, disjoint relative files, 1..32 items, personas write only their own kind

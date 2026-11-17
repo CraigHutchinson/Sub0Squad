@@ -109,6 +109,7 @@ std::vector<std::string> mendPlan(Plan& plan)
     {
         std::set<std::string> known;
         for (const auto& f : plan.scaffold) known.insert(f.path);
+        for (const auto& f : plan.given) known.insert(f.path);
         for (const auto& it : plan.items) for (const auto& f : it.files) known.insert(f);
         std::vector<std::string> headers;
         for (const auto& f : plan.scaffold) if (f.path.rfind("include/", 0) == 0 && (endsWith(f.path, ".hpp") || endsWith(f.path, ".h"))) headers.push_back(f.path);

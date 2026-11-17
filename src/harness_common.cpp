@@ -49,11 +49,12 @@ void writeScaffold(const Plan& plan, const std::vector<HarnessFile>& harnessFile
         std::filesystem::create_directories((ws / f.path).parent_path(), ec);
         std::ofstream(ws / f.path, std::ios::binary | std::ios::trunc) << f.content;
     }
-    for (const auto& f : plan.scaffold) {
-        std::error_code ec;
-        std::filesystem::create_directories((ws / f.path).parent_path(), ec);
-        std::ofstream(ws / f.path, std::ios::binary | std::ios::trunc) << f.content;
-    }
+    for (const auto* list : {&plan.scaffold, &plan.given})   // the plan's interface and stubs, then the author's acceptance tests
+        for (const auto& f : *list) {
+            std::error_code ec;
+            std::filesystem::create_directories((ws / f.path).parent_path(), ec);
+            std::ofstream(ws / f.path, std::ios::binary | std::ios::trunc) << f.content;
+        }
 }
 
 }  // namespace sub0squad

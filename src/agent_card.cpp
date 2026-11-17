@@ -168,8 +168,9 @@ std::string buildCard(const fs::path& dir, const Plan& plan, const WorkItem& ite
     for (const auto& inc : item->card.include) {
         std::string content;
         for (const auto& dep : closure(plan, itemId)) { const fs::path f = dir / "items" / dep / "accepted" / inc; if (fs::exists(f)) { content = slurp(f); break; } }
-        if (content.empty())   // a file of the plan's own scaffold (the project's header): shown as it was planned
-            for (const auto& f : plan.scaffold) if (f.path == inc) { content = f.content; break; }
+        if (content.empty())   // a file of the plan's own scaffold (the project's header) or a test its author gave: shown as it was planned
+            for (const auto* list : {&plan.scaffold, &plan.given})
+                for (const auto& f : *list) if (content.empty() && f.path == inc) content = f.content;
         if (content.empty()) continue;
         const std::string allNames = testNames(content);
         testCount += std::count(allNames.begin(), allNames.end(), '\n');

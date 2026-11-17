@@ -46,6 +46,27 @@ int main()
         CHECK(!Plan::fromJson(abs.toJson()).has_value());
         CHECK(!Plan::fromJson("{\"schema\":\"plan-1\",\"items\":[]}").has_value());
     }
+    {   // given: the plan author's acceptance tests. Kept through JSON, only under tests/ (never the helpers), never an item's editable file;
+        // a plan without them keeps its bytes.
+        CHECK(makePlan().toJson().find("\"given\"") == std::string::npos);
+        Plan g = makePlan();
+        g.given = {{"tests/accept.test.mjs", "test('x', () => {});\n"}};
+        const auto back = Plan::fromJson(g.toJson());
+        CHECK(back && back->given.size() == 1 && back->given[0].path == "tests/accept.test.mjs" && back->given[0].content == "test('x', () => {});\n");
+        Plan helper = makePlan(); helper.given = {{"tests/helpers/check.mjs", "x"}};
+        CHECK(!Plan::fromJson(helper.toJson()).has_value());                    // the harness's instruments are not the author's
+        Plan source = makePlan(); source.given = {{"src/calc.js", "x"}};
+        CHECK(!Plan::fromJson(source.toJson()).has_value());                    // only tests are given
+        Plan owned = makePlan();
+        owned.items[2].persona = "tester";
+        owned.items[2].files = {"tests/t.test.mjs"};
+        CHECK(Plan::fromJson(owned.toJson()).has_value());                      // valid with the tester owning its file...
+        owned.given = {{"tests/t.test.mjs", "x"}};
+        const auto refused = Plan::fromJson(owned.toJson());                    // ...not once the author gives that same file
+        CHECK(!refused.has_value() && refused.error().find("item 'c' would edit it") != std::string::npos);
+        Plan empty = makePlan(); empty.given = {{"tests/e.test.mjs", ""}};
+        CHECK(!Plan::fromJson(empty.toJson()).has_value());
+    }
     { // plan-2: the blueprint is valid; personas, cards and gates are enforced
         const std::string bp = blueprintJson("calculator-web");
         CHECK(Plan::fromJson(bp).has_value());

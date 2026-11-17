@@ -28,18 +28,25 @@ namespace fs = std::filesystem;
 
 const char* const kCanvasSyntax =
     "You edit a shared document. Each turn you are shown the files as they now stand, with line numbers (`N| text`; the numbers are not part of the file) and long function bodies "
-    "FOLDED to `... (N lines folded: a-b; name)`. Reply with one small TRANSACTION and nothing else (no explanations, no markdown fences). The forms:\n"
+    "FOLDED to `... (N lines folded: a-b; name)`. Reply with one TRANSACTION and nothing else (no explanations, no markdown fences). The forms:\n"
     "=== EDIT: <path> SYMBOL <function name> ===\n<the whole new function, from its signature to its last line>\n=== END EDIT ===\n"
     "=== EDIT: <path> LINES a-b ===\n<the new text for those lines; empty to delete them>\n=== END EDIT ===\n"
     "=== EDIT: <path> AFTER n ===\n<lines to insert after line n>\n=== END EDIT ===\n"
-    "=== FILE: <path> ===\n<the complete file>\n=== END FILE ===   (only for a file that does not exist yet, or when most of it changes)\n"
+    "=== FILE: <path> ===\n<the complete new file>\n=== END FILE ===\n"
+    "Pick the form ONCE, by the first rule that fits, and do not reconsider it:\n"
+    "1. The file does not exist yet: FILE.\n"
+    "2. The approach of a file is wrong (its structure, its grammar, how data flows through it), or you would change most of its functions: FILE, the complete "
+    "new file. It replaces everything, folded parts included, so do not read them first, and do not use LINES over the whole file.\n"
+    "3. Otherwise (a few functions or lines are wrong): EDIT them, SYMBOL for a whole function, LINES or AFTER for a few lines. To change a folded function "
+    "you have not seen, read it first: reply with ONLY read requests, `=== READ: <path> SYMBOL name ===` or `=== READ: <path> LINES a-b ===` (all you need "
+    "in one reply; at most two replies may be reads, then you must edit).\n"
     "Several edits may be given in one reply: line numbers are always those of the view you were shown, and all of them apply together or none does. "
     "A worked example. The view shows\n"
     "  41|     if (d == 0) return 0;\n"
     "and line 41 must report the error instead. The whole reply is:\n"
     "=== EDIT: src/calc.cpp LINES 41 ===\n    if (d == 0) throw std::domain_error(\"division by zero\");\n=== END EDIT ===\n"
-    "Never copy the file or the numbered view back. To see folded lines, reply with ONLY read requests: `=== READ: <path> LINES a-b ===` or `=== READ: <path> SYMBOL name ===`; "
-    "at most two replies may be reads, then you must edit. Every transaction is checked before it is kept: one that does not compile or parse is refused and changes nothing.\n";
+    "Never copy unchanged text or the numbered view back: an edit holds only the new text. Every transaction is checked before it is kept: one that does not "
+    "compile or parse is refused and changes nothing.\n";
 
 std::string canvasSystemBlock(const std::string& persona, const std::string& brief, const std::string& stance)
 {
@@ -155,13 +162,22 @@ int runCanvasAttempt(const AttemptContext& a)
     double totIn = 0, totOut = 0, decodeTps = 0, prefillTps = 0;
     long changedLines = 0;
 
+    std::string lastReadAnswer;           // the latest read answered, kept in view when a read past the allowance is refused
+    bool verdictIsRead = false;           // the verdict is a read answer (set where it is written, cleared once a message carried it)
     while (spent <= a.repairTurns) {
         // ---- the message: the card, the verdict, and the current revision folded to fit what the window has left ----
+        // A verdict is clipped to 2,400 characters (a gate's output, a refusal), but a READ answer is what the worker asked to see: it gets the window
+        // left after a minimal view of every file. Clipped like a gate output, the worker never saw the lines it read and asked again until its turns ran
+        // out (tier 1 of 2026-11-17: attempts 2 and 4 only ever read, and committed nothing).
+        const long availTokens = static_cast<long>(a.engine.contextTokens) - a.maxTokens - 300;
+        const long windowChars = static_cast<long>(static_cast<double>(availTokens) * 3.2) - static_cast<long>(system.size() + a.card.size() + a.guidance.size()) - 1500;
+        const std::size_t verdictCap = verdictIsRead
+            ? static_cast<std::size_t>(std::max(2400L, windowChars - 800L * static_cast<long>(std::max<std::size_t>(1, canvas.paths().size()))))
+            : 2400;
         std::string state;
         if (canvas.paths().empty()) state = "No file exists yet. Write every file whole: === FILE: <path> === ... === END FILE ===\n";
         else {
-            const long availTokens = static_cast<long>(a.engine.contextTokens) - a.maxTokens - 300;
-            const long availChars = static_cast<long>(static_cast<double>(availTokens) * 3.2) - static_cast<long>(system.size() + a.card.size() + a.guidance.size()) - 1500 - static_cast<long>(std::min<std::size_t>(verdict.size(), 2400));
+            const long availChars = windowChars - static_cast<long>(std::min(verdict.size(), verdictCap));
             const std::size_t perFile = static_cast<std::size_t>(std::clamp(availChars / std::max<long>(1, static_cast<long>(canvas.paths().size())), 800L, 9000L));
             for (const auto& path : canvas.paths()) {
                 const std::string& text = canvas.text(path);
@@ -169,8 +185,9 @@ int runCanvasAttempt(const AttemptContext& a)
             }
             for (const auto& f : a.item->files) if (!canvas.has(f)) state += "(" + f + " does not exist yet: write it whole with === FILE: " + f + " ===)\n";
         }
-        const std::string user = a.card + (a.guidance.empty() ? std::string{} : "\n" + a.guidance + "\n") + (verdict.empty() ? std::string{} : "\n" + clip(verdict, 2400) + "\n") + "\n" + state +
-                                 (canvas.paths().empty() ? "" : "Reply with the transaction that fixes this: change only what is needed.\n");
+        const std::string user = a.card + (a.guidance.empty() ? std::string{} : "\n" + a.guidance + "\n") + (verdict.empty() ? std::string{} : "\n" + clip(verdict, verdictCap) + "\n") + "\n" + state +
+                                 (canvas.paths().empty() ? "" : "Reply with the transaction that fixes this, its form picked once by the rules above: a few functions wrong, edit just them; the approach wrong, the complete new file.\n");
+        verdictIsRead = false;
         std::vector<ChatMessage> convo = {{"system", system}, {"user", user}};
         if (!partial.empty()) {   // continue a reply that was cut off: its tail is shown, the rest is appended (never started over)
             convo.push_back({"assistant", "[your reply so far is kept; it was cut off at the token limit]"});
@@ -247,21 +264,32 @@ int runCanvasAttempt(const AttemptContext& a)
 
         const CanvasReply parsed = parseCanvasReply(text);
         if (parsed.error.empty() && !parsed.hasEdits()) {
+            if (!parsed.reads.empty() && !canvas.paths().empty() && readReplies >= freeReads) {
+                // Past the allowance a read is refused, not answered: answered, it let a worker read until its turns ran out. What it read last stays in view.
+                ++readReplies;
+                ++spent;
+                verdict = (lastReadAnswer.empty() ? std::string{} : "The lines you read before:\n" + lastReadAnswer) +
+                          "Your reads are used up, so this read was not answered. Reply now with an edit (=== EDIT: ... ===) or, if the approach is wrong, the complete new file (=== FILE: ... ===).\n";
+                verdictIsRead = !lastReadAnswer.empty();
+                traceVerdict(tracePath, call, "read request refused: the reads are used up (a turn is spent)");
+                std::printf("canvas turn %d: read refused (reads used up), turn spent\n", call);
+                continue;
+            }
             if (!parsed.reads.empty() && !canvas.paths().empty()) {
                 // A read (docs/CANVAS.md (Folded views)): the first two read-only replies are answered without using a turn; after that the worker must edit.
                 std::string answer;
                 for (const auto& rq : parsed.reads)
                     answer += canvas.has(rq.path) ? answerRead(rq, canvas.text(rq.path), isPythonPath(rq.path)) : "=== " + rq.path + ": not one of the files of this item ===\n";
                 ++readReplies;
-                const bool free = readReplies <= freeReads;
-                if (!free) ++spent;
+                lastReadAnswer = answer;
                 verdict = "The lines you asked to read:\n" + answer + (readReplies >= freeReads ? "You have used your reads: your next reply MUST be an edit (=== EDIT: ... ===) or a file, not another read.\n" : "Now reply with your edit.\n");
-                traceVerdict(tracePath, call, "read request: " + std::to_string(parsed.reads.size()) + " region(s) shown" + (free ? ", no turn used" : ", counted as a turn (reads are used up)"));
-                std::printf("canvas turn %d: read answered (%zu region(s))%s\n", call, parsed.reads.size(), free ? "" : ", turn spent");
+                verdictIsRead = true;
+                traceVerdict(tracePath, call, "read request: " + std::to_string(parsed.reads.size()) + " region(s) shown, no turn used");
+                std::printf("canvas turn %d: read answered (%zu region(s))\n", call, parsed.reads.size());
                 continue;
             }
             ++spent;
-            verdict = std::string{reply->finishReason == "length" ? "Your reply was cut off at the token limit before it held an edit. Write less. " : ""} + "Your reply held no transaction. Reply with === EDIT: <path> ... === blocks (or === FILE: <path> === for a file that does not exist yet) and nothing else.";
+            verdict = std::string{reply->finishReason == "length" ? "Your reply was cut off at the token limit before it held an edit. Write less. " : ""} + "Your reply held no transaction. Reply with === EDIT: <path> ... === blocks, or === FILE: <path> === with the complete new file (a new file, or one whose approach is wrong), and nothing else.";
             traceVerdict(tracePath, call, "no transaction in the reply (finish " + reply->finishReason + ")");
             continue;
         }

@@ -405,6 +405,8 @@ int runLlmPlanner(const std::vector<std::string>& args)
                 }
                 for (const auto& m : mendPlan(*plan)) { std::fprintf(stderr, "llm-planner: turn %d: mended: %s\n", turn, m.c_str()); mendsMade.push_back({turn, m}); }
                 if (auto ok = plan->validate(); !ok) problems.push_back("the plan is refused: " + ok.error());
+                // given tests are the owner's (Plan::given): a planner that wrote them would be grading its own plan
+                if (!plan->given.empty()) problems.push_back("the plan is refused: 'given' is for the owner's acceptance tests; the squad's tests come from tester items (leave 'given' out)");
                 if (problems.empty()) problems = checkPlan(*plan);
                 if (problems.empty())
                     if (const Harness* h = findHarness(plan->harness); h && h->checkPlanScaffold)

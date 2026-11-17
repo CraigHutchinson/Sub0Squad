@@ -130,12 +130,13 @@ int main()
         CHECK(slurp(attemptDir(d, 2) / "agent.json").find("\"reverted\":1") != std::string::npos);
         CHECK(slurp(attemptDir(d, 2) / "canvas.json").find("\"by\":\"harness\"") != std::string::npos);   // the log says who changed what
     }
-    {   // Reads are bounded (row 36): two read-only replies are answered free, the third costs a turn and is told so; a path-only read gives the outline.
+    {   // Reads are bounded (row 36): two read-only replies are answered free; the third is REFUSED (not answered), costs a turn, and keeps the last
+        // answer in view; a path-only read gives the outline.
         const fs::path d = workflow("canvas-reads");
         failedAttempt(d, 1, bad);
         const std::string read1 = std::string{"=== READ: "} + kFile + " ===\n", read2 = std::string{"=== READ: "} + kFile + " SYMBOL term ===\n";
         fake::Engine engine({{read1}, {read2}, {read2}, {fixByLine}});
-        CHECK_EQ(runLlmAgent(canvasArgs(d, engine, 2, 1)), 0);      // one repair turn: the third read spends the first turn, the edit the second
+        CHECK_EQ(runLlmAgent(canvasArgs(d, engine, 2, 1)), 0);      // one repair turn: the refused third read spends the first turn, the edit the second
         CHECK_EQ(slurp(attemptDir(d, 2) / "out" / kFile), ref);
         const auto rq = engine.requests();
         CHECK_EQ(rq.size(), static_cast<std::size_t>(4));
@@ -147,8 +148,27 @@ int main()
             CHECK(between(rq[2].last(), "The lines you asked to read", "=== CANVAS:").find("v = v / d") != std::string::npos);   // SYMBOL term shows the body
             CHECK(rq[2].last().find("MUST be an edit") != std::string::npos);
             CHECK_EQ(rq[3].messages.size(), static_cast<std::size_t>(2));
+            CHECK(rq[3].last().find("this read was not answered") != std::string::npos);
+            CHECK(between(rq[3].last(), "The lines you read before", "=== CANVAS:").find("v = v / d") != std::string::npos);   // the last answer stays in view
         }
         CHECK(slurp(attemptDir(d, 2) / "agent.json").find("\"reads\":3") != std::string::npos);
+    }
+    {   // A read answer is what the worker asked to see: it is never clipped like a gate's output (2,400 characters). Clipped, the worker read the same
+        // lines again until its turns ran out (tier 1 of 2026-11-17).
+        const fs::path d = workflow("canvas-longread");
+        std::string big = bad;
+        for (int i = 1; i <= 150; ++i) big += "# filler line " + std::to_string(i) + ": long enough that the read answer runs well past the gate cap\n";
+        failedAttempt(d, 1, big);
+        const std::string line150 = lines(big)[149];   // a read returns at most 160 lines per region (its header says which): 150 fit
+        fake::Engine engine({{std::string{"=== READ: "} + kFile + " LINES 1-150 ===\n"}, {fixByLine}});
+        CHECK_EQ(runLlmAgent(canvasArgs(d, engine, 2, 0)), 0);
+        const auto rq = engine.requests();
+        CHECK_EQ(rq.size(), static_cast<std::size_t>(2));
+        if (rq.size() == 2) {
+            const std::string answer = between(rq[1].last(), "The lines you asked to read", "=== CANVAS:");
+            CHECK(answer.size() > 2400 && answer.find(" 150| " + line150) != std::string::npos && answer.find("(truncated)") == std::string::npos);
+        }
+        CHECK(slurp(attemptDir(d, 2) / "out" / kFile).find(fixedLine) != std::string::npos);
     }
     {   // With no turns left a third read ends the attempt: reads cannot loop.
         const fs::path d = workflow("canvas-readloop");

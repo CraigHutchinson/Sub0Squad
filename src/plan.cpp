@@ -21,7 +21,13 @@ std::string Plan::toJson() const
     for (const auto& r : reasons) w.str(r);
     w.endArray().key("scaffold").beginArray();
     for (const auto& f : scaffold) w.beginObject().kv("path", f.path).kv("content", f.content).endObject();
-    w.endArray().key("items").beginArray();
+    w.endArray();
+    if (!given.empty()) {   // written only when present: a plan without given tests keeps its bytes
+        w.key("given").beginArray();
+        for (const auto& f : given) w.beginObject().kv("path", f.path).kv("content", f.content).endObject();
+        w.endArray();
+    }
+    w.key("items").beginArray();
     for (const auto& it : items) {
         w.beginObject().kv("id", it.id).kv("title", it.title).kv("persona", it.persona).kv("goal", it.goal).kv("complexity", it.complexity);
         w.key("card").beginObject().kv("context", it.card.context).kv("contract", it.card.contract);
@@ -113,8 +119,9 @@ std::expected<Plan, std::string> Plan::fromJson(std::string_view text, int cardB
                 else if (k == "harness") plan.harness = json::toString(v);
                 else if (k == "project") plan.project = json::toString(v);
                 else if (k == "reasons") { where = "the plan: reasons"; readStrings(v.value(), plan.reasons); }
-                else if (k == "scaffold") {
-                    where = "the plan: scaffold";
+                else if (k == "scaffold" || k == "given") {
+                    where = std::string{"the plan: "} + std::string{k};
+                    auto& list = k == "scaffold" ? plan.scaffold : plan.given;
                     for (auto fv : v.get_array()) {
                         PlanFile pf;
                         for (auto ff : fv.get_object()) {
@@ -123,7 +130,7 @@ std::expected<Plan, std::string> Plan::fromJson(std::string_view text, int cardB
                             if (fk == "path") pf.path = json::toString(fvv);
                             else if (fk == "content") pf.content = json::toString(fvv);
                         }
-                        plan.scaffold.push_back(std::move(pf));
+                        list.push_back(std::move(pf));
                     }
                 }
                 else if (k == "items") {
@@ -221,6 +228,19 @@ std::expected<void, std::string> Plan::validate(int cardBudgetTokens) const
             }
             auto [pos, fresh] = fileOwner.emplace(f, it.id);
             if (!fresh) return std::unexpected("items '" + pos->second + "' and '" + it.id + "' both edit '" + f + "' (editable sets must be disjoint)");
+        }
+    }
+    {   // the author's acceptance tests: under tests/ (never the harness's helpers), and no item may edit what grades it
+        if (plan.given.size() > 8) return std::unexpected("the plan gives more than 8 test files");
+        std::set<std::string> seen;
+        for (const auto& f : plan.given) {
+            if (!validPath(f.path)) return std::unexpected("given: bad path '" + f.path + "'");
+            if (f.path.rfind("tests/", 0) != 0 || f.path.rfind("tests/helpers/", 0) == 0)
+                return std::unexpected("given: '" + f.path + "' is not a test file (given files are acceptance tests under tests/, outside tests/helpers/)");
+            if (f.content.empty() || f.content.size() > 16384) return std::unexpected("given: '" + f.path + "' must be 1 to 16384 bytes");
+            if (!seen.insert(f.path).second) return std::unexpected("given: '" + f.path + "' is listed twice");
+            if (const auto owner = fileOwner.find(f.path); owner != fileOwner.end())
+                return std::unexpected("given: '" + f.path + "' is the plan author's test, but item '" + owner->second + "' would edit it");
         }
     }
     for (const auto& it : plan.items)

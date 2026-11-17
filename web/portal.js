@@ -489,6 +489,7 @@ function renderCanvas(){
   else if(e){a=e.from;b=e.to+e.delta}
   if(e&&b<a&&text!==baseText)cut=a;
   const html=!cv.pick?`<span class="mute">${canvasList().length?'':'No canvas in this workflow yet: one appears when a canvas or fork worker starts an item.'}</span>`
+    :L&&!files.length?'<span class="mute">The canvas is empty: the worker\'s first turn writes the files (watch it stream below).</span>'
     :text==null?'<span class="mute">loading…</span>'
     :text.replace(/\n$/,'').split('\n').map((s,i)=>{const k=i+1;return `<div class="ln${k>=a&&k<=b?' ch':''}${k===cut?' cut':''}"><i>${k}</i>${esc(s)||' '}</div>`}).join('');
   const changed=setInner($('cv-code'),html);
