@@ -91,6 +91,20 @@ int main()
         c.reviseTried = true;
         CHECK(policy.decide(c).action != Action::reviseTests);
     }
+    { RulePolicy policy; // The 35B run of 2026-11-17 (w-000001, dev-engine): every attempt failed before its tests ran (a compile error, an interface
+        // mismatch, replies that never compiled), yet the spent ladder sent the tester's ACCEPTED tests back with an empty failure list. When the gates
+        // said whether the tests ran and none ever failed, nothing speaks against the tests: the rung is skipped, and the decision says why.
+        DecisionContext c; c.workflow = "w"; c.item = "dev-engine"; c.attempt = 4; c.localAttempts = 2; c.maxLocalAttempts = 2; c.totalAttempts = 3; c.failedRole = "agent";
+        c.hasTesterDep = true; c.splittable = true; c.divideBySections = true; c.forked = true; c.rearchitectTried = true;
+        CHECK(policy.decide(c).action == Action::reviseTests);                     // gates that do not say (older records): the ladder as it was
+        c.testsNeverFailed = true;
+        const Decision d = policy.decide(c);
+        CHECK(d.action != Action::reviseTests);
+        CHECK(std::find_if(d.reasons.begin(), d.reasons.end(), [](const std::string& r) { return r.starts_with("no test of this item has failed yet"); }) != d.reasons.end());
+        CHECK(toJson(c, d).find("\"testsNeverFailed\":true") != std::string::npos);
+        c.testsNeverFailed = false;
+        CHECK(toJson(c, policy.decide(c)).find("testsNeverFailed") == std::string::npos);   // written only when it holds: the goldens keep their bytes
+    }
     { RulePolicy policy; // A STUCK near pass (gate exit 7: a near pass on the same files as the attempt before) thinks FIRST: before another plain
         // repair, before the tests are sent back (even when the item is graded by a tester's tests) and before the card is rewritten. Once.
         DecisionContext c; c.workflow = "w"; c.item = "engine"; c.attempt = 2; c.localAttempts = 2; c.totalAttempts = 2; c.failedRole = "gate";

@@ -37,7 +37,7 @@ struct ForkOptions
     int parallel = 0;                   ///< 0: up to the idle slots (the default); N: exactly N at once (an experiment)
     std::string sequentialReason;       ///< non-empty: one section at a time, and this is why
     long memFloorMiB = 0;               ///< > 0: below this much available memory forks are shed (one section at a time)
-    int skeletonMaxTokens = 1500;       ///< the skeleton is declarations only: its reply is bounded at the server ...
+    int skeletonMaxTokens = 1500;       ///< the skeleton is declarations only: its reply is bounded at the server (plus room to reason, with thinking on) ...
     int skeletonMaxLines = 120;         ///< ... and cancelled while it streams when it runs past this many lines (row 46)
     int wallBudgetSec = 900;            ///< the attempt's wall budget: this base (0 = no budget at all) ...
     int wallPerSectionSec = 150;        ///< ... plus this for every section, so a file of 14 functions is not given the time of a file of 4
@@ -110,6 +110,7 @@ struct ForkResult
     int lostEdits = 0;                  ///< committed sections whose text is not in the merged file (must be 0)
     int refused = 0;                    ///< transactions refused (the compile check, an unreadable reply, an edit outside the section)
     long skeletonTokens = 0, sectionTokens = 0, integrationTokens = 0;   ///< prompt and completion tokens per phase
+    long promptTokens = 0, completionTokens = 0;   ///< every model call of the attempt, all phases: the job's `tokens.in` and `tokens.out`
     double wallSec = 0, sectionWallSec = 0, idleShare = 0;
     std::vector<ForkSection> sections;
     std::string error;

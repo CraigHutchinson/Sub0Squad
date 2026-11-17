@@ -355,6 +355,7 @@ int runCanvasAttempt(const AttemptContext& a)
         for (const auto& [path, textNow] : canvas.files()) (void)writeFile(out / path, textNow);
         haveFiles = true;
     }
+    events::metric("tokens.work", haveFiles ? deliverableTokens(a.engine, out, totOut) : 0.0);   // the ledger's work ratio
     {
         const double secs = std::chrono::duration<double>(std::chrono::steady_clock::now() - a.began).count();
         std::ostringstream m;

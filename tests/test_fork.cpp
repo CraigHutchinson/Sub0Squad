@@ -154,6 +154,16 @@ int main()
         CHECK(rq.size() >= 2 && rq[1].last().find("ran past 120 lines and was stopped") != std::string::npos && rq[1].last().find("NO function bodies") != std::string::npos);
         CHECK(slurp(attemptDir(d, 1) / "fork.json").find("\"skeletonTries\":2") != std::string::npos);
     }
+    {   // Under the manager's `think` strategy the skeleton call has room to reason: the reasoning counts against max_tokens, and the 35B run of
+        // 2026-11-17 spent the text-only 1,500 on it twice (finish `length`, no skeleton). The job reports what it spent (`tokens.in`/`tokens.out`).
+        const fs::path d = workflow("fork-think-skeleton");
+        put(d / "items" / kItem / "strategy.json","{\"think\":true,\"engine\":false,\"latest\":\"think\"}\n");
+        fake::Engine engine([&](const fake::Request& rq, int) { return primerOr(rq, [&](const std::string& name) { return fake::Reply{edit(name, fn[name])}; }); });
+        CHECK_EQ(runLlmFork(forkArgs(d, engine)), 0);
+        const auto rq = engine.requests();
+        CHECK(!rq.empty() && rq[0].maxTokens >= 6000);
+        CHECK(slurp(attemptDir(d, 1) / "fork.json").find("\"completionTokens\":0,") == std::string::npos);   // the totals are counted
+    }
     {   // The harness completes the skeleton: a `@@` line that is no signature is refused with its line, and the wall budget stops an attempt that has
         // none left before another session starts.
         const fs::path d = workflow("fork-badline");

@@ -349,6 +349,27 @@ int main()
             CHECK_EQ(count(s, "strategy"), 1);
             CHECK_EQ(count(s, "mend") + count(s, "rearchitect") + count(s, "decompose") + count(s, "reviseTests"), 0);   // even a mend the gate reported is not applied: it is a consequence
         }
+        {   // The tests are sent back only when some of them failed (the 35B run of 2026-11-17): gates that say the tests never ran (compile errors) leave
+            // the tester's accepted tests alone, and the decision says why; the same ladder with failing tests sends them back, once.
+            for (const bool testsFailed : {false, true}) {
+                SCENARIO(testsFailed ? "tests-failed-sends-tests-back" : "tests-never-ran-keeps-tests");
+                Plan p;
+                p.task = "t"; p.harness = "web-static";
+                WorkItem t; t.id = "t"; t.title = "Tests"; t.goal = "g"; t.persona = "tester"; t.files = {"tests/e.test.mjs"}; t.gate = gate("tests/e.test.mjs", true);
+                WorkItem a; a.id = "a"; a.title = "Work"; a.goal = "g"; a.files = {"src/e.js"}; a.deps = {"t"}; a.gate = gate("tests/e.test.mjs", false);
+                p.items = {t, a};
+                Sim s = startSim(2, FrontierMode::off);
+                s.feed("workflowPlanned", wfbody::planned("w-000001", p));
+                const std::string exit = testsFailed ? "{\"code\":1,\"result\":{\"testsRan\":true,\"tests\":10,\"failed\":4}}" : "{\"code\":1,\"result\":{\"testsRan\":false}}";
+                drive(s, [&](const JobRecord& j) { return j.spec.role == "gate" && j.spec.item == "a" ? Outcome{JobState::failed, exit} : ok; });
+                CHECK(s.wfs.find("w-000001")->state == WorkflowState::failed);
+                CHECK_EQ(count(s, "reviseTests"), testsFailed ? 1 : 0);
+                CHECK_EQ(count(s, "disputed"), testsFailed ? 1 : 0);
+                bool said = false;
+                for (const auto& d : s.wfs.find("w-000001")->decisions) said = said || d.json.find("\"testsNeverFailed\":true") != std::string::npos;
+                CHECK(said == !testsFailed);
+            }
+        }
         {   // gate exit 5 (the same tests failed the same way twice) on an item graded by a tester's tests: the tests are sent back, once
             SCENARIO("repeated-failure-sends-tests-back");
             Plan p;

@@ -49,6 +49,11 @@ using namespace agent;
 namespace {
 
 using Clock = std::chrono::steady_clock;
+
+/// The reply budget of a call with thinking on (the manager's `think` strategy, a section's think turn): the reasoning counts against max_tokens, so a
+/// budget sized for the text alone ends in `length` before any text (catalogue row 73; the 35B run of 2026-11-17).
+constexpr int kThinkingMaxTokens = 6000;
+
 double since(Clock::time_point t0) { return std::chrono::duration<double>(Clock::now() - t0).count(); }
 
 std::vector<std::string> linesOf(const std::string& text)
@@ -319,6 +324,7 @@ std::string ForkResult::toJson() const
         .kv("testsTotal", testsTotal).kv("testsFailed", testsFailed).kvBool("nearPass", nearPass).kv("reverted", reverted)
         .kv("conflicts", conflicts).kv("lostEdits", lostEdits).kv("refused", refused).kv("progressTurns", progressTurns).kv("thrashTurns", thrashTurns).kv("concerns", concerns)
         .kv("skeletonTokens", static_cast<std::int64_t>(skeletonTokens)).kv("sectionTokens", static_cast<std::int64_t>(sectionTokens)).kv("integrationTokens", static_cast<std::int64_t>(integrationTokens))
+        .kv("promptTokens", static_cast<std::int64_t>(promptTokens)).kv("completionTokens", static_cast<std::int64_t>(completionTokens))
         .kv("wallSec", wallSec).kv("sectionWallSec", sectionWallSec).kv("idleShare", idleShare).kv("error", error).key("sections").beginArray();
     for (const auto& s : sections)
         w.beginObject().kv("name", s.name).kv("file", s.file).kv("symbol", s.symbol).kv("signature", s.signature).kv("indent", s.indent).kv("startSec", s.startSec).kv("endSec", s.endSec)
@@ -566,17 +572,22 @@ ForkResult runCanvasFork(const ForkOptions& o)
         if (!contractNote.empty()) contractNote = "\nThe harness itself declares these contract functions as sections, with exactly these signatures (you may place their `@@` line; you need not):\n" + contractNote + "Declare the HELPER functions they need.\n";
         std::vector<ChatMessage> primer = {{"system", primerSystem}, {"user", card + kPrimerAsk + contractNote}};
         const fs::path primerTrace = attemptDir / "conversation-skeleton.md";
-        traceBegin(primerTrace, "Skeleton session of " + o.itemId, o.engine, std::min(o.maxTokens, o.skeletonMaxTokens));
+        // The bound is on the skeleton's TEXT. With thinking on, the reasoning counts against the same max_tokens: the 35B run of 2026-11-17 spent all
+        // 1,500 on reasoning twice (finish `length`, no skeleton), so the `think` strategy guaranteed the failure it was meant to cure. The line guard
+        // below still stops a skeleton that runs on.
+        const int skeletonTokens = o.engine.thinking ? std::max(o.maxTokens, kThinkingMaxTokens) : std::min(o.maxTokens, o.skeletonMaxTokens);
+        traceBegin(primerTrace, "Skeleton session of " + o.itemId, o.engine, skeletonTokens);
         for (int tryNo = 0; tryNo < 2; ++tryNo) {
             if (remainingSec() <= 0) { res.budgetSpent = true; res.error = "the attempt's wall budget (" + std::to_string(budget.load()) + " s) was spent before a skeleton was accepted"; return finish(2, "budget"); }
             ++res.skeletonTries;
             traceSent(primerTrace, tryNo, primer, tryNo == 0 ? 0 : primer.size() - 2, -1);
             // A skeleton is short by definition: the reply is bounded at the server, and cancelled while it streams if it runs on.
             const StreamGuard tooLong = [&](const std::string& soFar) { return o.skeletonMaxLines > 0 && std::count(soFar.begin(), soFar.end(), '\n') > o.skeletonMaxLines; };
-            auto r = chat(seeded("skeleton" + std::to_string(tryNo)), primer, std::min(o.maxTokens, o.skeletonMaxTokens), remainingSec(), tooLong);
+            auto r = chat(seeded("skeleton" + std::to_string(tryNo)), primer, skeletonTokens, remainingSec(), tooLong);
             if (!r) { res.error = "the skeleton call failed: " + r.error(); return finish(2, remainingSec() <= 0 ? "budget" : "skeleton"); }
             traceReply(primerTrace, tryNo, *r);
             res.skeletonTokens += r->promptTokens + r->completionTokens;
+            res.promptTokens += r->promptTokens; res.completionTokens += r->completionTokens;
             std::string bad;
             Canvas candidate;
             if (r->finishReason == "aborted") bad = "it ran past " + std::to_string(o.skeletonMaxLines) + " lines and was stopped: a skeleton holds declarations and `@@` signature lines only, with NO function bodies";
@@ -702,12 +713,12 @@ ForkResult runCanvasFork(const ForkOptions& o)
                 events::note("section " + s.name + " handed to think");
             }
             traceSent(trace, tryNo, convo, tryNo == 0 ? 0 : convo.size() - 2, -1);
-            auto r = chat(profile, convo, thinking ? std::max(o.maxTokens, 6000) : o.maxTokens, remainingSec(), {});
+            auto r = chat(profile, convo, thinking ? std::max(o.maxTokens, kThinkingMaxTokens) : o.maxTokens, remainingSec(), {});
             ++s.calls;
             if (!r) { traceVerdict(trace, tryNo, "the engine call failed: " + r.error()); if (remainingSec() <= 0) { std::lock_guard<std::mutex> l(mu); res.budgetSpent = true; } return; }
             traceReply(trace, tryNo, *r);
             s.promptTokens += r->promptTokens; s.completionTokens += r->completionTokens;
-            { std::lock_guard<std::mutex> l(mu); phaseTokens += r->promptTokens + r->completionTokens; }
+            { std::lock_guard<std::mutex> l(mu); phaseTokens += r->promptTokens + r->completionTokens; res.promptTokens += r->promptTokens; res.completionTokens += r->completionTokens; }
             // The reply as ONE function: a replaceSymbol block on the section's own function, or the function alone. Its declaration is then replaced by
             // the skeleton's (run-v9: sections dropped a `Class::` qualifier or changed parameters, and each such slip broke the file for all).
             // Concerns (stance.hpp) come out first: recorded with the attempt, never read as the function.
@@ -1084,12 +1095,17 @@ int runLlmFork(const std::vector<std::string>& args)
     // strategy was the same fork again (catalogue row 73).
     if (slurp(o.dir / "items" / o.itemId / "strategy.json").find("\"think\":true") != std::string::npos) {
         o.engine.thinking = true;
-        o.maxTokens = std::max(o.maxTokens, 6000);
+        o.maxTokens = std::max(o.maxTokens, kThinkingMaxTokens);
         o.timeoutSec = std::max(o.timeoutSec, 3600);
         std::printf("manager strategy: thinking on, %d token budget\n", o.maxTokens);
     }
     const ForkResult r = runCanvasFork(o);
     if (!r.error.empty()) std::fprintf(stderr, "llm-fork: %s (%s)\n", r.error.c_str(), r.failure.c_str());
+    // What the attempt cost and what it handed on, for the ledger (the daemon reads these metrics when the job ends; without them a fork counted 0 tokens).
+    const double tokensOut = static_cast<double>(r.completionTokens);
+    events::metric("tokens.in", static_cast<double>(r.promptTokens));
+    events::metric("tokens.out", tokensOut);
+    events::metric("tokens.work", r.exitCode == 2 ? 0.0 : deliverableTokens(o.engine, o.dir / "items" / o.itemId / ("attempt-" + std::to_string(o.attempt)) / "out", tokensOut));
     // As a workflow's agent job the attempt succeeds when it wrote its files: the gate job is the judge, as for every executor (a near pass is the
     // gate's exit 3 there; alone, the fork's own exit code is 3).
     if (arg(args, "agent-exit", "0") == "1") return r.exitCode == 2 ? 2 : 0;

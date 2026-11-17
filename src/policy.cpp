@@ -27,6 +27,7 @@ std::string toJson(const DecisionContext& c, const Decision& d)
     bool lacks = false;
     for (const auto& [name, allowed] : rungs) lacks = lacks || !allowed;
     if (c.forked) w.kvBool("forked", true);   // written only when it holds, like `processLacks`
+    if (c.testsNeverFailed) w.kvBool("testsNeverFailed", true);
     if (c.stuckNearPass) w.kvBool("stuckNearPass", true).kvBool("thinkTried", c.thinkTried);
     if (c.unacceptedSection) w.kvBool("unacceptedSection", true).kvBool("unacceptedBefore", c.unacceptedBefore).kvBool("thinkTried", c.thinkTried);
     if (lacks) { w.key("processLacks").beginArray(); for (const auto& [name, allowed] : rungs) if (!allowed) w.str(name); w.endArray(); }
@@ -145,7 +146,9 @@ Decision RulePolicy::decide(const DecisionContext& c) const
         d.reasons.push_back("first rung: let the model decide how to divide the item into smaller work packages");
         return d;
     }
-    if (!c.reviseTried && c.hasTesterDep && c.allowReviseTests) {
+    if (!c.reviseTried && c.hasTesterDep && c.allowReviseTests && c.testsNeverFailed)
+        d.reasons.push_back("no test of this item has failed yet (every failure came before the tests ran): nothing speaks against the tests, so they are not sent back");
+    if (!c.reviseTried && c.hasTesterDep && c.allowReviseTests && !c.testsNeverFailed) {
         d.action = Action::reviseTests;
         d.tier = "local";
         d.reasons.push_back("send back to the producer: the tests this item is graded by may be wrong, so the tester revises them from this failure");

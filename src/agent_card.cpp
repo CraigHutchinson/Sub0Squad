@@ -35,6 +35,17 @@ std::string arg(const std::vector<std::string>& a, const std::string& key, const
 }
 std::string clip(const std::string& s, std::size_t n) { return s.size() <= n ? s : s.substr(0, n) + "\n... (truncated)"; }
 
+double deliverableTokens(const EngineProfile& engine, const fs::path& out, double tokensOut)
+{
+    std::string text;
+    std::error_code ec;
+    for (auto it = fs::recursive_directory_iterator(out, ec); !ec && it != fs::recursive_directory_iterator(); it.increment(ec))
+        if (it->is_regular_file(ec)) text += slurp(it->path());
+    if (text.empty()) return 0.0;
+    bool estimated = false;
+    return std::min(tokensOut, static_cast<double>(countTokens(engine, text, estimated)));
+}
+
 // An earlier draft as the worker sees it: every line numbered (so an edit can name lines), whole when it fits, else FOLDED: signatures and structure visible,
 // long function bodies collapsed to one line that names the folded range, the regions around the lines the gate named left open (src/outline.cpp). The worker
 // asks for folded lines with a READ request. Never cut off in the middle of code: a worker cannot edit what it cannot see.

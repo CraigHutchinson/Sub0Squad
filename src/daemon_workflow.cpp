@@ -94,12 +94,19 @@ void Daemon::Impl::executeWorkflowAction(const std::string& wfId, const Workflow
             const WorkflowRecord* wf = wfStore.find(wfId);
             if (!wf) break;
             const std::filesystem::path sandbox{wf->spec.sandboxDir};
-            std::ifstream in(sandbox / "items" / a.fromItem / ("attempt-" + std::to_string(a.attempt)) / "gate.txt");
-            std::stringstream ss;
-            ss << in.rdbuf();
+            // The failures to quote: the latest attempt whose gate ran the tests and saw some fail. The attempt that triggered the dispute may have failed
+            // in its agent (no gate ran) or before the tests (a compile error): quoting it would hand the tester an empty or irrelevant list.
+            std::string failures;
+            int from = 0;
+            for (int n = static_cast<int>(a.attempt); n >= 1 && failures.empty(); --n) {
+                std::string gate = platform::readFileText(sandbox / "items" / a.fromItem / ("attempt-" + std::to_string(n)) / "gate.txt");
+                if (gate.find(" tests failed") != std::string::npos) { failures = std::move(gate); from = n; }
+            }
+            const std::string quoted = failures.empty() ? std::string{"(no attempt of '" + a.fromItem + "' reached the tests: there are no failing tests to quote)\n"}
+                                                        : "From attempt " + std::to_string(from) + ":\n" + failures;
             (void)platform::writeFile(sandbox / "items" / a.item / "dispute.txt",
                                       "Item '" + a.fromItem + "' is graded by your tests and failed them even after several attempts. Some of your tests may contradict the contract. Failures reported:\n" +
-                                          ss.str() + "Check each failing test against the contract and fix the tests that are wrong; keep the ones that are right.\n");
+                                          quoted + "Check each failing test against the contract and fix the tests that are wrong; keep the ones that are right.\n");
             break;
         }
         case WorkflowAction::Kind::raiseRequest: raiseRequest(wfId, a.request); break;

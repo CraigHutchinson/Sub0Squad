@@ -280,6 +280,20 @@ int runGateFlow(const GateHooks& hooks, const std::vector<std::string>& args)
     const fs::path mendFile = attemptDir / "mend.json";
     std::error_code mendEc;
     fs::remove(mendFile, mendEc);
+    // The failing gate JOB's result (`result.json` in its run directory, which the shim carries into the exit record and so the journal): whether the
+    // tests ran and how many failed, so the ladder can tell code that failed its tests from code that never reached them (a compile error, a missing
+    // file); and the mend, when the mends table knows the first error. An agent's self-check (--no-publish) publishes nothing.
+    std::string mendJson;
+    int testsRun = -1, testsFailed = -1;
+    const auto publishResult = [&] {
+        const char* runDir = std::getenv("SUB0SQUAD_RUN_DIR");
+        if (!runDir || !*runDir || !one(a, "no-publish", "").empty()) return;
+        std::string r = "{";
+        if (!mendJson.empty()) r += "\"mend\":" + mendJson + ",";
+        r += std::string{"\"testsRan\":"} + (testsRun >= 0 ? "true" : "false");
+        if (testsRun >= 0) r += ",\"tests\":" + std::to_string(testsRun) + ",\"failed\":" + std::to_string(testsFailed);
+        writeFile(fs::path{runDir} / "result.json", r + "}\n");
+    };
     // A failure the mends table knows (mends.hpp) is reported with the failure: `attempt-N/mend.json`, and as this job's result (which the journal carries),
     // so the engine can have the harness repair the cause instead of asking a model or the ladder. The table is the built-in one plus the workflow's own
     // `<workflow>/mends.json` (a mend of the same name replaces the built-in one). A requirement that does not hold means no mend.
@@ -322,9 +336,8 @@ int runGateFlow(const GateHooks& hooks, const std::vector<std::string>& args)
             m.reset();
         }
         if (!m) return;
-        const std::string result = "{\"mend\":" + m->toJson() + "}\n";
-        writeFile(mendFile, result);
-        if (const char* runDir = std::getenv("SUB0SQUAD_RUN_DIR"); runDir && *runDir && one(a, "no-publish", "").empty()) writeFile(fs::path{runDir} / "result.json", result);   // only the gate JOB reports; an agent's self-check does not
+        mendJson = m->toJson();
+        writeFile(mendFile, "{\"mend\":" + mendJson + "}\n");   // the job's result carries it too (publishResult, after this)
         std::printf("mend available: %s (%s) for %s\n", m->name.c_str(), m->action.c_str(), m->symbol.c_str());
     };
     // A fork that left a section unaccepted (catalogue row 75): its stub stands in the file, so that section is the FIRST cause of whatever fails here.
@@ -336,6 +349,7 @@ int runGateFlow(const GateHooks& hooks, const std::vector<std::string>& args)
         std::fputs(msg.c_str(), stdout);
         if (unaccepted.empty() || !isUnusedConsequence(firstErrorLine(msg))) reportMend(msg);
         else std::printf("no mend: the error is a consequence of the unaccepted section(s) %s\n", unaccepted.c_str());
+        publishResult();
         if (one(a, "no-publish", "").empty()) {   // the gate JOB: why this attempt failed, in a few lines (an agent's self-check leaves that to the agent)
             const std::string first = firstErrorLine(msg);
             recordAttemptFailure(attemptDir, "gate", "gate", msg.substr(0, msg.find('\n')) + (first.empty() || msg.rfind(first, 0) == 0 ? std::string{} : "\n" + first));
@@ -379,6 +393,8 @@ int runGateFlow(const GateHooks& hooks, const std::vector<std::string>& args)
     if (timedOut) return fail("tests timed out");
     events::progress(3, 4, "judge");
     if (tap.tests < 0) return fail("the test runner produced no result");
+    testsRun = tap.tests;
+    testsFailed = tap.fail;
     if (tap.tests < item->gate.minTests)
         return failWidely("only " + std::to_string(tap.tests) + " test(s) ran, at least " + std::to_string(item->gate.minTests) + " are required\n" + tap.excerpt +
                     (tap.note.empty() ? std::string{} : "The runner reported (a test file that fails while loading counts as one failed test):\n" + tap.note));

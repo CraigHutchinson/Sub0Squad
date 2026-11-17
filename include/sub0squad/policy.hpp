@@ -47,6 +47,10 @@ struct DecisionContext
     /// diagnostic); when the attempt before it ended the same way (`unacceptedBefore`) it applies `think` once; no whole-file rung comes before these.
     bool unacceptedSection = false, unacceptedBefore = false;
     bool decomposeTried = false, reviseTried = false, rearchitectTried = false;
+    /// The item's gates said whether its tests ran (`testsRan` in their result), and no test of them has ever failed: every failure was before the tests
+    /// (a compile error, a missing file) or in the agent. Nothing then speaks against the tests, so `reviseTests` is skipped (it would dispute accepted
+    /// tests with an empty failure list). False when no gate reported, as gates before this field did: the ladder is then as it was.
+    bool testsNeverFailed = false;
     int maxDepth = 2;
     /// Whose work it is. Only a DEVELOPER's item is ever divided: a tester writes one test file, and an architect asked to divide it invents
     /// implementation work (docs/INTERVENTIONS.md row 44).

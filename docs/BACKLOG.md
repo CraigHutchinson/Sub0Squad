@@ -150,6 +150,14 @@ The queue, with hypotheses, arms, measures and commands, is [EXPERIMENTS.md](EXP
     - Place the note at the end of the newest message, never in the system prompt or earlier turns, so the cached
       prefix is kept.
   - Fixed budgets stay available as a mode for experiments (same seeds must mean the same limits). The watermark line is off or fixed in experiments, since it depends on the other agents.
+  - **Where the squad is today** (owner, 2026-11-17, after the 35B C++ calculator run on an engine started with `-c 65536 -np 4 -kvu`, so the
+    context is one shared pool and not 16k per slot): the squad still treats the engine line's `ctx=` as a fixed window per request. The session
+    and canvas agents fold the file view to fit `ctx - maxTokens` (`llm_agent.cpp`, `canvas_agent.cpp`), the planner sizes its reply from it
+    (`planner.cpp`), and every reply has a fixed cap (`--max-tokens`, the fork's 1,500-token skeleton). With a pooled cache these are guesses that
+    leave room unused while other slots idle, and the run showed the cost of a fixed cap: with reasoning on, the skeleton spent its whole 1,500 on
+    thinking twice and wrote nothing (fixed for the skeleton since: reasoning gets the `think` budget, `fork.cpp` `kThinkingMaxTokens`). Steps:
+    take `ctx` as the target above, read the pool (`/slots`, `/metrics` with `--metrics`) to size views and replies, and treat `finish: "length"` as
+    "grow or compact", not as the attempt's failure.
 - Later: workload-adaptive configuration (a prefill-tuned engine for the planner's long first prompt, then the serving configuration with the KV kept, measured in
   Sub0LlmEngine's reconfiguration spike) once the engine offers it as a request-level switch. Known model faults to avoid meanwhile: Qwen3.8-27B UD-IQ3_XXS is wrong with
   CUDA offload (use `qwen38-27b-q4_0`), and Qwen3.8-Flash-Next differs on the first long prefill after load (Sub0LlmEngine `docs/issues/`).

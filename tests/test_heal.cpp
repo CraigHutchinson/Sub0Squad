@@ -56,6 +56,7 @@ int main(int, char** argv)
         // The failed gate JOB carried the mend in its result, which is how it reached the journal (the engine reads no file).
         const std::string jobs = sq.cli({"status", "--json"}).out;
         CHECK(jobs.find("\"result\":{\"mend\":{\"name\":\"undefined-contract-symbol\"") != std::string::npos);
+        CHECK(jobs.find("\"testsRan\":false") != std::string::npos);   // ... and said the tests never ran (a link error): the ladder does not dispute them
         // The integrated project runs.
         CHECK_EQ(sq.cli({"submit", "--cwd", (dir / "project").string(), "--wall", "30", "--", (dir / "project" / "build" / "calc_cli").string(), "2^3^2"}).exitCode, 0);
     }

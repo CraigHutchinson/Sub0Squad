@@ -440,6 +440,31 @@ std::optional<MendMatch> mendIn(const std::string& text, const char* outer)
     return raw.empty() ? std::nullopt : MendMatch::fromJson(raw);
 }
 
+/// What a failed gate said about its tests (`{"code":N, ..., "result":{"testsRan":true,"tests":24,"failed":15}}`): whether they ran and how many failed.
+/// Nullopt when the result does not say (a gate before the field, or a simulated one).
+struct GateTests { bool ran = false; std::int64_t failed = 0; };
+std::optional<GateTests> gateTestsIn(const std::string& exitJson)
+{
+    if (exitJson.find("\"testsRan\"") == std::string::npos) return std::nullopt;   // the common case, without a parse
+    std::optional<GateTests> out;
+    try {
+        json::withObject(exitJson, [&](simdjson::ondemand::object& obj) {
+            for (auto f : obj) {
+                if (json::keyOf(f) != "result") continue;
+                GateTests t;
+                bool said = false;
+                for (auto g : f.value().get_object()) {
+                    const std::string_view k = json::keyOf(g);
+                    if (k == "testsRan") { t.ran = g.value().get_bool(); said = true; }
+                    else if (k == "failed") t.failed = g.value().get_int64();
+                }
+                if (said) out = t;
+            }
+        });
+    } catch (const simdjson::simdjson_error&) { return std::nullopt; }
+    return out;
+}
+
 /// How many times a mend was applied to an item (`name` empty: any mend). Mends are decisions, so this is read from the journal.
 int mendsApplied(const WorkflowRecord& wf, const std::string& item, const std::string& name = {})
 {
@@ -795,6 +820,12 @@ bool advanceItems(const WorkflowRecord& wf, const std::vector<ItemView>& views, 
             ctx.decomposeTried = v.decomposeTried;
             ctx.rearchitectTried = v.rearchitectTried;
             for (const auto& dd : wf.decisions) if (dd.item == v.item->id && dd.action == "reviseTests") ctx.reviseTried = true;
+            {   // Did any of this item's tests ever fail? Only gates that say so count; one that does not say leaves the ladder as it was.
+                bool reported = false, failedOnce = false;
+                for (const JobRecord* g : v.gates)
+                    if (const auto t = gateTestsIn(g->exitJson)) { reported = true; failedOnce = failedOnce || (t->ran && t->failed > 0); }
+                ctx.testsNeverFailed = reported && !failedOnce;
+            }
             const WorkItem* tester = nullptr;
             for (const auto& depId : v.item->deps) { const WorkItem* dep = plan.find(depId); if (dep && dep->persona == "tester") { tester = dep; ctx.hasTesterDep = true; break; } }
             Decision dec = policy.decide(ctx);

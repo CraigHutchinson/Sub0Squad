@@ -22,6 +22,9 @@ bool writeFile(const std::filesystem::path& p, const std::string& text);
 /// The value after `--key` in a job's arguments, or `d`.
 [[nodiscard]] std::string arg(const std::vector<std::string>& a, const std::string& key, const std::string& d = {});
 [[nodiscard]] std::string clip(const std::string& s, std::size_t n);
+/// The attempt's useful output, for the ledger's work ratio (`tokens.work`): the files it handed on (`out`), in the engine's tokens, at most `tokensOut`.
+/// The session agent measures the share of its last reply that was file content; the canvas and the fork have no single reply, so they count what stands.
+[[nodiscard]] double deliverableTokens(const EngineProfile& engine, const std::filesystem::path& out, double tokensOut);
 
 /// The fixed-system-block description of a project harness (empty when the plan has none).
 [[nodiscard]] std::string harnessBrief(const Plan& plan);

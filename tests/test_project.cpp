@@ -153,6 +153,10 @@ int main(int, char** argv)
         const auto tests = sq.home() / "state" / "workflows" / wf / "items" / "test-engine";
         CHECK(std::filesystem::exists(tests / "attempt-2"));                  // the tester item was re-run after the dispute
         CHECK(std::filesystem::exists(tests / "dispute.txt"));               // what the producer was told (the mock agent does not consume it)
+        {   // ... quoting the failing tests of the latest attempt that ran them, never an empty list (the 35B run of 2026-11-17)
+            const std::string dispute = slurp(tests / "dispute.txt");
+            CHECK(dispute.find("From attempt ") != std::string::npos && dispute.find(" tests failed") != std::string::npos);
+        }
         CHECK(field(wfStatus(sq, wf), "state") == "succeeded");
     }
 
