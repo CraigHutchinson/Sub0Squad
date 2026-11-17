@@ -98,6 +98,16 @@ when it is fast (a few seconds) and its area needs it.
 Pull request labels: `ci:full` runs the full tier, `ci:local-verified` accepts a `local-ci/full` status in its place, `ci:release` requires
 the full tier, `ci:skip` runs no tier. The repository variable `CI_MODE` (`off`, `smoke`, unset) switches CI off or down to smoke.
 
+**Model tiers** (a local quality gate: they need the local engine). A release or milestone also needs the **tier 0 gate** to PASS on the proving engine for
+the build being released; tier 1 and above are run only on a tier 0 PASS ([BLOCK_PROVING_GROUNDS.md](BLOCK_PROVING_GROUNDS.md), "Model tiers and the tier 0 gate"):
+```sh
+python validation/tiers/make_t0.py . --list                                        # the cases
+bash validation/tiers/check_t0.sh . <a cpp-cmake workspace>                         # every seed fails as its case says, no model
+bash validation/tiers/run_t0.sh . 'qwen35=http://127.0.0.1:8092/v1,model=qwen35,ctx=16384,slots=4' 3   # 3 runs of every case, then the gate
+python validation/tiers/gate_t0.py . --engine qwen35                                # the gate alone: out/runs/t0/gate.md, exit 0 PASS / 1 FAIL / 2 INCOMPLETE
+bash validation/tiers/run_tier.sh . 1 'qwen35=...'                                  # tier 1, refused unless tier 0 passed (--force "why" to override)
+```
+
 End-to-end tests start a real daemon and the real CLI under `SUB0SQUAD_HOME` inside the build tree. Run timing targets alone on a
 quiet machine. sub0perf git hooks and the after-build check are **off** by default (`SUB0MATH_PERF_GIT_HOOKS`,
 `SUB0MATH_PERF_ON_BUILD`); an existing build directory keeps the values it cached, so pass them with `-D` there.

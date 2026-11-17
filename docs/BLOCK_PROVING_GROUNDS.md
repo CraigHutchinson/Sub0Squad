@@ -111,6 +111,45 @@ Run one at a time, with the engine otherwise idle, and archive each `--out` dire
 4. **The whole on a platform with sections** (block 11): `sub0squad up --frontier off`, then
    `sub0squad do "write a scientific calculator in C++" --agent llm --engine ENGINE --executor fork --max-tokens 1500`.
 
+## Model tiers and the tier 0 gate (2026-11-17)
+
+The blocks above are proven without a model or one scenario at a time. The **model tiers** prove them together on a real engine, smallest first, and a
+tier is only run once the tier below it passes: a tier above a failing tier 0 measures a failure tier 0 already shows, at many times the cost.
+
+| tier | what one run is | where | gate to run it |
+|---|---|---|---|
+| **0** | one worker on the canvas, one seeded task on the reference calculator: a defect, a stub, a missing part, a broken build, a curveball | `validation/tiers/make_t0.py` (the cases), `run_t0.sh` (runs), `gate_t0.py` (the gate) | none: it is the gate |
+| **1** | one worker builds the whole calculator on the canvas against the owner's tests (process `single`: no division, no forked sections) | `validation/tiers/t1-plan.json`, `run_tier.sh <repo> 1 <engine>` | tier 0 PASS, same build, same engine |
+| **2** | the same plan with forked sections (block 6): skeleton, parallel sections, the harness's assembly | `run_tier.sh <repo> 2 <engine>` | tier 0 PASS, same build, same engine |
+
+**The cases** (`make_t0.py --list`), each built from `validation/reference/calculator-cpp` and given the reference tests as the owner's tests (plus tests that pin a
+whole feature where the reference's do not, so a partial answer cannot pass): *fix* (one wrong line, an off-by-one, a symptom far from its cause, a missing check,
+two defects), *compile* (a syntax error, a warning as error), *write* (one function into a stub, a feature missing from several places, a whole small file, a
+tester's test file), *curveballs* (five defects, a file cut off mid-function, unresolved merge conflicts, an engine whose approach cannot meet the spec, a
+function defined twice, a syntax error hiding a logic defect, a whole parser skeleton), *repeated class* (one defect pattern at six sites; twenty calls to a name
+that does not exist: a batch fix or many small ones), and *two files*. `check_t0.sh` proves every seed fails the way its case says, without a model, and the
+reference passes every test a case gives.
+
+**The gate** (`gate_t0.py`) judges the run directories, never a summary: a run counts when it ran on the build being judged (the daemon's `run-info.json`), on
+the named engine, with the case as `make_t0.py` defines it now (a run of an older definition is listed as stale, not counted). A run passes when the item was
+accepted, a model built it (`report.md`), and nothing was left unfinished. **PASS** is every case passing in every counted run, with at least 3 counted runs per
+case; one failing run is **FAIL**; too few runs is **INCOMPLETE**. It writes `out/runs/t0/gate.json` and `gate.md`.
+
+**Code quality** is judged with it (`quality_t0.py`), against the seed and the reference: lines changed against the ideal fix, collateral changes outside the
+defect, leftovers (a stub, a conflict marker, a TODO: a hard failure), repeated lines (copy-paste), format, comments dropped, and for a test file the share of
+checks copied from the given tests. Only leftovers fail a run today; the rest are reported per run so thresholds can be set from measurements, not guesses.
+It found a harness defect on its first day: a SYMBOL edit whose signature came from column 0 had its body pushed four columns too far (fixed in `canvas.cpp`).
+
+**Where it sits in the workflow.** Model tiers need the local engine, so they are not in hosted CI; they are a local quality gate, like `local-ci/full`:
+* **A release or milestone** (`v*`, `milestone/*`, a pull request labelled `ci:release`) needs a tier 0 PASS on the proving engine for the build being
+  released, recorded with it (`out/runs/t0/gate.json` attached to the release notes or the pull request).
+* **A change to the agents layer** (prompts, views, reply forms, the canvas, the turn loop): run the tier 0 cases it touches before merging; the whole suite
+  before a release.
+* **Tier 1 and above** run only on a tier 0 PASS: `run_tier.sh` refuses otherwise (exit 3) and says why. `--force "why"` runs one anyway when it is explicitly
+  asked for, and records the reason in the run's home (`forced.txt`), with the gate it was forced past (`t0-gate.json`), so it is never read as a gated result.
+* **A smaller model** (a 9B, a 12B) runs the same tier 0 suite once the proving engine (the 35B) passes it reliably: a smaller model that passes tier 0 shows the
+  cases are well defined as building blocks; one that fails shows where the edge is.
+
 ## How the blocks are used
 
 * **Before a change** to a prompt, a view, a reply format, a gate or the policy: run the blocks it touches, keep the result as the baseline.

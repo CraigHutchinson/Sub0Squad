@@ -87,6 +87,14 @@ std::string errorKey(const std::string& text)
     return key;
 }
 
+/// Every file of the canvas at its current revision, as the worker is told it: "src/a.cpp r3, src/b.cpp r1".
+std::string revisionList(const Canvas& canvas)
+{
+    std::string s;
+    for (const auto& path : canvas.paths()) s += (s.empty() ? "" : ", ") + path + " r" + std::to_string(canvas.revision(path));
+    return s;
+}
+
 /// `=== EDIT: path ===` blocks of SEARCH/REPLACE pairs split into one block per pair, so each can apply on its own. Text that is not a recognisable pair
 /// (an unclosed block) is passed on whole, so `applyEdits` names what is wrong with it.
 std::vector<std::string> splitSnippets(const std::string& edits)
@@ -242,22 +250,58 @@ int runCanvasAttempt(const AttemptContext& a)
     int bestFailing = -1;                 // fewest failing tests of any committed revision, and where it was
     std::map<std::string, int> bestRevision;
     bool bestIsSeed = false;              // the best tested revision is the starting files, not the worker's: a draft is not traded back for them
-    if (const int f = failingTests(a.draftGate); f >= 0 && !a.baselineFiles.empty()) { bestFailing = f; for (const auto& path : canvas.paths()) bestRevision[path] = 1; }
     std::string lastFinish, lastGate, lastRefusal, lastRefusalKey;
     int sameRefusals = 0;
     double totIn = 0, totOut = 0, decodeTps = 0, prefillTps = 0;
     long changedLines = 0;
 
-    // A seeded canvas is judged before the first turn, so the worker starts from what fails (a fix-one-bug task names its bug; stubs say every test fails)
-    // instead of having to edit before it can see anything. It is also the first best revision: a commit worse than the seed is undone.
-    if (!seeded.empty() && harness && harness->gate && seeded.size() == a.item->files.size() && precheckCanvas(canvas, harness, a.dir, a.itemId, a.attempt, attemptDir).empty()) {
-        for (const auto& [path, textNow] : canvas.files()) (void)writeFile(out / path, textNow);
+    // What the loop does in several places, each said once.
+    const auto writeOut = [&] {   // out/ holds exactly the canvas's current files: what the gate judges and what the attempt hands on
+        fs::remove_all(out, ec);
+        fs::create_directories(out, ec);
+        for (const auto& [path, textNow] : canvas.files())
+            if (!writeFile(out / path, textNow)) { std::fprintf(stderr, "llm-agent: cannot write %s\n", path.c_str()); return false; }
+        return true;
+    };
+    const auto selfCheck = [&] {   // the item's gate over out/, not published; afterwards gate.txt (and lastGate) describe out/
         const int rc = harness->gate({"--workflow-dir", a.dir.string(), "--item", a.itemId, "--attempt", std::to_string(a.attempt), "--no-publish", "1"});
         lastGate = slurp(attemptDir / "gate.txt");
+        return rc;
+    };
+    const auto markBest = [&](int failing, bool seed) {
+        bestFailing = failing;
+        bestIsSeed = seed;
+        for (const auto& path : canvas.paths()) bestRevision[path] = canvas.revision(path);
+    };
+    const auto restoreBest = [&] {   // back to the best tested revision, as new revisions (the ones undone stay in the history); returns which were undone
+        std::string undone;
+        for (const auto& [path, rev] : bestRevision)
+            if (canvas.has(path) && canvas.revision(path) != rev) { undone += (undone.empty() ? "" : ", ") + path + " r" + std::to_string(canvas.revision(path)); (void)canvas.revertTo(path, rev, "harness"); }
+        persistCanvas(canvas, attemptDir);
+        return undone;
+    };
+    if (const int f = failingTests(a.draftGate); f >= 0 && !a.baselineFiles.empty()) markBest(f, false);
+
+    // A seeded canvas is judged before the first turn, so the worker starts from what fails (a fix-one-bug task names its bug; stubs say every test fails)
+    // instead of having to edit before it can see anything. It is also the first best revision: a commit worse than the seed is undone.
+    // Starting files that do not compile say so with their errors, in the numbering the worker is shown (else its first sight of the problem is a
+    // refusal of its own edit).
+    bool headCompiles = true;
+    const bool seedComplete = !seeded.empty() && harness && seeded.size() == a.item->files.size();
+    const std::string seedBad = seedComplete ? precheckCanvas(canvas, harness, a.dir, a.itemId, a.attempt, attemptDir) : std::string{};
+    if (!seedBad.empty()) {
+        headCompiles = false;
+        verdict += "\nThey do not compile as they stand:\n" + clip(seedBad, 1500);
+        focus = seedBad;
+        traceVerdict(tracePath, -1, "the starting files were checked before the first turn and do not compile: " + clip(seedBad, 600));
+    }
+    if (seedComplete && seedBad.empty() && harness->gate) {
+        (void)writeOut();
+        const int rc = selfCheck();
         traceVerdict(tracePath, -1, "the starting files were checked before the first turn: " + (rc == 0 ? std::string{"the item's tests pass"} : lastGate));
         if (rc == 0) verified = haveFiles = true;
         else {
-            if (const int f = failingTests(lastGate); f >= 0) { bestFailing = f; bestIsSeed = true; for (const auto& path : canvas.paths()) bestRevision[path] = canvas.revision(path); }
+            if (const int f = failingTests(lastGate); f >= 0) markBest(f, true);
             verdict += "\nThe tests were run on them as they stand and failed:\n" + clip(lastGate, 1500);
             focus = lastGate;
         }
@@ -269,7 +313,6 @@ int runCanvasAttempt(const AttemptContext& a)
     int thinkingStops = 0;
     // Staged revisions: a transaction that does not compile is still KEPT (as revisions with its diagnostics), never discarded; it is fixed by the next
     // edits. The out/ directory holds only revisions that compile, and the gate runs only on those.
-    bool headCompiles = true;
     int staged = 0, sameStaged = 0;
     std::string lastStagedKey;
     while (!verified && spent <= a.repairTurns) {
@@ -467,8 +510,6 @@ int runCanvasAttempt(const AttemptContext& a)
             ++staged;
             if (staged > freeRejects) ++spent;
             focus = bad;
-            std::string revs;
-            for (const auto& path : canvas.paths()) revs += (revs.empty() ? "" : ", ") + path + " r" + std::to_string(canvas.revision(path));
             const std::string key = errorKey(bad);
             sameStaged = key == lastStagedKey ? sameStaged + 1 : 1;
             lastStagedKey = key;
@@ -479,7 +520,7 @@ int runCanvasAttempt(const AttemptContext& a)
                 std::printf("canvas turn %d: the same compile error three times running: the attempt stops\n", call);
                 break;
             }
-            verdict = skippedNote + "Your edits were KEPT (" + revs + "; nothing was thrown away), but the files do not compile yet:\n" + clip(bad, 1200) +
+            verdict = skippedNote + "Your edits were KEPT (" + revisionList(canvas) + "; nothing was thrown away), but the files do not compile yet:\n" + clip(bad, 1200) +
                       "\nThe line numbers are those of the files shown below. Fix just those lines with edits; do not rewrite the file.";
             traceVerdict(tracePath, call, "staged (does not compile yet): " + clip(bad, 600));
             std::printf("canvas turn %d: staged, does not compile yet\n", call);
@@ -490,9 +531,7 @@ int runCanvasAttempt(const AttemptContext& a)
         lastStagedKey.clear();
         ++commits;
         ++spent;
-        fs::remove_all(out, ec);
-        fs::create_directories(out, ec);
-        for (const auto& [path, textNow] : canvas.files()) if (!writeFile(out / path, textNow)) { std::fprintf(stderr, "llm-agent: cannot write %s\n", path.c_str()); return 1; }
+        if (!writeOut()) return 1;
         haveFiles = true;
         std::string missing;
         for (const auto& f : a.item->files) if (!canvas.has(f)) missing += (missing.empty() ? "" : ", ") + f;
@@ -502,8 +541,7 @@ int runCanvasAttempt(const AttemptContext& a)
             continue;
         }
         if (!harness || !harness->gate) break;
-        const int rc = harness->gate({"--workflow-dir", a.dir.string(), "--item", a.itemId, "--attempt", std::to_string(a.attempt), "--no-publish", "1"});
-        lastGate = slurp(attemptDir / "gate.txt");
+        const int rc = selfCheck();
         traceVerdict(tracePath, call, rc == 0 ? "committed (revision log in canvas.json); self-check passed: the item's tests pass" : "committed; " + lastGate);
         events::note(rc == 0 ? "self-check passed" : "self-check failed");
         std::printf("canvas turn %d: committed, self-check %s\n", call, rc == 0 ? "passed" : "failed");
@@ -511,19 +549,15 @@ int runCanvasAttempt(const AttemptContext& a)
         // Never lose a better revision: a commit that makes more tests fail than the best one so far is undone, and the worker is told.
         const int failing = failingTests(lastGate);
         if (failing >= 0 && bestFailing >= 0 && failing > bestFailing) {
-            std::string undone;   // the worse revisions are not lost: they stay in the history, and the worker is told where
-            for (const auto& [path, rev] : bestRevision)
-                if (canvas.has(path) && canvas.revision(path) != rev) { undone += (undone.empty() ? "" : ", ") + path + " r" + std::to_string(canvas.revision(path)); (void)canvas.revertTo(path, rev, "harness"); }
+            const std::string undone = restoreBest();   // the worse revisions are not lost: they stay in the history, and the worker is told where
             ++reverts;
-            persistCanvas(canvas, attemptDir);
-            for (const auto& [path, textNow] : canvas.files()) (void)writeFile(out / path, textNow);
+            (void)writeOut();
             verdict = skippedNote + "Your transaction made it worse (" + std::to_string(failing) + " tests failing, " + std::to_string(bestFailing) + " before), so the files below are back at the better revision (yours stays in the history as " + undone + "). What your change broke:\n" + clip(lastGate, 1200);
             traceVerdict(tracePath, call, "reverted to the best revision (" + std::to_string(bestFailing) + " failing)");
             std::printf("canvas turn %d: reverted (%d failing, best %d)\n", call, failing, bestFailing);
-            (void)harness->gate({"--workflow-dir", a.dir.string(), "--item", a.itemId, "--attempt", std::to_string(a.attempt), "--no-publish", "1"});   // gate.txt describes what is in out/
-            lastGate = slurp(attemptDir / "gate.txt");
+            (void)selfCheck();   // gate.txt describes what is in out/
         } else {
-            if (failing >= 0 && (bestFailing < 0 || failing <= bestFailing)) { bestFailing = failing; bestIsSeed = false; for (const auto& path : canvas.paths()) bestRevision[path] = canvas.revision(path); }
+            if (failing >= 0 && (bestFailing < 0 || failing <= bestFailing)) markBest(failing, false);
             verdict = skippedNote + "Your files were checked by running the tests and failed:\n" + clip(lastGate, 1500);
         }
         focus = lastGate;
@@ -532,15 +566,12 @@ int runCanvasAttempt(const AttemptContext& a)
     if (!headCompiles) {
         // The attempt ended on a staged revision. A decision, recorded: a tested revision is handed on in its place (out/ already holds it) and the draft
         // stays in the history; with none, the draft itself is handed on (its gate says why it fails), so the next attempt starts from it, not from nothing.
-        std::string draft;
-        for (const auto& path : canvas.paths()) draft += (draft.empty() ? "" : ", ") + path + " r" + std::to_string(canvas.revision(path));
+        const std::string draft = revisionList(canvas);
         if (bestFailing >= 0 && !bestRevision.empty() && !bestIsSeed) {
-            for (const auto& [path, rev] : bestRevision) if (canvas.has(path) && canvas.revision(path) != rev) (void)canvas.revertTo(path, rev, "harness");
-            persistCanvas(canvas, attemptDir);
+            (void)restoreBest();
             traceVerdict(tracePath, calls, "ended on a draft that does not compile (" + draft + ", kept in the history): the best tested revision (" + std::to_string(bestFailing) + " failing) is handed on");
-        } else if (!haveFiles || bestIsSeed) {
-            for (const auto& [path, textNow] : canvas.files()) (void)writeFile(out / path, textNow);
-            haveFiles = true;
+        } else if ((!haveFiles || bestIsSeed) && staged > 0) {   // only the worker's own draft: unchanged starting files are not its output
+            haveFiles = writeOut();
             traceVerdict(tracePath, calls, "ended on a draft that does not compile (" + draft + "): no revision of the worker's was tested, so the draft is handed on");
         }
     }
@@ -562,10 +593,7 @@ int runCanvasAttempt(const AttemptContext& a)
     if (decodeTps > 0) events::metric("engine.decode_tps", decodeTps);
     if (prefillTps > 0) events::metric("engine.prefill_tps", prefillTps);
     std::printf("done after %d call(s): canvas, %d commit(s), %d refused, %d read(s), %d cancelled, %d reverted, self-check %s, finish=%s\n", calls, commits, rejects, readReplies, aborts, reverts, verified ? "passed" : "not passed", lastFinish.c_str());
-    if (!haveFiles && !a.baselineFiles.empty()) {   // nothing was committed: the earlier draft stands, so the attempt still hands on the best there is
-        for (const auto& [path, textNow] : canvas.files()) (void)writeFile(out / path, textNow);
-        haveFiles = true;
-    }
+    if (!haveFiles && !a.baselineFiles.empty()) haveFiles = writeOut();   // nothing was committed: the earlier draft stands, the best there is to hand on
     events::metric("tokens.work", haveFiles ? deliverableTokens(a.engine, out, totOut) : 0.0);   // the ledger's work ratio
     {
         const double secs = std::chrono::duration<double>(std::chrono::steady_clock::now() - a.began).count();

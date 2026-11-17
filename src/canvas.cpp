@@ -103,13 +103,19 @@ TxResult Canvas::apply(const Transaction& tx)
         if (op.kind == CanvasOp::Kind::replaceSymbol && !s.repl.empty()) {
             // A function written from column 0 keeps the place it replaces: it is shifted to the old one's indentation (tier 0b of 2026-11-17: a member
             // function sent unindented landed at column 0 inside its class). Indentation is meaning in Python, so this matters beyond looks.
+            // The block is aligned by its CLOSING line, which a model writes consistently with the body; a first line out of step with it (the signature
+            // sent from column 0, the body copied at its old indentation: tier 0 of 2026-11-17, a body pushed four columns too far) is set on its own.
             const auto indentOf = [](const std::string& l) { return l.substr(0, l.find_first_not_of(" \t")); };
             const std::string want = indentOf(baseLines[static_cast<std::size_t>(s.from) - 1]);
             const auto first = std::find_if(s.repl.begin(), s.repl.end(), [](const std::string& l) { return !trimmedEmpty(l); });
-            const std::string have = first == s.repl.end() ? want : indentOf(*first);
-            if (have.size() < want.size() && want.compare(0, have.size(), have) == 0) {
-                const std::string extra = want.substr(have.size());
-                for (auto& l : s.repl) if (!trimmedEmpty(l)) l = extra + l;
+            const auto last = std::find_if(s.repl.rbegin(), s.repl.rend(), [](const std::string& l) { return !trimmedEmpty(l); });
+            if (first != s.repl.end()) {
+                const std::string closing = indentOf(*last), opening = indentOf(*first);
+                if (closing.size() < want.size() && want.compare(0, closing.size(), closing) == 0) {
+                    const std::string extra = want.substr(closing.size());
+                    for (auto& l : s.repl) if (!trimmedEmpty(l)) l = extra + l;
+                }
+                if (opening.size() != closing.size()) *first = want + first->substr(opening.size());   // the stray first line, set where the block now starts
             }
         }
         spans.push_back(std::move(s));

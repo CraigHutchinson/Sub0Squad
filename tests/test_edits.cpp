@@ -82,6 +82,12 @@ int main()
             cv.addFile("m.cpp", "struct P {\n    int g()\n    {\n        return 1;\n    }\n};\n");
             auto member = cv.apply({"m.cpp", 1, "w5", {{CanvasOp::Kind::replaceSymbol, 0, 0, "g", "int g()\n{\n    return 2;\n}"}}});
             CHECK(member.ok && cv.text("m.cpp") == "struct P {\n    int g()\n    {\n        return 2;\n    }\n};\n");
+            // The signature from column 0 but the body at its old indentation (as copied from the view): the body stays, the signature joins it.
+            auto mixed = cv.apply({"m.cpp", 2, "w5", {{CanvasOp::Kind::replaceSymbol, 0, 0, "g", "int g()\n    {\n        return 3;\n    }"}}});
+            CHECK(mixed.ok && cv.text("m.cpp") == "struct P {\n    int g()\n    {\n        return 3;\n    }\n};\n");
+            // Already right: nothing moves.
+            auto same = cv.apply({"m.cpp", 3, "w5", {{CanvasOp::Kind::replaceSymbol, 0, 0, "g", "    int g()\n    {\n        return 4;\n    }"}}});
+            CHECK(same.ok && cv.text("m.cpp") == "struct P {\n    int g()\n    {\n        return 4;\n    }\n};\n");
             // A function that does not exist yet is added (at the end of the file, after a blank line), not refused.
             auto added = cv.apply({"f.cpp", 2, "w5", {{CanvasOp::Kind::replaceSymbol, 0, 0, "nope", "int nope() { return 0; }"}}});
             CHECK(added.ok && cv.text("f.cpp") == "int a() { return 1; }\ndouble f(double x) { return x; }\nint z;\n\nint nope() { return 0; }\n");
