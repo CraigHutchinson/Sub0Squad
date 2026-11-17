@@ -110,7 +110,20 @@ int main()
             // A SEARCH copied with the numbered view's "N| " column still matches.
             auto numbered = applyEdits("=== EDIT: src/a.js ===\n<<<<<<< SEARCH\n   2| two\n=======\n2\n>>>>>>> REPLACE\n=== END EDIT ===", f2, al, err);
             CHECK(numbered && numbered->at("src/a.js") == "one\n2\nthree\nfour\nfive\n");
+            // A LINES edit wrapped in search/replace markers (seen from the 35B): the new text is taken, the markers never reach the file.
+            auto marked = applyEdits("=== EDIT: src/a.js LINES 2-3 ===\ntwo\nthree\n=======\nTWO\nTHREE\n>>>>>>> REPLACE\n=== END EDIT ===", f2, al, err);
+            CHECK(marked && marked->at("src/a.js") == "one\nTWO\nTHREE\nfour\nfive\n");
+            // Markers written with indentation still close a block.
+            auto indented = applyEdits("=== EDIT: src/a.js ===\n<<<<<<< SEARCH\ntwo\n =======\n2\n  >>>>>>> REPLACE\n=== END EDIT ===", f2, al, err);
+            CHECK(indented && indented->at("src/a.js") == "one\n2\nthree\nfour\nfive\n");
         }
+        {   // The canvas reads a marked LINES edit the same way (tier 0 write-file: the markers were written into main.cpp and poisoned every later turn).
+            const CanvasReply r = parseCanvasReply("=== EDIT: src/main.cpp LINES 67-68 ===\n    a();\n    b();\n=======\n    c();\n>>>>>>> REPLACE\n=== END EDIT ===\n");
+            CHECK(r.error.empty() && r.transactions.size() == 1 && r.transactions[0].ops.size() == 1 && r.transactions[0].ops[0].text == "    c();\n");
+        }
+        CHECK(replacementOfMarkedBlock("a\nb\n") == "a\nb\n");
+        CHECK(replacementOfMarkedBlock("<<<<<<< SEARCH\nold\n=======\nnew\n>>>>>>> REPLACE\n") == "new\n");
+        CHECK(replacementOfMarkedBlock("old\n=======\n>>>>>>> REPLACE\n").empty());   // an empty replacement deletes
         CHECK(!applyEdits("=== EDIT: src/a.js ===\n<<<<<<< SEARCH\n  return a * b;\n=======\n  return 0;\n>>>>>>> REPLACE\n=== END EDIT ===", files, allowed, err) && err.find("does not appear") != std::string::npos);
         CHECK(!applyEdits("=== EDIT: src/a.js ===\n<<<<<<< SEARCH\n  \n=======\n  x\n>>>>>>> REPLACE\n=== END EDIT ===", {{"src/a.js", "  a\n  b\n"}}, allowed, err) && err.find("more than once") != std::string::npos);
         CHECK(!applyEdits("=== EDIT: ../evil.js ===\n<<<<<<< SEARCH\nx\n=======\ny\n>>>>>>> REPLACE\n=== END EDIT ===", files, allowed, err) && err.find("not one of the files") != std::string::npos);

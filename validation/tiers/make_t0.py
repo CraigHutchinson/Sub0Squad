@@ -114,6 +114,29 @@ def repeat_rename(text):
     return text[:a] + text[a:].replace(" fail(", " error(")
 
 
+# Independent defects, each breaking a different test, for the scaling cases: a worker that fixes one defect per turn costs a turn per defect, which a real
+# project cannot afford (tier 0 of 2026-11-17: fix-two-bugs took two turns in three runs of four, with both failures shown in its first message).
+DEFECT_BANK = [
+    ("v = std::fmod(v, d); }", "v = v / d; }"),                                                                      # modulo
+    ("for (int i = 2; i <= static_cast<int>(v); ++i)", "for (int i = 2; i < static_cast<int>(v); ++i)"),             # factorial
+    ("return degrees_ ? x * 180 / M_PI : x;", "return degrees_ ? x * M_PI / 180 : x;"),                               # degrees
+    ("return std::log10(x); }", "return std::log(x); }"),                                                             # logarithms
+    ("f == \"min\" ? std::fmin(a[0], a[1])", "f == \"min\" ? std::fmax(a[0], a[1])"),                                 # two_argument_functions
+    ("{ const double d = unary(); if (d == 0) fail(\"division by zero\"); v /= d; }", "v /= unary();"),               # division_by_zero_throws
+    ("if (id == \"tau\") return 2 * M_PI;", "if (id == \"tau\") return M_PI;"),                                       # constants
+    ("else if (eat('-')) v -= term();", "else if (eat('-')) v += term();"),                                           # addition_and_subtraction
+    ("if (f == \"cbrt\") return std::cbrt(x);", "if (f == \"cbrt\") return std::sqrt(x);"),                           # roots_and_rounding
+    ("const double v = expr(); if (!eat(')')) fail(\"missing closing parenthesis\"); return v; }",
+     "const double v = expr(); (void)eat(')'); return v; }"),                                                        # invalid_input_throws
+]
+
+
+def with_defects(n):
+    text = CALC
+    for old, new in DEFECT_BANK[:n]: text = sub(text, old, new)
+    return text
+
+
 NUMBER = CALC[CALC.index("    double number()"):CALC.index("    double name()")]
 CALL_HEAD = "    double call(const std::string& f, const std::vector<double>& a)\n    {\n"
 FACTORIAL = CALC[CALC.index("    static double factorial(double v)"):CALC.index("    double primary()")]
@@ -138,6 +161,7 @@ CASES = {
         context="src/calc.cpp is a complete calculator engine that nearly works: some of the provided tests fail. Find the defect and fix it with the smallest edit."),
     "fix-two-bugs": dict(
         exercises="two independent defects in two functions: several edits in one reply",
+        defects=2,
         calc=sub(sub(CALC, "v = std::fmod(v, d); }", "v = v / d; }"), "return degrees_ ? x * 180 / M_PI : x;", "return degrees_ ? x * M_PI / 180 : x;"),
         context="src/calc.cpp is a complete calculator engine that nearly works: some of the provided tests fail. It has more than one defect. Find them and fix each with the smallest edit."),
     "compile-typo": dict(
@@ -171,6 +195,7 @@ CASES = {
     # ---- curveballs: messier starting points, and cards that do not say what is wrong ----
     "fix-many": dict(
         exercises="curveball: five defects in five functions",
+        defects=5,
         calc=sub(sub(sub(sub(sub(CALC, "v = std::fmod(v, d); }", "v = v / d; }"),
                                  "for (int i = 2; i <= static_cast<int>(v); ++i)", "for (int i = 2; i < static_cast<int>(v); ++i)"),
                              "return degrees_ ? x * 180 / M_PI : x;", "return degrees_ ? x * M_PI / 180 : x;"),
@@ -204,6 +229,11 @@ CASES = {
         exercises="curveball: a parser skeleton, every method a stub: the whole engine written into an outline",
         calc=skeleton(CALC),
         context="src/calc.cpp is the outline of a recursive descent calculator engine: the class and its methods are laid out, but no method is written yet."),
+    # ---- scaling: more independent defects (each a prefix of the next); the gate reports defects fixed per turn ----
+    **{f"bugs-{n}": dict(
+        exercises=f"scaling: {n} independent defects, each breaking a different test (defects fixed per turn)",
+        calc=with_defects(n), defects=n,
+        context="src/calc.cpp is a calculator engine. Several of the provided tests fail.") for n in (3, 6, 10)},
     # ---- a repeated class of defect: one pattern at many sites (a batch fix, or many small ones) ----
     "repeat-trig": dict(
         exercises="a repeated class: the same defect at six sites (every trig call lost its degree conversion)",

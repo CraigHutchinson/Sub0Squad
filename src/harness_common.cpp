@@ -103,6 +103,53 @@ Cmd run(const std::vector<std::string>& argv, const fs::path& cwd, int timeoutSe
 }
 
 
+namespace {
+
+/// A CHECK_EQ failure whose values span lines (`X is <got> but Y is <want>`, newlines escaped as `\n`) laid out line by line, each line quoted so its
+/// spaces show, with the first difference named: a model cannot count columns inside an escaped one-line string, and a one-line message clipped at
+/// 300 characters lost the expected value altogether (tier 0 write-file, the --screen frame). Empty when the message is not of that shape.
+std::string multilineDiff(const std::string& error)
+{
+    constexpr std::string_view kHead = "CHECK_EQ failed: ";
+    const auto head = error.find(kHead);
+    if (head == std::string::npos || error.find("\\n") == std::string::npos) return {};
+    const auto is1 = error.find(" is ", head + kHead.size());
+    const auto but = is1 == std::string::npos ? std::string::npos : error.find(" but ", is1 + 4);
+    const auto is2 = but == std::string::npos ? std::string::npos : error.find(" is ", but + 5);
+    if (is2 == std::string::npos) return {};
+    const auto lines = [](const std::string& v) {
+        std::vector<std::string> out(1);
+        for (std::size_t i = 0; i < v.size(); ++i) {
+            if (v[i] == '\\' && i + 1 < v.size() && v[i + 1] == 'n') { out.emplace_back(); ++i; }
+            else out.back() += v[i];
+        }
+        if (out.size() > 1 && out.back().empty()) out.pop_back();   // the newline that ends the last line
+        return out;
+    };
+    const auto got = lines(error.substr(is1 + 4, but - is1 - 4)), want = lines(error.substr(is2 + 4));
+    if (got.size() < 2 && want.size() < 2) return {};   // one-line values (a `\n` in the test's expression is not one): the message stays as it was
+    constexpr std::size_t kMaxLines = 12;
+    const auto show = [&](const char* title, const std::vector<std::string>& v) {
+        std::string s = std::string("  ") + title + ":\n";
+        for (std::size_t i = 0; i < v.size() && i < kMaxLines; ++i) s += "    \"" + v[i] + "\"\n";
+        if (v.size() > kMaxLines) s += "    ... (" + std::to_string(v.size() - kMaxLines) + " more lines)\n";
+        return s;
+    };
+    std::string where;
+    for (std::size_t i = 0; i < std::max(got.size(), want.size()) && where.empty(); ++i) {
+        if (i >= got.size()) { where = "line " + std::to_string(i + 1) + " is missing from what the code gave"; break; }
+        if (i >= want.size()) { where = "line " + std::to_string(i + 1) + " is extra: the test expects only " + std::to_string(want.size()) + " lines"; break; }
+        if (got[i] == want[i]) continue;
+        std::size_t c = 0;
+        while (c < got[i].size() && c < want[i].size() && got[i][c] == want[i][c]) ++c;
+        where = "line " + std::to_string(i + 1) + ", column " + std::to_string(c + 1) + ": the code's line is " + std::to_string(got[i].size()) +
+                " characters, the expected one " + std::to_string(want[i].size());
+    }
+    return show("the code gave", got) + show("the test expected", want) + (where.empty() ? std::string{} : "  first difference: " + where + "\n");
+}
+
+}  // namespace
+
 Tap parseTap(const std::string& out)
 {
     // Counts come from the summary lines. The excerpt lists LEAF failures (nested subtests too) with their first error lines; a parent whose
@@ -144,6 +191,7 @@ Tap parseTap(const std::string& out)
     for (const auto& f : failures) {
         if (f.error.find("subtest") != std::string::npos && f.error.find("failed") != std::string::npos) continue;  // a parent summary
         if (shown++ >= 6 || t.excerpt.size() > 1300) break;
+        if (const std::string diff = multilineDiff(f.error); !diff.empty()) { t.excerpt += "FAIL " + f.name + ": CHECK_EQ failed\n" + diff; continue; }
         t.excerpt += "FAIL " + f.name + (f.error.empty() ? "" : ": " + f.error.substr(0, 300)) + "\n";
         if (!f.expected.empty() || !f.actual.empty())
             t.excerpt += "  the test expected " + f.expected + " but the code gave " + f.actual + (f.where.empty() ? "" : " (" + f.where + ")") + "\n";

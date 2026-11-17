@@ -1,6 +1,7 @@
 #include "sub0squad/canvas.hpp"
 
 #include "json_util.hpp"
+#include "sub0squad/edits.hpp"
 #include "sub0squad/outline.hpp"
 
 #include <algorithm>
@@ -295,7 +296,7 @@ CanvasReply parseCanvasReply(const std::string& reply)
             continue;
         }
         CanvasOp op;
-        op.text = blockText(body);
+        op.text = blockText(split(replacementOfMarkedBlock(join(body))));   // markers a worker wrapped the new text in are dropped, never written
         if (kind == "SYMBOL") {
             if (spec.empty()) { out.error = "the EDIT of '" + path + "' says SYMBOL but names no function"; return out; }
             if (op.text.empty()) { out.error = "the SYMBOL edit of '" + spec + "' is empty: give the whole function, from its signature to its last line"; return out; }

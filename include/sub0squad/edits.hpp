@@ -15,4 +15,9 @@ namespace sub0squad {
 [[nodiscard]] std::optional<std::map<std::string, std::string>> applyEdits(const std::string& reply, std::map<std::string, std::string> files,
                                                                             const std::set<std::string>& allowed, std::string& error);
 
+/// The new text of a LINES, AFTER or SYMBOL edit whose body a worker wrapped in search/replace markers (`old lines` / `=======` / `new lines` /
+/// `>>>>>>> REPLACE`): the part between the separator and the closing marker, so the markers are never written into a file. A body without both
+/// markers comes back unchanged.
+[[nodiscard]] std::string replacementOfMarkedBlock(const std::string& body);
+
 }  // namespace sub0squad

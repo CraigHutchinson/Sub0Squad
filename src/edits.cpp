@@ -78,6 +78,17 @@ LooseMatch findLoose(const std::string& text, const std::string& search)
     return m;
 }
 
+/// The offset of the newline that ends the line before the first line, at or after `from`, that starts with `marker` once its indentation is ignored
+/// (a small model sometimes writes ` =======`); npos when there is none.
+std::size_t markerLine(const std::string& body, std::string_view marker, std::size_t from)
+{
+    for (std::size_t nl = body.find('\n', from); nl != std::string::npos; nl = body.find('\n', nl + 1)) {
+        const std::size_t text = body.find_first_not_of(" \t", nl + 1);
+        if (text != std::string::npos && std::string_view{body}.substr(text, marker.size()) == marker) return nl;
+    }
+    return std::string::npos;
+}
+
 struct LineEdit { std::size_t from = 0, to = 0; bool insertAfter = false; std::string text; };
 
 // `LINES a-b`, `LINES a` or `AFTER a` at the end of an EDIT header's path; returns false when the header has none.
@@ -98,6 +109,17 @@ bool parseLineSpec(std::string& path, LineEdit& e)
 }
 
 }  // namespace
+
+std::string replacementOfMarkedBlock(const std::string& body)
+{
+    const std::string s = "\n" + body;   // so a marker on the first line is found like any other
+    const std::size_t rep = markerLine(s, ">>>>>>> REPLACE", 0);
+    std::size_t sep = std::string::npos;   // the last separator before the closing marker
+    for (std::size_t at = markerLine(s, "=======", 0); at != std::string::npos && at < rep; at = markerLine(s, "=======", at + 1)) sep = at;
+    if (rep == std::string::npos || sep == std::string::npos) return body;
+    const std::size_t from = s.find('\n', sep + 1) + 1;   // the line after the separator (the separator ends before rep, so there is one)
+    return from > rep ? std::string{} : s.substr(from, rep - from) + "\n";
+}
 
 // Edits instead of whole files: `=== EDIT: path ===` holding one or more `<<<<<<< SEARCH` / `=======` / `>>>>>>> REPLACE` blocks, applied to the files of the
 // previous turn. Each SEARCH must match the current text exactly once. On success the result is the complete updated set of files; on failure `error`
@@ -130,7 +152,7 @@ std::optional<std::map<std::string, std::string>> applyEdits(const std::string& 
         if (byLines && searched.count(path)) { error = "'" + path + "' has both LINES and SEARCH edits: use one kind per file"; return std::nullopt; }
         if (!byLines) { if (pending.count(path)) { error = "'" + path + "' has both LINES and SEARCH edits: use one kind per file"; return std::nullopt; } searched.insert(path); }
         if (byLines) {   // collected now, applied together below against the numbering of the draft that was shown
-            std::string repl = body;
+            std::string repl = replacementOfMarkedBlock(body);
             if (!repl.empty() && repl.front() == '\n') repl.erase(0, 1);
             while (!repl.empty() && (repl.back() == '\n' || repl.back() == '\r')) repl.pop_back();
             le.text = stripNumbers(repl);
@@ -142,8 +164,8 @@ std::optional<std::map<std::string, std::string>> applyEdits(const std::string& 
         for (;;) {
             const auto s0 = body.find("<<<<<<< SEARCH", b);
             if (s0 == std::string::npos) break;
-            const auto sepAt = body.find("\n=======", s0);
-            const auto repAt = body.find("\n>>>>>>> REPLACE", s0);
+            const auto sepAt = markerLine(body, "=======", s0);
+            const auto repAt = markerLine(body, ">>>>>>> REPLACE", s0);
             if (sepAt == std::string::npos || repAt == std::string::npos || repAt < sepAt) { error = "an edit block of '" + path + "' is not closed with ======= and >>>>>>> REPLACE"; return std::nullopt; }
             const auto searchFrom = body.find('\n', s0) + 1;
             std::string search = searchFrom <= sepAt ? body.substr(searchFrom, sepAt - searchFrom) : std::string{};

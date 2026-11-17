@@ -292,5 +292,16 @@ int main()
         CHECK_EQ(runMendApply({"--workflow-dir", d.string(), "--item", "dev", "--attempt", "4", "--action", "silence-unused", "--file", "../../etc/passwd", "--symbol", "x", "--line", "1"}), 64);
         removeTree(d);
     }
+    {   // A CHECK_EQ of multi-line text is laid out line by line with the first difference, not clipped inside one escaped line (tier 0 write-file).
+        const harnessutil::Tap t = harnessutil::parseTap("not ok 1 - screen_frame\n  ---\n  error: CHECK_EQ failed: out is +--+\\n| = 4 |\\n+--+\\n but expected is +--+\\n| = 4  |\\n+--+\\n\n  ...\n# tests 1\n# pass 0\n# fail 1\n");
+        CHECK(contains(t.excerpt, "FAIL 1 - screen_frame: CHECK_EQ failed\n"));
+        CHECK(contains(t.excerpt, "  the code gave:\n    \"+--+\"\n    \"| = 4 |\"\n    \"+--+\"\n"));
+        CHECK(contains(t.excerpt, "  the test expected:\n    \"+--+\"\n    \"| = 4  |\"\n"));
+        CHECK(contains(t.excerpt, "first difference: line 2, column 7: the code's line is 7 characters, the expected one 8"));
+        const harnessutil::Tap single = harnessutil::parseTap("not ok 1 - add\n  ---\n  error: CHECK_EQ failed: add(1, 2) is 4 but 3 is 3\n  ...\n# tests 1\n# pass 0\n# fail 1\n");
+        CHECK(contains(single.excerpt, "FAIL 1 - add: CHECK_EQ failed: add(1, 2) is 4 but 3 is 3\n"));   // one-line values stay as they were
+        const harnessutil::Tap inExpr = harnessutil::parseTap("not ok 1 - mixed\n  ---\n  error: CHECK_EQ failed: count(\"a\\n b\") is 1 but 2 is 2\n  ...\n# tests 1\n# pass 0\n# fail 1\n");
+        CHECK(contains(inExpr.excerpt, "FAIL 1 - mixed: CHECK_EQ failed: count(\"a\\n b\") is 1 but 2 is 2\n"));   // a newline in the expression, not the values
+    }
     return finish();
 }

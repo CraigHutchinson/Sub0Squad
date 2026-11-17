@@ -41,7 +41,8 @@ const char* const kCanvasSyntax =
     "the REPLACE part may be empty to delete them.\n"
     "To change a folded function you have not seen, read it first: reply with ONLY read requests, `=== READ: <path> SYMBOL name ===` or "
     "`=== READ: <path> LINES a-b ===` (all you need in one reply; at most two replies may be reads, then you must edit).\n"
-    "Several edits may be given in one reply. Each applies on its own: one that cannot apply is named and the others are kept. A worked example. "
+    "When several things are wrong (several failing tests, several errors), fix ALL of them in one reply, one edit for each: a reply that fixes one of "
+    "several costs a turn per defect. Each edit applies on its own: one that cannot apply is named and the others are kept. A worked example. "
     "The view shows\n"
     "  41|     if (d == 0) return 0;\n"
     "and it must report the error instead. The whole reply is:\n"
@@ -337,7 +338,8 @@ int runCanvasAttempt(const AttemptContext& a)
             for (const auto& f : a.item->files) if (!canvas.has(f)) state += "(" + f + " does not exist yet: write it whole with === FILE: " + f + " ===)\n";
         }
         const std::string user = a.card + (a.guidance.empty() ? std::string{} : "\n" + a.guidance + "\n") + (verdict.empty() ? std::string{} : "\n" + clip(verdict, verdictCap) + "\n") + "\n" + state +
-                                 (canvas.paths().empty() ? "" : "Reply with the transaction that fixes this, its form picked once by the rules above: a few functions wrong, edit just them; the approach wrong, the complete new file.\n");
+                                 (canvas.paths().empty() ? "" : "Reply with the transaction that fixes EVERYTHING listed above (every failing test, every error, one edit each), its form picked once by the rules above: "
+                                                                 "a few functions wrong, edit just them; the approach wrong, the complete new file.\n");
         verdictIsRead = false;
         // Reasoning that ran out before an edit is kept, not thrown away: its end comes back with this turn, which runs with thinking off so the decision
         // already reasoned out is written down (the 35B runs: 19 turns, 114k tokens of thinking that never reached an edit).

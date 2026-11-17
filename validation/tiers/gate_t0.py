@@ -84,6 +84,9 @@ def main():
                        "turns": sum(r["turns"] for r in counted), "tokensOut": sum(r["tokensOut"] for r in counted),
                        "notCounted": [f"{r['run']} ({'stale case' if r['key'] != key else 'other build' if r['build'].split('+')[0] != build else 'unfinished' if not r['engine'] else 'other engine'})" for r in runs if r not in counted],
                        "quality": {r["run"]: r["quality"] for r in counted},
+                       # Scaling: defects fixed per turn over the passing runs (1.0 is one defect a turn; a case of n defects done in one turn is n).
+                       "defectsPerTurn": round(make_t0.CASES[name]["defects"] * passed / max(1, sum(r["turns"] for r in counted if r["passed"])), 2)
+                                         if make_t0.CASES[name].get("defects") and passed else None,
                        "exercises": make_t0.CASES[name]["exercises"]}
     gate = {"schema": "t0-gate-1", "verdict": verdict, "build": build, "engine": a.engine, "minRuns": a.min_runs, "cases": cases}
     out = repo / "out/runs/t0"
@@ -95,7 +98,8 @@ def main():
           "|---|---|---|---|---|---|---|---|"]
     for n, c in cases.items():
         qual = "; ".join(f"{run}: " + " / ".join(quality_t0.summary(q) for q in files.values()) for run, files in c["quality"].items() if files)
-        md.append(f"| {n} | {c['state']} | {c['passed']}/{c['runs']} | {c['firstAttempt']}/{c['runs']} | {c['turns']} | {c['tokensOut']} | {qual} | {', '.join(c['notCounted'])} |")
+        turns = f"{c['turns']}" + (f" ({c['defectsPerTurn']} defects/turn)" if c.get("defectsPerTurn") else "")
+        md.append(f"| {n} | {c['state']} | {c['passed']}/{c['runs']} | {c['firstAttempt']}/{c['runs']} | {turns} | {c['tokensOut']} | {qual} | {', '.join(c['notCounted'])} |")
     (out / "gate.md").write_text("\n".join(md) + "\n")
     print(json.dumps(gate, indent=1) if a.json else "\n".join(md))
     return {"PASS": 0, "FAIL": 1, "INCOMPLETE": 2}[verdict]

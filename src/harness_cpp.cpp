@@ -10,6 +10,7 @@
 
 #include <print>
 #include <algorithm>
+#include <format>
 #include <cstdint>
 #include <cstdlib>
 #include <filesystem>
@@ -129,7 +130,13 @@ std::string cppBuildAndRun(const fs::path& ws, const std::vector<std::string>& t
         const Cmd r = run({(ws / "build" / t).string()}, ws, 60);
         timedOut = timedOut || r.timedOut;
         const Tap one1 = parseTap(r.output);
-        if (one1.tests < 0) { total.excerpt += "the test program " + t + " produced no result (it crashed or hung):\n" + r.output.substr(0, 600) + "\n"; continue; }
+        if (one1.tests < 0) {   // say which: an endless loop and a crash are fixed differently
+            total.excerpt += "the test program " + t +
+                             (r.timedOut ? " did not finish within 60 s: a test hangs (look for a loop that never ends)"
+                                         : std::format(" crashed (exit code {}) before it reported a result", r.exitCode)) +
+                             (r.output.empty() ? std::string{".\n"} : ". It printed:\n" + r.output.substr(0, 600) + "\n");
+            continue;
+        }
         ran = true;
         total.tests += one1.tests; total.pass += one1.pass; total.fail += one1.fail;
         total.excerpt += one1.excerpt;
