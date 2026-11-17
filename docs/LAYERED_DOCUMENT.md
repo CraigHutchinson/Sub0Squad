@@ -268,6 +268,10 @@ files tested on both sides. That move was made on 2026-11-17: outline, edits, ca
 
 ## Direction: sub0canvas as the squad's backbone (owner, 2026-11-17)
 
+The full design (mechanisms, the store, adapter interfaces, the revision-aware index, the format extension, how the squad's pieces map, consumers, slices
+with checks, open questions) is in sub0canvas: [docs/BACKBONE.md](https://github.com/CraigHutchinson/sub0canvas/blob/main/docs/BACKBONE.md). This
+section and the next are the owner's direction it was written from.
+
 **Scope.** The canvas tooling (the canvas core, folding, the block index and layers, their build and their tests) becomes the **sub0canvas** project: a
 tool for agentic workflows that works on its own, outside Sub0Squad. Sub0Squad is its first and most integrated consumer. Sub0Squad keeps what is
 squad-specific: the attempt loop, the gates and harnesses, the prompts. The code in this repository is the starting point, moved, not rewritten. Other

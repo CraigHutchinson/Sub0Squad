@@ -4,6 +4,10 @@ Status: open (written 2026-11-17). Backlog: "Layered document" under *Next* in [
 [../LAYERED_DOCUMENT.md](../LAYERED_DOCUMENT.md) (the design, slice 1 as built, the tier 0 A/B and its trace); the run directories in
 `out/runs/layers-ab-2026-11-17/` (their README says what each one is).
 
+**Progress (2026-11-17, late):** strand 1 steps 1 and 2 are built (sub0canvas v0.2.1 `layerInline`; the adaptive mode and inline detail in
+`canvas_agent.cpp`; "Slice 2 as built" in LAYERED_DOCUMENT.md; full suite 54/54). Step 3, the A/B, waits for the engine (reserved for the tier 0
+gate); its drivers are in `out/runs/layers-slice2/`. Strand 2: the design is written, sub0canvas `docs/BACKBONE.md`, for the owner to read.
+
 ## Goal
 
 Continue the layered document from slice 1. There are two strands. Do them in order, or in two sessions if the owner prefers:
