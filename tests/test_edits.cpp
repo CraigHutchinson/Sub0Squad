@@ -78,6 +78,10 @@ int main()
             cv.addFile("f.cpp", "int a() { return 1; }\ndouble f(double x)\n{\n  x += 1;\n  x += 2;\n  return x;\n}\nint z;\n");
             auto sym = cv.apply({"f.cpp", 1, "w5", {{CanvasOp::Kind::replaceSymbol, 0, 0, "f", "double f(double x) { return x; }"}}});
             CHECK(sym.ok && cv.text("f.cpp") == "int a() { return 1; }\ndouble f(double x) { return x; }\nint z;\n");
+            // A member function sent from column 0 keeps the indentation of the one it replaces.
+            cv.addFile("m.cpp", "struct P {\n    int g()\n    {\n        return 1;\n    }\n};\n");
+            auto member = cv.apply({"m.cpp", 1, "w5", {{CanvasOp::Kind::replaceSymbol, 0, 0, "g", "int g()\n{\n    return 2;\n}"}}});
+            CHECK(member.ok && cv.text("m.cpp") == "struct P {\n    int g()\n    {\n        return 2;\n    }\n};\n");
             // A function that does not exist yet is added (at the end of the file, after a blank line), not refused.
             auto added = cv.apply({"f.cpp", 2, "w5", {{CanvasOp::Kind::replaceSymbol, 0, 0, "nope", "int nope() { return 0; }"}}});
             CHECK(added.ok && cv.text("f.cpp") == "int a() { return 1; }\ndouble f(double x) { return x; }\nint z;\n\nint nope() { return 0; }\n");

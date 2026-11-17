@@ -100,6 +100,18 @@ TxResult Canvas::apply(const Transaction& tx)
             s.from = op.from; s.to = op.to;
         }
         s.repl = split(op.text);
+        if (op.kind == CanvasOp::Kind::replaceSymbol && !s.repl.empty()) {
+            // A function written from column 0 keeps the place it replaces: it is shifted to the old one's indentation (tier 0b of 2026-11-17: a member
+            // function sent unindented landed at column 0 inside its class). Indentation is meaning in Python, so this matters beyond looks.
+            const auto indentOf = [](const std::string& l) { return l.substr(0, l.find_first_not_of(" \t")); };
+            const std::string want = indentOf(baseLines[static_cast<std::size_t>(s.from) - 1]);
+            const auto first = std::find_if(s.repl.begin(), s.repl.end(), [](const std::string& l) { return !trimmedEmpty(l); });
+            const std::string have = first == s.repl.end() ? want : indentOf(*first);
+            if (have.size() < want.size() && want.compare(0, have.size(), have) == 0) {
+                const std::string extra = want.substr(have.size());
+                for (auto& l : s.repl) if (!trimmedEmpty(l)) l = extra + l;
+            }
+        }
         spans.push_back(std::move(s));
     }
     std::stable_sort(spans.begin(), spans.end(), [](const Span& a, const Span& b) { return a.from < b.from || (a.from == b.from && a.to < b.to); });   // stable: two insertions after the same line keep the order they were given in

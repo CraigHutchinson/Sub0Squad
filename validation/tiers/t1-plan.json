@@ -1,0 +1,60 @@
+{
+ "schema": "plan-2",
+ "task": "single-worker scientific calculator",
+ "harness": "cpp-cmake",
+ "project": "sci-calc-cpp",
+ "reasons": [
+  "isolated harness test: one worker builds the whole program end to end against the owner's acceptance tests (given)"
+ ],
+ "scaffold": [],
+ "given": [
+  {
+   "path": "tests/eval.test.cpp",
+   "content": "#include \"calc/calc.hpp\"\n#include \"helpers/check.hpp\"\n\n#include <stdexcept>\n\nstatic double ev(const char* e, bool deg = false) { return calc::evaluate(e, deg); }\n\nTEST(addition_and_subtraction) { CHECK_NEAR(ev(\"1+2\"), 3, 1e-9); CHECK_NEAR(ev(\"10-4-3\"), 3, 1e-9); }\nTEST(multiplication_and_division) { CHECK_NEAR(ev(\"6*7\"), 42, 1e-9); CHECK_NEAR(ev(\"7/2\"), 3.5, 1e-9); }\nTEST(precedence) { CHECK_NEAR(ev(\"2+3*4\"), 14, 1e-9); CHECK_NEAR(ev(\"(2+3)*4\"), 20, 1e-9); }\nTEST(power_is_right_associative) { CHECK_NEAR(ev(\"2^3^2\"), 512, 1e-9); }\nTEST(unary_minus_binds_looser_than_power) { CHECK_NEAR(ev(\"-2^2\"), -4, 1e-9); CHECK_NEAR(ev(\"2^-1\"), 0.5, 1e-9); }\nTEST(modulo) { CHECK_NEAR(ev(\"10%3\"), 1, 1e-9); }\nTEST(factorial) { CHECK_NEAR(ev(\"5!\"), 120, 1e-9); CHECK_NEAR(ev(\"0!\"), 1, 1e-9); }\nTEST(decimals) { CHECK_NEAR(ev(\"1.5+.5\"), 2, 1e-9); CHECK_NEAR(ev(\"1.5e2\"), 150, 1e-9); }\nTEST(constants) { CHECK_NEAR(ev(\"pi\"), 3.14159265358979, 1e-9); CHECK_NEAR(ev(\"e\"), 2.71828182845905, 1e-9); CHECK_NEAR(ev(\"tau\"), 6.28318530717959, 1e-9); }\nTEST(radians) { CHECK_NEAR(ev(\"sin(0)\"), 0, 1e-9); CHECK_NEAR(ev(\"cos(pi)\"), -1, 1e-9); }\nTEST(degrees) { CHECK_NEAR(ev(\"sin(90)\", true), 1, 1e-9); CHECK_NEAR(ev(\"asin(1)\", true), 90, 1e-9); }\nTEST(logarithms) { CHECK_NEAR(ev(\"ln(e)\"), 1, 1e-9); CHECK_NEAR(ev(\"log(1000)\"), 3, 1e-9); CHECK_NEAR(ev(\"log2(8)\"), 3, 1e-9); }\nTEST(roots_and_rounding) { CHECK_NEAR(ev(\"sqrt(16)\"), 4, 1e-9); CHECK_NEAR(ev(\"cbrt(27)\"), 3, 1e-9); CHECK_NEAR(ev(\"floor(2.7)\"), 2, 1e-9); CHECK_NEAR(ev(\"round(2.5)\"), 3, 1e-9); }\nTEST(two_argument_functions) { CHECK_NEAR(ev(\"pow(2,10)\"), 1024, 1e-9); CHECK_NEAR(ev(\"min(3,4)\"), 3, 1e-9); CHECK_NEAR(ev(\"max(3,4)\"), 4, 1e-9); }\nTEST(division_by_zero_throws) { CHECK_THROWS(ev(\"1/0\")); CHECK_THROWS(ev(\"1%0\")); }\nTEST(invalid_input_throws) { CHECK_THROWS(ev(\"foo\")); CHECK_THROWS(ev(\"sqrt(-1)\")); CHECK_THROWS(ev(\"(1+2\")); CHECK_THROWS(ev(\"1+\")); CHECK_THROWS(ev(\"2 $ 3\")); CHECK_THROWS(ev(\"sin(1,2)\")); }\n"
+  },
+  {
+   "path": "tests/cli.test.cpp",
+   "content": "#include \"helpers/app.hpp\"\n#include \"helpers/check.hpp\"\n\nTEST(prints_the_result) { const auto r = app::run(\"2^3^2\"); CHECK_EQ(r.output, std::string(\"512\\n\")); CHECK_EQ(r.code, 0); }\nTEST(joins_arguments) { CHECK_EQ(app::run(\"1 + 2\").output, std::string(\"3\\n\")); }\nTEST(rounds_floating_noise) { CHECK_EQ(app::run(\"0.1+0.2\").output, std::string(\"0.3\\n\")); }\nTEST(degrees_flag) { CHECK_EQ(app::run(\"--degrees \\\"sin(90)\\\"\").output, std::string(\"1\\n\")); }\nTEST(error_message_and_status) { const auto r = app::run(\"1/0\"); CHECK(r.output.find(\"Error:\") == 0); CHECK(r.code != 0); }\nTEST(screen_frame) {\n    const std::string expected = \"+--------------------------------------+\\n| 2+2                                  |\\n| = 4                                  |\\n+--------------------------------------+\\n\";\n    CHECK_EQ(app::run(\"--screen 2+2\").output, expected);\n}\n"
+  }
+ ],
+ "items": [
+  {
+   "id": "app",
+   "title": "Scientific calculator (engine and command-line app)",
+   "persona": "developer",
+   "goal": "Implement the engine and the command-line app so the provided tests pass",
+   "complexity": 4,
+   "card": {
+    "context": "One worker builds the whole program: the engine (src/calc.cpp) and the app on top of it (src/main.cpp). The provided tests are the specification.",
+    "contract": "ENGINE: Implement double calc::evaluate(const std::string& expr, bool degrees = false), declared in include/calc/calc.hpp and defined in src/calc.cpp. Operators: + - * / % ^ (right associative; binds tighter than unary minus, so -2^2 is -4), postfix ! (factorial), parentheses, unary + and -. Numbers: 12, 1.5, .5, 1.5e2. Constants: pi e tau. One-argument functions: sin cos tan asin acos atan sinh cosh tanh ln log (base 10) log2 sqrt cbrt abs exp floor ceil round fact. Two-argument functions: pow min max. degrees=true makes sin cos tan take degrees and asin acos atan return degrees. Raise std::runtime_error with a clear message on any invalid input (Invalid input raises the error: division or modulo by zero, unknown names or functions, wrong argument count, sqrt of a negative, unbalanced parentheses, a trailing operator, unexpected characters.)\nAPP: int main(int argc, char** argv). The app takes an expression as its arguments (joined with spaces) or, with none, one line from standard input. It prints the result with 12 significant digits (%.12g) and a newline and exits 0. On invalid input it prints 'Error: ' and the message to standard error and exits non-zero. --degrees sets degrees mode. --screen prints a fixed frame instead: a line of '+' then 38 '-' then '+', a line '| ' + the expression padded to 36 characters + ' |', a line '| = ' + the result padded to 34 characters + ' |' (an error shows as 'Error: message'), and the first rule line again. Evaluate with the engine (double calc::evaluate(const std::string& expr, bool degrees = false), declared in include/calc/calc.hpp and defined in src/calc.cpp).",
+    "acceptance": [
+     "every test in tests/eval.test.cpp and tests/cli.test.cpp passes",
+     "C++20, standard library only, no warnings"
+    ],
+    "include": [
+     "tests/eval.test.cpp",
+     "tests/cli.test.cpp"
+    ],
+    "notes": [
+     "A small recursive descent parser works well: expression -> term -> unary -> postfix -> primary",
+     "Output only src/calc.cpp and src/main.cpp"
+    ],
+    "examples": []
+   },
+   "gate": {
+    "kind": "ctest",
+    "minTests": 20,
+    "mustFailOnStub": false,
+    "tests": [
+     "tests/eval.test.cpp",
+     "tests/cli.test.cpp"
+    ]
+   },
+   "files": [
+    "src/calc.cpp",
+    "src/main.cpp"
+   ],
+   "deps": []
+  }
+ ]
+}
