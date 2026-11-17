@@ -78,8 +78,8 @@ when each runs; `ctest --preset quick` there means "everything not labelled `ful
 | `e2e` | a real daemon and CLI: scenarios, the README path, healing, near pass, thrash | test_e2e | readme, scenarios, executors, heal, nearpass, thrash |
 
 ```sh
-ctest --test-dir out/build/dev -L smoke              # smoke tier: 18 tests, about 40 s native (every change, before a push)
-ctest --test-dir out/build/dev                       # full tier: every test, about 19 min native (milestones, releases, before a PR merges)
+ctest --test-dir out/build/dev -L smoke              # smoke tier: 18 tests, about 30 s native (every change, before a push)
+ctest --test-dir out/build/dev                       # full tier: every test, about 13 min native (milestones, releases, before a PR merges)
 ctest --test-dir out/build/dev -L full               # only the long suites
 ctest --test-dir out/build/dev -L agents             # one area, both tiers (combine: -L smoke -L agents is the smoke tests of one area)
 ctest --test-dir out/build/dev --print-labels        # the labels in use
