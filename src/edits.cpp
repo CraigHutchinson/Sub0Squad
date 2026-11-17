@@ -108,6 +108,32 @@ std::size_t markerLine(const std::string& body, std::string_view marker, std::si
     return std::string::npos;
 }
 
+/// The spaces and tabs a text starts with.
+std::string leadingSpace(std::string_view s) { return std::string{s.substr(0, std::min(s.size(), s.find_first_not_of(" \t")))}; }
+
+/// A replacement written at the SEARCH's indentation (`from`), moved to the indentation the matched lines really have (`to`): a SEARCH that matched
+/// only once indentation was ignored had its REPLACE written verbatim, moving whole functions sideways (the layered-document A/B on tier 0 bugs-10:
+/// 73 of 105 changed lines were re-indentation). Indentations that are not one a prefix of the other (tabs against spaces) leave the text alone.
+std::string shiftIndent(const std::string& repl, const std::string& from, const std::string& to)
+{
+    if (from == to) return repl;
+    const bool deeper = to.size() > from.size() && to.compare(0, from.size(), from) == 0;
+    const bool shallower = from.size() > to.size() && from.compare(0, to.size(), to) == 0;
+    if (!deeper && !shallower) return repl;
+    std::string out;
+    for (std::size_t p = 0; p < repl.size();) {
+        const auto nl = repl.find('\n', p);
+        std::string line = repl.substr(p, nl == std::string::npos ? std::string::npos : nl - p + 1);
+        p = nl == std::string::npos ? repl.size() : nl + 1;
+        if (line.find_first_not_of(" \t\r\n") != std::string::npos) {
+            if (deeper) line.insert(0, to.substr(from.size()));
+            else line.erase(0, std::min(from.size() - to.size(), leadingSpace(line).size()));
+        }
+        out += line;
+    }
+    return out;
+}
+
 struct LineEdit { std::size_t from = 0, to = 0; bool insertAfter = false; std::string text; };
 
 // `LINES a-b`, `LINES a` or `AFTER a` at the end of an EDIT header's path; returns false when the header has none.
@@ -207,6 +233,8 @@ std::optional<std::map<std::string, std::string>> applyEdits(const std::string& 
                 // Tolerant: the same lines with other indentation or trailing spaces (a small model rarely copies whitespace exactly). One place only.
                 const LooseMatch loose = findLoose(text, search);
                 if (loose.count == 1) {   // whole lines are replaced: the new text keeps the line end the matched lines had (an empty one deletes them)
+                    repl = shiftIndent(repl, leadingSpace(search.substr(search.find_first_not_of("\r\n") == std::string::npos ? 0 : search.find_first_not_of("\r\n"))),
+                                       leadingSpace(text.substr(loose.from)));
                     if (!loose.dropped.empty()) {   // the start the SEARCH left out goes back on the replacement's first line, unless it is there already
                         const std::size_t first = repl.find_first_not_of(" \t\r\n");
                         if (first != std::string::npos && repl.compare(first, loose.dropped.size(), loose.dropped) != 0) repl.insert(first, loose.dropped);

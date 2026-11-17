@@ -126,6 +126,13 @@ int main()
             CHECK(tail && tail->at("src/a.js") == "    if (a) x();\n    else if (b) { y(); w(); }\n    else z();\n");
             auto kept = applyEdits("=== EDIT: src/a.js ===\n<<<<<<< SEARCH\n    if (b) y();\n    else z();\n=======\n    else if (b) q();\n    else z();\n>>>>>>> REPLACE\n=== END EDIT ===", chain, al, err);
             CHECK(kept && kept->at("src/a.js") == "    if (a) x();\n    else if (b) q();\n    else z();\n");   // a replacement that kept the start is left alone
+            // A SEARCH that matched only with its indentation ignored: the REPLACE moves to the file's indentation (both ways), not written verbatim.
+            const std::map<std::string, std::string> nested = {{"src/a.js", "f() {\n        a();\n        b();\n}\n"}};
+            auto deeper = applyEdits("=== EDIT: src/a.js ===\n<<<<<<< SEARCH\n    a();\n    b();\n=======\n    a();\n    if (x) {\n        b();\n    }\n>>>>>>> REPLACE\n=== END EDIT ===", nested, al, err);
+            CHECK(deeper && deeper->at("src/a.js") == "f() {\n        a();\n        if (x) {\n            b();\n        }\n}\n");
+            const std::map<std::string, std::string> flat = {{"src/a.js", "f() {\n  a();\n}\n"}};
+            auto shallower = applyEdits("=== EDIT: src/a.js ===\n<<<<<<< SEARCH\n      a();\n=======\n      a();\n      if (x)\n          b();\n>>>>>>> REPLACE\n=== END EDIT ===", flat, al, err);
+            CHECK(shallower && shallower->at("src/a.js") == "f() {\n  a();\n  if (x)\n      b();\n}\n");
             // A first line copied short names the whole line the file has.
             CHECK(!applyEdits("=== EDIT: src/a.js ===\n<<<<<<< SEARCH\n    if (x) y();\n    w();\n=======\nz();\n>>>>>>> REPLACE\n=== END EDIT ===", {{"src/a.js", "a\n    else if (x) y();\nb\n"}}, al, err) &&
                   err.find("line 2 of the file is `else if (x) y();`") != std::string::npos);
