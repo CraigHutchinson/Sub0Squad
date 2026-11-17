@@ -306,5 +306,12 @@ int main()
         const harnessutil::Tap inExpr = harnessutil::parseTap("not ok 1 - mixed\n  ---\n  error: CHECK_EQ failed: count(\"a\\n b\") is 1 but 2 is 2\n  ...\n# tests 1\n# pass 0\n# fail 1\n");
         CHECK(contains(inExpr.excerpt, "FAIL 1 - mixed: CHECK_EQ failed: count(\"a\\n b\") is 1 but 2 is 2\n"));   // a newline in the expression, not the values
     }
+    {   // Test counts from a gate's text. A compiler error that contains " of " is no count (wrong-approach: a draft that did not build ranked as 0 failing).
+        CHECK((harnessutil::gateTestCounts("GATE FAIL: 2 of 22 tests failed\nFAIL 3 - x\n") == std::pair{2, 22}));
+        CHECK((harnessutil::gateTestCounts("GATE PASS: all tests pass (22 tests, 0.4 s)\n") == std::pair{0, 22}));
+        CHECK((harnessutil::gateTestCounts("GATE FAIL: does not compile:\nsrc/a.cpp:4:9: error: binding reference of type 'int&' to 'const int' discards qualifiers\n") == std::pair{-1, -1}));
+        CHECK((harnessutil::gateTestCounts("GATE FAIL: ") == std::pair{-1, -1}));
+        CHECK((harnessutil::gateTestCounts("") == std::pair{-1, -1}));
+    }
     return finish();
 }

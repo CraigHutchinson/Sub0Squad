@@ -129,10 +129,11 @@ std::vector<std::string> splitSnippets(const std::string& edits)
 }
 }  // namespace
 
+/// Tests failing by the gate's text; -1 when it names no count (a pass, or a file that did not build).
 int failingTests(const std::string& gateText)
 {
-    if (gateText.rfind("GATE FAIL: ", 0) == 0 && gateText.find(" of ") != std::string::npos && std::isdigit(static_cast<unsigned char>(gateText[11]))) return std::atoi(gateText.c_str() + 11);
-    return -1;
+    const auto [failed, total] = harnessutil::gateTestCounts(gateText);
+    return gateText.rfind("GATE FAIL: ", 0) == 0 ? failed : -1;
 }
 
 std::string applyCanvasReply(Canvas& canvas, const CanvasReply& reply, const std::set<std::string>& allowed, const std::string& by, std::vector<std::string>* skipped)

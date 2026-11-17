@@ -9,6 +9,7 @@
 #include <map>
 #include <set>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace sub0squad {
@@ -56,6 +57,10 @@ struct Tap
     std::string all;       ///< EVERY leaf failure in the excerpt's form, unclipped: what the issues layer reads (docs/LAYERED_DOCUMENT.md)
 };
 [[nodiscard]] Tap parseTap(const std::string& out);
+/// Tests failed and tests run, from a gate's text (`GATE FAIL: 2 of 22 tests failed`, `GATE PASS: ... (22 tests, ...`); {-1, -1} when it says neither (the
+/// file did not build, or nothing ran). Only a number right after "GATE FAIL: " counts: a compiler error that happens to contain " of " (`binding reference of
+/// type`) is not "0 failing", which once ranked a draft that did not compile as the best one to restart from.
+[[nodiscard]] std::pair<int, int> gateTestCounts(const std::string& gateText);
 
 /// Recursive copy that overwrites; a missing source is not an error.
 void copyTree(const std::filesystem::path& from, const std::filesystem::path& to);

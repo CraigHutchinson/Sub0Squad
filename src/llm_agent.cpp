@@ -95,8 +95,10 @@ int runLlmAgent(const std::vector<std::string>& args)
             if (t.empty()) continue;
             const std::string g = slurp(d / "gate.txt");
             if (g.rfind("GATE PASS", 0) == 0) continue;
-            int f = 1 << 29;
-            if (g.rfind("GATE FAIL: ", 0) == 0 && g.find(" of ") != std::string::npos) f = std::atoi(g.c_str() + 11);
+            // A draft that did not build ranks below every draft the tests judged (wrong-approach: attempts 6 and 7 once restarted from attempt 1's
+            // non-compiling draft because its compiler error said "binding reference of type").
+            const int counted = harnessutil::gateTestCounts(g).first;
+            const int f = counted >= 0 ? counted : 1 << 29;
             if (f <= bestFail) { bestFail = f; bestText = t; gateOut = g; }   // fewest failing tests; the latest on a tie, and the latest of those that could not be run
         }
         return bestText;

@@ -153,6 +153,16 @@ std::string multilineDiff(const std::string& error)
 
 }  // namespace
 
+std::pair<int, int> gateTestCounts(const std::string& gateText)
+{
+    if (gateText.rfind("GATE FAIL: ", 0) == 0 && gateText.size() > 11 && std::isdigit(static_cast<unsigned char>(gateText[11]))) {
+        const auto of = gateText.find(" of ", 11);
+        if (of != std::string::npos && gateText.find(" tests failed", of) != std::string::npos) return {std::atoi(gateText.c_str() + 11), std::atoi(gateText.c_str() + of + 4)};
+    }
+    if (gateText.rfind("GATE PASS: ", 0) == 0) if (const auto open = gateText.find('('); open != std::string::npos) return {0, std::atoi(gateText.c_str() + open + 1)};
+    return {-1, -1};
+}
+
 Tap parseTap(const std::string& out)
 {
     // Counts come from the summary lines. The excerpt lists LEAF failures (nested subtests too) with their first error lines; a parent whose

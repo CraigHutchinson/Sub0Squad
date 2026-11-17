@@ -98,18 +98,6 @@ std::string functionText(const std::string& text, const std::string& path, const
     return fn;
 }
 
-/// Tests failed and tests run, from a gate's text (`GATE FAIL: 2 of 22 tests failed`, `GATE PASS: ... (22 tests, ...`); {-1, -1} when it says neither
-/// (the file did not build, or nothing ran).
-std::pair<int, int> testCounts(const std::string& gateText)
-{
-    if (gateText.rfind("GATE FAIL: ", 0) == 0 && std::isdigit(static_cast<unsigned char>(gateText[11]))) {
-        const auto of = gateText.find(" of ", 11);
-        if (of != std::string::npos && gateText.find(" tests failed", of) != std::string::npos) return {std::atoi(gateText.c_str() + 11), std::atoi(gateText.c_str() + of + 4)};
-    }
-    if (gateText.rfind("GATE PASS: ", 0) == 0) if (const auto open = gateText.find('('); open != std::string::npos) return {0, std::atoi(gateText.c_str() + open + 1)};
-    return {-1, -1};
-}
-
 std::string forkSystemBlock(const std::string& persona, const std::string& brief, const std::string& stance)
 {
     std::string s = "You write ONE function of a file that several workers are writing at the same time. You are shown the file with line numbers (`N| text`; the numbers are not "
@@ -1009,11 +997,11 @@ ForkResult runCanvasFork(const ForkOptions& o)
         if (!undone) {
             if (gate(gateText)) {
                 res.testsFailed = 0;
-                res.testsTotal = testCounts(gateText).second;
+                res.testsTotal = harnessutil::gateTestCounts(gateText).second;
                 std::printf("RESULT: PASS after %d assembly round(s); width %d, %d refused, %d removed by the harness\n", round, res.width, res.refused, res.mechanicalMends);
                 return finish(0, "");
             }
-            const auto [failed, total] = testCounts(gateText);
+            const auto [failed, total] = harnessutil::gateTestCounts(gateText);
             // The gate failed on something the mends table knows (a symbol nobody defined: the link, not a test): no section can repair that by being
             // asked again. The attempt ends here; the engine records the mend and the next attempt is its action.
             if (failed < 0 && !best && fs::exists(attemptDir / "mend.json")) { res.error = "the gate failed with a known mechanical error, which the harness mends: " + clip(firstErrorLine(gateText), 300); return finish(1, "mendable"); }
