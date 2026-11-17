@@ -1,0 +1,95 @@
+#!/usr/bin/env bash
+# Sub0Squad pre-push gate: CraigHutchinson/.github templates/pre-push, with the public-repository guard of
+# templates/pre-push-public-names in front of it (docs/ci-strategy.md, "Local gates must self-test" and
+# "Public repositories never name private ones").
+#
+# Activate once per clone:   git config core.hooksPath .githooks
+# Prove it:                  python <.github repo>/tools/ci/hook_check.py --repo .
+#
+#   - A push with no refs (everything up to date), a push that only deletes, and a documentation-only push exit 0
+#     without building.
+#   - Otherwise every pushed commit is scanned for private repository names (private_names.py, found in $KISMO_CI_DIR
+#     or a sibling clone CraigHutchinson.github; without it the hook warns and does not block), then the build and the
+#     quick tier (`ctest --preset quick`, the smoke-labelled tests) must pass.
+#   - `pipefail` is on and no pipeline hides a failure. `git push --no-verify` skips the hook.
+set -euo pipefail
+
+root="$(git rev-parse --show-toplevel)"
+cd "$root"
+builddir=out/build/default
+configure=(cmake --preset default -G Ninja -DCMAKE_C_COMPILER=gcc -DCMAKE_CXX_COMPILER=g++)
+build=(cmake --build "$builddir")
+tests=(ctest --preset quick --test-dir "$builddir")
+docs_re='\.md$|^docs/|^LICENSE|^LICENCE|^NOTICE|^\.github/|^\.ci/'
+zero=0000000000000000000000000000000000000000
+
+# git writes "<local ref> <local sha> <remote ref> <remote sha>" per ref on stdin; nothing at all when up to date.
+refs="$(cat)"
+pushed=0
+code=0
+while read -r local_ref local_sha remote_ref remote_sha || [ -n "${local_sha:-}" ]; do
+    [ -z "${local_sha:-}" ] && continue
+    remote_sha="${remote_sha%$'\r'}"                       # tolerate CRLF on stdin (Windows shells)
+    [ "$local_sha" = "$zero" ] && continue                # a deletion sends nothing
+    pushed=$((pushed + 1))
+    if [ "$remote_sha" = "$zero" ] || ! git cat-file -e "${remote_sha}^{commit}" 2>/dev/null; then
+        code=$((code + 1))                                # a new branch, or a remote commit we lack: assume code
+        continue
+    fi
+    changed="$(git diff --name-only "$remote_sha" "$local_sha")" || { code=$((code + 1)); continue; }
+    # A here-string, not a pipe: `grep -q` exits early and would SIGPIPE a producer under pipefail.
+    if [ -n "$changed" ] && grep -Ev "$docs_re" <<<"$changed" >/dev/null; then
+        code=$((code + 1))
+    fi
+done <<<"$refs"
+
+if [ "$pushed" -eq 0 ]; then
+    echo "pre-push: nothing is pushed (up to date, or only deletions); nothing to check"
+    exit 0
+fi
+
+# Every pushed commit, documentation included: a private name in a doc is still published.
+guard=""
+for dir in "${KISMO_CI_DIR:-}" "$root/../CraigHutchinson.github/tools/ci"; do
+    if [ -n "$dir" ] && [ -f "$dir/private_names.py" ]; then guard="$dir/private_names.py"; break; fi
+done
+if [ -z "$guard" ]; then
+    echo "pre-push: WARNING: private_names.py not found (set KISMO_CI_DIR or clone CraigHutchinson/.github beside this repository); private names NOT checked" >&2
+else
+    py=python
+    command -v python >/dev/null 2>&1 || py=python3
+    if ! "$py" "$guard" --pre-push --repo "$root" <<<"$refs"; then
+        echo "pre-push: PRIVATE NAME FOUND - push aborted." >&2
+        exit 1
+    fi
+fi
+
+if [ "$code" -eq 0 ]; then
+    echo "pre-push: documentation only; not building"
+    exit 0
+fi
+
+log="$(mktemp)"
+trap 'rm -f "$log"' EXIT
+if [ ! -f "$builddir/CMakeCache.txt" ]; then
+    echo "pre-push: configuring $builddir..."
+    if ! "${configure[@]}" >"$log" 2>&1; then            # redirected to a file, so the exit status is cmake's own
+        tail -n 40 "$log"
+        echo "pre-push: CONFIGURE FAILED - push aborted." >&2
+        exit 1
+    fi
+fi
+echo "pre-push: building..."
+if ! "${build[@]}" >"$log" 2>&1; then
+    tail -n 40 "$log"
+    echo "pre-push: BUILD FAILED - push aborted." >&2
+    exit 1
+fi
+echo "pre-push: testing (quick tier)..."
+if ! "${tests[@]}" >"$log" 2>&1; then
+    tail -n 60 "$log"
+    echo "pre-push: TESTS FAILED - push aborted." >&2
+    exit 1
+fi
+tail -n 3 "$log"
+echo "pre-push: all checks passed."

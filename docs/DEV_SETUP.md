@@ -100,6 +100,17 @@ and reads back the port it got, and it keeps its state in its own temporary `SUB
 Pull request labels: `ci:full` runs the full tier, `ci:local-verified` accepts a `local-ci/full` status in its place, `ci:release` requires
 the full tier, `ci:skip` runs no tier. The repository variable `CI_MODE` (`off`, `smoke`, unset) switches CI off or down to smoke.
 
+**Local first** (the family standard, `CraigHutchinson/.github` [docs/ci-strategy.md](https://github.com/CraigHutchinson/.github/blob/main/docs/ci-strategy.md)):
+hosted CI covers what this machine cannot (other compilers and systems, a clean-room build), and the complete matrix runs only at releases and milestones.
+Everything else is verified locally before it is pushed:
+* **The pre-push gate** (`.githooks/pre-push`; activate once per clone with `git config core.hooksPath .githooks`). Every pushed commit is scanned for
+  private repository names, because this repository is public: `private_names.py` uses the untracked list in `~/.config/kismo/private-names.txt`. Then
+  `out/build/default` is built and the quick tier run. A documentation-only push skips the build. Prove the hook with
+  `python ../CraigHutchinson.github/tools/ci/hook_check.py --repo .` (a sibling clone of that repository).
+* **Local attestation** (`.ci/local.json`): `python ../CraigHutchinson.github/tools/ci/local_ci.py --level quick|full` builds with GCC
+  (MinGW-w64 on Windows; Linux Clang is covered by the full CI tier), runs the tier, sweeps for private names and checks the hook. It then posts a `local-ci/quick` or `local-ci/full` status
+  on the pushed commit, which `ci:local-verified` accepts. Run `full` before a release or milestone, together with the tier 0 gate below.
+
 **Model tiers** (a local quality gate: they need the local engine). A release or milestone also needs the **tier 0 gate** to PASS on the proving engine for
 the build being released; tier 1 and above are run only on a tier 0 PASS ([BLOCK_PROVING_GROUNDS.md](BLOCK_PROVING_GROUNDS.md), "Model tiers and the tier 0 gate"):
 ```sh

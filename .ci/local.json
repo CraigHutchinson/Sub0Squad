@@ -1,0 +1,52 @@
+{
+  "version": 1,
+  "description": "Sub0Squad local checks (CraigHutchinson/.github docs/ci-strategy.md); source scripts/dev-env.sh, then run: python <.github repo>/tools/ci/local_ci.py --level quick|full. GCC only: the supported local toolchains are GCC on Linux and MinGW-w64 GCC on Windows (LLVM clang on Windows targets the MSVC runtime, which this project does not support); Linux Clang runs in the full CI tier.",
+  "levels": {
+    "quick": {
+      "steps": [
+        {
+          "name": "gcc",
+          "compiler": "gcc",
+          "commands": [
+            "cmake --preset default -B {builddir} -G Ninja -DCMAKE_C_COMPILER={cc} -DCMAKE_CXX_COMPILER={cxx}",
+            "cmake --build {builddir} -j {jobs}",
+            "ctest --preset quick --test-dir {builddir}"
+          ]
+        },
+        {
+          "name": "private-names",
+          "commands": [
+            "{python} {ci_dir}/private_names.py --staged --repo {repo}",
+            "{python} {ci_dir}/private_names.py --tree --repo {repo}"
+          ]
+        },
+        {
+          "name": "hook-check",
+          "commands": [
+            "{python} {ci_dir}/hook_check.py --repo {repo}"
+          ]
+        }
+      ]
+    },
+    "full": {
+      "steps": [
+        {
+          "name": "gcc",
+          "compiler": "gcc",
+          "commands": [
+            "cmake --preset default -B {builddir} -G Ninja -DCMAKE_C_COMPILER={cc} -DCMAKE_CXX_COMPILER={cxx}",
+            "cmake --build {builddir} -j {jobs}",
+            "ctest --preset full --test-dir {builddir} --timeout 1800"
+          ]
+        },
+        {
+          "name": "private-names",
+          "commands": [
+            "{python} {ci_dir}/private_names.py --staged --repo {repo}",
+            "{python} {ci_dir}/private_names.py --tree --repo {repo}"
+          ]
+        }
+      ]
+    }
+  }
+}

@@ -6,3 +6,4 @@ build/
 test-tmp/
 .claude/worktrees/
 __pycache__/
+build-local-*/
