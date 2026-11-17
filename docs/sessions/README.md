@@ -46,7 +46,7 @@ machine (frontier off), no commits without the owner's go-ahead, ask before chan
 | Brief | Task | Written |
 |---|---|---|
 | [engine-registry-integration.md](engine-registry-integration.md) | Run the squad on Sub0LlmEngine and Sub0LlmModelRegistry instead of its own `llama-server` line | 2026-11-16 |
-| [platform-unification.md](platform-unification.md) | One shared platform library (C++ and Python) for the Sub0 projects; blocked on the owner's decisions (name first) | 2026-11-17 |
+| [platform-unification.md](platform-unification.md) | Sub0Platform: one shared platform library (C++ and Python) for the Sub0 projects; name decided, org and other decisions open | 2026-11-17 |
 
 Elsewhere: Sub0LlmEngine's `docs/sessions/` has the brief for isolating the Qwen3.8-27B UD-IQ3_XXS CUDA fault.
 

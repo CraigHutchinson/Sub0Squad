@@ -1,6 +1,8 @@
 # Follow-up session: one shared platform library for the Sub0 projects
 
-Status: open (written 2026-11-17), **blocked on the owner's decisions below** (project name first). Evidence: a review
+Status: in progress (2026-11-17). Name decided: **Sub0Platform** (owner, 2026-11-17). A local repository
+`D:\Craig\GitHub\Sub0Platform` holds the Python seed; the GitHub repository is not created yet (needs the org and the
+owner's go-ahead). Other decisions below still open. Evidence: a review
 of the CraigHutchinson and Kismotech repositories (2026-11-16, Haiku agent, main claims re-checked against the local
 checkouts); Sub0Squad [../PLATFORM.md](../PLATFORM.md); Sub0LlmEngine `sub0llmengine/platform.py`.
 
@@ -50,7 +52,7 @@ encode it (`userConfigDir` roaming, `userCacheDir`/`userStateDir` local).
 
 ## Proposal (names are the owner's call)
 
-One repository, working name **Sub0Platform** (alternatives: Sub0Host, Sub0Sys), with three parts:
+One repository, **Sub0Platform** (decided 2026-11-17), with three parts:
 
 * **C++ library** (from Sub0Squad layer 0): `error`; `process` (spawn, wait, terminate, kill, captured runs, pipes,
   the Windows quoting from Sub0Log with its tests); `proc` (self path, start time, `isAlive(pid, start)`, descendants);
@@ -88,7 +90,8 @@ Keep Sub0Squad's layering rule and its CMake check in the new library.
 
 ## Decisions needed from the owner
 
-1. The project's name, and its org (CraigHutchinson or Kismotech).
+1. ~~The project's name~~: Sub0Platform (decided 2026-11-17). Still open: its org (CraigHutchinson or Kismotech) and
+   visibility.
 2. The C++ floor: C++23 with `std::expected` (Sub0Squad) or C++20 for Clang below 19 (Sub0Log's constraint); which
    Windows toolchains CI must cover (MinGW-w64 GCC and MSVC at least).
 3. Whether Sub0Log depends on it (gains process and file dependencies) or keeps its own copy of the rules.
