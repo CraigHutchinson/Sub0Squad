@@ -357,9 +357,21 @@ What this shows, and what it does not:
 * **Where the old text already listed everything, it did not help.** bugs-3 and fix-many got worse: one extra turn in one run of fix-many, and in two runs of
   bugs-3. Their prompts grew, because the summary's localisation (the function's line range) is added to a verdict that was already short. Completion tokens
   rose in every case.
-* **A quality regression.** In bugs-10 with the layer on, run 2 changed 105 lines where 10 were needed, 45 of them collateral (quality_t0.py). Without the
-  layer, the worst bugs-10 run changed 18 lines, 1 of them collateral. One run is not a pattern, but the next slice must watch this: a summary that names
-  whole functions may invite rewriting them.
+* **A quality regression, traced.** In bugs-10 with the layer on, run 2 changed 105 lines where 10 were needed, 45 of them collateral (quality_t0.py).
+  Without the layer, the worst bugs-10 run changed 18 lines, 1 of them collateral. Traced in the run's replies, the 105 lines break down as:
+  * **73 lines of re-indentation.** The worker's SEARCH text came back indented by 5 or 6 spaces where the file has 4. The edit applier matched it
+    anyway, because its matching ignores whitespace, and then wrote the REPLACE text verbatim, so five whole functions moved right. This is an
+    edit-applier finding, not a layer finding: a match that ignored indentation should carry the file's own indentation onto the REPLACE. It can happen
+    in either arm.
+  * **17 lines of an invented function.** `check_end_of_subexpression()` was added and never called. It came from the summary: issue 10
+    (`ev("(1+2")` did not throw) was localised to "likely in 2 places: expr(), unary()", but the defect is the unchecked `)` in `primary()`. The
+    worker followed the pointer, then spent a READ ISSUE and a fourth turn before fixing `primary()`. The localiser scores expression tokens against
+    block literals, and punctuation such as `+` and `(` points at the wrong blocks. Rule for the next slice: a suspect needs a test-name match or a
+    non-punctuation token, otherwise the issue says "location unknown". A wrong pointer costs more than no pointer.
+  * **32 lines remain once indentation is ignored**, against 10 to 18 in the other five runs.
+
+  So the summary does not invite a whole-file rewrite. It invited one wrong edit, and the applier's indentation turned three small edits into whole-function
+  diffs.
 * **The worker hardly asks for detail.** It read one issue in 12 runs (`=== READ: ISSUE n ===`). The summary alone carried the effect. The query costs
   nothing when it is not used, but its value is not shown yet.
 * **The noise is as large as the effect.** Three runs per arm, and per-run turns vary from 1 to 6 within one arm (bugs-10 off: 4 3 6). The overall gain,
@@ -369,5 +381,12 @@ What this shows, and what it does not:
   ran with the layer on. The shim now passes `SUB0SQUAD_ISSUE_LAYER` through (commit "Shim: pass SUB0SQUAD_ISSUE_LAYER through"), and those runs are not
   counted here.
 
-Next, from this: keep the summary for long verdicts and fall back to the gate's own text when it already fits unclipped (that alone removes both
-regressions above); measure the collateral; and give the A/B five runs per arm before reading anything into a gap smaller than about 30%.
+Next, from this:
+* **Switch the layer on adaptively.** Use the summary only when the gate's text would be clipped, or when more than about 3 failures are listed;
+  otherwise send the gate's own text. bugs-3 and fix-many would then behave exactly as in the off arm. This is one more A/B arm.
+* **Put the detail inline.** Show the first N issues (about 3) in full, with their code, under the summary instead of waiting for READ ISSUE, which was
+  used once in 12 runs.
+* **Tighten the localiser.** Never point on punctuation alone (see the trace above).
+* **Fix the edit applier.** It should re-indent a REPLACE that matched while ignoring indentation (a separate edits fix that both arms benefit from).
+* **Measure with five runs per arm.** Read nothing into a gap smaller than about 30%. At n = 3 and temperature 0.7, this table is suggestive, not
+  significant.
