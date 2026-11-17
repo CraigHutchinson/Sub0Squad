@@ -1,0 +1,24 @@
+# name: search-edit-loose-indent
+# A SEARCH text whose indentation differs from the file still matches its one place: the lines are compared without indentation or trailing spaces.
+--- base src/calc.cpp
+double divide(double a, double d)
+{
+    if (d == 0) return 0;
+    return a / d;
+}
+--- reply
+=== EDIT: src/calc.cpp ===
+<<<<<<< SEARCH
+if (d == 0) return 0;
+  return a / d;
+=======
+    if (d == 0) throw std::domain_error("division by zero");
+    return a / d;
+>>>>>>> REPLACE
+=== END EDIT ===
+--- want src/calc.cpp
+double divide(double a, double d)
+{
+    if (d == 0) throw std::domain_error("division by zero");
+    return a / d;
+}

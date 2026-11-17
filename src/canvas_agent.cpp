@@ -29,24 +29,25 @@ namespace fs = std::filesystem;
 const char* const kCanvasSyntax =
     "You edit a shared document. Each turn you are shown the files as they now stand, with line numbers (`N| text`; the numbers are not part of the file) and long function bodies "
     "FOLDED to `... (N lines folded: a-b; name)`. Reply with one TRANSACTION and nothing else (no explanations, no markdown fences). The forms:\n"
-    "=== EDIT: <path> SYMBOL <function name> ===\n<the whole new function, from its signature to its last line>\n=== END EDIT ===\n"
-    "=== EDIT: <path> LINES a-b ===\n<the new text for those lines; empty to delete them>\n=== END EDIT ===\n"
-    "=== EDIT: <path> AFTER n ===\n<lines to insert after line n>\n=== END EDIT ===\n"
+    "=== EDIT: <path> SYMBOL <function name> ===\n<the whole function, from its signature to its last line>\n=== END EDIT ===\n"
+    "=== EDIT: <path> ===\n<<<<<<< SEARCH\n<a few lines copied exactly from the file, without the line numbers>\n=======\n<what replaces them>\n>>>>>>> REPLACE\n=== END EDIT ===\n"
     "=== FILE: <path> ===\n<the complete new file>\n=== END FILE ===\n"
     "Pick the form ONCE, by the first rule that fits, and do not reconsider it:\n"
-    "1. The file does not exist yet: FILE.\n"
-    "2. The approach of a file is wrong (its structure, its grammar, how data flows through it), or you would change most of its functions: FILE, the complete "
-    "new file. It replaces everything, folded parts included, so do not read them first, and do not use LINES over the whole file.\n"
-    "3. Otherwise (a few functions or lines are wrong): EDIT them, SYMBOL for a whole function, LINES or AFTER for a few lines. To change a folded function "
-    "you have not seen, read it first: reply with ONLY read requests, `=== READ: <path> SYMBOL name ===` or `=== READ: <path> LINES a-b ===` (all you need "
-    "in one reply; at most two replies may be reads, then you must edit).\n"
-    "Several edits may be given in one reply: line numbers are always those of the view you were shown, and all of them apply together or none does. "
-    "A worked example. The view shows\n"
+    "1. The file does not exist yet, or its approach is wrong (its structure, its grammar, how data flows through it), or you would change most of its "
+    "functions: FILE, the complete new file. It replaces everything, folded parts included, so do not read them first. A long file may be written in steps: "
+    "FILE with its first part, then one SYMBOL edit for each function still to add.\n"
+    "2. A whole function is wrong or missing: SYMBOL. It replaces the function of that name, or adds it when there is none.\n"
+    "3. A few lines are wrong: SEARCH/REPLACE. The SEARCH part is at most about 15 lines and must occur once in the file (indentation need not match exactly); "
+    "the REPLACE part may be empty to delete them.\n"
+    "To change a folded function you have not seen, read it first: reply with ONLY read requests, `=== READ: <path> SYMBOL name ===` or "
+    "`=== READ: <path> LINES a-b ===` (all you need in one reply; at most two replies may be reads, then you must edit).\n"
+    "Several edits may be given in one reply. Each applies on its own: one that cannot apply is named and the others are kept. A worked example. "
+    "The view shows\n"
     "  41|     if (d == 0) return 0;\n"
-    "and line 41 must report the error instead. The whole reply is:\n"
-    "=== EDIT: src/calc.cpp LINES 41 ===\n    if (d == 0) throw std::domain_error(\"division by zero\");\n=== END EDIT ===\n"
-    "Never copy unchanged text or the numbered view back: an edit holds only the new text. Every transaction is checked before it is kept: one that does not "
-    "compile or parse is refused and changes nothing.\n";
+    "and it must report the error instead. The whole reply is:\n"
+    "=== EDIT: src/calc.cpp ===\n<<<<<<< SEARCH\n    if (d == 0) return 0;\n=======\n    if (d == 0) throw std::domain_error(\"division by zero\");\n>>>>>>> REPLACE\n=== END EDIT ===\n"
+    "Never copy unchanged text or the numbered view back beyond the few SEARCH lines. Every edit is kept, and checked: when the files do not compile or parse "
+    "afterwards you are shown the errors, with the line numbers of the files as they then stand, and fix them with small edits (not a rewrite).\n";
 
 std::string canvasSystemBlock(const std::string& persona, const std::string& brief, const std::string& stance)
 {
@@ -64,33 +65,109 @@ long long turnSeed(long long base, const std::string& label)
     return static_cast<long long>(h & 0x7fffffffull);
 }
 
+namespace {
+constexpr double kThinkingShare = 0.6;               ///< share of a turn's token budget thinking may use before it is stopped and carried over
+constexpr double kCharsPerToken = 3.5;               ///< characters per token, to judge streamed reasoning without a tokenizer
+constexpr std::size_t kCarriedReasoningChars = 3000; ///< how much of stopped reasoning comes back with the next turn (its end, where it was heading)
+
+/// The last `n` characters of `s`, starting at a line boundary when one is near.
+std::string tailAtLine(const std::string& s, std::size_t n)
+{
+    if (s.size() <= n) return s;
+    std::size_t from = s.size() - n;
+    if (const std::size_t nl = s.find('\n', from); nl != std::string::npos && nl - from < 200) from = nl + 1;
+    return s.substr(from);
+}
+
+/// A diagnostic or refusal with its numbers removed: the same error at moved line numbers gives the same key.
+std::string errorKey(const std::string& text)
+{
+    std::string key;
+    for (const char c : text.substr(0, 400)) if (!std::isdigit(static_cast<unsigned char>(c))) key += c;
+    return key;
+}
+
+/// `=== EDIT: path ===` blocks of SEARCH/REPLACE pairs split into one block per pair, so each can apply on its own. Text that is not a recognisable pair
+/// (an unclosed block) is passed on whole, so `applyEdits` names what is wrong with it.
+std::vector<std::string> splitSnippets(const std::string& edits)
+{
+    std::vector<std::string> out;
+    std::size_t at = 0;
+    while ((at = edits.find("=== EDIT:", at)) != std::string::npos) {
+        const std::size_t headEnd = edits.find('\n', at);
+        if (headEnd == std::string::npos) { out.push_back(edits.substr(at)); break; }
+        const std::string head = edits.substr(at, headEnd - at + 1);
+        std::size_t end = edits.find("=== END EDIT ===", headEnd);
+        const std::string body = edits.substr(headEnd + 1, (end == std::string::npos ? edits.size() : end) - headEnd - 1);
+        std::size_t b = 0;
+        bool any = false;
+        while (true) {
+            const std::size_t s0 = body.find("<<<<<<< SEARCH", b);
+            if (s0 == std::string::npos) break;
+            const std::size_t r0 = body.find(">>>>>>> REPLACE", s0);
+            if (r0 == std::string::npos) { out.push_back(head + body.substr(s0) + "\n=== END EDIT ===\n"); any = true; break; }
+            const std::size_t r1 = r0 + std::string_view{">>>>>>> REPLACE"}.size();
+            out.push_back(head + body.substr(s0, r1 - s0) + "\n=== END EDIT ===\n");
+            any = true;
+            b = r1;
+        }
+        if (!any) out.push_back(head + body + "\n=== END EDIT ===\n");
+        at = end == std::string::npos ? edits.size() : end + 1;
+    }
+    if (out.empty()) out.push_back(edits);
+    return out;
+}
+}  // namespace
+
 int failingTests(const std::string& gateText)
 {
     if (gateText.rfind("GATE FAIL: ", 0) == 0 && gateText.find(" of ") != std::string::npos && std::isdigit(static_cast<unsigned char>(gateText[11]))) return std::atoi(gateText.c_str() + 11);
     return -1;
 }
 
-std::string applyCanvasReply(Canvas& canvas, const CanvasReply& reply, const std::set<std::string>& allowed, const std::string& by)
+std::string applyCanvasReply(Canvas& canvas, const CanvasReply& reply, const std::set<std::string>& allowed, const std::string& by, std::vector<std::string>* skipped)
 {
     if (!reply.error.empty()) return reply.error;
+    // One part that cannot apply: all or nothing returns it as the refusal; partial records it and goes on with the rest.
+    const auto fail = [&](const std::string& why) { if (skipped) skipped->push_back(why); return !skipped; };
+    std::map<std::string, int> shown;   // the revision each file was at when the worker saw it: every operation's line numbers are in that view
+    for (const auto& path : canvas.paths()) shown[path] = canvas.revision(path);
     for (const auto& [path, text] : reply.wholeFiles) {
-        if (!allowed.count(path)) return "'" + path + "' is not one of the files you may write";
+        if (!allowed.count(path)) { const std::string why = "'" + path + "' is not one of the files you may write"; if (fail(why)) return why; continue; }
         (void)canvas.replaceText(path, text, by);
     }
     for (Transaction tx : reply.transactions) {
-        if (!allowed.count(tx.path)) return "'" + tx.path + "' is not one of the files you may write";
-        if (!canvas.has(tx.path)) return "there is no '" + tx.path + "' yet: write it whole with === FILE: " + tx.path + " ===";
-        if (reply.wholeFiles.count(tx.path)) return "'" + tx.path + "' is both rewritten whole and edited in one reply: use one or the other";
-        tx.baseRevision = canvas.revision(tx.path);
+        std::string why;
+        if (!allowed.count(tx.path)) why = "'" + tx.path + "' is not one of the files you may write";
+        else if (!shown.count(tx.path)) why = "there is no '" + tx.path + "' yet: write it whole with === FILE: " + tx.path + " ===";
+        else if (reply.wholeFiles.count(tx.path)) why = "'" + tx.path + "' is both rewritten whole and edited in one reply: use one or the other";
+        if (!why.empty()) { if (fail(why)) return why; continue; }
         tx.by = by;
-        if (const TxResult r = canvas.apply(tx); !r.ok) return tx.path + ": " + r.error;
+        if (!skipped) {   // all or nothing: the file's operations as one transaction
+            tx.baseRevision = canvas.revision(tx.path);
+            if (const TxResult r = canvas.apply(tx); !r.ok) return tx.path + ": " + r.error;
+            continue;
+        }
+        // Partial: each operation on its own, all against the revision that was shown (the canvas rebases each over the ones applied before it), so one
+        // bad operation never costs the good ones beside it.
+        for (const auto& op : tx.ops) {
+            Transaction one{tx.path, shown[tx.path], by, {op}};
+            if (const TxResult r = canvas.apply(one); !r.ok) skipped->push_back(tx.path + ": " + r.error);
+        }
     }
-    if (!reply.searchEdits.empty()) {   // the older search-and-replace form still works: its result is committed as a whole-text revision
+    // The snippet form (SEARCH/REPLACE): its result is committed as a whole-text revision. A snippet names its place by its text, not by line numbers, so
+    // in partial mode each one applies on its own to the text as it then stands.
+    const auto applySnippets = [&](const std::string& edits) {
         std::string err;
         const auto before = canvas.files();
-        const auto merged = applyEdits(reply.searchEdits, before, allowed, err);
+        const auto merged = applyEdits(edits, before, allowed, err);
         if (!merged) return err;
-        for (const auto& [path, text] : *merged) if (before.at(path) != text) (void)canvas.replaceText(path, text, by);
+        for (const auto& [path, text] : *merged) if (!before.count(path) || before.at(path) != text) (void)canvas.replaceText(path, text, by);
+        return std::string{};
+    };
+    if (!reply.searchEdits.empty()) {
+        if (!skipped) { if (std::string err = applySnippets(reply.searchEdits); !err.empty()) return err; }
+        else for (const auto& one : splitSnippets(reply.searchEdits)) if (std::string err = applySnippets(one); !err.empty()) skipped->push_back(err);
     }
     return {};
 }
@@ -140,6 +217,12 @@ int runCanvasAttempt(const AttemptContext& a)
 
     Canvas canvas;
     for (const auto& [path, text] : a.baselineFiles) canvas.addFile(path, text);
+    // No earlier draft: the canvas starts from what the workspace starts with (the harness's stubs, the plan's scaffold), so the first turn edits a file that
+    // compiles instead of writing every file from nothing in one reply (tier 1 of 2026-11-17: an 11k-character first draft, cut off three times, refused).
+    std::vector<std::string> seeded;
+    if (a.baselineFiles.empty())
+        for (const auto& [path, text] : startingFiles(harness, *a.plan))
+            if (allowed.count(path) && !text.empty()) { canvas.addFile(path, text); seeded.push_back(path); }
     persistCanvas(canvas, attemptDir);
 
     const fs::path tracePath = attemptDir / "conversation.md";
@@ -147,7 +230,9 @@ int runCanvasAttempt(const AttemptContext& a)
     (void)writeFile(attemptDir / "prompt.txt", "SYSTEM:\n" + system + "\nUSER (rebuilt each turn; the card):\n" + a.card);
 
     // What the next message says about the last turn: the failure of the earlier draft to begin with, then a gate failure, a refusal or the lines a read asked for.
-    std::string verdict = a.baselineFiles.empty() ? std::string{} : (a.draftOrigin.empty() ? "These files are your best earlier draft. It failed:\n" : "These files are an earlier draft from before '" + a.draftOrigin + "' was divided (keep what is right, fix the rest). It failed:\n") + clip(a.draftGate, 1200);
+    std::string seededNote;
+    for (const auto& p : seeded) seededNote += (seededNote.empty() ? "" : ", ") + p;
+    std::string verdict = a.baselineFiles.empty() ? (seeded.empty() ? std::string{} : "These files start as the workspace's stubs (" + seededNote + "): they compile but do nothing yet. Write each whole, or fill it in with SYMBOL edits.") : (a.draftOrigin.empty() ? "These files are your best earlier draft. It failed:\n" : "These files are an earlier draft from before '" + a.draftOrigin + "' was divided (keep what is right, fix the rest). It failed:\n") + clip(a.draftGate, 1200);
     std::string focus = a.draftGate;      // the text whose file:line references keep regions of the view open
     std::string partial;                  // a reply cut off at the token limit, so far: the next reply is appended to it
     int spent = 0;                        // turns used of repairTurns + 1
@@ -164,6 +249,14 @@ int runCanvasAttempt(const AttemptContext& a)
 
     std::string lastReadAnswer;           // the latest read answered, kept in view when a read past the allowance is refused
     bool verdictIsRead = false;           // the verdict is a read answer (set where it is written, cleared once a message carried it)
+    std::string carriedReasoning;         // the end of reasoning that ran out before an edit, shown with the next turn
+    bool decideNext = false;              // the next turn writes down what was reasoned, with thinking off
+    int thinkingStops = 0;
+    // Staged revisions: a transaction that does not compile is still KEPT (as revisions with its diagnostics), never discarded; it is fixed by the next
+    // edits. The out/ directory holds only revisions that compile, and the gate runs only on those.
+    bool headCompiles = true;
+    int staged = 0, sameStaged = 0;
+    std::string lastStagedKey;
     while (spent <= a.repairTurns) {
         // ---- the message: the card, the verdict, and the current revision folded to fit what the window has left ----
         // A verdict is clipped to 2,400 characters (a gate's output, a refusal), but a READ answer is what the worker asked to see: it gets the window
@@ -188,7 +281,13 @@ int runCanvasAttempt(const AttemptContext& a)
         const std::string user = a.card + (a.guidance.empty() ? std::string{} : "\n" + a.guidance + "\n") + (verdict.empty() ? std::string{} : "\n" + clip(verdict, verdictCap) + "\n") + "\n" + state +
                                  (canvas.paths().empty() ? "" : "Reply with the transaction that fixes this, its form picked once by the rules above: a few functions wrong, edit just them; the approach wrong, the complete new file.\n");
         verdictIsRead = false;
-        std::vector<ChatMessage> convo = {{"system", system}, {"user", user}};
+        // Reasoning that ran out before an edit is kept, not thrown away: its end comes back with this turn, which runs with thinking off so the decision
+        // already reasoned out is written down (the 35B runs: 19 turns, 114k tokens of thinking that never reached an edit).
+        const std::string carried = carriedReasoning.empty() ? std::string{}
+            : "\nYour reasoning from the last turn is kept: it ran out before you wrote an edit. Its end:\n[reasoning]\n" + carriedReasoning +
+              "\n[end of reasoning]\nDo not start the reasoning over. Write the transaction it was leading to now.\n";
+        carriedReasoning.clear();
+        std::vector<ChatMessage> convo = {{"system", system}, {"user", user + carried}};
         if (!partial.empty()) {   // continue a reply that was cut off: its tail is shown, the rest is appended (never started over)
             convo.push_back({"assistant", "[your reply so far is kept; it was cut off at the token limit]"});
             convo.push_back({"user", "Your reply was cut off at the token limit. It ended with:\n```\n" + (partial.size() > 700 ? partial.substr(partial.size() - 700) : partial) + "\n```\nContinue from exactly that point: reply with only the rest (no header, no repetition, no explanation) and finish it."});
@@ -196,22 +295,34 @@ int runCanvasAttempt(const AttemptContext& a)
 
         EngineProfile turnEngine = a.engine;
         turnEngine.seed = turnSeed(a.engine.seed, a.itemId + "#" + std::to_string(a.attempt) + "#" + std::to_string(calls));
+        const bool decide = decideNext;   // this turn writes down what the last one reasoned: no new reasoning
+        decideNext = false;
+        if (decide) turnEngine.thinking = false;
         events::progress(spent, a.repairTurns + 1, calls == 0 ? "generating" : "editing");
         traceSent(tracePath, calls, convo, 0, turnEngine.seed);
         const fs::path livePath = attemptDir / "live.txt";
         (void)writeFile(livePath, "(turn " + std::to_string(calls) + " sent; waiting for the first token)\n");
         bool liveStarted = false, inReasoning = false;
+        std::size_t reasoningChars = 0;
         const DeltaSink liveSink = [&](std::string_view content, std::string_view reasoning) {
+            reasoningChars += reasoning.size();
             std::ofstream o(livePath, std::ios::app | std::ios::binary);   // streamed in pieces as tokens arrive
             if (!liveStarted) { o.close(); (void)writeFile(livePath, ""); o.open(livePath, std::ios::app | std::ios::binary); liveStarted = true; }
             if (!reasoning.empty()) { if (!inReasoning) { o << "[thinking]\n"; inReasoning = true; } o << reasoning; }
             if (!content.empty()) { if (inReasoning) { o << "\n[answer]\n"; inReasoning = false; } o << content; }
         };
-        // Early abort: the reply is judged while it streams and cancelled as soon as it is going wrong in a known way (twice at most per attempt).
+        // Early abort: the reply is judged while it streams and cancelled as soon as it is going wrong in a known way (twice at most per attempt). Thinking
+        // that passes its share of the budget with no edit begun is stopped too, with room left: what it reasoned is carried into the next turn.
         Runaway runaway;
         const auto drafts = canvas.files();
-        const StreamGuard guard = [&](const std::string& soFar) { runaway = detectRunaway(partial + soFar, drafts); return static_cast<bool>(runaway); };
-        auto reply = chatCompleteMessages(turnEngine, convo, a.maxTokens, a.timeoutSec, liveSink, aborts < freeAborts ? guard : StreamGuard{});
+        const std::size_t thinkingCap = turnEngine.thinking ? static_cast<std::size_t>(a.maxTokens * kThinkingShare * kCharsPerToken) : 0;
+        const StreamGuard guard = [&](const std::string& soFar) {
+            if (thinkingCap > 0 && reasoningChars > thinkingCap && soFar.find("=== ") == std::string::npos) { runaway.kind = "thinking"; return true; }
+            if (aborts >= freeAborts) return false;
+            runaway = detectRunaway(partial + soFar, drafts);
+            return static_cast<bool>(runaway);
+        };
+        auto reply = chatCompleteMessages(turnEngine, convo, a.maxTokens, a.timeoutSec, liveSink, guard);
         { std::error_code lec; fs::remove(livePath, lec); }
         const int call = calls++;
         if (!reply) {
@@ -230,6 +341,15 @@ int runCanvasAttempt(const AttemptContext& a)
         lastFinish = reply->finishReason;
         std::printf("canvas turn %d: %ld prompt tokens, %ld completion tokens, finish=%s\n", call, reply->promptTokens, reply->completionTokens, reply->finishReason.c_str());
 
+        if (reply->finishReason == "aborted" && runaway.kind == "thinking") {   // stopped thinking: kept, and written down next turn (the verdict stands)
+            if (++thinkingStops > 1) ++spent;
+            carriedReasoning = tailAtLine(reply->reasoning, kCarriedReasoningChars);
+            decideNext = true;
+            traceVerdict(tracePath, call, "thinking stopped after " + std::to_string(reasoningChars) + " characters with no edit begun: the reasoning is carried into the next turn, which runs with thinking off");
+            std::printf("canvas turn %d: thinking stopped (%zu chars), carried over\n", call, reasoningChars);
+            events::note("thinking stopped and carried over");
+            continue;
+        }
         if (reply->finishReason == "aborted") {   // cancelled while streaming: nothing is applied, the worker is told exactly what to do instead
             ++aborts;
             partial.clear();
@@ -289,29 +409,29 @@ int runCanvasAttempt(const AttemptContext& a)
                 continue;
             }
             ++spent;
-            verdict = std::string{reply->finishReason == "length" ? "Your reply was cut off at the token limit before it held an edit. Write less. " : ""} + "Your reply held no transaction. Reply with === EDIT: <path> ... === blocks, or === FILE: <path> === with the complete new file (a new file, or one whose approach is wrong), and nothing else.";
-            traceVerdict(tracePath, call, "no transaction in the reply (finish " + reply->finishReason + ")");
+            const bool cutThinking = reply->finishReason == "length" && !reply->reasoning.empty() && text.find("=== ") == std::string::npos;
+            if (cutThinking) { carriedReasoning = tailAtLine(reply->reasoning, kCarriedReasoningChars); decideNext = true; }   // kept, not thrown away
+            verdict = std::string{reply->finishReason == "length" ? "Your reply was cut off at the token limit before it held an edit. Write less. " : ""} + "Your reply held no transaction. Reply with one transaction (the forms above) and nothing else.";
+            traceVerdict(tracePath, call, "no transaction in the reply (finish " + reply->finishReason + ")" + (cutThinking ? "; its reasoning is carried into the next turn" : ""));
             continue;
         }
 
-        // ---- the transaction: scratch copy, all or nothing, then the cheap check gates the commit ----
+        // ---- the transaction: every part that applies is applied (one bad edit never costs the good ones beside it), then the cheap check ----
         Canvas scratch = canvas;
-        std::string refusal = applyCanvasReply(scratch, parsed, allowed, a.itemId);
-        if (refusal.empty() && scratch.files() == canvas.files()) refusal = "the transaction changes nothing: the files are exactly as before";
-        if (refusal.empty()) {
-            if (const std::string bad = precheckCanvas(scratch, harness, a.dir, a.itemId, a.attempt, attemptDir); !bad.empty()) {
-                refusal = "it does not pass the check, so it was not kept (line numbers below are those of your edited text, which was discarded):\n" + clip(bad, 1200);
-                focus = bad;
-            }
-        }
+        std::vector<std::string> skipped;
+        std::string refusal = applyCanvasReply(scratch, parsed, allowed, a.itemId, &skipped);
+        std::string skippedNote;
+        for (const auto& s : skipped) skippedNote += "- " + s + "\n";
+        if (!skippedNote.empty()) skippedNote = "These parts of your reply did not apply (the rest did):\n" + skippedNote;
+        if (refusal.empty() && scratch.files() == canvas.files())
+            refusal = skipped.empty() ? "the transaction changes nothing: the files are exactly as before" : "no part of it applied:\n" + skippedNote;
         if (!refusal.empty()) {
             ++rejects;
             if (rejects > freeRejects) ++spent;   // the first refusals are answered in the same turn; after that each costs one
             if (refusal.rfind("the transaction changes nothing", 0) == 0 && rejects > 1) { stagnated = true; traceVerdict(tracePath, call, "stagnated: " + refusal); break; }
             // The same refusal three times running (line numbers aside) is a worker that cannot see its error: more turns repeat it (run-v11's tester spent
             // six turns an attempt on one compile error, catalogue row 72). The attempt stops and says why; the ladder decides with that evidence.
-            std::string key;
-            for (const char c : refusal.substr(0, 400)) if (!std::isdigit(static_cast<unsigned char>(c))) key += c;
+            const std::string key = errorKey(refusal);
             sameRefusals = key == lastRefusalKey ? sameRefusals + 1 : 1;
             lastRefusalKey = key;
             lastRefusal = refusal;
@@ -322,10 +442,39 @@ int runCanvasAttempt(const AttemptContext& a)
             continue;
         }
         for (std::size_t i = canvas.log().size(); i < scratch.log().size(); ++i) { const auto& e = scratch.log()[i]; changedLines += std::max(e.to - e.from + 1, e.to - e.from + 1 + e.delta); }
+        const std::string bad = precheckCanvas(scratch, harness, a.dir, a.itemId, a.attempt, attemptDir);
         canvas = std::move(scratch);
+        persistCanvas(canvas, attemptDir);
+        if (!bad.empty()) {
+            // Staged, not discarded (tier 1b of 2026-11-17: 54k tokens of drafts refused over compile errors and warnings, every one written again from
+            // nothing). The diagnostics now name lines of the revision the worker is shown next, so it fixes them with small edits.
+            headCompiles = false;
+            ++staged;
+            if (staged > freeRejects) ++spent;
+            focus = bad;
+            std::string revs;
+            for (const auto& path : canvas.paths()) revs += (revs.empty() ? "" : ", ") + path + " r" + std::to_string(canvas.revision(path));
+            const std::string key = errorKey(bad);
+            sameStaged = key == lastStagedKey ? sameStaged + 1 : 1;
+            lastStagedKey = key;
+            lastRefusal = "kept but does not compile: " + bad;
+            if (sameStaged >= 3) {
+                stagnated = true;
+                traceVerdict(tracePath, call, "stopped: the same compile error three times running (the revisions are kept): " + clip(bad, 600));
+                std::printf("canvas turn %d: the same compile error three times running: the attempt stops\n", call);
+                break;
+            }
+            verdict = skippedNote + "Your edits were KEPT (" + revs + "; nothing was thrown away), but the files do not compile yet:\n" + clip(bad, 1200) +
+                      "\nThe line numbers are those of the files shown below. Fix just those lines with edits; do not rewrite the file.";
+            traceVerdict(tracePath, call, "staged (does not compile yet): " + clip(bad, 600));
+            std::printf("canvas turn %d: staged, does not compile yet\n", call);
+            continue;
+        }
+        headCompiles = true;
+        sameStaged = 0;
+        lastStagedKey.clear();
         ++commits;
         ++spent;
-        persistCanvas(canvas, attemptDir);
         fs::remove_all(out, ec);
         fs::create_directories(out, ec);
         for (const auto& [path, textNow] : canvas.files()) if (!writeFile(out / path, textNow)) { std::fprintf(stderr, "llm-agent: cannot write %s\n", path.c_str()); return 1; }
@@ -333,7 +482,7 @@ int runCanvasAttempt(const AttemptContext& a)
         std::string missing;
         for (const auto& f : a.item->files) if (!canvas.has(f)) missing += (missing.empty() ? "" : ", ") + f;
         if (!missing.empty()) {
-            verdict = "Committed. Still to write (whole, with === FILE: <path> ===): " + missing;
+            verdict = skippedNote + "Committed. Still to write (whole, with === FILE: <path> ===): " + missing;
             traceVerdict(tracePath, call, "committed; missing " + missing);
             continue;
         }
@@ -347,22 +496,39 @@ int runCanvasAttempt(const AttemptContext& a)
         // Never lose a better revision: a commit that makes more tests fail than the best one so far is undone, and the worker is told.
         const int failing = failingTests(lastGate);
         if (failing >= 0 && bestFailing >= 0 && failing > bestFailing) {
-            for (const auto& [path, rev] : bestRevision) if (canvas.has(path) && canvas.revision(path) != rev) (void)canvas.revertTo(path, rev, "harness");
+            std::string undone;   // the worse revisions are not lost: they stay in the history, and the worker is told where
+            for (const auto& [path, rev] : bestRevision)
+                if (canvas.has(path) && canvas.revision(path) != rev) { undone += (undone.empty() ? "" : ", ") + path + " r" + std::to_string(canvas.revision(path)); (void)canvas.revertTo(path, rev, "harness"); }
             ++reverts;
             persistCanvas(canvas, attemptDir);
             for (const auto& [path, textNow] : canvas.files()) (void)writeFile(out / path, textNow);
-            verdict = "Your transaction made it worse (" + std::to_string(failing) + " tests failing, " + std::to_string(bestFailing) + " before), so it was UNDONE; the files below are the earlier revision. What your change broke:\n" + clip(lastGate, 1200);
+            verdict = skippedNote + "Your transaction made it worse (" + std::to_string(failing) + " tests failing, " + std::to_string(bestFailing) + " before), so the files below are back at the better revision (yours stays in the history as " + undone + "). What your change broke:\n" + clip(lastGate, 1200);
             traceVerdict(tracePath, call, "reverted to the best revision (" + std::to_string(bestFailing) + " failing)");
             std::printf("canvas turn %d: reverted (%d failing, best %d)\n", call, failing, bestFailing);
             (void)harness->gate({"--workflow-dir", a.dir.string(), "--item", a.itemId, "--attempt", std::to_string(a.attempt), "--no-publish", "1"});   // gate.txt describes what is in out/
             lastGate = slurp(attemptDir / "gate.txt");
         } else {
             if (failing >= 0 && (bestFailing < 0 || failing <= bestFailing)) { bestFailing = failing; for (const auto& path : canvas.paths()) bestRevision[path] = canvas.revision(path); }
-            verdict = "Your files were checked by running the tests and failed:\n" + clip(lastGate, 1500);
+            verdict = skippedNote + "Your files were checked by running the tests and failed:\n" + clip(lastGate, 1500);
         }
         focus = lastGate;
     }
 
+    if (!headCompiles) {
+        // The attempt ended on a staged revision. A decision, recorded: a tested revision is handed on in its place (out/ already holds it) and the draft
+        // stays in the history; with none, the draft itself is handed on (its gate says why it fails), so the next attempt starts from it, not from nothing.
+        std::string draft;
+        for (const auto& path : canvas.paths()) draft += (draft.empty() ? "" : ", ") + path + " r" + std::to_string(canvas.revision(path));
+        if (bestFailing >= 0 && !bestRevision.empty()) {
+            for (const auto& [path, rev] : bestRevision) if (canvas.has(path) && canvas.revision(path) != rev) (void)canvas.revertTo(path, rev, "harness");
+            persistCanvas(canvas, attemptDir);
+            traceVerdict(tracePath, calls, "ended on a draft that does not compile (" + draft + ", kept in the history): the best tested revision (" + std::to_string(bestFailing) + " failing) is handed on");
+        } else if (!haveFiles) {
+            for (const auto& [path, textNow] : canvas.files()) (void)writeFile(out / path, textNow);
+            haveFiles = true;
+            traceVerdict(tracePath, calls, "ended on a draft that does not compile (" + draft + "): no revision was tested, so the draft is handed on");
+        }
+    }
     long fileLines = 0;
     for (const auto& [path, textNow] : canvas.files()) fileLines += std::count(textNow.begin(), textNow.end(), '\n');
     events::metric("tokens.in", totIn);
@@ -372,6 +538,8 @@ int runCanvasAttempt(const AttemptContext& a)
     events::metric("agent.stagnated", stagnated ? 1.0 : 0.0);
     events::metric("canvas.commits", static_cast<double>(commits));
     events::metric("canvas.refused", static_cast<double>(rejects));
+    events::metric("canvas.staged", static_cast<double>(staged));
+    events::metric("canvas.thinking_stops", static_cast<double>(thinkingStops));
     events::metric("canvas.aborted", static_cast<double>(aborts));
     events::metric("canvas.reads", static_cast<double>(readReplies));
     events::metric("canvas.changed_lines", static_cast<double>(changedLines));
@@ -390,7 +558,7 @@ int runCanvasAttempt(const AttemptContext& a)
         m << "{\"treatment\":\"" << a.treatment << "\",\"stance\":\"" << a.stance << "\",\"concerns\":" << concernCount << ",\"engine\":\"" << a.engine.name << "\",\"tokensIn\":" << totIn << ",\"tokensOut\":" << totOut << ",\"turns\":" << calls
           << ",\"selfcheck\":" << (verified ? "true" : "false") << ",\"seconds\":" << secs
           << ",\"canvas\":{\"commits\":" << commits << ",\"refused\":" << rejects << ",\"reads\":" << readReplies << ",\"aborted\":" << aborts << ",\"continued\":" << continuations
-          << ",\"reverted\":" << reverts << ",\"changedLines\":" << changedLines << ",\"fileLines\":" << fileLines << "}}";
+          << ",\"reverted\":" << reverts << ",\"staged\":" << staged << ",\"thinkingStops\":" << thinkingStops << ",\"changedLines\":" << changedLines << ",\"fileLines\":" << fileLines << "}}";
         (void)writeFile(attemptDir / "agent.json", m.str());
     }
     if (!haveFiles) {

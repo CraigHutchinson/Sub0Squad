@@ -118,7 +118,7 @@ static void runWorkflow(const std::string& exe, const char* executor, const char
         CHECK(!fs::exists(dir / "items" / "test-engine" / "attempt-1" / "fork.json"));
     } else {
         CHECK(fs::exists(dev / "canvas.json") && !fs::exists(dev / "fork.json"));
-        CHECK(slurp(dev / "canvas.json").find("\"calc/engine.py\":1") != std::string::npos);            // written whole once: revision 1
+        CHECK(slurp(dev / "canvas.json").find("\"calc/engine.py\":2") != std::string::npos);            // the stub is revision 1; written whole once: revision 2
     }
     CHECK_GE(engine.requestCount(), static_cast<std::size_t>(4));
 }

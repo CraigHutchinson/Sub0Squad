@@ -332,8 +332,9 @@ std::expected<ChatResult, std::string> streamChat(const EngineProfile& e, const 
         }
         if (errorBody.size() < 2000 && pending.rfind("data:", 0) != 0 && pending.rfind(":", 0) != 0) errorBody.append(piece.substr(0, 2000));
     }, [&] {
-        if (!guard || r.content.size() == judged) return false;
-        judged = r.content.size();
+        // judged as the reply grows, reasoning included: a guard can stop a reply that only thinks (the guard reads the reasoning through its own sink)
+        if (!guard || r.content.size() + r.reasoning.size() == judged) return false;
+        judged = r.content.size() + r.reasoning.size();
         aborted = guard(r.content);
         return aborted;
     });

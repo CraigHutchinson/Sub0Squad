@@ -66,6 +66,7 @@ struct ChatMessage { std::string role, content; };
 using DeltaSink = std::function<void(std::string_view content, std::string_view reasoning)>;
 /// Asked after every piece of a streaming completion whether to CANCEL the request (docs/INTERVENTIONS.md row 34, early abort): it sees the answer so
 /// far and returns true to close the connection, which stops the server generating. The result then has `finishReason` "aborted" and the text so far.
+/// It is asked whenever the reply grows, reasoning included; a guard that judges the reasoning keeps its own count through the `DeltaSink`.
 using StreamGuard = std::function<bool(const std::string& contentSoFar)>;
 /// One non-streaming chat completion over a whole conversation (the agent's verify-and-repair loop continues the same conversation, so the
 /// server can reuse its cache of the shared prefix). Sampling comes from the profile. `timeoutSec` bounds the whole call.

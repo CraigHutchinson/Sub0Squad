@@ -57,6 +57,18 @@ void writeScaffold(const Plan& plan, const std::vector<HarnessFile>& harnessFile
         }
 }
 
+std::map<std::string, std::string> startingFiles(const Harness* harness, const Plan& plan)
+{
+    std::map<std::string, std::string> files;
+    const bool selfScaffolded = !plan.scaffold.empty() && plan.harness == "cpp-cmake";   // as writeScaffold: the plan's interface replaces the harness's
+    if (harness && harness->scaffoldPaths && harness->scaffoldFile)
+        for (const auto& p : harness->scaffoldPaths())
+            if (!selfScaffolded || p == "CMakeLists.txt" || p.rfind("tests/helpers/", 0) == 0) files[p] = harness->scaffoldFile(p);
+    for (const auto* list : {&plan.scaffold, &plan.given})
+        for (const auto& f : *list) files[f.path] = f.content;
+    return files;
+}
+
 }  // namespace sub0squad
 
 namespace sub0squad::harnessutil {

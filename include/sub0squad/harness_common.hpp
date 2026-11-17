@@ -24,6 +24,9 @@ struct ContractFunction;
 /// Write a workspace's scaffold: the harness's files, and the files the PLAN supplies (its interface headers and stubs) over them. A C++ plan with its own
 /// scaffold keeps only the harness's instruments (CMakeLists.txt, tests/helpers/).
 void writeScaffold(const Plan& plan, const std::vector<HarnessFile>& harnessFiles, const std::filesystem::path& ws);
+/// The text every workspace starts with, by path, as `writeScaffold` lays it out: the harness's files (only its instruments when a C++ plan brings its
+/// own scaffold), the plan's scaffold over them, then the author's given tests. A canvas worker's first attempt starts from these, not from nothing.
+[[nodiscard]] std::map<std::string, std::string> startingFiles(const Harness* harness, const Plan& plan);
 
 }  // namespace sub0squad
 

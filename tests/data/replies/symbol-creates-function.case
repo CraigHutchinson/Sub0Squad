@@ -1,0 +1,34 @@
+# name: symbol-creates-function
+# A SYMBOL edit naming a function the file does not have yet adds it (SYMBOL means replace or create): at the end of a file with no namespace.
+--- base src/calc.cpp
+#include <stdexcept>
+
+double divide(double a, double d)
+{
+    if (d == 0) return 0;
+    return a / d;
+}
+
+double square(double x)
+{
+    return x * x;
+}
+--- reply
+=== EDIT: src/calc.cpp SYMBOL cube ===
+double cube(double x) { return x * x * x; }
+=== END EDIT ===
+--- want src/calc.cpp
+#include <stdexcept>
+
+double divide(double a, double d)
+{
+    if (d == 0) return 0;
+    return a / d;
+}
+
+double square(double x)
+{
+    return x * x;
+}
+
+double cube(double x) { return x * x * x; }

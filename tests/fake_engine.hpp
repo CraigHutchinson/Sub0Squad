@@ -24,6 +24,7 @@ struct Reply
 {
     std::string content;
     std::string finish = "stop";
+    std::string reasoning = {};  ///< streamed as `reasoning_content` before the content (a thinking model's reasoning)
     int pieceChars = 48;   ///< characters per streamed event
     int pauseMs = 0;       ///< pause between events (an abort test needs the stream to be slow enough to cancel)
     int delayMs = 0;       ///< wait this long before answering at all (streamed or not): a slow engine
@@ -37,6 +38,7 @@ struct Request
     long maxTokens = 0;
     bool stream = false;
     long idSlot = -1;      ///< the `id_slot` the request pinned itself to (-1: none, the server chooses)
+    int thinking = -1;     ///< `chat_template_kwargs.enable_thinking`: 1, 0, or -1 when not sent
     /// The content of the last message (the newest user text).
     [[nodiscard]] const std::string& last() const { static const std::string none; return messages.empty() ? none : messages.back().second; }
     /// Every message's content, joined: what the model would have in its window.
@@ -154,6 +156,7 @@ private:
             if (auto mt = doc["max_tokens"].get_int64(); !mt.error()) r.maxTokens = mt.value();
             if (auto st = doc["stream"].get_bool(); !st.error()) r.stream = st.value();
             if (auto sl = doc["id_slot"].get_int64(); !sl.error()) r.idSlot = sl.value();
+            if (auto th = doc["chat_template_kwargs"]["enable_thinking"].get_bool(); !th.error()) r.thinking = th.value() ? 1 : 0;
         } catch (const simdjson::simdjson_error&) {}
         Reply reply;
         std::size_t index = 0;
@@ -179,6 +182,14 @@ private:
         }
         if (!sendAll(fd, "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n")) return;
         const std::size_t step = static_cast<std::size_t>(reply.pieceChars > 0 ? reply.pieceChars : 48);
+        for (std::size_t off = 0; off < reply.reasoning.size(); off += step) {   // reasoning first, as a thinking model streams it
+            if (peerClosed(fd) || !sendAll(fd, chunk("data: {\"choices\":[{\"delta\":{\"reasoning_content\":\"" + jsonEscape(reply.reasoning.substr(off, step)) + "\"},\"finish_reason\":null}]}\n\n"))) {
+                std::lock_guard<std::mutex> l(mu_);
+                aborted_[index] = 0;
+                return;
+            }
+            if (reply.pauseMs > 0) std::this_thread::sleep_for(std::chrono::milliseconds(reply.pauseMs));
+        }
         for (std::size_t off = 0; off < reply.content.size(); off += step) {
             const std::string piece = reply.content.substr(off, step);
             if (peerClosed(fd) || !sendAll(fd, chunk("data: {\"choices\":[{\"delta\":{\"content\":\"" + jsonEscape(piece) + "\"},\"finish_reason\":null}]}\n\n"))) {

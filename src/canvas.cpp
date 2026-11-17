@@ -31,6 +31,8 @@ std::string join(const std::vector<std::string>& v)
 
 struct Span { int from = 0, to = 0; std::vector<std::string> repl; bool insert = false; };   // 1-based inclusive; an insertion is to == from - 1
 
+bool trimmedEmpty(const std::string& l) { return l.find_first_not_of(" \t\r") == std::string::npos; }
+
 }  // namespace
 
 void Canvas::addFile(const std::string& path, std::string text)
@@ -72,7 +74,24 @@ TxResult Canvas::apply(const Transaction& tx)
                 const std::string leaf = reg.name.substr(reg.name.rfind(':') == std::string::npos ? 0 : reg.name.rfind(':') + 1);
                 if (reg.name == op.symbol || leaf == op.symbol) { s.from = reg.first; s.to = reg.bodyTo; found = true; break; }
             }
-            if (!found) { r.error = "no function named '" + op.symbol + "' in revision " + std::to_string(tx.baseRevision) + " (use LINES a-b)"; return r; }
+            if (!found) {
+                // A function the file does not have yet is ADDED (SYMBOL means replace or create): before the line that closes the file's last namespace
+                // in C++, else at the end of the file, after a blank line. Refused, a worker that needed a helper had no simple way to write it (10
+                // refusals in the 35B runs of 2026-11-17).
+                int at = baseCount + 1;
+                if (!isPythonPath(tx.path))
+                    for (int i = baseCount; i >= 1; --i) {
+                        const std::string& l = baseLines[static_cast<std::size_t>(i) - 1];
+                        if (l.rfind('}', 0) == 0 && l.find("namespace") != std::string::npos) { at = i; break; }
+                    }
+                s.from = at; s.to = at - 1; s.insert = true;
+                s.repl = split(op.text);
+                const bool blankBefore = at > 1 && trimmedEmpty(baseLines[static_cast<std::size_t>(at) - 2]);
+                if (!blankBefore) s.repl.insert(s.repl.begin(), std::string{});
+                if (at <= baseCount) s.repl.push_back(std::string{});
+                spans.push_back(std::move(s));
+                continue;
+            }
         } else if (op.kind == CanvasOp::Kind::insertAfter) {
             if (op.from < 0 || op.from > baseCount) { r.error = "insert after line " + std::to_string(op.from) + ": the file has " + std::to_string(baseCount) + " lines"; return r; }
             s.from = op.from + 1; s.to = op.from; s.insert = true;

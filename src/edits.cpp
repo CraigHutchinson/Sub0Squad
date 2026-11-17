@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <cstdlib>
 #include <sstream>
+#include <string>
+#include <string_view>
 #include <vector>
 
 namespace sub0squad {
@@ -25,6 +27,55 @@ std::string stripNumbers(const std::string& block)
         first = false;
     }
     return out;
+}
+
+/// Where a SEARCH text matches when indentation and trailing spaces are ignored: the byte range of the whole lines it covers.
+struct LooseMatch { int count = 0; std::size_t from = 0, to = 0; std::string hint; };
+
+std::string trimmedLine(std::string_view s)
+{
+    const auto a = s.find_first_not_of(" \t\r");
+    if (a == std::string_view::npos) return {};
+    const auto b = s.find_last_not_of(" \t\r");
+    return std::string{s.substr(a, b - a + 1)};
+}
+
+/// The SEARCH lines matched line by line against the file, each compared without its indentation and trailing spaces. `hint` says where the first
+/// line occurs when the whole text does not, so a refusal points at what differs.
+LooseMatch findLoose(const std::string& text, const std::string& search)
+{
+    LooseMatch m;
+    std::vector<std::string> want;
+    {
+        std::istringstream in(search);
+        for (std::string l; std::getline(in, l);) want.push_back(trimmedLine(l));
+    }
+    while (!want.empty() && want.back().empty()) want.pop_back();
+    while (!want.empty() && want.front().empty()) want.erase(want.begin());
+    if (want.empty()) return m;
+    std::vector<std::size_t> starts;   // the byte offset where each line of the file begins (and one past the end)
+    std::vector<std::string> have;
+    for (std::size_t p = 0; p < text.size();) {
+        const auto nl = text.find('\n', p);
+        const std::size_t end = nl == std::string::npos ? text.size() : nl;
+        starts.push_back(p);
+        have.push_back(trimmedLine(std::string_view{text}.substr(p, end - p)));
+        p = nl == std::string::npos ? text.size() : nl + 1;
+    }
+    starts.push_back(text.size());
+    std::vector<std::size_t> firstAt;
+    for (std::size_t i = 0; i + want.size() <= have.size(); ++i) {
+        if (have[i] != want[0]) continue;
+        firstAt.push_back(i + 1);
+        if (std::equal(want.begin(), want.end(), have.begin() + static_cast<std::ptrdiff_t>(i))) {
+            if (++m.count == 1) { m.from = starts[i]; m.to = starts[i + want.size()]; }
+        }
+    }
+    if (m.count == 0 && !firstAt.empty()) {
+        m.hint = "; its first line is at line " + std::to_string(firstAt[0]) + (firstAt.size() > 1 ? " (and " + std::to_string(firstAt.size() - 1) + " more place(s))" : std::string{}) +
+                 ", but the lines after it differ: copy them exactly as the file has them";
+    }
+    return m;
 }
 
 struct LineEdit { std::size_t from = 0, to = 0; bool insertAfter = false; std::string text; };
@@ -101,9 +152,20 @@ std::optional<std::map<std::string, std::string>> applyEdits(const std::string& 
             b = repAt + 1;
             if (search.empty()) { error = "an edit of '" + path + "' has an empty SEARCH"; return std::nullopt; }
             const std::string searchPlain = stripNumbers(search);
-            const auto at = text.find(search) != std::string::npos ? text.find(search) : text.find(searchPlain);
+            auto at = text.find(search) != std::string::npos ? text.find(search) : text.find(searchPlain);
             if (searchPlain != search && text.find(search) == std::string::npos && at != std::string::npos) search = searchPlain;
-            if (at == std::string::npos) { error = "the SEARCH text in '" + path + "' does not appear in the file (first line: " + search.substr(0, search.find('\n')).substr(0, 80) + ")"; return std::nullopt; }
+            if (at == std::string::npos) {
+                // Tolerant: the same lines with other indentation or trailing spaces (a small model rarely copies whitespace exactly). One place only.
+                const LooseMatch loose = findLoose(text, search);
+                if (loose.count == 1) {   // whole lines are replaced: the new text keeps the line end the matched lines had (an empty one deletes them)
+                    const bool lineEnd = text[loose.to - 1] == '\n';
+                    text.replace(loose.from, loose.to - loose.from, lineEnd && !repl.empty() && repl.back() != '\n' ? repl + "\n" : repl);
+                    ++applied;
+                    continue;
+                }
+                if (loose.count > 1) { error = "the SEARCH text in '" + path + "' appears more than once (ignoring indentation): include more lines so it matches one place"; return std::nullopt; }
+                error = "the SEARCH text in '" + path + "' does not appear in the file (first line: " + search.substr(0, search.find('\n')).substr(0, 80) + ")" + loose.hint; return std::nullopt;
+            }
             if (text.find(search, at + 1) != std::string::npos) { error = "the SEARCH text in '" + path + "' appears more than once: include more lines so it matches one place"; return std::nullopt; }
             text.replace(at, search.size(), repl);
             ++applied;

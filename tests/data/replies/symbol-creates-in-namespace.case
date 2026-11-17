@@ -1,0 +1,32 @@
+# name: symbol-creates-in-namespace
+# A new function goes inside the file's namespace, before the line that closes it.
+--- base src/calc.cpp
+namespace calc {
+
+double square(double x)
+{
+    return x * x;
+}
+
+}  // namespace calc
+--- reply
+=== EDIT: src/calc.cpp SYMBOL cube ===
+double cube(double x)
+{
+    return x * x * x;
+}
+=== END EDIT ===
+--- want src/calc.cpp
+namespace calc {
+
+double square(double x)
+{
+    return x * x;
+}
+
+double cube(double x)
+{
+    return x * x * x;
+}
+
+}  // namespace calc
