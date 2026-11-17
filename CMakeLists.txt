@@ -142,6 +142,7 @@ target_compile_definitions(test_process PRIVATE SUB0SQUAD_REGISTRY_DIR="${CMAKE_
 sub0squad_add_test(test_plan harnesses)
 sub0squad_add_test(test_policy harnesses)
 sub0squad_add_test(test_edits harnesses)
+sub0squad_add_test(test_doc_layers harnesses)
 sub0squad_add_test(test_diagnostics harnesses)
 foreach(t test_workflow test_workflow_stages test_workflow_mends)
   sub0squad_add_test(${t} harnesses)

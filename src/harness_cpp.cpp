@@ -140,6 +140,7 @@ std::string cppBuildAndRun(const fs::path& ws, const std::vector<std::string>& t
         ran = true;
         total.tests += one1.tests; total.pass += one1.pass; total.fail += one1.fail;
         total.excerpt += one1.excerpt;
+        total.all += one1.all;
     }
     return ran ? std::string{} : total.excerpt;
 }

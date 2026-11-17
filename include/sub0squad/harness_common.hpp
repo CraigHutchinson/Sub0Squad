@@ -48,7 +48,13 @@ struct Cmd { int exitCode = -1; bool timedOut = false; std::string output; };
 [[nodiscard]] Cmd run(const std::vector<std::string>& argv, const std::filesystem::path& cwd, int timeoutSec);
 
 /// A TAP report in brief: counts (-1 tests when none were found) and an excerpt of the first failures with expected and actual values.
-struct Tap { int tests = -1, pass = 0, fail = 0; std::string excerpt; std::string note; /* extra runner output shown when too few tests ran */ };
+struct Tap
+{
+    int tests = -1, pass = 0, fail = 0;
+    std::string excerpt;   ///< the first failures, clipped to what a verdict can carry
+    std::string note;      ///< extra runner output shown when too few tests ran
+    std::string all;       ///< EVERY leaf failure in the excerpt's form, unclipped: what the issues layer reads (docs/LAYERED_DOCUMENT.md)
+};
 [[nodiscard]] Tap parseTap(const std::string& out);
 
 /// Recursive copy that overwrites; a missing source is not an error.

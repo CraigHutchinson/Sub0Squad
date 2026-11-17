@@ -193,11 +193,17 @@ Tap parseTap(const std::string& out)
     int shown = 0;
     for (const auto& f : failures) {
         if (f.error.find("subtest") != std::string::npos && f.error.find("failed") != std::string::npos) continue;  // a parent summary
-        if (shown++ >= 6 || t.excerpt.size() > 1300) break;
-        if (const std::string diff = multilineDiff(f.error); !diff.empty()) { t.excerpt += "FAIL " + f.name + ": CHECK_EQ failed\n" + diff; continue; }
-        t.excerpt += "FAIL " + f.name + (f.error.empty() ? "" : ": " + f.error.substr(0, 300)) + "\n";
-        if (!f.expected.empty() || !f.actual.empty())
-            t.excerpt += "  the test expected " + f.expected + " but the code gave " + f.actual + (f.where.empty() ? "" : " (" + f.where + ")") + "\n";
+        std::string one;
+        if (const std::string diff = multilineDiff(f.error); !diff.empty()) one = "FAIL " + f.name + ": CHECK_EQ failed\n" + diff;   // the diff says it all
+        else {
+            one = "FAIL " + f.name + (f.error.empty() ? "" : ": " + f.error.substr(0, 300)) + "\n";
+            if (!f.expected.empty() || !f.actual.empty())
+                one += "  the test expected " + f.expected + " but the code gave " + f.actual + (f.where.empty() ? "" : " (" + f.where + ")") + "\n";
+        }
+        t.all += one;
+        if (shown >= 6 || t.excerpt.size() > 1300) continue;
+        ++shown;
+        t.excerpt += one;
     }
     if (t.excerpt.empty() && !failures.empty()) t.excerpt = "FAIL " + failures.front().name + "\n";
     return t;
@@ -469,6 +475,8 @@ int runGateFlow(const GateHooks& hooks, const std::vector<std::string>& args)
     } else if (tap.fail != 0) {
         const std::string failedText = std::to_string(tap.fail) + " of " + std::to_string(tap.tests) + " tests failed\n" + tap.excerpt + tap.note;
         if (interfaceGap(failedText)) return failWidely(failedText);
+        // Every failure, unclipped, beside the verdict: the canvas's issues layer lists them all where gate.txt has room for six (docs/LAYERED_DOCUMENT.md).
+        writeFile(attemptDir / "failures.txt", std::to_string(tap.fail) + " of " + std::to_string(tap.tests) + " tests failed\n" + tap.all);
         const int code = fail(std::to_string(tap.fail) + " of " + std::to_string(tap.tests) + " tests failed\n" + tap.excerpt);
         if (attempt > 1) {
             const auto now = failLines(slurp(attemptDir / "gate.txt"));

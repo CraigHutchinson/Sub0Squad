@@ -8,6 +8,7 @@
 #include "sub0squad/harness_common.hpp"
 
 #include "sub0squad/canvas.hpp"
+#include "sub0squad/doc_layers.hpp"
 #include "sub0squad/edits.hpp"
 #include "sub0squad/event_channel.hpp"
 #include "sub0squad/harness.hpp"
@@ -265,6 +266,7 @@ int runCanvasAttempt(const AttemptContext& a)
         return true;
     };
     const auto selfCheck = [&] {   // the item's gate over out/, not published; afterwards gate.txt (and lastGate) describe out/
+        fs::remove(attemptDir / "failures.txt", ec);   // written by a gate whose tests fail: never one of an earlier check
         const int rc = harness->gate({"--workflow-dir", a.dir.string(), "--item", a.itemId, "--attempt", std::to_string(a.attempt), "--no-publish", "1"});
         lastGate = slurp(attemptDir / "gate.txt");
         return rc;
@@ -283,6 +285,35 @@ int runCanvasAttempt(const AttemptContext& a)
     };
     if (const int f = failingTests(a.draftGate); f >= 0 && !a.baselineFiles.empty()) markBest(f, false);
 
+    // The issues layer (docs/LAYERED_DOCUMENT.md): a verdict is parsed into issues bound to stable block ids, the worker is shown their summary (every
+    // failure, each with the function it is in or likely in) and reads one in full with `=== READ: ISSUE n ===`. SUB0SQUAD_ISSUE_LAYER=0 turns it off, so
+    // the same build can be measured with and without it.
+    const char* layerEnv = std::getenv("SUB0SQUAD_ISSUE_LAYER");
+    const bool issueLayer = !(layerEnv && std::string_view{layerEnv} == "0");
+    BlockIndex blockIndex;
+    std::vector<LayerItem> issues;
+    int issueReads = 0;
+    // The verdict for a failing gate (`tests`: the gate ran the tests; else `text` is the compile or parse check's output) and the focus that keeps the
+    // anchored functions open. Without the layer: the clipped text, as before.
+    const auto layeredVerdict = [&](const std::string& text, bool tests, std::size_t clipAt, std::string& focusOut) {
+        focusOut = text;
+        if (!issueLayer) return clip(text, clipAt);
+        blockIndex.setTurn(calls);
+        for (const auto& [path, textNow] : canvas.files()) blockIndex.update(path, textNow);
+        const std::string all = tests ? slurp(attemptDir / "failures.txt") : std::string{};
+        std::map<std::string, std::string> testSources;   // the item's tests as the gate ran them: a test is localised from its own function's expressions
+        for (const auto& t : a.item->gate.tests) if (const std::string src = slurp(attemptDir / "ws" / t); !src.empty()) testSources[t] = src;
+        issues = parseIssues(all.empty() ? text : all, blockIndex, testSources);
+        std::map<std::string, int> revisions;
+        for (const auto& path : canvas.paths()) revisions[path] = canvas.revision(path);
+        (void)writeFile(attemptDir / "layers" / ("turn-" + std::to_string(calls) + ".json"), layeredJson(calls, canvas.files(), revisions, blockIndex, {{"issues", issues}}) + "\n");
+        if (issues.empty()) return clip(text, clipAt);
+        focusOut = text + "\n" + layerFocus(issues, blockIndex);
+        const std::string summary = layerSummary(issues, blockIndex);
+        if (tests) return text.substr(0, text.find('\n') + 1) + summary;          // the gate's count line, then every failure
+        return summary + "The compiler's own words:\n" + clip(text, clipAt);   // diagnostics keep their source lines and carets
+    };
+
     // A seeded canvas is judged before the first turn, so the worker starts from what fails (a fix-one-bug task names its bug; stubs say every test fails)
     // instead of having to edit before it can see anything. It is also the first best revision: a commit worse than the seed is undone.
     // Starting files that do not compile say so with their errors, in the numbering the worker is shown (else its first sight of the problem is a
@@ -292,8 +323,7 @@ int runCanvasAttempt(const AttemptContext& a)
     const std::string seedBad = seedComplete ? precheckCanvas(canvas, harness, a.dir, a.itemId, a.attempt, attemptDir) : std::string{};
     if (!seedBad.empty()) {
         headCompiles = false;
-        verdict += "\nThey do not compile as they stand:\n" + clip(seedBad, 1500);
-        focus = seedBad;
+        verdict += "\nThey do not compile as they stand:\n" + layeredVerdict(seedBad, false, 1500, focus);
         traceVerdict(tracePath, -1, "the starting files were checked before the first turn and do not compile: " + clip(seedBad, 600));
     }
     if (seedComplete && seedBad.empty() && harness->gate) {
@@ -303,8 +333,7 @@ int runCanvasAttempt(const AttemptContext& a)
         if (rc == 0) verified = haveFiles = true;
         else {
             if (const int f = failingTests(lastGate); f >= 0) markBest(f, true);
-            verdict += "\nThe tests were run on them as they stand and failed:\n" + clip(lastGate, 1500);
-            focus = lastGate;
+            verdict += "\nThe tests were run on them as they stand and failed:\n" + layeredVerdict(lastGate, true, 1500, focus);
         }
     }
     std::string lastReadAnswer;           // the latest read answered, kept in view when a read past the allowance is refused
@@ -443,8 +472,10 @@ int runCanvasAttempt(const AttemptContext& a)
         }
 
         const CanvasReply parsed = parseCanvasReply(text);
+        const std::vector<int> issueAsks = issueLayer ? parseIssueReads(text) : std::vector<int>{};
         if (parsed.error.empty() && !parsed.hasEdits()) {
-            if (!parsed.reads.empty() && !canvas.paths().empty() && readReplies >= freeReads) {
+            const bool asksToRead = !parsed.reads.empty() || !issueAsks.empty();
+            if (asksToRead && !canvas.paths().empty() && readReplies >= freeReads) {
                 // Past the allowance a read is refused, not answered: answered, it let a worker read until its turns ran out. What it read last stays in view.
                 ++readReplies;
                 ++spent;
@@ -455,17 +486,23 @@ int runCanvasAttempt(const AttemptContext& a)
                 std::printf("canvas turn %d: read refused (reads used up), turn spent\n", call);
                 continue;
             }
-            if (!parsed.reads.empty() && !canvas.paths().empty()) {
+            if (asksToRead && !canvas.paths().empty()) {
                 // A read (docs/CANVAS.md (Folded views)): the first two read-only replies are answered without using a turn; after that the worker must edit.
                 std::string answer;
                 for (const auto& rq : parsed.reads)
                     answer += canvas.has(rq.path) ? answerRead(rq, canvas.text(rq.path), isPythonPath(rq.path)) : "=== " + rq.path + ": not one of the files of this item ===\n";
+                for (const int n : issueAsks) {   // an issue in full, its anchors resolved to the lines of the files as they now stand
+                    ++issueReads;
+                    for (const auto& [path, textNow] : canvas.files()) blockIndex.update(path, textNow);
+                    answer += n >= 1 && n <= static_cast<int>(issues.size()) ? layerDetail(issues[static_cast<std::size_t>(n) - 1], blockIndex, canvas.files())
+                                                                             : "=== ISSUE " + std::to_string(n) + ": there is no such issue (" + std::to_string(issues.size()) + " listed) ===\n";
+                }
                 ++readReplies;
                 lastReadAnswer = answer;
                 verdict = "The lines you asked to read:\n" + answer + (readReplies >= freeReads ? "You have used your reads: your next reply MUST be an edit (=== EDIT: ... ===) or a file, not another read.\n" : "Now reply with your edit.\n");
                 verdictIsRead = true;
-                traceVerdict(tracePath, call, "read request: " + std::to_string(parsed.reads.size()) + " region(s) shown, no turn used");
-                std::printf("canvas turn %d: read answered (%zu region(s))\n", call, parsed.reads.size());
+                traceVerdict(tracePath, call, "read request: " + std::to_string(parsed.reads.size() + issueAsks.size()) + " region(s) or issue(s) shown, no turn used");
+                std::printf("canvas turn %d: read answered (%zu region(s))\n", call, parsed.reads.size() + issueAsks.size());
                 continue;
             }
             ++spent;
@@ -511,7 +548,7 @@ int runCanvasAttempt(const AttemptContext& a)
             headCompiles = false;
             ++staged;
             if (staged > freeRejects) ++spent;
-            focus = bad;
+            const std::string badVerdict = layeredVerdict(bad, false, 1200, focus);
             const std::string key = errorKey(bad);
             sameStaged = key == lastStagedKey ? sameStaged + 1 : 1;
             lastStagedKey = key;
@@ -522,7 +559,7 @@ int runCanvasAttempt(const AttemptContext& a)
                 std::printf("canvas turn %d: the same compile error three times running: the attempt stops\n", call);
                 break;
             }
-            verdict = skippedNote + "Your edits were KEPT (" + revisionList(canvas) + "; nothing was thrown away), but the files do not compile yet:\n" + clip(bad, 1200) +
+            verdict = skippedNote + "Your edits were KEPT (" + revisionList(canvas) + "; nothing was thrown away), but the files do not compile yet:\n" + badVerdict +
                       "\nThe line numbers are those of the files shown below. Fix just those lines with edits; do not rewrite the file.";
             traceVerdict(tracePath, call, "staged (does not compile yet): " + clip(bad, 600));
             std::printf("canvas turn %d: staged, does not compile yet\n", call);
@@ -551,18 +588,18 @@ int runCanvasAttempt(const AttemptContext& a)
         // Never lose a better revision: a commit that makes more tests fail than the best one so far is undone, and the worker is told.
         const int failing = failingTests(lastGate);
         if (failing >= 0 && bestFailing >= 0 && failing > bestFailing) {
+            const std::string broke = layeredVerdict(lastGate, true, 1200, focus);   // what the worse revision broke, before it is undone
             const std::string undone = restoreBest();   // the worse revisions are not lost: they stay in the history, and the worker is told where
             ++reverts;
             (void)writeOut();
-            verdict = skippedNote + "Your transaction made it worse (" + std::to_string(failing) + " tests failing, " + std::to_string(bestFailing) + " before), so the files below are back at the better revision (yours stays in the history as " + undone + "). What your change broke:\n" + clip(lastGate, 1200);
+            verdict = skippedNote + "Your transaction made it worse (" + std::to_string(failing) + " tests failing, " + std::to_string(bestFailing) + " before), so the files below are back at the better revision (yours stays in the history as " + undone + "). What your change broke:\n" + broke;
             traceVerdict(tracePath, call, "reverted to the best revision (" + std::to_string(bestFailing) + " failing)");
             std::printf("canvas turn %d: reverted (%d failing, best %d)\n", call, failing, bestFailing);
             (void)selfCheck();   // gate.txt describes what is in out/
         } else {
             if (failing >= 0 && (bestFailing < 0 || failing <= bestFailing)) markBest(failing, false);
-            verdict = skippedNote + "Your files were checked by running the tests and failed:\n" + clip(lastGate, 1500);
+            verdict = skippedNote + "Your files were checked by running the tests and failed:\n" + layeredVerdict(lastGate, true, 1500, focus);
         }
-        focus = lastGate;
     }
 
     if (!headCompiles) {
@@ -592,6 +629,7 @@ int runCanvasAttempt(const AttemptContext& a)
     events::metric("canvas.reads", static_cast<double>(readReplies));
     events::metric("canvas.changed_lines", static_cast<double>(changedLines));
     events::metric("agent.concerns", static_cast<double>(concernCount));
+    events::metric("canvas.issue_reads", static_cast<double>(issueReads));
     if (decodeTps > 0) events::metric("engine.decode_tps", decodeTps);
     if (prefillTps > 0) events::metric("engine.prefill_tps", prefillTps);
     std::printf("done after %d call(s): canvas, %d commit(s), %d refused, %d read(s), %d cancelled, %d reverted, self-check %s, finish=%s\n", calls, commits, rejects, readReplies, aborts, reverts, verified ? "passed" : "not passed", lastFinish.c_str());
@@ -600,7 +638,7 @@ int runCanvasAttempt(const AttemptContext& a)
     {
         const double secs = std::chrono::duration<double>(std::chrono::steady_clock::now() - a.began).count();
         std::ostringstream m;
-        m << "{\"treatment\":\"" << a.treatment << "\",\"stance\":\"" << a.stance << "\",\"concerns\":" << concernCount << ",\"engine\":\"" << a.engine.name << "\",\"tokensIn\":" << totIn << ",\"tokensOut\":" << totOut << ",\"turns\":" << calls
+        m << "{\"treatment\":\"" << a.treatment << "\",\"stance\":\"" << a.stance << "\",\"concerns\":" << concernCount << ",\"engine\":\"" << a.engine.name << "\",\"tokensIn\":" << totIn << ",\"tokensOut\":" << totOut << ",\"turns\":" << calls << ",\"issueLayer\":" << (issueLayer ? "true" : "false") << ",\"issueReads\":" << issueReads
           << ",\"selfcheck\":" << (verified ? "true" : "false") << ",\"seconds\":" << secs
           << ",\"canvas\":{\"commits\":" << commits << ",\"refused\":" << rejects << ",\"reads\":" << readReplies << ",\"aborted\":" << aborts << ",\"continued\":" << continuations
           << ",\"reverted\":" << reverts << ",\"staged\":" << staged << ",\"thinkingStops\":" << thinkingStops << ",\"changedLines\":" << changedLines << ",\"fileLines\":" << fileLines << "}}";

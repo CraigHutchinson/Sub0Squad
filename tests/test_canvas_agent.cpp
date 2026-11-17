@@ -288,5 +288,45 @@ int main()
         const std::string view = agent::draftView("tests/more.test.cpp", tests, gate, 2500);
         CHECK(view.find("lines folded") != std::string::npos && view.find("CHECK_EQ(f(13), 0);") != std::string::npos && view.find("CHECK_EQ(f(12), 0);") == std::string::npos);
     }
+    {   // The issues layer (docs/LAYERED_DOCUMENT.md): a failing commit's verdict is shown as a numbered summary, each issue with the function it is likely
+        // in; `=== READ: ISSUE n ===` answers with that issue in full and its function's current lines (no turn used); the layers are written per turn
+        // for a viewer. With SUB0SQUAD_ISSUE_LAYER=0 the same verdict is the gate's text as before.
+        const auto setLayer = [](const char* v) {
+#ifdef _WIN32
+            _putenv_s("SUB0SQUAD_ISSUE_LAYER", v);
+#else
+            setenv("SUB0SQUAD_ISSUE_LAYER", v, 1);
+#endif
+        };
+        const std::string wrong = std::string{"=== EDIT: "} + kFile + " LINES " + std::to_string(bugLine) + " ===\n                v = v * d  # still wrong\n=== END EDIT ===\n";
+        for (const bool on : {true, false}) {
+            setLayer(on ? "1" : "0");
+            const fs::path d = workflow(on ? "canvas-issues" : "canvas-issues-off");
+            failedAttempt(d, 1, bad);
+            std::vector<fake::Reply> replies{fake::Reply{wrong}};
+            if (on) replies.push_back(fake::Reply{"=== READ: ISSUE 1 ===\n"});
+            replies.push_back(fake::Reply{fixByLine});
+            fake::Engine engine(std::move(replies));
+            CHECK_EQ(runLlmAgent(canvasArgs(d, engine, 2, 1)), 0);
+            CHECK_EQ(slurp(attemptDir(d, 2) / "out" / kFile), ref);
+            const auto rq = engine.requests();
+            CHECK_EQ(rq.size(), static_cast<std::size_t>(on ? 3 : 2));
+            if (rq.size() != (on ? 3u : 2u)) continue;
+            const std::string stats = slurp(attemptDir(d, 2) / "agent.json");
+            if (on) {
+                CHECK(rq[1].last().find("1 issue (`=== READ: ISSUE n ===`") != std::string::npos);
+                CHECK(rq[1].last().find("likely in term()") != std::string::npos);
+                CHECK(rq[2].last().find("=== ISSUE 1 (test) ===") != std::string::npos && rq[2].last().find("v = v * d  # still wrong") != std::string::npos);
+                CHECK(stats.find("\"issueLayer\":true") != std::string::npos && stats.find("\"issueReads\":1") != std::string::npos);
+                const std::string layers = slurp(attemptDir(d, 2) / "layers" / "turn-1.json");
+                CHECK(layers.find("\"schema\":\"layered-doc-1\"") != std::string::npos && layers.find("\"issues\":[{") != std::string::npos);
+            } else {
+                CHECK(rq[1].last().find("=== READ: ISSUE") == std::string::npos);
+                CHECK(stats.find("\"issueLayer\":false") != std::string::npos);
+                CHECK(!fs::exists(attemptDir(d, 2) / "layers"));
+            }
+        }
+        setLayer("1");
+    }
     return finish();
 }
