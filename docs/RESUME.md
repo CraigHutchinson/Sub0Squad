@@ -1,9 +1,25 @@
-# Resume here (written 2026-11-16, to continue on a faster machine)
+# Resume here (written 2026-11-16, to continue on a faster machine; updated 2026-11-17)
 
 Follow-up work with its own brief: [sessions/](sessions/README.md) (handoff docs, one per task). Read this first; it supersedes the "next steps" of the old `HANDOFF.md`, `NEXT_SESSION_PROMPT.md` and `ITERATION_PROGRESS.md` (in git history: [ARCHIVE.md](ARCHIVE.md)). The owner's goal is unchanged: prove the
 harness builds sandbox projects from a bare request with local models; the Qwen3.6-35B-A3B (Q4_K_M) is the minimum bar and nothing leaves the machine (frontier stays OFF).
 
 ## 1. Where things stand
+
+**Update 2026-11-17** (the rest of this section is as written on 2026-11-16):
+* **Windows is a first-class platform**: the program runs natively under MinGW-w64, and CI builds and tests on Windows and Linux. Tests carry `smoke`/`full`
+  tiers with area labels: smoke runs on every change, full at the gates ([DEV_SETUP.md](DEV_SETUP.md)). Windows Server 2022 behaves differently from
+  Windows 11 for AF_UNIX sockets, and the fixes are in `1f45940` (a socket file is seen without opening it; the waiter sees a connection that arrived before
+  its first wait; a socket path over 107 bytes moves to a short name). `f25441c` lets the portal take port 0, so parallel tests never collide.
+* **The canvas tooling lives in [sub0canvas](https://github.com/CraigHutchinson/sub0canvas)**: outline, edits, canvas and doc_layers, consumed through CPM at a
+  pinned tag (v0.2.0), with forwarding headers so callers are unchanged. A change there lands in sub0canvas first, is tagged, and the pin is bumped here
+  (then run `test_blocks`). The next step is [sessions/layered-document.md](sessions/layered-document.md).
+* **Model tiers and the tier 0 gate** ([BLOCK_PROVING_GROUNDS.md](BLOCK_PROVING_GROUNDS.md)): 24 seeded cases on the reference calculator; tier 1 and
+  above run only on a tier 0 PASS. The last run (build `1e74bd4`, the 35B, stopped at 52 of 72 runs as superseded): every case passed 3 of 3 except
+  wrong-approach (0 of 3: a draft that did not compile ranked best, fixed in `58d8c28`) and write-tests (2 of 3: folded test bodies, fixed in `38da8e7`).
+  The definitive gate on the current build is next. The smoke set (`run_t0.sh <repo> <engine> 1 @smoke`, about 8 minutes) is for iterating, and never
+  stands in for the gate.
+* **Engine**: Qwen3.6-35B-A3B APEX I-Compact on `llama-server` port 8092 (`-c 65536 -np 4`, alias `qwen35`). A 9B (Qwen3.5-9B Q4_K_M) is downloaded
+  for tier 0 once the 35B passes it reliably.
 
 **The clean-slate path exists end to end** (`sub0squad do "write a scientific calculator in C++" --agent llm --executor fork`): a planner model plans from the request alone (no blueprint, no reference),
 mechanical mends and checks repair what they can, the squad builds test-first, a developer's failure can be disputed back to its tester, the harness integrates generically, and a
@@ -26,7 +42,7 @@ validation grader outside the harness judges the result.
 Wrong expected values in the tester's tests (`2 + 3 * 4 - (5 / 5)` = 14, `3 + 4 * 2 / (1 - 5)` = 2, `10 / 3` as a float literal) recur in nearly every run; the dispute rung catches them but costs
 about an hour on this CPU. Nothing in the harness has an oracle (by decision); the structural answer is the expectation QA step below.
 
-Last pushed commit when this was written: `4adca03` on `origin/main`; 48 of 48 ctest tests pass (`ctest -j2`, about 6 minutes).
+Last pushed commit when this was written: `4adca03` on `origin/main`; 48 of 48 ctest tests pass (`ctest -j2`, about 6 minutes). On 2026-11-17: `f25441c`, CI full green on Linux and Windows; 54 of 54 locally.
 
 ## 2. The design direction the owner set this week (read before building)
 
@@ -40,6 +56,9 @@ Last pushed commit when this was written: `4adca03` on `origin/main`; 48 of 48 c
 ## 3. Priority order for the next session
 
 Cheap first; each step names what proves it. Rules in section 5 apply throughout.
+
+0. **(2026-11-17) The tier 0 gate first**: a PASS on the 35B (`run_t0.sh` then `gate_t0.py`; `out/runs/t0/gate.md`), then tier 1 (`run_tier.sh <repo> 1
+   <engine>`), then tier 0 on the 9B. The items below predate the model tiers.
 
 1. **Re-measure on the faster machine before anything else**: decode and prefill speed, then the planner success rate over at least 10 seeds with the current code (`llm-planner --workflow-dir D --engine "qwen35=URL,model=qwen35,ctx=8192,slots=4,seed=N" --request "write a scientific calculator in C++" --max-turns 6`, with and without `--prose`). A faster machine changes which timeouts, wall budgets and context sizes are right; the numbers in section 1 are CPU-bound. Record them in `docs/CLEAN_SLATE.md` section 7.
 2. **Get one full run through `do` to pass and grade it** (`validation/grade_blackbox.py WORKFLOW_DIR`, and the literal audit it includes). Then repeat for a 20-seed clean-slate baseline (`scripts/start-campaign.sh`; the campaign driver still starts from blueprints and has no grader, plan-validity or repair columns: extend `scripts/campaign.py`).
