@@ -144,7 +144,9 @@ It found a harness defect on its first day: a SYMBOL edit whose signature came f
 * **A release or milestone** (`v*`, `milestone/*`, a pull request labelled `ci:release`) needs a tier 0 PASS on the proving engine for the build being
   released, recorded with it (`out/runs/t0/gate.json` attached to the release notes or the pull request).
 * **A change to the agents layer** (prompts, views, reply forms, the canvas, the turn loop): run the tier 0 cases it touches before merging; the whole suite
-  before a release.
+  before a release. **The smoke set** is the quick check while iterating: `run_t0.sh <repo> <engine> 1 @smoke` runs one fast case per kind of edit (a
+  snippet, several edits in one reply, an insertion, a broken build, SYMBOL, FILE, conflict markers, two files; `make_t0.py --list smoke`), one run each, in
+  about 8 minutes on the 35B against about 3.5 hours for the gate. It writes `smoke.md` and `smoke.json`, never `gate.md`: a smoke PASS is not the gate.
 * **Tier 1 and above** run only on a tier 0 PASS: `run_tier.sh` refuses otherwise (exit 3) and says why. `--force "why"` runs one anyway when it is explicitly
   asked for, and records the reason in the run's home (`forced.txt`), with the gate it was forced past (`t0-gate.json`), so it is never read as a gated result.
 * **A smaller model** (a 9B, a 12B) runs the same tier 0 suite once the proving engine (the 35B) passes it reliably: a smaller model that passes tier 0 shows the

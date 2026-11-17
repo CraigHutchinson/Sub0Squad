@@ -1,7 +1,7 @@
 """Tier 0 plans for the C++ calculator: small, seeded tasks that each isolate one kind of work a canvas worker must do, before tier 1 (the whole program).
 
     python validation/tiers/make_t0.py <repo> [case ...]      (no case: all)  ->  out/runs/t0/<case>/plan.json
-    python validation/tiers/make_t0.py <repo> --list
+    python validation/tiers/make_t0.py <repo> --list [smoke]
 
 Every case seeds the reference implementation (validation/reference/calculator-cpp) with a defect, a stub or a missing part, and gives the reference
 tests as the owner's (`given`) tests. The cases are built on validation/tiers/t1-plan.json (the tier 1 plan). `--check <case> <dir>` writes the seeded
@@ -251,6 +251,12 @@ CASES = {
         context="src/calc.cpp (the engine) and src/main.cpp (the app) nearly work: some of the provided tests fail, and there is a defect in each file. Fix each with the smallest edit."),
 }
 
+# The smoke set: one fast case for each kind of edit the worker must make (a snippet, several edits in one reply, an insertion, a broken build, SYMBOL,
+# FILE, conflict markers, two files), one run each: about 8 minutes on the 35B (tier 0 of 1e74bd4: the seven measured each under 90 s a run; two-files not yet run) against about 3.5 hours for the
+# gate. For iterating on a change; it never stands in for the gate (gate_t0.py --set smoke writes smoke.md, not gate.md).
+SMOKE = ["fix-op", "fix-two-bugs", "fix-missing-check", "compile-typo", "write-function", "write-file", "merge-conflict", "two-files"]
+assert set(SMOKE) <= set(CASES)
+
 
 def plan_for(name):
     c = CASES[name]
@@ -289,7 +295,7 @@ def plan_for(name):
 if __name__ == "__main__":
     args = sys.argv[2:]
     if args[:1] == ["--list"]:
-        for n, c in CASES.items(): print(f"{n:18} {c['exercises']}")
+        for n in (SMOKE if args[1:2] == ["smoke"] else CASES): print(f"{n:18} {CASES[n]['exercises']}")
         sys.exit(0)
     if args[:1] == ["--check"]:
         p = plan_for(args[1])

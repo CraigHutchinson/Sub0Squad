@@ -1,12 +1,15 @@
 #!/usr/bin/env bash
 # Run tier 0 cases on a model, one fresh squad home per run, then judge them (gate_t0.py writes out/runs/t0/gate.md and gate.json).
-#   [START=n] validation/tiers/run_t0.sh <repo> <engine spec> <repeats> [case ...]      (no case: all; runs are numbered from START, default 1)
+#   [START=n] validation/tiers/run_t0.sh <repo> <engine spec> <repeats> [case ... | @smoke]      (no case: all; runs are numbered from START, default 1)
+# @smoke runs the smoke set (make_t0.py SMOKE: one fast case per kind of edit) and judges it with gate_t0.py --set smoke: smoke.md, never the gate.
 # Each run: its own home out/runs/t0/<case>/run-N, the "single" process, the canvas executor, the case's plan (make_t0.py); then `down`.
 # out/runs/t0/summary.md gains one row per run as it ends (a progress log; the gate judges the run directories, not this table).
 set -u
 repo=$(cd "$1" && pwd); engine=$2; repeats=$3; shift 3
 . "$repo/validation/tiers/lib.sh"
 exe="$repo/out/build/mingw/sub0squad.exe"
+set_args=()
+if [ "${1:-}" = "@smoke" ]; then shift; set -- $(python -I "$repo/validation/tiers/make_t0.py" "$repo" --list smoke | awk '{print $1}'); set_args=(--set smoke --min-runs 1); fi
 cases=${*:-$(python -I "$repo/validation/tiers/make_t0.py" "$repo" --list | awk '{print $1}')}
 python -I "$repo/validation/tiers/make_t0.py" "$repo" $cases >/dev/null
 sum="$repo/out/runs/t0/summary.md"
@@ -34,4 +37,5 @@ EOF
     printf '| %s | %s | %s | %s |\n' "$c" "$r" "$state" "$row" | tee -a "$sum"
   done
 done
-python -I "$repo/validation/tiers/gate_t0.py" "$(winpath "$repo")" --engine "${engine%%=*}" >/dev/null; echo "tier 0 gate: see $repo/out/runs/t0/gate.md (exit $?)"
+name=gate; [ ${#set_args[@]} -gt 0 ] && name=smoke
+python -I "$repo/validation/tiers/gate_t0.py" "$(winpath "$repo")" --engine "${engine%%=*}" "${set_args[@]}" >/dev/null; echo "tier 0 $name: see $repo/out/runs/t0/$name.md (exit $?)"

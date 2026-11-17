@@ -2,7 +2,7 @@
 """The tier 0 validation gate: every tier 0 case must pass on the proving engine, on THIS build, in every one of at least N runs, before tier 1 and
 above are run (docs/BLOCK_PROVING_GROUNDS.md, "Model tiers and the tier 0 gate").
 
-    python validation/tiers/gate_t0.py <repo> --engine qwen35 [--build VERSION] [--min-runs 3] [--json]
+    python validation/tiers/gate_t0.py <repo> --engine qwen35 [--build VERSION] [--min-runs 3] [--set smoke] [--json]
 
 It judges the run directories themselves (out/runs/t0/<case>/run-N, written by run_t0.sh), never a summary that could drift:
   * the build is the one the run's daemon recorded (state/run-info.json); by default the build of out/build/mingw/sub0squad.exe;
@@ -10,6 +10,7 @@ It judges the run directories themselves (out/runs/t0/<case>/run-N, written by r
   * a run counts only if its plan is the case as make_t0.py defines it NOW (a run of an older definition is stale: listed, not counted);
   * a pass is an accepted item that a MODEL built (report.md "built by"), never the frontier stub or the mock.
 Writes out/runs/t0/gate.json and gate.md. Exit 0: PASS; 1: FAIL (a counted run failed); 2: INCOMPLETE (a case has fewer than --min-runs counted runs).
+--set smoke judges only the smoke set (make_t0.py SMOKE) and writes smoke.json and smoke.md instead: a quick check while iterating, never the gate.
 """
 import argparse, hashlib, json, pathlib, subprocess, sys
 
@@ -65,14 +66,15 @@ def judge_run(run, plan, ref_dir):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("repo"); ap.add_argument("--engine", required=True); ap.add_argument("--build"); ap.add_argument("--min-runs", type=int, default=3)
-    ap.add_argument("--json", action="store_true")
+    ap.add_argument("--json", action="store_true"); ap.add_argument("--set", choices=["all", "smoke"], default="all")
     a = ap.parse_args()
     repo = pathlib.Path(a.repo).resolve()
     sys.argv = ["make_t0.py", str(repo)]
     import make_t0
     build = a.build or subprocess.run([str(repo / "out/build/mingw/sub0squad.exe"), "--version"], capture_output=True, text=True).stdout.split()[1]
     cases, verdict = {}, "PASS"
-    for name in make_t0.CASES:
+    smoke = a.set == "smoke"
+    for name in (make_t0.SMOKE if smoke else make_t0.CASES):
         plan = make_t0.plan_for(name)
         key = case_key(plan)
         runs = [judge_run(r, plan, make_t0.REF) for r in sorted((repo / "out/runs/t0" / name).glob("run-*"))]
@@ -88,11 +90,12 @@ def main():
                        "defectsPerTurn": round(make_t0.CASES[name]["defects"] * passed / max(1, sum(r["turns"] for r in counted if r["passed"])), 2)
                                          if make_t0.CASES[name].get("defects") and passed else None,
                        "exercises": make_t0.CASES[name]["exercises"]}
-    gate = {"schema": "t0-gate-1", "verdict": verdict, "build": build, "engine": a.engine, "minRuns": a.min_runs, "cases": cases}
+    gate = {"schema": "t0-gate-1", "set": a.set, "verdict": verdict, "build": build, "engine": a.engine, "minRuns": a.min_runs, "cases": cases}
     out = repo / "out/runs/t0"
     out.mkdir(parents=True, exist_ok=True)
-    (out / "gate.json").write_text(json.dumps(gate, indent=1))
-    md = [f"# Tier 0 gate: {verdict}", "", f"Build `{build}`, engine `{a.engine}`, at least {a.min_runs} counted runs per case, every one passed by a model "
+    stem = "smoke" if smoke else "gate"
+    (out / f"{stem}.json").write_text(json.dumps(gate, indent=1))
+    md = [f"# Tier 0 smoke: {verdict} (the smoke set only; not the gate)" if smoke else f"# Tier 0 gate: {verdict}", "", f"Build `{build}`, engine `{a.engine}`, at least {a.min_runs} counted runs per case, every one passed by a model "
           "with nothing left unfinished (quality_t0.py: a stub or conflict marker left behind fails the run; the other quality measures are reported).", "",
           "| case | state | passed | first attempt | turns | out tokens | quality per run (changed/ideal lines, then what deserves a look) | not counted |",
           "|---|---|---|---|---|---|---|---|"]
@@ -100,7 +103,7 @@ def main():
         qual = "; ".join(f"{run}: " + " / ".join(quality_t0.summary(q) for q in files.values()) for run, files in c["quality"].items() if files)
         turns = f"{c['turns']}" + (f" ({c['defectsPerTurn']} defects/turn)" if c.get("defectsPerTurn") else "")
         md.append(f"| {n} | {c['state']} | {c['passed']}/{c['runs']} | {c['firstAttempt']}/{c['runs']} | {turns} | {c['tokensOut']} | {qual} | {', '.join(c['notCounted'])} |")
-    (out / "gate.md").write_text("\n".join(md) + "\n")
+    (out / f"{stem}.md").write_text("\n".join(md) + "\n")
     print(json.dumps(gate, indent=1) if a.json else "\n".join(md))
     return {"PASS": 0, "FAIL": 1, "INCOMPLETE": 2}[verdict]
 
