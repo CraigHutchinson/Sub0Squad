@@ -502,3 +502,21 @@ Next, from this:
 * Done since: the localiser no longer points on a shared operator, and the applier re-indents a REPLACE (origin/main ea1feb3); see the re-run above.
 * **Measure with five runs per arm.** Read nothing into a gap smaller than about 30%. At n = 3 and temperature 0.7, this table is suggestive, not
   significant.
+
+## Slice 2 as built
+
+* **Three modes**, chosen per run by `SUB0SQUAD_ISSUE_LAYER` (passed through by the shim): `0` off (the gate's clipped text), `1` always on, and `2`
+  adaptive, the default: the layer is used only when the gate's text would be clipped (longer than the verdict's clip, 1.2k or 1.5k characters) or the
+  verdict parses into more than 3 issues (`kAdaptiveIssues`); otherwise the gate's text is sent unchanged, with the gate's own focus, exactly as in mode 0.
+  The layers are written to `layers/turn-N.json` in modes 1 and 2 either way, and READ ISSUE is answered in both.
+* **Inline detail.** Where the layer is used, the first issues are shown in full under the summary, each with its function's current code
+  (`layerInline` in sub0canvas v0.2.1: the first `SUB0SQUAD_ISSUE_INLINE` issues, default 3, within 3,000 characters, the first always; a function
+  shown for an earlier issue is named, not repeated). The rest are left to `=== READ: ISSUE n ===`. `SUB0SQUAD_ISSUE_INLINE=0` is slice 1's summary
+  alone. For compiler diagnostics, the compiler's own words follow unless every issue is already shown in full.
+* `agent.json` records `issueMode`, `issueInline`, `layerShown` (failing verdicts shown through the layer) and `layerPassed` (those adaptive mode left
+  as the gate's text), beside `issueLayer` and `issueReads`.
+* Tests: `test_doc_layers` (`layerInline`: the count, the budget, the empty cases, a function shared by two issues) and the `test_canvas_agent` block
+  "The issues layer", now run in all three modes (mode 1 shows the issue in full in the verdict; mode 2 passes a short single failure through unchanged
+  and still writes the layers).
+* The A/B drivers are prepared in `out/runs/layers-slice2/` (`measure_slice2.sh`, three arms; `compare_slice2.py`, which also reads each arm's
+  per-run lines and collateral from its `gate.md`).

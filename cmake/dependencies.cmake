@@ -46,7 +46,7 @@ CPMAddPackage(NAME simdjson
 # the pin is bumped here (test_blocks' recorded replies exercise it, so they run against every new pin). It reuses the simdjson target above.
 CPMAddPackage(NAME sub0canvas
   GIT_REPOSITORY https://github.com/CraigHutchinson/sub0canvas.git
-  GIT_TAG v0.2.0
+  GIT_TAG v0.2.1
   OPTIONS "SUB0CANVAS_BUILD_TESTING OFF")
 
 # Version.cmake (BareCpper org, same author): git describe -> version fields and a generated header, refreshed every configure. Pinned to the v0.4 tag.

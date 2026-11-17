@@ -287,15 +287,27 @@ int runCanvasAttempt(const AttemptContext& a)
     if (const int f = failingTests(a.draftGate); f >= 0 && !a.baselineFiles.empty()) markBest(f, false);
 
     // The issues layer (docs/LAYERED_DOCUMENT.md): a verdict is parsed into issues bound to stable block ids, the worker is shown their summary (every
-    // failure, each with the function it is in or likely in) and reads one in full with `=== READ: ISSUE n ===`. SUB0SQUAD_ISSUE_LAYER=0 turns it off, so
-    // the same build can be measured with and without it.
-    const char* layerEnv = std::getenv("SUB0SQUAD_ISSUE_LAYER");
-    const bool issueLayer = !(layerEnv && std::string_view{layerEnv} == "0");
+    // failure, each with the function it is in or likely in), the first few in full with their functions' code (slice 2), and reads any one in full with
+    // `=== READ: ISSUE n ===`. SUB0SQUAD_ISSUE_LAYER picks the mode, so one build is measured every way: 0 off (the gate's text), 1 always on, 2 (the
+    // default) adaptive: on only where the gate's text would be clipped or lists more than kAdaptiveIssues failures, since on tier 0 the summary helped
+    // long, clipped verdicts and cost short ones. SUB0SQUAD_ISSUE_INLINE is how many issues are shown in full (default 3; 0 is slice 1's summary alone).
+    constexpr std::size_t kAdaptiveIssues = 3;
+    const auto envInt = [](const char* name, int fallback) {
+        const char* v = std::getenv(name);
+        if (!v || !*v) return fallback;
+        char* end = nullptr;
+        const long n = std::strtol(v, &end, 10);
+        return end && *end == '\0' && n >= 0 && n <= 100 ? static_cast<int>(n) : fallback;
+    };
+    const int issueMode = std::min(envInt("SUB0SQUAD_ISSUE_LAYER", 2), 2);
+    const bool issueLayer = issueMode != 0;
+    const auto inlineIssues = static_cast<std::size_t>(envInt("SUB0SQUAD_ISSUE_INLINE", 3));
     BlockIndex blockIndex;
     std::vector<LayerItem> issues;
     int issueReads = 0;
+    int layerShown = 0, layerPassed = 0;   // failing verdicts shown through the layer, and those adaptive mode left as the gate's text
     // The verdict for a failing gate (`tests`: the gate ran the tests; else `text` is the compile or parse check's output) and the focus that keeps the
-    // anchored functions open. Without the layer: the clipped text, as before.
+    // anchored functions open. Without the layer, or where adaptive mode finds the gate's own text enough: the clipped text, as before.
     const auto layeredVerdict = [&](const std::string& text, bool tests, std::size_t clipAt, std::string& focusOut) {
         focusOut = text;
         if (!issueLayer) return clip(text, clipAt);
@@ -309,10 +321,15 @@ int runCanvasAttempt(const AttemptContext& a)
         for (const auto& path : canvas.paths()) revisions[path] = canvas.revision(path);
         (void)writeFile(attemptDir / "layers" / ("turn-" + std::to_string(calls) + ".json"), layeredJson(calls, canvas.files(), revisions, blockIndex, {{"issues", issues}}) + "\n");
         if (issues.empty()) return clip(text, clipAt);
+        if (issueMode == 2 && text.size() <= clipAt && issues.size() <= kAdaptiveIssues) { ++layerPassed; return text; }   // it fits: sent unchanged
+        ++layerShown;
         focusOut = text + "\n" + layerFocus(issues, blockIndex);
         const std::string summary = layerSummary(issues, blockIndex);
-        if (tests) return text.substr(0, text.find('\n') + 1) + summary;          // the gate's count line, then every failure
-        return summary + "The compiler's own words:\n" + clip(text, clipAt);   // diagnostics keep their source lines and carets
+        const std::string inlined = layerInline(issues, blockIndex, canvas.files(), inlineIssues);
+        if (tests) return text.substr(0, text.find('\n') + 1) + summary + inlined;   // the gate's count line, every failure, the first few in full
+        // Diagnostics keep the compiler's own words (source lines and carets) unless every one is already shown in full.
+        const bool allInline = !inlined.empty() && inlined.rfind("In full:", 0) == 0;
+        return summary + inlined + (allInline ? std::string{} : "The compiler's own words:\n" + clip(text, clipAt));
     };
 
     // A seeded canvas is judged before the first turn, so the worker starts from what fails (a fix-one-bug task names its bug; stubs say every test fails)
@@ -639,7 +656,8 @@ int runCanvasAttempt(const AttemptContext& a)
     {
         const double secs = std::chrono::duration<double>(std::chrono::steady_clock::now() - a.began).count();
         std::ostringstream m;
-        m << "{\"treatment\":\"" << a.treatment << "\",\"stance\":\"" << a.stance << "\",\"concerns\":" << concernCount << ",\"engine\":\"" << a.engine.name << "\",\"tokensIn\":" << totIn << ",\"tokensOut\":" << totOut << ",\"turns\":" << calls << ",\"issueLayer\":" << (issueLayer ? "true" : "false") << ",\"issueReads\":" << issueReads
+        m << "{\"treatment\":\"" << a.treatment << "\",\"stance\":\"" << a.stance << "\",\"concerns\":" << concernCount << ",\"engine\":\"" << a.engine.name << "\",\"tokensIn\":" << totIn << ",\"tokensOut\":" << totOut << ",\"turns\":" << calls << ",\"issueLayer\":" << (issueLayer ? "true" : "false") << ",\"issueMode\":" << issueMode
+          << ",\"issueInline\":" << inlineIssues << ",\"layerShown\":" << layerShown << ",\"layerPassed\":" << layerPassed << ",\"issueReads\":" << issueReads
           << ",\"selfcheck\":" << (verified ? "true" : "false") << ",\"seconds\":" << secs
           << ",\"canvas\":{\"commits\":" << commits << ",\"refused\":" << rejects << ",\"reads\":" << readReplies << ",\"aborted\":" << aborts << ",\"continued\":" << continuations
           << ",\"reverted\":" << reverts << ",\"staged\":" << staged << ",\"thinkingStops\":" << thinkingStops << ",\"changedLines\":" << changedLines << ",\"fileLines\":" << fileLines << "}}";

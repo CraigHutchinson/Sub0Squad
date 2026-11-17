@@ -299,9 +299,12 @@ int main()
 #endif
         };
         const std::string wrong = std::string{"=== EDIT: "} + kFile + " LINES " + std::to_string(bugLine) + " ===\n                v = v * d  # still wrong\n=== END EDIT ===\n";
-        for (const bool on : {true, false}) {
-            setLayer(on ? "1" : "0");
-            const fs::path d = workflow(on ? "canvas-issues" : "canvas-issues-off");
+        // Slice 2: mode 1 also shows the first issues in full with their function's code; mode 2 (adaptive, the default) sends a verdict that fits
+        // unchanged (this one: one short failure), while still writing the layers for a viewer.
+        for (const char* mode : {"1", "0", "2"}) {
+            const bool on = std::string_view{mode} == "1", adaptive = std::string_view{mode} == "2";
+            setLayer(mode);
+            const fs::path d = workflow((std::string{"canvas-issues-"} + mode).c_str());
             failedAttempt(d, 1, bad);
             std::vector<fake::Reply> replies{fake::Reply{wrong}};
             if (on) replies.push_back(fake::Reply{"=== READ: ISSUE 1 ===\n"});
@@ -313,20 +316,27 @@ int main()
             CHECK_EQ(rq.size(), static_cast<std::size_t>(on ? 3 : 2));
             if (rq.size() != (on ? 3u : 2u)) continue;
             const std::string stats = slurp(attemptDir(d, 2) / "agent.json");
+            const std::string layers = slurp(attemptDir(d, 2) / "layers" / "turn-1.json");
             if (on) {
                 CHECK(rq[1].last().find("1 issue (`=== READ: ISSUE n ===`") != std::string::npos);
                 CHECK(rq[1].last().find("likely in term()") != std::string::npos);
+                CHECK(rq[1].last().find("In full:\n=== ISSUE 1 (test) ===") != std::string::npos && rq[1].last().find("v = v * d  # still wrong") != std::string::npos);
                 CHECK(rq[2].last().find("=== ISSUE 1 (test) ===") != std::string::npos && rq[2].last().find("v = v * d  # still wrong") != std::string::npos);
                 CHECK(stats.find("\"issueLayer\":true") != std::string::npos && stats.find("\"issueReads\":1") != std::string::npos);
-                const std::string layers = slurp(attemptDir(d, 2) / "layers" / "turn-1.json");
+                CHECK(stats.find("\"issueMode\":1") != std::string::npos && stats.find("\"issueInline\":3") != std::string::npos && stats.find("\"layerShown\":1") != std::string::npos);
                 CHECK(layers.find("\"schema\":\"layered-doc-1\"") != std::string::npos && layers.find("\"issues\":[{") != std::string::npos);
+            } else if (adaptive) {
+                CHECK(rq[1].last().find("=== READ: ISSUE") == std::string::npos && rq[1].last().find("=== ISSUE 1") == std::string::npos);
+                CHECK(rq[1].last().find("FAIL") != std::string::npos);   // the gate's own text
+                CHECK(stats.find("\"issueMode\":2") != std::string::npos && stats.find("\"layerShown\":0") != std::string::npos && stats.find("\"layerPassed\":1") != std::string::npos);
+                CHECK(layers.find("\"issues\":[{") != std::string::npos);
             } else {
                 CHECK(rq[1].last().find("=== READ: ISSUE") == std::string::npos);
-                CHECK(stats.find("\"issueLayer\":false") != std::string::npos);
+                CHECK(stats.find("\"issueLayer\":false") != std::string::npos && stats.find("\"issueMode\":0") != std::string::npos);
                 CHECK(!fs::exists(attemptDir(d, 2) / "layers"));
             }
         }
-        setLayer("1");
+        setLayer("2");
     }
     return finish();
 }
