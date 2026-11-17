@@ -46,6 +46,10 @@ The queue, with hypotheses, arms, measures and commands, is [EXPERIMENTS.md](EXP
 
 ## Next: what the experiments need
 
+**Layered document** ([LAYERED_DOCUMENT.md](LAYERED_DOCUMENT.md); brief: [sessions/layered-document.md](sessions/layered-document.md))
+- Slice 2 of the issues layer: the summary only when the verdict would be clipped, the first issues in full, an A/B with three arms at 5 runs each.
+- The sub0canvas backbone and source adapters (tags and state, subscriptions as inboxes, claims, a revision-aware index, the GitHub project view): design first, in sub0canvas.
+
 **Measurement** ([METRICS.md](METRICS.md))
 - Accounting that reconciles with the engine (a blocker for every efficiency figure): the ledger records a fraction of a forked run's tokens (1.4k, 38k and 40k
   against 397k, 221k and 273k in the fork attempts' own records, runs v9 to v11). Per-session usage records with a `purpose`, a reconciliation check against the
