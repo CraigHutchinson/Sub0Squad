@@ -2,7 +2,7 @@
 
 Status: design, plus slice 1 BUILT and tested without a model (2026-11-17: `include/sub0squad/doc_layers.hpp`, `src/doc_layers.cpp`, `test_doc_layers`, a block in
 `test_canvas_agent`). Slice 1 is the block index and the **issues** layer. The review, prose and code-as-layer views are design only. The measured effect on
-tier 0 is in "Slice 1 on tier 0" below. The visualiser is its own project, **sub0canvas** (a separate repository, started 2026-11-17).
+tier 0 is in "Slice 1 on tier 0" below. The visualiser is its own project, **sub0canvas**, which is also to hold the canvas tooling itself ("Direction" below).
 
 ## Why
 
@@ -265,6 +265,45 @@ identity history and the revisions that touched it, and steps through the anchor
 sub0canvas as a library (`sub0canvas::layers`, pure, with block discovery passed in), with Sub0Squad consuming it pinned to a tag, and one golden set of turn
 files tested on both sides. That move is the next step after slice 1. The viewer's further schema requests (anchor columns, a proposed `fix` per item,
 `mergedFrom` for unified reports, a `revision` on loose anchors, a `layerMeta` map) are listed in its repository and are not built here yet.
+
+## Direction: sub0canvas as the squad's backbone (owner, 2026-11-17)
+
+**Scope.** The canvas tooling (the canvas core, folding, the block index and layers, their build and their tests) becomes the **sub0canvas** project: a
+tool for agentic workflows that works on its own, outside Sub0Squad. Sub0Squad is its first and most integrated consumer. Sub0Squad keeps what is
+squad-specific: the attempt loop, the gates and harnesses, the prompts. The code in this repository is the starting point, moved, not rewritten. Other
+consumers keep the design honest: a text editor over layers; a collaborative multi-user document editor with review, comments and explainers; a prose-first
+reader of a codebase.
+
+**The idea.** The canvas is not only the document a worker edits. It is where the squad's agents meet. Each role reads and writes layers and reacts to
+what others write:
+
+* a **planner** writes the plan or prose layer (a description per function, a backlog item per piece of work) and **tags** items, for example
+  `ready-for-implementation`;
+* a **scheduler** watches for that tag, as an inbox: a tagged item, with the context its anchors give it, becomes a job delegated to a worker, and the item
+  records who holds it (the claims of docs/CANVAS.md);
+* a backlog written inside a project (docs/BACKLOG.md, issues in a file) is just another layer. A job that reads it can flag items for delegation the same
+  way, so **orchestration is a layer** too: what is planned, held, done and verified, anchored to the parts of the document it concerns;
+* an **owner** of an area (a person or an agent) watches that area: a failing test anchored to "their" code is an event they want to hear about, the way a
+  worker sees its issues;
+* **monitors** are freeform: by area (blocks, paths), by kind (failing tests, concerns), by layer, by tag, by event (a block merged away, an item left
+  orphaned).
+
+**The mechanisms, kept few and general** (how they are used is left open; use cases are built on them, not into them):
+
+| mechanism | what it is | built on |
+|---|---|---|
+| layers and items | a named list of items with kind, title, detail, anchors, a stable `key` | slice 1 |
+| anchors, 1-N | to block ids, loose lines, other items (item-to-item links), and names not yet written | slice 1, plus item links |
+| tags and state | free-form tags and a small lifecycle per item (open, held, done, verified, orphaned) | new |
+| events | an append-only log of every change: item written, tag added, block retired, claim taken | the index's events plus the canvas log |
+| subscriptions | a standing query over layers, anchors, tags and events, delivered as an inbox (a summary first, detail on request, as `READ ISSUE n`) | the summary and READ machinery |
+| claims | a time-limited hold on an item or a block, with an expiry (docs/CANVAS.md) | design |
+| views | any layer at the centre, with drill-down to what it anchors (sub0canvas's viewer) | sub0canvas |
+
+**Path.** Integrate today: move the slice-1 library and the canvas core into sub0canvas, consume it from Sub0Squad, and keep the canvas loop working
+unchanged. Then iterate towards the backbone: tags and state, subscriptions as inboxes, item links, claims. Planning and designing the backbone is a major
+item of work of its own, for a later session. It must start from what the squad already does (the planner's plan, the workflow's items and decisions, the
+journal, concerns, mends), and show which of them become layers and which stay where they are.
 
 ## Out of scope (for now)
 
