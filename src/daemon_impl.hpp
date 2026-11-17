@@ -46,7 +46,7 @@ namespace sub0squad {
 namespace daemon_detail {
 
 /// What a Waiter tag stands for: the kind in the top byte, the socket or the shim's process id below it.
-enum Kind : std::uint64_t { kListen = 1, kClient, kShimExit, kStop };
+enum Kind : std::uint64_t { kListen = 1, kClient, kShimExit, kStop, kServedExit };
 constexpr std::uint64_t kTagValueMask = (std::uint64_t{1} << 56) - 1;
 constexpr std::uint64_t tag(Kind k, std::int64_t value) { return (static_cast<std::uint64_t>(k) << 56) | (static_cast<std::uint64_t>(value) & kTagValueMask); }
 
@@ -128,6 +128,7 @@ struct Daemon::Impl
     platform::FileLock instanceLock;      ///< one daemon per state directory
     platform::SocketListener listener;    ///< the control socket
     std::uint64_t exitWithStart = 0;      ///< the start stamp of opts.exitWith, so a reused process id is not taken for it
+    bool exitWithPolled = false;          ///< the waiter could not watch opts.exitWith: the loop checks it once a second instead
     platform::Waiter waiter;              ///< the reactor: the listener, the clients, the shims' exits, posts (wake) and stop requests
     Journal journal;
     JobStore store;
@@ -141,6 +142,7 @@ struct Daemon::Impl
     std::map<platform::ProcessId, std::string> shimToJob;   ///< the shims whose exit is watched (by the waiter, or by polling below)
     std::map<platform::ProcessId, std::uint64_t> polledShims;   ///< shims the waiter could not watch (its limit, no pidfd): their start stamp, checked each second
     void checkPolledShims();
+    void onServedExit();   ///< the process named by --exit-with ended: stop as on SIGTERM
     std::mutex postMutex;
     std::deque<std::move_only_function<void()>> posted;
     sub0pipeline::PriorityExecutor executor{{.threadCount = 2}};

@@ -211,20 +211,22 @@ void Daemon::Impl::drainPosts()
     }
 }
 
+void Daemon::Impl::onServedExit()
+{
+    logf("process %lld, which this daemon serves (--exit-with), has ended: stopping (jobs keep running)", static_cast<long long>(opts.exitWith));
+    stopping = true;
+}
+
 int Daemon::Impl::loop()
 {
     while (!stopping) {
         // Blocks when there is nothing to watch (the idle state: no wake-ups); with jobs running or queued it wakes every 5 s (1 s near the reserve) to check memory.
         std::optional<std::chrono::milliseconds> timeout;
         if (hasWorkToWatch()) timeout = std::chrono::milliseconds(watchMs);
-        if (!polledShims.empty() || opts.exitWith != 0) timeout = std::min(timeout.value_or(std::chrono::milliseconds(1000)), std::chrono::milliseconds(1000));
+        if (!polledShims.empty() || exitWithPolled) timeout = std::min(timeout.value_or(std::chrono::milliseconds(1000)), std::chrono::milliseconds(1000));
         auto events = waiter.wait(timeout);
         if (!events) { logf("%s", events.error().what().c_str()); return 1; }
-        if (opts.exitWith != 0 && !platform::isAlive(opts.exitWith, exitWithStart)) {
-            logf("process %lld, which this daemon serves (--exit-with), has ended: stopping (jobs keep running)", static_cast<long long>(opts.exitWith));
-            stopping = true;
-            break;
-        }
+        if (exitWithPolled && !platform::isAlive(opts.exitWith, exitWithStart)) { onServedExit(); break; }
         if (!polledShims.empty()) checkPolledShims();
         if (const auto now = std::chrono::steady_clock::now(); now - lastMemCheck >= std::chrono::milliseconds(watchMs) && hasWorkToWatch()) {
             lastMemCheck = now;
@@ -238,6 +240,7 @@ int Daemon::Impl::loop()
                 case kClient: onClient(e); break;
                 case kShimExit: onShimExit(static_cast<platform::ProcessId>(e.tag & kTagValueMask)); break;
                 case kStop: logf("asked to stop: stopping (jobs keep running)"); stopping = true; break;
+                case kServedExit: onServedExit(); break;
             }
         }
     }
@@ -279,6 +282,10 @@ std::expected<std::unique_ptr<Daemon>, std::string> Daemon::create(DaemonOptions
         const auto start = platform::processStart(impl->opts.exitWith);
         if (!start) return std::unexpected("--exit-with " + std::to_string(impl->opts.exitWith) + ": no such process");
         impl->exitWithStart = *start;
+        // An exit event, not a timer: an idle daemon must not wake (test_idle). Polling once a second only if the waiter cannot take it.
+        impl->exitWithPolled = !impl->waiter.watchExit(impl->opts.exitWith, tag(kServedExit, 0));
+        if (impl->exitWithPolled && !platform::isAlive(impl->opts.exitWith, impl->exitWithStart))
+            return std::unexpected("--exit-with " + std::to_string(impl->opts.exitWith) + ": the process has ended");
     }
     (void)platform::clearStaleLocalSockets();   // names moved for daemons that were killed
     auto listener = platform::listenLocal(impl->opts.paths.controlSocket());
