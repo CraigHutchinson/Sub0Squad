@@ -1,0 +1,43 @@
+name: CI
+
+# Smoke tier: one Linux job on every push to main and every pull request (CraigHutchinson/.github docs/ci-strategy.md). It builds with
+# warnings as errors and runs `ctest --preset quick`, the tests labelled smoke: a few fast tests from every area (cmake/TestTiers.cmake).
+# The full tier (every test, more compilers, Windows) is ci-full.yml. Performance is not measured in CI: the local sub0perf gate owns it.
+# Off switch: repository variable CI_MODE=off (or [skip ci] in a commit message, or the ci:skip label).
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+      - 'LICENSE*'
+      - 'NOTICE*'
+      - '.ci/**'
+  pull_request:
+    branches: [main]
+    # labeled/unlabeled re-evaluate the ci/policy status (ci:local-verified, ci:skip); they do not rebuild.
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+      - 'LICENSE*'
+      - 'NOTICE*'
+      - '.ci/**'
+
+concurrency:
+  group: ci-smoke-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    # The pinned ref is the commit of CraigHutchinson/.github that holds the reusable workflows.
+    uses: CraigHutchinson/.github/.github/workflows/cpp-smoke.yml@789478c64113b201e518810a3ef6fbf1bf1b1b90
+    with:
+      apt-packages: g++-14 ninja-build ccache
+      cpm-cache-key-files: cmake/dependencies.cmake CMakeLists.txt
+      timeout-minutes: 40
+    permissions: { contents: read, statuses: write, actions: read, pull-requests: read, checks: read }

@@ -59,6 +59,45 @@ cmake --build out/build/dev && ctest --test-dir out/build/dev --output-on-failur
 cmake --build out/build/dev --target Sub0Squad_Bench_check                             # sub0perf: judge against perf/baselines/crogbuntu1.json
 cmake --build out/build/dev --target Sub0Squad_Bench_baseline                          # only with a reason, once a baseline exists
 ```
+### Test tiers
+
+Every test carries two ctest labels ([cmake/TestTiers.cmake](../cmake/TestTiers.cmake), checked at configure: a test without them fails it):
+a **tier**, `smoke` or `full`, and an **area**. The smoke tier is a few fast tests from every area, run on every change; the full tier is
+the rest, the long suites, run at the quality gates. The family's CI strategy (`CraigHutchinson/.github`, `docs/ci-strategy.md`) defines
+when each runs; `ctest --preset quick` there means "everything not labelled `full`", which is exactly the smoke set here.
+
+| Area | What it covers | Smoke | Full adds |
+|---|---|---|---|
+| `structure` | layering, link proofs, test reporting, the binary's selftest | layering, test_reporting, dependency_selftest, link_presentation | the other link proofs |
+| `platform` | the platform library: processes, files, sockets, waits, host facts | test_platform_process, test_platform_file | proc, host, net, wait |
+| `kernel` | durable jobs: job spec, journal, job store, shim, idle, guards, archive | test_job_spec, test_journal | job_store, shim, idle, host_guard, archive, adapter, m0_graph_growth (POSIX) |
+| `workflow` | plans, the policy ladder, workflow stages, processes, predicates, stances, clarify | test_policy, test_workflow, test_plan | workflow_stages, workflow_mends, process, predicate, stance, clarify |
+| `harness` | the project harnesses and their gates: diagnostics, edits, real builds | test_diagnostics, test_edits | platforms, project |
+| `agents` | executors from recorded replies: session, canvas, fork, planner, mends, blocks, turn control | test_agent, test_mends | canvas_agent, fork, planner, blocks, stream |
+| `portal` | the portal page and the wizard | test_portal, test_portal_page (needs node) | wizard |
+| `e2e` | a real daemon and CLI: scenarios, the README path, healing, near pass, thrash | test_e2e | readme, scenarios, executors, heal, nearpass, thrash |
+
+```sh
+ctest --test-dir out/build/dev -L smoke              # smoke tier: 18 tests, about 40 s native (every change, before a push)
+ctest --test-dir out/build/dev                       # full tier: every test, about 19 min native (milestones, releases, before a PR merges)
+ctest --test-dir out/build/dev -L full               # only the long suites
+ctest --test-dir out/build/dev -L agents             # one area, both tiers (combine: -L smoke -L agents is the smoke tests of one area)
+ctest --test-dir out/build/dev --print-labels        # the labels in use
+```
+With the presets (`CMakePresets.json`, build directory `out/build/default`): `cmake --preset default`, `cmake --build --preset default`, then
+`ctest --preset quick` or `ctest --preset full`. A new test goes in one `sub0squad_label_tests` line of `cmake/TestTiers.cmake`: `smoke` only
+when it is fast (a few seconds) and its area needs it.
+
+**CI** ([.github/workflows](../.github/workflows), callers of the reusable workflows in `CraigHutchinson/.github`, pinned by commit):
+
+| Workflow | Trigger | Runs |
+|---|---|---|
+| `ci.yml` (smoke) | every push to `main` and every pull request, except documentation-only changes | Linux GCC 14, warnings as errors, `ctest --preset quick` |
+| `ci-full.yml` (full) | tags `v*` and `milestone/*`, manual dispatch, a pull request labelled `ci:full`, weekly when `main` changed since the last full pass | Linux GCC 14 and Clang 19, Windows MinGW-w64 UCRT; `ctest --preset full` |
+
+Pull request labels: `ci:full` runs the full tier, `ci:local-verified` accepts a `local-ci/full` status in its place, `ci:release` requires
+the full tier, `ci:skip` runs no tier. The repository variable `CI_MODE` (`off`, `smoke`, unset) switches CI off or down to smoke.
+
 End-to-end tests start a real daemon and the real CLI under `SUB0SQUAD_HOME` inside the build tree. Run timing targets alone on a
 quiet machine. sub0perf git hooks and the after-build check are **off** by default (`SUB0MATH_PERF_GIT_HOOKS`,
 `SUB0MATH_PERF_ON_BUILD`); an existing build directory keeps the values it cached, so pass them with `-D` there.
@@ -82,7 +121,7 @@ lists what it took and what is left). Toolchain: MinGW-w64 with the UCRT runtime
 $env:CPM_SOURCE_CACHE = "$PWD\out\cpm-cache"
 cmake -S . -B out/build/mingw -G Ninja -DCMAKE_CXX_COMPILER=g++ -DCMAKE_C_COMPILER=gcc -DCMAKE_BUILD_TYPE=Release
 cmake --build out/build/mingw -j6
-ctest --test-dir out/build/mingw --timeout 900 --output-on-failure
+ctest --test-dir out/build/mingw --timeout 900 --output-on-failure -L smoke   # the smoke tier; drop -L smoke for the full suite
 ```
 
 MinGW's GCC has no AddressSanitizer or UBSan runtime: the C++ harness probes for them and integrates without them there (its report says so). The
