@@ -50,14 +50,18 @@ set(VERSION_NAMESPACE "sub0squad::version")
 # Version.cmake reads `describe --tags` and writes an empty header when the nearest tag is not a semantic version (the milestone tag `parked-v1`
 # broke every build: docs/INTERVENTIONS.md row 37). It is given a wrapper that describes only v<major>.<minor> tags, at configure time and in its
 # build-time regeneration; with no such tag it falls back to 0.0.0-<commit count>-g<hash>.
+# The package is fetched with plain git and only then added with the wrapper: FetchContent's own git calls must not go through it, because cmd.exe
+# eats the `^` of `git rev-parse HEAD^0` and a fresh clone (an empty CPM cache, as in CI) fails on Windows.
+CPMAddPackage(NAME Version.cmake
+  GIT_REPOSITORY https://github.com/BareCpper/Version.cmake.git
+  GIT_TAG c9e67af0aec3588912b760b45dca3ff217a62f59
+  DOWNLOAD_ONLY YES)
 if(CMAKE_HOST_WIN32)
   set(GIT_EXECUTABLE "${CMAKE_CURRENT_LIST_DIR}/git-semver.cmd")   # CMake cannot run a shell script on Windows
 else()
   set(GIT_EXECUTABLE "${CMAKE_CURRENT_LIST_DIR}/git-semver.sh")
 endif()
-CPMAddPackage(NAME Version.cmake
-  GIT_REPOSITORY https://github.com/BareCpper/Version.cmake.git
-  GIT_TAG c9e67af0aec3588912b760b45dca3ff217a62f59)
+add_subdirectory(${Version.cmake_SOURCE_DIR} ${CMAKE_BINARY_DIR}/_deps/version.cmake-build)
 unset(GIT_EXECUTABLE)
 if(NOT VERSION_SET)
   message(FATAL_ERROR "Version.cmake could not derive a version (see the 'Git Describe' lines above): the generated Version.hpp would not compile")
