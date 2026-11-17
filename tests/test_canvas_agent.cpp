@@ -228,7 +228,8 @@ int main()
         CHECK_EQ(runLlmAgent(canvasArgs(d, engine, 1, 0)), 0);
         CHECK_EQ(slurp(attemptDir(d, 1) / "out" / kFile), ref);
         const auto rq = engine.requests();
-        CHECK(!rq.empty() && rq[0].last().find("These files start as the workspace's stubs (calc/engine.py)") != std::string::npos);
+        CHECK(!rq.empty() && rq[0].last().find("These files are what the workspace starts with (calc/engine.py)") != std::string::npos);
+        CHECK(!rq.empty() && rq[0].last().find("The tests were run on them as they stand and failed") != std::string::npos);   // judged before the first turn
         CHECK(!rq.empty() && rq[0].last().find("=== CANVAS: calc/engine.py (revision 1,") != std::string::npos);
         CHECK(slurp(attemptDir(d, 1) / "canvas.json").find("\"calc/engine.py\":2") != std::string::npos);
 

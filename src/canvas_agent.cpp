@@ -232,7 +232,7 @@ int runCanvasAttempt(const AttemptContext& a)
     // What the next message says about the last turn: the failure of the earlier draft to begin with, then a gate failure, a refusal or the lines a read asked for.
     std::string seededNote;
     for (const auto& p : seeded) seededNote += (seededNote.empty() ? "" : ", ") + p;
-    std::string verdict = a.baselineFiles.empty() ? (seeded.empty() ? std::string{} : "These files start as the workspace's stubs (" + seededNote + "): they compile but do nothing yet. Write each whole, or fill it in with SYMBOL edits.") : (a.draftOrigin.empty() ? "These files are your best earlier draft. It failed:\n" : "These files are an earlier draft from before '" + a.draftOrigin + "' was divided (keep what is right, fix the rest). It failed:\n") + clip(a.draftGate, 1200);
+    std::string verdict = a.baselineFiles.empty() ? (seeded.empty() ? std::string{} : "These files are what the workspace starts with (" + seededNote + "): change them with edits, or write one whole when it is only a stub.") : (a.draftOrigin.empty() ? "These files are your best earlier draft. It failed:\n" : "These files are an earlier draft from before '" + a.draftOrigin + "' was divided (keep what is right, fix the rest). It failed:\n") + clip(a.draftGate, 1200);
     std::string focus = a.draftGate;      // the text whose file:line references keep regions of the view open
     std::string partial;                  // a reply cut off at the token limit, so far: the next reply is appended to it
     int spent = 0;                        // turns used of repairTurns + 1
@@ -241,12 +241,27 @@ int runCanvasAttempt(const AttemptContext& a)
     bool verified = false, haveFiles = false, stagnated = false;
     int bestFailing = -1;                 // fewest failing tests of any committed revision, and where it was
     std::map<std::string, int> bestRevision;
+    bool bestIsSeed = false;              // the best tested revision is the starting files, not the worker's: a draft is not traded back for them
     if (const int f = failingTests(a.draftGate); f >= 0 && !a.baselineFiles.empty()) { bestFailing = f; for (const auto& path : canvas.paths()) bestRevision[path] = 1; }
     std::string lastFinish, lastGate, lastRefusal, lastRefusalKey;
     int sameRefusals = 0;
     double totIn = 0, totOut = 0, decodeTps = 0, prefillTps = 0;
     long changedLines = 0;
 
+    // A seeded canvas is judged before the first turn, so the worker starts from what fails (a fix-one-bug task names its bug; stubs say every test fails)
+    // instead of having to edit before it can see anything. It is also the first best revision: a commit worse than the seed is undone.
+    if (!seeded.empty() && harness && harness->gate && seeded.size() == a.item->files.size() && precheckCanvas(canvas, harness, a.dir, a.itemId, a.attempt, attemptDir).empty()) {
+        for (const auto& [path, textNow] : canvas.files()) (void)writeFile(out / path, textNow);
+        const int rc = harness->gate({"--workflow-dir", a.dir.string(), "--item", a.itemId, "--attempt", std::to_string(a.attempt), "--no-publish", "1"});
+        lastGate = slurp(attemptDir / "gate.txt");
+        traceVerdict(tracePath, -1, "the starting files were checked before the first turn: " + (rc == 0 ? std::string{"the item's tests pass"} : lastGate));
+        if (rc == 0) verified = haveFiles = true;
+        else {
+            if (const int f = failingTests(lastGate); f >= 0) { bestFailing = f; bestIsSeed = true; for (const auto& path : canvas.paths()) bestRevision[path] = canvas.revision(path); }
+            verdict += "\nThe tests were run on them as they stand and failed:\n" + clip(lastGate, 1500);
+            focus = lastGate;
+        }
+    }
     std::string lastReadAnswer;           // the latest read answered, kept in view when a read past the allowance is refused
     bool verdictIsRead = false;           // the verdict is a read answer (set where it is written, cleared once a message carried it)
     std::string carriedReasoning;         // the end of reasoning that ran out before an edit, shown with the next turn
@@ -257,7 +272,7 @@ int runCanvasAttempt(const AttemptContext& a)
     bool headCompiles = true;
     int staged = 0, sameStaged = 0;
     std::string lastStagedKey;
-    while (spent <= a.repairTurns) {
+    while (!verified && spent <= a.repairTurns) {
         // ---- the message: the card, the verdict, and the current revision folded to fit what the window has left ----
         // A verdict is clipped to 2,400 characters (a gate's output, a refusal), but a READ answer is what the worker asked to see: it gets the window
         // left after a minimal view of every file. Clipped like a gate output, the worker never saw the lines it read and asked again until its turns ran
@@ -508,7 +523,7 @@ int runCanvasAttempt(const AttemptContext& a)
             (void)harness->gate({"--workflow-dir", a.dir.string(), "--item", a.itemId, "--attempt", std::to_string(a.attempt), "--no-publish", "1"});   // gate.txt describes what is in out/
             lastGate = slurp(attemptDir / "gate.txt");
         } else {
-            if (failing >= 0 && (bestFailing < 0 || failing <= bestFailing)) { bestFailing = failing; for (const auto& path : canvas.paths()) bestRevision[path] = canvas.revision(path); }
+            if (failing >= 0 && (bestFailing < 0 || failing <= bestFailing)) { bestFailing = failing; bestIsSeed = false; for (const auto& path : canvas.paths()) bestRevision[path] = canvas.revision(path); }
             verdict = skippedNote + "Your files were checked by running the tests and failed:\n" + clip(lastGate, 1500);
         }
         focus = lastGate;
@@ -519,14 +534,14 @@ int runCanvasAttempt(const AttemptContext& a)
         // stays in the history; with none, the draft itself is handed on (its gate says why it fails), so the next attempt starts from it, not from nothing.
         std::string draft;
         for (const auto& path : canvas.paths()) draft += (draft.empty() ? "" : ", ") + path + " r" + std::to_string(canvas.revision(path));
-        if (bestFailing >= 0 && !bestRevision.empty()) {
+        if (bestFailing >= 0 && !bestRevision.empty() && !bestIsSeed) {
             for (const auto& [path, rev] : bestRevision) if (canvas.has(path) && canvas.revision(path) != rev) (void)canvas.revertTo(path, rev, "harness");
             persistCanvas(canvas, attemptDir);
             traceVerdict(tracePath, calls, "ended on a draft that does not compile (" + draft + ", kept in the history): the best tested revision (" + std::to_string(bestFailing) + " failing) is handed on");
-        } else if (!haveFiles) {
+        } else if (!haveFiles || bestIsSeed) {
             for (const auto& [path, textNow] : canvas.files()) (void)writeFile(out / path, textNow);
             haveFiles = true;
-            traceVerdict(tracePath, calls, "ended on a draft that does not compile (" + draft + "): no revision was tested, so the draft is handed on");
+            traceVerdict(tracePath, calls, "ended on a draft that does not compile (" + draft + "): no revision of the worker's was tested, so the draft is handed on");
         }
     }
     long fileLines = 0;
