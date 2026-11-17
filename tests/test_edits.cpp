@@ -120,6 +120,9 @@ int main()
             const std::map<std::string, std::string> conflicted = {{"src/a.js", "a\n<<<<<<< HEAD\nb1\n=======\nb2\n>>>>>>> topic\nc\n"}};
             auto merged = applyEdits("=== EDIT: src/a.js ===\n<<<<<<< SEARCH\n<<<<<<< HEAD\nb1\n=======\nb2\n>>>>>>> topic\n=======\nb1\n>>>>>>> REPLACE\n=== END EDIT ===", conflicted, al, err);
             CHECK(merged && merged->at("src/a.js") == "a\nb1\nc\n");
+            // A first line copied short names the whole line the file has.
+            CHECK(!applyEdits("=== EDIT: src/a.js ===\n<<<<<<< SEARCH\n    if (x) y();\n    w();\n=======\nz();\n>>>>>>> REPLACE\n=== END EDIT ===", {{"src/a.js", "a\n    else if (x) y();\nb\n"}}, al, err) &&
+                  err.find("line 2 of the file is `else if (x) y();`") != std::string::npos);
         }
         {   // The canvas reads a marked LINES edit the same way (tier 0 write-file: the markers were written into main.cpp and poisoned every later turn).
             const CanvasReply r = parseCanvasReply("=== EDIT: src/main.cpp LINES 67-68 ===\n    a();\n    b();\n=======\n    c();\n>>>>>>> REPLACE\n=== END EDIT ===\n");

@@ -74,6 +74,10 @@ LooseMatch findLoose(const std::string& text, const std::string& search)
     if (m.count == 0 && !firstAt.empty()) {
         m.hint = "; its first line is at line " + std::to_string(firstAt[0]) + (firstAt.size() > 1 ? " (and " + std::to_string(firstAt.size() - 1) + " more place(s))" : std::string{}) +
                  ", but the lines after it differ: copy them exactly as the file has them";
+    } else if (m.count == 0) {   // the first line copied short (a dropped `else `, seen from the 35B): name the one line that contains it
+        std::size_t found = 0, at = 0;
+        for (std::size_t i = 0; i < have.size(); ++i) if (have[i].find(want[0]) != std::string::npos) { ++found; at = i; }
+        if (found == 1) m.hint = "; line " + std::to_string(at + 1) + " of the file is `" + have[at].substr(0, 120) + "`: copy whole lines exactly as the file has them";
     }
     return m;
 }
