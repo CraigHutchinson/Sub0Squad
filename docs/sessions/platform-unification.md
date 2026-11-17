@@ -1,8 +1,8 @@
 # Follow-up session: one shared platform library for the Sub0 projects
 
-Status: in progress (2026-11-17). Name decided: **Sub0Platform** (owner, 2026-11-17). A local repository
-`D:\Craig\GitHub\Sub0Platform` holds the Python seed; the GitHub repository is not created yet (needs the org and the
-owner's go-ahead). Other decisions below still open. Evidence: a review
+Status: in progress (2026-11-17). **Sub0Platform** (owner, 2026-11-17) is public at
+https://github.com/CraigHutchinson/Sub0Platform: the Python package seeded from Sub0LlmEngine, shared conformance
+vectors, CI green on Windows and Linux. The C++ library has not moved yet. Other decisions below still open. Evidence: a review
 of the CraigHutchinson and Kismotech repositories (2026-11-16, Haiku agent, main claims re-checked against the local
 checkouts); Sub0Squad [../PLATFORM.md](../PLATFORM.md); Sub0LlmEngine `sub0llmengine/platform.py`.
 
@@ -90,8 +90,7 @@ Keep Sub0Squad's layering rule and its CMake check in the new library.
 
 ## Decisions needed from the owner
 
-1. ~~The project's name~~: Sub0Platform (decided 2026-11-17). Still open: its org (CraigHutchinson or Kismotech) and
-   visibility.
+1. ~~The project's name, org and visibility~~: Sub0Platform, CraigHutchinson, public (decided 2026-11-17).
 2. The C++ floor: C++23 with `std::expected` (Sub0Squad) or C++20 for Clang below 19 (Sub0Log's constraint); which
    Windows toolchains CI must cover (MinGW-w64 GCC and MSVC at least).
 3. Whether Sub0Log depends on it (gains process and file dependencies) or keeps its own copy of the rules.
