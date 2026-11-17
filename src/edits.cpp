@@ -164,10 +164,18 @@ std::optional<std::map<std::string, std::string>> applyEdits(const std::string& 
         for (;;) {
             const auto s0 = body.find("<<<<<<< SEARCH", b);
             if (s0 == std::string::npos) break;
-            const auto sepAt = markerLine(body, "=======", s0);
             const auto repAt = markerLine(body, ">>>>>>> REPLACE", s0);
-            if (sepAt == std::string::npos || repAt == std::string::npos || repAt < sepAt) { error = "an edit block of '" + path + "' is not closed with ======= and >>>>>>> REPLACE"; return std::nullopt; }
+            std::vector<std::size_t> seps;
+            for (auto at = markerLine(body, "=======", s0); at != std::string::npos && at < repAt; at = markerLine(body, "=======", at + 1)) seps.push_back(at);
+            if (seps.empty() || repAt == std::string::npos) { error = "an edit block of '" + path + "' is not closed with ======= and >>>>>>> REPLACE"; return std::nullopt; }
             const auto searchFrom = body.find('\n', s0) + 1;
+            // The file's own lines may include `=======` (a merge conflict being resolved, tier 0 merge-conflict): of the separators, the last whose
+            // SEARCH text is in the file is the real one.
+            std::size_t sepAt = seps.back();
+            for (auto at = seps.rbegin(); seps.size() > 1 && at != seps.rend(); ++at) {
+                const std::string s = searchFrom <= *at ? body.substr(searchFrom, *at - searchFrom) : std::string{};
+                if (!s.empty() && (text.find(s) != std::string::npos || text.find(stripNumbers(s)) != std::string::npos || findLoose(text, s).count == 1)) { sepAt = *at; break; }
+            }
             std::string search = searchFrom <= sepAt ? body.substr(searchFrom, sepAt - searchFrom) : std::string{};
             const std::size_t replFrom = body.find('\n', sepAt + 1) == std::string::npos ? repAt : body.find('\n', sepAt + 1) + 1;
             const std::string repl = replFrom <= repAt ? body.substr(replFrom, repAt - replFrom) : std::string{};

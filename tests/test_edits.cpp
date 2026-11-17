@@ -116,6 +116,10 @@ int main()
             // Markers written with indentation still close a block.
             auto indented = applyEdits("=== EDIT: src/a.js ===\n<<<<<<< SEARCH\ntwo\n =======\n2\n  >>>>>>> REPLACE\n=== END EDIT ===", f2, al, err);
             CHECK(indented && indented->at("src/a.js") == "one\n2\nthree\nfour\nfive\n");
+            // Resolving a merge conflict: the SEARCH holds the file's own ======= line; the separator is the one after it (tier 0 merge-conflict).
+            const std::map<std::string, std::string> conflicted = {{"src/a.js", "a\n<<<<<<< HEAD\nb1\n=======\nb2\n>>>>>>> topic\nc\n"}};
+            auto merged = applyEdits("=== EDIT: src/a.js ===\n<<<<<<< SEARCH\n<<<<<<< HEAD\nb1\n=======\nb2\n>>>>>>> topic\n=======\nb1\n>>>>>>> REPLACE\n=== END EDIT ===", conflicted, al, err);
+            CHECK(merged && merged->at("src/a.js") == "a\nb1\nc\n");
         }
         {   // The canvas reads a marked LINES edit the same way (tier 0 write-file: the markers were written into main.cpp and poisoned every later turn).
             const CanvasReply r = parseCanvasReply("=== EDIT: src/main.cpp LINES 67-68 ===\n    a();\n    b();\n=======\n    c();\n>>>>>>> REPLACE\n=== END EDIT ===\n");
