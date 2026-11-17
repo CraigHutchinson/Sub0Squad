@@ -42,7 +42,7 @@ int main()
         const auto free = freeDiskMiB(dir);
         CHECK(free.has_value() && *free > 0);
         CHECK(freeDiskMiB(dir / "not" / "yet" / "created").has_value());   // the nearest existing parent decides
-        removeTree(dir);
+        ::removeTree(dir);   // check.hpp's, which retries; platform::removeTree is also in scope
         if (const auto g = gpu()) CHECK(g->vramTotalMiB >= 0);   // optional: most build hosts have none
     }
     return finish();

@@ -61,7 +61,7 @@ int main()
             if (stamp) CHECK(!isAlive(c->id(), *stamp));
             CHECK(!terminateProcess(0));
         }
-        removeTree(dir);
+        ::removeTree(dir);   // check.hpp's, which retries; platform::removeTree is also in scope
     }
     {   // the environment is inherited by children started afterwards
         setEnvironment("SUB0SQUAD_PLATFORM_PROC_TEST", "yes");

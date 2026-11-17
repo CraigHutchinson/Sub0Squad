@@ -124,6 +124,9 @@ std::expected<std::vector<WaitEvent>, PlatformError> Waiter::wait(std::optional<
     std::vector<WaitEvent> out;
     for (;;) {
         // The sockets as they are now. The event is reset first, so a change after the look still ends the wait below.
+        // Two looks, merged: WSAPoll (the state now) and the network events Winsock recorded for each socket since the last look. WSAPoll alone
+        // missed a connection pending on an AF_UNIX listener on Windows Server 2022 (the GitHub runners): one that arrived before the first wait
+        // had its only signal cleared by the reset, and Winsock records FD_ACCEPT again only after an accept, so the daemon never answered.
         if (!state_->sockets.empty()) {
             ::ResetEvent(state_->socketEvent.get());
             std::vector<WSAPOLLFD> fds;
@@ -132,9 +135,14 @@ std::expected<std::vector<WaitEvent>, PlatformError> Waiter::wait(std::optional<
                 fds.push_back(WSAPOLLFD{s, static_cast<SHORT>((w.read ? POLLRDNORM : 0) | (w.write ? POLLWRNORM : 0)), 0});
             if (::WSAPoll(fds.data(), static_cast<ULONG>(fds.size()), 0) == SOCKET_ERROR) return std::unexpected(win32::socketError("look at the sockets"));
             for (const auto& f : fds) {
-                if (f.revents == 0) continue;
-                out.push_back(WaitEvent{.kind = WaitEvent::Kind::socket, .tag = state_->sockets[f.fd].tag, .readable = (f.revents & POLLRDNORM) != 0,
-                                        .writable = (f.revents & POLLWRNORM) != 0, .hangup = (f.revents & (POLLHUP | POLLERR | POLLNVAL)) != 0});
+                const auto& w = state_->sockets[f.fd];
+                WSANETWORKEVENTS recorded{};
+                const long seen = ::WSAEnumNetworkEvents(f.fd, nullptr, &recorded) == 0 ? recorded.lNetworkEvents : 0;
+                const bool readable = (f.revents & POLLRDNORM) != 0 || (w.read && (seen & (FD_READ | FD_ACCEPT | FD_CLOSE)) != 0);
+                const bool writable = (f.revents & POLLWRNORM) != 0 || (w.write && (seen & FD_WRITE) != 0);
+                const bool hangup = (f.revents & (POLLHUP | POLLERR | POLLNVAL)) != 0 || (seen & FD_CLOSE) != 0;
+                if (readable || writable || hangup)
+                    out.push_back(WaitEvent{.kind = WaitEvent::Kind::socket, .tag = w.tag, .readable = readable, .writable = writable, .hangup = hangup});
             }
         }
 

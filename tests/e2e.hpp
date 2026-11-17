@@ -42,6 +42,8 @@ public:
         daemon_ = std::move(*child);
         for (int i = 0; i < 500; ++i) { if (cli({"ping"}).exitCode == 0) return; sleepMs(10); }
         CHECK(false && "daemon did not come up");
+        // Say why: the last ping's own words and the daemon's log (the home is removed with the test, so this is the only record).
+        std::fprintf(stderr, "ping: %s\ndaemon.log:\n%s\n", cli({"ping"}, true).out.c_str(), slurp(home_ / "daemon.log").c_str());
     }
     /// Ask the daemon to stop (SIGTERM; on Windows its stop event) and wait for it.
     void stopDaemon() { if (daemon_.id() > 0) { (void)sub0squad::platform::terminateProcess(daemon_.id()); (void)daemon_.wait(); daemon_ = {}; } }

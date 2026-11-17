@@ -133,6 +133,6 @@ int main()
     {   // a spec with an output file cannot also be captured
         CHECK(!runCaptured(ProcessSpec{.argv = {kChild, "exit", "0"}, .outputFile = dir / "x.txt"}).has_value());
     }
-    removeTree(dir);
+    ::removeTree(dir);   // check.hpp's, which retries; platform::removeTree is also in scope
     return finish();
 }

@@ -97,6 +97,34 @@ int main()
             }
         }
     }
+    {   // a socket path longer than sockaddr_un's 107 bytes (a deep worktree, a long temp directory): POSIX reaches it through /proc/self/fd, Windows
+        // moves it to a short stable name; either way a daemon and its client meet
+        const auto deep = dir / std::string(120, 'd');
+        std::filesystem::create_directories(deep);
+        const auto path = deep / "control.sock";
+        CHECK(path.string().size() > 107);
+        const auto file = localSocketFile(path);
+        CHECK(file.has_value() && localSocketFile(path).value_or(std::filesystem::path{}) == *file);   // stable: the client computes the same name as the daemon
+        if (file) CHECK(*file == path || file->string().size() <= 107);
+        auto missing = connectLocal(path);
+        CHECK(!missing.has_value() && missing.error().noServer);
+        {   // in its own scope: the listener is closed before the moved name is removed
+            auto l = listenLocal(path);
+            CHECK(l.has_value());
+            if (l) {
+                auto c = connectLocal(path);
+                CHECK(c.has_value());
+                if (!c) std::fprintf(stderr, "connect to the moved name %s: %s\n", file ? file->string().c_str() : "?", c.error().error.message.c_str());
+                auto a = l->accept(5s);
+                CHECK(a.has_value() && a->has_value());
+                if (c && a && *a) {
+                    CHECK(c->writeAll("deep").has_value());
+                    CHECK(readAll(**a, 4) == "deep");
+                }
+            }
+        }
+        if (file && *file != path) CHECK(sub0squad::platform::removeTree(*file).has_value());   // the moved name is outside `dir`
+    }
     {   // the instance lock: the first taker has it, a second does not, and it is free again once released
         const auto path = dir / "instance.lock";
         auto first = FileLock::tryExclusive(path);
@@ -108,6 +136,10 @@ int main()
         CHECK(third.has_value() && third->has_value());
         CHECK(!FileLock::tryExclusive(dir / "no" / "such" / "dir" / "lock").has_value());
     }
-    removeTree(dir);
+    {   // the tree still holds the local socket's file: removing it opens no file (std::filesystem::remove_all blocked on one for ever on
+        // Windows Server 2022), and a tree that is already gone is success
+        CHECK(sub0squad::platform::removeTree(dir).has_value() && !std::filesystem::exists(dir));
+        CHECK(sub0squad::platform::removeTree(dir).has_value());
+    }
     return finish();
 }

@@ -140,6 +140,44 @@ std::expected<std::size_t, PlatformError> readSome(int descriptor, char* buffer,
 
 const char* nullDevice() { return "NUL"; }
 
+namespace {
+
+/// One entry and, for a real directory, what is under it. A reparse point (a socket, a link) is removed itself, never followed or opened.
+void removeEntry(const std::wstring& path, DWORD attributes, std::optional<PlatformError>& first)
+{
+    const auto fail = [&](const char* what) { if (!first) first = win32::lastError(std::string{what} + " " + win32::narrow(path)); };
+    if (attributes & FILE_ATTRIBUTE_READONLY) ::SetFileAttributesW(path.c_str(), attributes & ~static_cast<DWORD>(FILE_ATTRIBUTE_READONLY));
+    if ((attributes & FILE_ATTRIBUTE_DIRECTORY) && !(attributes & FILE_ATTRIBUTE_REPARSE_POINT)) {
+        WIN32_FIND_DATAW found{};
+        const HANDLE h = ::FindFirstFileW((path + L"\\*").c_str(), &found);
+        if (h != INVALID_HANDLE_VALUE) {
+            do {
+                const std::wstring_view name = found.cFileName;
+                if (name != L"." && name != L"..") removeEntry(path + L"\\" + found.cFileName, found.dwFileAttributes, first);
+            } while (::FindNextFileW(h, &found));
+            ::FindClose(h);
+        }
+        if (!::RemoveDirectoryW(path.c_str())) fail("remove the directory");
+    } else if (attributes & FILE_ATTRIBUTE_DIRECTORY) {
+        if (!::RemoveDirectoryW(path.c_str())) fail("remove the link");   // a directory link or junction: the link goes, its target stays
+    } else if (!::DeleteFileW(path.c_str())) {
+        fail("remove");
+    }
+}
+
+}  // namespace
+
+std::expected<void, PlatformError> removeTree(const fs::path& path)
+{
+    const std::wstring p = path.wstring();
+    const DWORD attributes = ::GetFileAttributesW(p.c_str());
+    if (attributes == INVALID_FILE_ATTRIBUTES) return {};   // nothing there
+    std::optional<PlatformError> first;
+    removeEntry(p, attributes, first);
+    if (first) return std::unexpected(*first);
+    return {};
+}
+
 std::error_code detail::replaceFile(const fs::path& from, const fs::path& to)
 {
     if (::MoveFileExW(from.c_str(), to.c_str(), MOVEFILE_REPLACE_EXISTING)) return {};

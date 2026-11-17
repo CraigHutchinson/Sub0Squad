@@ -54,6 +54,8 @@ std::optional<ucred> credentials(const SocketStream& s)
 
 }  // namespace
 
+std::expected<std::filesystem::path, PlatformError> localSocketFile(const std::filesystem::path& path) { return path; }   // /proc/self/fd: any length
+
 std::expected<SocketListener, PlatformError> listenLocal(const std::filesystem::path& path)
 {
     auto a = addressOf(path);

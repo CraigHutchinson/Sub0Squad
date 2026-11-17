@@ -25,6 +25,11 @@ namespace sub0squad::platform {
 /// temporary file is flushed to the device before the rename, so after a crash the file holds the old content or the whole new one.
 [[nodiscard]] std::expected<void, PlatformError> writeFileAtomic(const std::filesystem::path& path, std::string_view text, bool durable = false);
 
+/// Remove `path` and everything under it, opening no file: a local socket (an AF_UNIX reparse point on Windows) cannot be opened, and
+/// std::filesystem::remove_all blocked on one for ever on Windows Server 2022. A missing `path` is success. The error names the first entry that
+/// could not be removed; the rest is still attempted.
+[[nodiscard]] std::expected<void, PlatformError> removeTree(const std::filesystem::path& path);
+
 /// The path of the device that discards what is written to it ("/dev/null", "NUL"), for a tool's output argument.
 [[nodiscard]] const char* nullDevice();
 

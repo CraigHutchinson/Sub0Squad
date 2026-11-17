@@ -131,6 +131,14 @@ std::expected<std::size_t, PlatformError> readSome(int descriptor, char* buffer,
 
 const char* nullDevice() { return "/dev/null"; }
 
+std::expected<void, PlatformError> removeTree(const fs::path& path)
+{
+    std::error_code ec;
+    fs::remove_all(path, ec);   // POSIX removes a socket file by name (unlink), without opening it
+    if (ec) return std::unexpected(PlatformError{"remove " + path.string(), ec.value(), "cannot remove " + path.string() + ": " + ec.message()});
+    return {};
+}
+
 std::error_code detail::replaceFile(const fs::path& from, const fs::path& to)
 {
     if (::rename(from.c_str(), to.c_str()) == 0) return {};

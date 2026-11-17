@@ -91,6 +91,6 @@ int main()
         CHECK(got == "frame");
         CHECK(!writeAll(-1, "x").has_value());
     }
-    removeTree(dir);
+    ::removeTree(dir);   // check.hpp's, which retries; platform::removeTree is also in scope
     return finish();
 }
