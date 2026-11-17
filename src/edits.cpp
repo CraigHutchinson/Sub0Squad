@@ -29,8 +29,9 @@ std::string stripNumbers(const std::string& block)
     return out;
 }
 
-/// Where a SEARCH text matches when indentation and trailing spaces are ignored: the byte range of the whole lines it covers.
-struct LooseMatch { int count = 0; std::size_t from = 0, to = 0; std::string hint; };
+/// Where a SEARCH text matches when indentation and trailing spaces are ignored: the byte range of the whole lines it covers. `dropped` is the start
+/// of the first line that the SEARCH left out (`else `), to be put back on the replacement.
+struct LooseMatch { int count = 0; std::size_t from = 0, to = 0; std::string hint, dropped; };
 
 std::string trimmedLine(std::string_view s)
 {
@@ -70,6 +71,20 @@ LooseMatch findLoose(const std::string& text, const std::string& search)
         if (std::equal(want.begin(), want.end(), have.begin() + static_cast<std::ptrdiff_t>(i))) {
             if (++m.count == 1) { m.from = starts[i]; m.to = starts[i + want.size()]; }
         }
+    }
+    if (m.count == 0 && want.size() > 1) {
+        // The first line copied without its start (`if (eat('/'))` for `else if (eat('/'))`, the 35B in two runs of three) while the lines after it
+        // match: a one-line SEARCH matches such a tail already (a substring), so a longer one does too when exactly one place fits. The start must
+        // end at a word boundary.
+        int fits = 0;
+        for (std::size_t i = 0; i + want.size() <= have.size(); ++i) {
+            const std::string& h = have[i];
+            if (h.size() <= want[0].size() || h.compare(h.size() - want[0].size(), want[0].size(), want[0]) != 0 || h[h.size() - want[0].size() - 1] != ' ') continue;
+            if (!std::equal(want.begin() + 1, want.end(), have.begin() + static_cast<std::ptrdiff_t>(i) + 1)) continue;
+            if (++fits == 1) { m.from = starts[i]; m.to = starts[i + want.size()]; m.dropped = h.substr(0, h.size() - want[0].size()); }
+        }
+        if (fits == 1) { m.count = 1; return m; }
+        m.dropped.clear();
     }
     if (m.count == 0 && !firstAt.empty()) {
         m.hint = "; its first line is at line " + std::to_string(firstAt[0]) + (firstAt.size() > 1 ? " (and " + std::to_string(firstAt.size() - 1) + " more place(s))" : std::string{}) +
@@ -182,7 +197,7 @@ std::optional<std::map<std::string, std::string>> applyEdits(const std::string& 
             }
             std::string search = searchFrom <= sepAt ? body.substr(searchFrom, sepAt - searchFrom) : std::string{};
             const std::size_t replFrom = body.find('\n', sepAt + 1) == std::string::npos ? repAt : body.find('\n', sepAt + 1) + 1;
-            const std::string repl = replFrom <= repAt ? body.substr(replFrom, repAt - replFrom) : std::string{};
+            std::string repl = replFrom <= repAt ? body.substr(replFrom, repAt - replFrom) : std::string{};
             b = repAt + 1;
             if (search.empty()) { error = "an edit of '" + path + "' has an empty SEARCH"; return std::nullopt; }
             const std::string searchPlain = stripNumbers(search);
@@ -192,6 +207,10 @@ std::optional<std::map<std::string, std::string>> applyEdits(const std::string& 
                 // Tolerant: the same lines with other indentation or trailing spaces (a small model rarely copies whitespace exactly). One place only.
                 const LooseMatch loose = findLoose(text, search);
                 if (loose.count == 1) {   // whole lines are replaced: the new text keeps the line end the matched lines had (an empty one deletes them)
+                    if (!loose.dropped.empty()) {   // the start the SEARCH left out goes back on the replacement's first line, unless it is there already
+                        const std::size_t first = repl.find_first_not_of(" \t\r\n");
+                        if (first != std::string::npos && repl.compare(first, loose.dropped.size(), loose.dropped) != 0) repl.insert(first, loose.dropped);
+                    }
                     const bool lineEnd = text[loose.to - 1] == '\n';
                     text.replace(loose.from, loose.to - loose.from, lineEnd && !repl.empty() && repl.back() != '\n' ? repl + "\n" : repl);
                     ++applied;

@@ -120,6 +120,12 @@ int main()
             const std::map<std::string, std::string> conflicted = {{"src/a.js", "a\n<<<<<<< HEAD\nb1\n=======\nb2\n>>>>>>> topic\nc\n"}};
             auto merged = applyEdits("=== EDIT: src/a.js ===\n<<<<<<< SEARCH\n<<<<<<< HEAD\nb1\n=======\nb2\n>>>>>>> topic\n=======\nb1\n>>>>>>> REPLACE\n=== END EDIT ===", conflicted, al, err);
             CHECK(merged && merged->at("src/a.js") == "a\nb1\nc\n");
+            // A multi-line SEARCH whose first line lost its start (`else `, tier 0 fix-missing-check): one place fits, the start goes back on.
+            const std::map<std::string, std::string> chain = {{"src/a.js", "    if (a) x();\n    else if (b) y();\n    else z();\n"}};
+            auto tail = applyEdits("=== EDIT: src/a.js ===\n<<<<<<< SEARCH\n    if (b) y();\n    else z();\n=======\n    if (b) { y(); w(); }\n    else z();\n>>>>>>> REPLACE\n=== END EDIT ===", chain, al, err);
+            CHECK(tail && tail->at("src/a.js") == "    if (a) x();\n    else if (b) { y(); w(); }\n    else z();\n");
+            auto kept = applyEdits("=== EDIT: src/a.js ===\n<<<<<<< SEARCH\n    if (b) y();\n    else z();\n=======\n    else if (b) q();\n    else z();\n>>>>>>> REPLACE\n=== END EDIT ===", chain, al, err);
+            CHECK(kept && kept->at("src/a.js") == "    if (a) x();\n    else if (b) q();\n    else z();\n");   // a replacement that kept the start is left alone
             // A first line copied short names the whole line the file has.
             CHECK(!applyEdits("=== EDIT: src/a.js ===\n<<<<<<< SEARCH\n    if (x) y();\n    w();\n=======\nz();\n>>>>>>> REPLACE\n=== END EDIT ===", {{"src/a.js", "a\n    else if (x) y();\nb\n"}}, al, err) &&
                   err.find("line 2 of the file is `else if (x) y();`") != std::string::npos);
