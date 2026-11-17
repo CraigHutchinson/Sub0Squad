@@ -381,12 +381,23 @@ What this shows, and what it does not:
   ran with the layer on. The shim now passes `SUB0SQUAD_ISSUE_LAYER` through (commit "Shim: pass SUB0SQUAD_ISSUE_LAYER through"), and those runs are not
   counted here.
 
+**After both fixes (re-run, build `0.0.0-162-g2f52498`).** The applier fix (origin/main ea1feb3: a REPLACE takes the matched lines' indentation) and the
+localiser fix (an operator character points at a block only when one block holds it) were applied, and bugs-10 was run again with the layer on, three runs:
+
+| bugs-10, layer on | turns per run | defects/turn | first attempt | changed/ideal lines per run (collateral) |
+|---|---|---|---|---|
+| before the fixes | 1 4 3 | 3.75 | 3/3 | 10/10; 105/10 (45); 14/10 |
+| after the fixes | 3 5 3 | 2.73 | 2/3 | 10/10; 21/10 (6); 10/10 |
+
+The collateral is gone: the worst run went from 105 changed lines to 21. Defects per turn moved from 3.75 to 2.73, which is still above the off arm's 2.31
+and still within the noise at n = 3; the one run that needed a second attempt accounts for most of the drop. Read it as: the quality regression was the
+applier and the localiser, and both are fixed.
+
 Next, from this:
 * **Switch the layer on adaptively.** Use the summary only when the gate's text would be clipped, or when more than about 3 failures are listed;
   otherwise send the gate's own text. bugs-3 and fix-many would then behave exactly as in the off arm. This is one more A/B arm.
 * **Put the detail inline.** Show the first N issues (about 3) in full, with their code, under the summary instead of waiting for READ ISSUE, which was
   used once in 12 runs.
-* **Tighten the localiser.** Never point on punctuation alone (see the trace above).
-* **Fix the edit applier.** It should re-indent a REPLACE that matched while ignoring indentation (a separate edits fix that both arms benefit from).
+* Done since: the localiser no longer points on a shared operator, and the applier re-indents a REPLACE (origin/main ea1feb3); see the re-run above.
 * **Measure with five runs per arm.** Read nothing into a gap smaller than about 30%. At n = 3 and temperature 0.7, this table is suggestive, not
   significant.
