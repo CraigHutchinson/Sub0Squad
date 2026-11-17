@@ -416,6 +416,100 @@ function drawDrawer(){
   setInner($('dA'),a);setInner($('dB'),b);setInner($('dC'),c);
   const vw=document.querySelector('pre.viewer');if(vw&&sel&&sel.type=='file'&&fileView&&fileView.follow&&atEnd)vw.scrollTop=vw.scrollHeight;
 }
+// ================= canvas viewer =================
+// The shared document an item's worker edits (the canvas and fork executors). Each attempt keeps `canvas.json` (each file's revision count and the
+// log of who changed which lines) and `canvas/<path, / as _>.rN` (the text of every revision) in its directory, rewritten at every commit. The view
+// re-reads the log every second, shows one file at one revision with the lines that revision changed marked, the log newest first, and the turn in
+// flight: `live.txt` (the canvas worker's streaming turn) and links to the transcripts (one per section for the fork).
+let view='overview';
+const cv={auto:true,pick:null,file:null,rev:0,follow:true,log:null,logText:null,texts:new Map(),live:null,shown:null};
+function setView(v){
+  view=v==='canvas'?'canvas':'overview';
+  $('v-overview').style.display=view==='overview'?'':'none';$('v-canvas').style.display=view==='canvas'?'':'none';
+  for(const b of $('tabs').children)b.classList.toggle('on',b.getAttribute('data-v')===view);
+  try{history.replaceState(null,'',view==='canvas'?'#canvas':location.pathname+location.search)}catch(e){}
+  if(view==='canvas'){loadPkg(true);tickCanvas()}}
+// every attempt with a canvas, in the plan's item order, then by attempt
+function canvasList(){
+  const wf=currentWf(),order=(wf&&wf.items||[]).map(i=>i.id),out=[];
+  for(const f of (pkg&&pkg.files)||[]){const m=/^items\/([^/]+)\/attempt-(\d+)\/canvas\.json$/.exec(f.p);if(m)out.push({item:m[1],attempt:+m[2],dir:'items/'+m[1]+'/attempt-'+m[2]})}
+  return out.sort((a,b)=>(order.indexOf(a.item)-order.indexOf(b.item))||a.attempt-b.attempt)}
+// "auto" follows the newest attempt of a running item, else the newest attempt overall
+function autoPick(list){
+  const wf=currentWf(),running=new Set((wf&&wf.items||[]).filter(i=>i.status==='running').map(i=>i.id));
+  const pool=list.filter(c=>running.has(c.item)),src=pool.length?pool:list;
+  return src.length?src.reduce((a,b)=>b.attempt>=a.attempt?b:a):null}
+async function sandboxText(wf,p,tail){
+  const r=await fetch('/api/file?wf='+encodeURIComponent(wf)+'&p='+encodeURIComponent(p)+(tail?'&tail='+tail:''),{cache:'no-store'});
+  return r.ok?await r.text():null}
+const revPath=(dir,file,rev)=>dir+'/canvas/'+file.replace(/\//g,'_')+'.r'+rev;
+async function tickCanvas(){
+  if(view!=='canvas'||document.hidden||busy.canvas)return;const wf=currentWf();if(!wf)return;busy.canvas=true;
+  try{
+    const list=canvasList();
+    if(cv.auto||!list.some(c=>c.dir===cv.pick)){const a=autoPick(list);const p=a?a.dir:null;if(p!==cv.pick){cv.pick=p;cv.file=null;cv.log=null;cv.logText=null;cv.live=null}}
+    renderCanvasPick(list);
+    if(!cv.pick){renderCanvas();return}
+    const t=await sandboxText(wf.id,cv.pick+'/canvas.json');
+    if(t!==cv.logText){cv.logText=t;try{cv.log=t?JSON.parse(t):null}catch(e){cv.log=null}}   // a half-written log is read again next second
+    const files=cv.log?Object.keys(cv.log.files||{}):[];
+    if(files.length){
+      if(!files.includes(cv.file)){const lastEntry=last(cv.log.log||[]);cv.file=lastEntry&&files.includes(lastEntry.path)?lastEntry.path:files[0]}
+      const n=cv.log.files[cv.file];if(cv.follow||cv.rev<1||cv.rev>n)cv.rev=n;
+      for(const rev of cv.rev>1?[cv.rev,cv.rev-1]:[cv.rev]){   // the shown revision and the one before it (to mark what really changed)
+        const key=wf.id+'|'+revPath(cv.pick,cv.file,rev);
+        if(!cv.texts.has(key)){const text=await sandboxText(wf.id,revPath(cv.pick,cv.file,rev));if(text!=null){if(cv.texts.size>300)cv.texts.clear();cv.texts.set(key,text)}}}
+    }
+    cv.live=await sandboxText(wf.id,cv.pick+'/live.txt',8000);
+    renderCanvas();
+  }catch(e){setText($('cv-livenote'),'canvas unreachable: '+e)}
+  finally{busy.canvas=false}}
+function renderCanvasPick(list){
+  setInner($('cv-pick'),`<option value="">auto: the running item${cv.auto&&cv.pick?' ('+esc(cv.pick.replace(/^items\//,''))+')':''}</option>`+
+    list.map(c=>`<option value="${esc(c.dir)}"${!cv.auto&&c.dir===cv.pick?' selected':''}>${esc(c.item)} · attempt ${c.attempt}</option>`).join(''));
+  if(cv.auto)$('cv-pick').value=''}
+function renderCanvas(){
+  if(frozen())return;
+  const L=cv.log,files=L?Object.keys(L.files||{}):[],n=L&&cv.file?L.files[cv.file]:0,log=(L&&L.log)||[];
+  setInner($('cv-files'),files.map(f=>`<button class="btn${f===cv.file?'':' opt'}" data-f="${esc(f)}">${esc(f)} <span class="mute">r${L.files[f]}</span></button>`).join(''));
+  const r=$('cv-rev');r.max=String(Math.max(1,n));r.value=String(Math.max(1,cv.rev));r.disabled=n<=1;
+  setText($('cv-revl'),n?cv.rev+' of '+n:'');
+  // The span the shown revision changed, in its own numbering. With the previous revision's text: the lines between the common head and tail (a
+  // whole-file replacement by the harness then marks only what differs; the base a section worked from may be older, and diffing against it would mark
+  // the other sections' commits too). Without it, the log's span: from..to+delta (an insertion has to == from - 1). No line left: lines cut at `a`.
+  const e=log.filter(x=>x.path===cv.file&&x.revision===cv.rev).pop();
+  const wf=currentWf(),textOf=rev=>cv.pick&&cv.file&&wf?cv.texts.get(wf.id+'|'+revPath(cv.pick,cv.file,rev)):null;
+  const text=textOf(cv.rev),baseText=e?textOf(cv.rev-1):null;
+  let a=0,b=-1,cut=0;
+  if(e&&text!=null&&baseText!=null){
+    const nl=text.replace(/\n$/,'').split('\n'),ol=baseText.replace(/\n$/,'').split('\n');let h=0,t=0;
+    while(h<nl.length&&h<ol.length&&nl[h]===ol[h])++h;
+    while(t<nl.length-h&&t<ol.length-h&&nl[nl.length-1-t]===ol[ol.length-1-t])++t;
+    a=h+1;b=nl.length-t}
+  else if(e){a=e.from;b=e.to+e.delta}
+  if(e&&b<a&&text!==baseText)cut=a;
+  const html=!cv.pick?`<span class="mute">${canvasList().length?'':'No canvas in this workflow yet: one appears when a canvas or fork worker starts an item.'}</span>`
+    :text==null?'<span class="mute">loading…</span>'
+    :text.replace(/\n$/,'').split('\n').map((s,i)=>{const k=i+1;return `<div class="ln${k>=a&&k<=b?' ch':''}${k===cut?' cut':''}"><i>${k}</i>${esc(s)||' '}</div>`}).join('');
+  const changed=setInner($('cv-code'),html);
+  setText($('cv-note'),!e?(cv.rev===1?'revision 1: the document the worker started from (the scaffold, the skeleton or the best earlier attempt)':'')
+    :`revision ${e.revision} of ${e.path}, by ${e.by}: ${b<a?(text===baseText?'no line changed (the same text committed again)':'lines cut before line '+a):'lines '+a+'–'+b+' changed'}${e.delta?' ('+(e.delta>0?'+':'')+e.delta+' lines)':''}, from revision ${e.base}`);
+  // bring the change into view once per revision shown, not on every refresh (the reader may have scrolled)
+  const shownKey=cv.pick+'|'+cv.file+'|'+cv.rev;
+  if(changed&&cv.shown!==shownKey&&text!=null){cv.shown=shownKey;const c=$('cv-code'),ch=c.querySelector('.ch,.cut');if(ch&&ch.offsetTop!=null)c.scrollTop=Math.max(0,ch.offsetTop-c.offsetTop-c.clientHeight/3)}
+  setInner($('cv-log'),log.slice(-80).reverse().map(x=>`<div data-f="${esc(x.path)}" data-r="${x.revision}"${x.path===cv.file&&x.revision===cv.rev?' class="on"':''}>r${x.revision} <code>${esc(x.path)}</code> <span class="mute">by</span> ${esc(x.by)} <span class="mute">lines ${x.from}–${x.to}${x.delta?' ('+(x.delta>0?'+':'')+x.delta+')':''}</span></div>`).join('')
+    ||'<span class="mute">no change yet: the document is as the worker started it</span>');
+  const convs=((pkg&&pkg.files)||[]).map(f=>f.p).filter(p=>cv.pick&&p.startsWith(cv.pick+'/')&&/\/conversation[^/]*\.md$/.test(p)).sort();
+  setInner($('cv-convs'),convs.map(p=>fl(p,'▶ '+p.slice(cv.pick.length+1))).join(' · '));
+  setText($('cv-livenote'),cv.live?'the turn streaming now (live.txt, the last 8 KB)':cv.pick?'nothing streaming (the fork streams into each section\'s transcript)':'');
+  const lv=$('cv-live'),atEnd=lv.scrollTop+lv.clientHeight>=lv.scrollHeight-8;
+  setText(lv,cv.live||'');if(atEnd)lv.scrollTop=lv.scrollHeight}
+$('tabs').addEventListener('click',ev=>{const b=ev.target.closest('button');if(b)setView(b.getAttribute('data-v'))});
+$('cv-pick').addEventListener('change',ev=>{const v=ev.target.value;cv.auto=!v;if(v){cv.pick=v;cv.file=null;cv.log=null;cv.logText=null;cv.live=null}cv.follow=true;$('cv-follow').checked=true;tickCanvas()});
+$('cv-files').addEventListener('click',ev=>{const b=ev.target.closest('button');if(b){cv.file=b.getAttribute('data-f');cv.rev=0;tickCanvas()}});
+$('cv-rev').addEventListener('input',ev=>{cv.rev=+ev.target.value;cv.follow=false;$('cv-follow').checked=false;tickCanvas()});
+$('cv-follow').addEventListener('change',ev=>{cv.follow=ev.target.checked;tickCanvas()});
+$('cv-log').addEventListener('click',ev=>{const d=ev.target.closest('div[data-r]');if(d){cv.file=d.getAttribute('data-f');cv.rev=+d.getAttribute('data-r');cv.follow=false;$('cv-follow').checked=false;tickCanvas()}});
 // ================= polling: one request in flight per endpoint, a 5 s timeout, nothing while the tab is hidden =================
 const busy={};
 async function poll(name,url,apply){
@@ -437,5 +531,6 @@ $('graph').addEventListener('click',ev=>{const n=ev.target.closest('.node');if(n
 $('nodes').addEventListener('click',ev=>{const r=ev.target.closest('tr');if(r)openDrawer({type:'node',key:r.getAttribute('data-k')})});
 document.addEventListener('click',ev=>{const a=ev.target.closest('.flink');if(a){ev.preventDefault();openFile(a.dataset.p)}});
 document.addEventListener('selectionchange',()=>{if(!frozen()){renderLive();render()}});
-document.addEventListener('visibilitychange',()=>{if(!document.hidden){tickState();tickLive()}});
-tickState();tickLive();setInterval(tickState,2000);setInterval(tickLive,1000);setInterval(tickFile,1500);
+document.addEventListener('visibilitychange',()=>{if(!document.hidden){tickState();tickLive();tickCanvas()}});
+if(location.hash==='#canvas')setView('canvas');   // a link or a reload keeps the canvas view
+tickState();tickLive();setInterval(tickState,2000);setInterval(tickLive,1000);setInterval(tickFile,1500);setInterval(tickCanvas,1000);

@@ -37,10 +37,24 @@ code{font-size:12px;word-break:break-all}
 .btn{font:inherit;cursor:pointer;border:1px solid var(--accent);color:var(--accent);background:none;border-radius:6px;padding:2px 10px;margin:2px 6px 2px 0}.btn.warn{border-color:var(--failed);color:var(--failed)}.btn.opt{border-color:var(--line);color:var(--mute)}
 .addform label{display:inline-block;margin-right:12px;font-size:13px}.node.blocked rect.box{stroke-dasharray:6 4}
 .reqline{margin:2px 0}.triage{border-left:3px solid var(--warn);padding:2px 8px;margin:6px 0;font-size:13px}.triage.fatal{border-left-color:var(--failed)}.triage.guidance{border-left-color:var(--accepted)}.offline .btn{opacity:.4;pointer-events:none}.warnbar{border:1px solid var(--warn);color:var(--warn);border-radius:6px;padding:4px 8px;margin:6px 0;font-size:13px}
+.tabs{display:flex;gap:4px}.tabs button{font:inherit;cursor:pointer;background:none;border:1px solid var(--line);color:var(--mute);border-radius:6px;padding:2px 12px}.tabs button.on{border-color:var(--accent);color:var(--accent);font-weight:600}
+.cvbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap}.cvbar select{font:inherit;background:var(--bg);color:var(--ink);border:1px solid var(--line);border-radius:6px;padding:2px 6px;max-width:100%}.cvbar input[type=range]{vertical-align:middle;width:min(260px,60vw)}
+pre.code{margin:0;font-size:12px;line-height:1.5;max-height:76vh;overflow:auto;border:1px solid var(--line);border-radius:6px;padding:4px 0;tab-size:4}
+pre.code .ln{white-space:pre-wrap;word-break:break-word;padding:0 8px 0 4.2em;text-indent:-3.6em}pre.code .ln i{display:inline-block;width:3em;margin-right:.6em;text-align:right;color:var(--mute);font-style:normal;text-indent:0;user-select:none}
+pre.code .ln.ch{background:color-mix(in srgb,var(--running) 16%,transparent)}pre.code .ln.cut{box-shadow:inset 0 2px 0 var(--failed)}
+.cvlog div{padding:2px 4px;border-bottom:1px solid var(--line);font-size:13px;cursor:pointer}.cvlog div:hover,.cvlog div.on{background:var(--bg)}
 @media(min-width:900px){main{grid-template-columns:3fr 2fr}.wide{grid-column:1/-1}}
 </style></head><body>
-<header><h1>Sub0Squad portal</h1><span class="mute" title="Small work: be the expert and do it best. Larger work: divide it well and make sure the separation and the interactions hold. The squad is part of your team.">Many small minds, one whole solution.</span><span id="asof" class="mute">connecting…</span><span class="mute">read-only · loopback · live 1 s · click anything for detail</span></header>
-<main>
+<header><h1>Sub0Squad portal</h1><span class="mute" title="Small work: be the expert and do it best. Larger work: divide it well and make sure the separation and the interactions hold. The squad is part of your team.">Many small minds, one whole solution.</span><span id="asof" class="mute">connecting…</span><span class="mute">read-only · loopback · live 1 s · click anything for detail</span><nav class="tabs" id="tabs"><button data-v="overview" class="on">Overview</button><button data-v="canvas">Canvas</button></nav></header>
+<main id="v-canvas" style="display:none">
+<section class="card wide"><div class="cvbar"><b>Canvas</b> <select id="cv-pick" aria-label="item and attempt"></select><span id="cv-files"></span>
+<label class="mute">revision <input type="range" id="cv-rev" min="1" max="1" value="1"> <span id="cv-revl"></span></label><label class="mute"><input type="checkbox" id="cv-follow" checked> follow the latest</label></div>
+<div class="mute" id="cv-note" style="margin-top:6px">the shared document a canvas or fork worker edits, live: every revision is kept, and the lines the shown revision changed are marked</div></section>
+<section class="card"><pre class="code" id="cv-code"></pre></section>
+<section class="card"><b>Revisions</b> <span class="mute">newest first; click one to show it</span><div class="cvlog" id="cv-log"></div>
+<div style="margin-top:10px"><b>In flight</b> <span class="mute" id="cv-livenote"></span></div><div id="cv-convs"></div><pre class="viewer" id="cv-live" style="max-height:40vh"></pre></section>
+</main>
+<main id="v-overview">
 <section class="card wide"><div class="kpis" id="kpis"></div></section>
 <section class="card wide" id="intent"><b>Intent</b> <span class="mute">what was asked, what was added or decided since, and what is waiting for an answer</span>
 <div id="in-req"></div>

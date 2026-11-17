@@ -70,6 +70,19 @@ int main(int, char** argv)
         const std::string out1 = slurp(item / "attempt-1" / "out" / "src" / "calc.cpp");
         CHECK(out1.find("v = v / d;") != std::string::npos && out1.find("return 0.0;\n    }\n\n    double unary") == std::string::npos);
         CHECK(slurp(item / "attempt-1" / "gate.txt").rfind("GATE FAIL: 1 of 16 tests failed", 0) == 0);
+        // Undoing the round added a revision by the harness, not a rewind: the worse revision is still in the history, and the log counts every revision kept.
+        const std::string log1 = slurp(item / "attempt-1" / "canvas.json");
+        CHECK(log1.find("\"by\":\"harness\"") != std::string::npos);
+        int revisions1 = 0;
+        bool worseKept = false;
+        for (const auto& e : fs::directory_iterator(item / "attempt-1" / "canvas")) {
+            const std::string name = e.path().filename().string();
+            if (name.rfind("src_calc.cpp.r", 0) != 0) continue;
+            revisions1 = std::max(revisions1, std::stoi(name.substr(14)));
+            if (slurp(e.path()).find("double term()\n    {\n        return 0.0;\n    }") != std::string::npos) worseKept = true;
+        }
+        CHECK(worseKept);
+        CHECK(log1.find("\"src/calc.cpp\":" + std::to_string(revisions1) + "}") != std::string::npos);
         const std::string jobs = sq.cli({"status", "--json"}).out;
         CHECK(occurrences(jobs, "\"code\":3") >= 1 && occurrences(jobs, "\"code\":7") == 1);     // the gate jobs of attempt 1 (near pass) and attempt 2 (stuck)
         // Every failed attempt says why, in its directory and (while it was the latest) in the status (row 72).

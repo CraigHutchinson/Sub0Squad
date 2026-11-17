@@ -60,10 +60,14 @@ const document = {
 
 const asked = [];
 const answers = { '/api/state': stateText, '/api/live': '{"engines":[],"system":{}}' };
+const fileAnswers = {};   // /api/file?p=<path>: a body, or null for a 404
 function fetchStub(url) {
   asked.push(String(url));
   const path = String(url).split('?')[0];
-  const body = path in answers ? answers[path] : '{}';
+  const file = (/[?&]p=([^&]+)/.exec(String(url)) || [])[1];   // a sandbox file answered by its own path, when the test gave one
+  const byFile = path === '/api/file' && file !== undefined ? fileAnswers[decodeURIComponent(file)] : undefined;
+  if (byFile === null) return Promise.resolve({ ok: false, status: 404, json: () => Promise.reject(new Error('404')), text: () => Promise.resolve('') });
+  const body = byFile !== undefined ? byFile : path in answers ? answers[path] : '{}';
   return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(JSON.parse(body)), text: () => Promise.resolve(body) });
 }
 
@@ -77,7 +81,7 @@ sandbox.getSelection = () => ({ isCollapsed: true, toString: () => '' });
 vm.createContext(sandbox);
 
 // The script, plus one line that hands its own functions to this test (its top-level `const`s are not properties of the global object).
-const source = fs.readFileSync(scriptPath, 'utf8') + '\n;globalThis.__page = { render, openDrawer, tickState, tickLive, loadPkg, loadPlan };\n';
+const source = fs.readFileSync(scriptPath, 'utf8') + '\n;globalThis.__page = { render, openDrawer, tickState, tickLive, loadPkg, loadPlan, setView, tickCanvas };\n';
 try {
   vm.runInContext(source, sandbox, { filename: 'portal.js' });
 } catch (err) {
@@ -131,6 +135,36 @@ const shown = () => all.map((e) => e.innerHTML + '\n' + e.textContent).join('\n'
   check(page.includes('Planning: the plan from the request') && page.includes('2 turns') && page.includes('1 mend'), 'the work graph has a planning node saying turns and mends');
   try { sandbox.__page.openDrawer({ type: 'node', key: 'planning' }); } catch (err) { check(false, 'opening the planning node panel threw: ' + (err && err.stack ? err.stack : err)); }
   check(byId.get('dA').innerHTML.includes('mechanical mend') && byId.get('dA').innerHTML.includes('planner/turn-2.txt'), 'the planning node panel shows the turns and the mends');
+
+  // The canvas view: the newest attempt of the running item, its file at the latest revision, the lines that revision changed marked, the log newest
+  // first, the turn in flight, and text from the document escaped.
+  const dir = 'items/dev-app/attempt-2';
+  answers['/api/files'] = JSON.stringify({ sandbox: '/x', deliverables: null, files: ['items/dev-app/attempt-1/canvas.json', dir + '/canvas.json', dir + '/canvas/src_main.cpp.r1', dir + '/canvas/src_main.cpp.r2', dir + '/conversation.md'].map((p) => ({ p, s: 10 })) });
+  fileAnswers[dir + '/canvas.json'] = JSON.stringify({ files: { 'src/main.cpp': 2 }, log: [{ path: 'src/main.cpp', by: 'harness', revision: 2, base: 1, from: 1, to: 3, delta: 1 }] });   // a whole-file replacement
+  fileAnswers[dir + '/canvas/src_main.cpp.r1'] = ['int main()', '{', '}', ''].join('\n');
+  fileAnswers[dir + '/canvas/src_main.cpp.r2'] = ['int main()', '{', '    return 0; // <b>not markup</b>', '}', ''].join('\n');
+  fileAnswers[dir + '/live.txt'] = 'streaming the next edit';
+  const running = JSON.parse(stateText);
+  running.workflows.workflows[running.workflows.workflows.length - 1].items.find((i) => i.id === 'dev-app').status = 'running';
+  answers['/api/state'] = JSON.stringify(running);
+  try {
+    sandbox.__page.tickState();
+    for (let i = 0; i < 10; ++i) await new Promise((resolve) => setImmediate(resolve));
+    await sandbox.__page.loadPkg(true);
+    sandbox.__page.setView('canvas');
+    for (let i = 0; i < 20; ++i) await new Promise((resolve) => setImmediate(resolve));
+    await sandbox.__page.tickCanvas();
+  } catch (err) { check(false, 'the canvas view threw: ' + (err && err.stack ? err.stack : err)); }
+  const code = byId.get('cv-code').innerHTML;
+  check(byId.get('v-canvas').style.display === '' && byId.get('v-overview').style.display === 'none', 'the canvas tab shows the canvas view and hides the overview');
+  check(byId.get('cv-pick').innerHTML.includes('dev-app · attempt 2') && byId.get('cv-pick').innerHTML.includes('auto: the running item (dev-app/attempt-2)'), 'the canvas view follows the newest attempt of the running item');
+  check(code.includes('<i>3</i>') && code.includes('&lt;b&gt;not markup&lt;/b&gt;') && !code.includes('<b>not markup</b>'), 'the canvas view shows the file with line numbers, escaped');
+  check((code.match(/class="ln ch"/g) || []).length === 1 && code.includes('<div class="ln ch"><i>3</i>'), 'only the line that differs from the base revision is marked, though the log says the whole file was replaced');
+  check(byId.get('cv-log').innerHTML.includes('r2') && byId.get('cv-log').innerHTML.includes('harness'), 'the revision log names the revision and who made it');
+  check(byId.get('cv-live').textContent === 'streaming the next edit' && byId.get('cv-convs').innerHTML.includes('conversation.md'), 'the turn in flight and the transcript are shown');
+  check(byId.get('cv-note').textContent.includes('revision 2 of src/main.cpp, by harness: lines 3–3 changed'), 'the note says what the shown revision changed');
+  sandbox.__page.setView('overview');
+  check(byId.get('v-overview').style.display === '' && byId.get('v-canvas').style.display === 'none', 'the overview tab brings the overview back');
 
   // An empty state renders the invitation, not an exception.
   answers['/api/state'] = '{"workflows":{"asOf":1,"source":"daemon","workflows":[]},"jobs":{"jobs":[]}}';

@@ -420,7 +420,9 @@ ForkResult runCanvasFork(const ForkOptions& o)
         best = std::move(b);
     };
     const auto restoreBest = [&](const std::string& why) {
-        canvas = best->canvas;
+        // Restored as new revisions by the harness, not by rewinding the canvas: the history and its log keep every revision tried since (the portal shows them).
+        for (const auto& [path, text] : best->canvas.files())
+            if (canvas.text(path) != text) (void)canvas.replaceText(path, text, "harness");
         for (std::size_t i = 0; i < res.sections.size() && i < best->removed.size(); ++i) res.sections[i].removed = best->removed[i];
         persistCanvas(canvas, attemptDir);
         ++res.reverted;
@@ -779,12 +781,17 @@ ForkResult runCanvasFork(const ForkOptions& o)
                         if (from > 0) shownBack = "Your function as you wrote it, with the line numbers the errors use:\n" + numbered(scratch.text(s.file), from, std::min(to, from + 150));
                         return false;
                     }
-                    canvas = std::move(scratch);
-                    persistCanvas(canvas, attemptDir);
+                    // The same text sent again (an assembly round's section that changed nothing) is kept as it stands: no new revision, so the
+                    // history and the portal show only real changes (the 35B run of 2026-11-17: revisions 9 to 12 of one attempt were the same text).
+                    const bool unchanged = scratch.text(s.file) == canvas.text(s.file);
+                    if (!unchanged) {
+                        canvas = std::move(scratch);
+                        persistCanvas(canvas, attemptDir);
+                    }
                     committedText[s.name] = function;
                     s.committed = true;
                     s.lastRefusal.clear();
-                    traceVerdict(trace, tryNo, "committed as revision " + std::to_string(applied.revision) + " of " + s.file + how + (bad.empty() ? std::string{} : " (errors elsewhere in the file are for their owners)"));
+                    traceVerdict(trace, tryNo, (unchanged ? "kept: the function is already as written (no new revision of " + s.file + ")" : "committed as revision " + std::to_string(applied.revision) + " of " + s.file) + how + (bad.empty() ? std::string{} : " (errors elsewhere in the file are for their owners)"));
                     return true;
                 }
             };
