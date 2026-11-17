@@ -27,7 +27,7 @@ static std::string scriptFile(const fs::path& dir, const char* name, const std::
 int main(int, char** argv)
 {
     const std::string exe = argv[1];
-    const std::string port = std::to_string(20000 + static_cast<int>(::getpid()) % 20000);
+    const std::string port = "0";   // the portal takes a free pair from the system: no collision with a real portal or a parallel test
     CHECK(sub0squad::isLoopbackEndpoint("http://127.0.0.1:8092/v1") && sub0squad::isLoopbackEndpoint("http://localhost:1/v1") && sub0squad::isLoopbackEndpoint("http://[::1]:8092/v1") && sub0squad::isLoopbackEndpoint("127.0.0.9:1"));
     CHECK(!sub0squad::isLoopbackEndpoint("http://192.0.2.1:8092/v1") && !sub0squad::isLoopbackEndpoint("https://example.com/v1") && !sub0squad::isLoopbackEndpoint("http://127.0.0.1@example.com/v1") && !sub0squad::isLoopbackEndpoint("http://localhost.example.com/v1"));
     {   // ---- the full run, no model ----
@@ -44,7 +44,7 @@ int main(int, char** argv)
         CHECK(has(r.out, "the wizard never starts, downloads or installs one) [mock]"));
         // the daemon was started only after the recorded `y`, by `up`, with the frontier off
         CHECK(has(r.out, "Start the daemon and the portal now (`sub0squad up`, frontier off)? [Y/n] y"));
-        CHECK(has(r.out, "daemon: started") && has(r.out, ("portal: http://127.0.0.1:" + port + "/").c_str()));
+        CHECK(has(r.out, "daemon: started") && has(r.out, "portal: http://127.0.0.1:") && !has(r.out, "portal: http://127.0.0.1:0/"));   // the port it got, not 0
         // the project: triage, the planning question with its default first, the recorded answer, the plan it led to
         CHECK(has(r.out, "? What should be built? [write a calculator] write a calculator") && has(r.out, "workflow w-000001"));
         CHECK(has(r.out, "platform=cpp  C++ with CMake and ctest (the current default) [default]") && has(r.out, "? Your answer [go] platform=python"));

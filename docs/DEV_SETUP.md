@@ -86,7 +86,9 @@ ctest --test-dir out/build/dev --print-labels        # the labels in use
 ```
 With the presets (`CMakePresets.json`, build directory `out/build/default`): `cmake --preset default`, `cmake --build --preset default`, then
 `ctest --preset quick` or `ctest --preset full`. A new test goes in one `sub0squad_label_tests` line of `cmake/TestTiers.cmake`: `smoke` only
-when it is fast (a few seconds) and its area needs it.
+when it is fast (a few seconds) and its area needs it. Tests run in parallel (`-j`) and beside a real daemon and portal, so a test never takes a
+fixed port or a shared path: it binds port 0 and keeps the listener, or passes port 0 to the program (`--portal-port 0`, `SUB0SQUAD_PORTAL_PORT=0`)
+and reads back the port it got, and it keeps its state in its own temporary `SUB0SQUAD_HOME`.
 
 **CI** ([.github/workflows](../.github/workflows), callers of the reusable workflows in `CraigHutchinson/.github`, pinned by commit):
 

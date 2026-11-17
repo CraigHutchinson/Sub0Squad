@@ -75,9 +75,11 @@ int cmdPlanLint(const RuntimePaths& /*paths*/, int argc, char** argv)
 int cmdPortal(const RuntimePaths& paths, int argc, char** argv)
 {
     int port = 8780;
+    std::filesystem::path portFile;
     std::vector<std::string> engines;
     for (int i = 2; i + 1 < argc; ++i) {
         if (std::string_view{argv[i]} == "--port") port = std::atoi(argv[i + 1]);
+        else if (std::string_view{argv[i]} == "--port-file") portFile = argv[i + 1];
         else if (std::string_view{argv[i]} == "--engine-url") engines.push_back(argv[i + 1]);
     }
     return servePortal(port, [&paths] {
@@ -90,7 +92,7 @@ int cmdPortal(const RuntimePaths& paths, int argc, char** argv)
         if (!client) return "{\"ok\":false,\"error\":\"the daemon is not running\"}";
         auto reply = client->request(command, "\"id\":\"" + workflow + "\",\"spec\":" + spec);
         return reply ? *reply : "{\"ok\":false,\"error\":\"" + reply.error() + "\"}";
-    });
+    }, portFile);
 }
 
 /// sub0squad replay WF NODE [--seeds 1,2,3] [--think] [--decompose] [--engine PROFILE] [--max-tokens N] [--repair-turns N]

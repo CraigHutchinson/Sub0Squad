@@ -1,8 +1,10 @@
 // The portal's HTTP server and API routes (portal_impl.hpp names the other units).
 #include "portal_impl.hpp"
 
+#include "sub0squad/platform_file.hpp"
 #include "sub0squad/platform_net.hpp"
 
+#include <optional>
 #include <random>
 
 namespace sub0squad {
@@ -43,16 +45,38 @@ std::string headerValue(const std::string& req, const std::string& name)  // cas
 }
 }  // namespace
 
-int servePortal(int port, const std::function<std::string()>& state, const std::vector<std::string>& extraEngines, const PortalAct& act)
+int servePortal(int port, const std::function<std::string()>& state, const std::vector<std::string>& extraEngines, const PortalAct& act,
+                const std::filesystem::path& portFile)
 {
     const std::string token = randomToken();
-    auto srv = platform::listenLoopback(static_cast<std::uint16_t>(port));   // loopback only: the portal is never reachable from another machine
-    if (!srv) { std::fprintf(stderr, "portal: %s\n", srv.error().message.c_str()); return 1; }
-
-    // Generated sites are served from a second loopback port, a different origin from the portal: a page the models wrote cannot read the
-    // portal's API (no CORS headers there), and its own responses forbid any network access (CSP connect-src 'none', default-src to itself).
-    auto siteSrv = platform::listenLoopback(static_cast<std::uint16_t>(port + 1));
-    if (!siteSrv) { std::fprintf(stderr, "portal: site port: %s\n", siteSrv.error().message.c_str()); return 1; }
+    // Loopback only: the portal is never reachable from another machine. Generated sites are served from a second loopback port, the next one
+    // (the page assumes it), a different origin from the portal: a page the models wrote cannot read the portal's API (no CORS headers there),
+    // and its own responses forbid any network access (CSP connect-src 'none', default-src to itself).
+    std::optional<platform::SocketListener> srv, siteSrv;
+    if (port == 0) {
+        // The system picks the portal's port, so parallel instances never collide; pairs are tried until the next port is free too. Both stay
+        // held from here on, so nothing can take them between the choice and the use.
+        for (int attempt = 0; attempt < 32 && !siteSrv; ++attempt) {
+            auto first = platform::listenLoopback(0);
+            if (!first) { std::fprintf(stderr, "portal: %s\n", first.error().message.c_str()); return 1; }
+            if (first->port() == 65535) continue;
+            if (auto next = platform::listenLoopback(static_cast<std::uint16_t>(first->port() + 1))) { srv = std::move(*first); siteSrv = std::move(*next); }
+        }
+        if (!siteSrv) { std::fprintf(stderr, "portal: no two adjacent free loopback ports after 32 tries\n"); return 1; }
+        port = srv->port();
+    } else {
+        auto main = platform::listenLoopback(static_cast<std::uint16_t>(port));
+        if (!main) { std::fprintf(stderr, "portal: %s\n", main.error().message.c_str()); return 1; }
+        auto site = platform::listenLoopback(static_cast<std::uint16_t>(port + 1));
+        if (!site) { std::fprintf(stderr, "portal: site port: %s\n", site.error().message.c_str()); return 1; }
+        srv = std::move(*main);
+        siteSrv = std::move(*site);
+    }
+    // Written once both ports are held, so a reader (`up`) never sees a port that is not yet the portal's.
+    if (!portFile.empty() && !platform::writeFileAtomic(portFile, std::to_string(port) + "\n")) {
+        std::fprintf(stderr, "portal: cannot write the port file %s\n", portFile.string().c_str());
+        return 1;
+    }
     const platform::SocketListener* listeners[] = {&*srv, &*siteSrv};
     Live live;
     for (const auto& b : extraEngines) live.bases.insert(b);

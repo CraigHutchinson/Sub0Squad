@@ -70,6 +70,9 @@ std::expected<platform::ProcessId, std::string> startDetached(std::vector<std::s
     return child->id();   // not waited for: it outlives this command
 }
 
+/// How long `up` waits for the daemon to answer, and for the portal to report its port, in tenths of a second.
+constexpr int kStartTenths = 100;
+
 int portalPort(const std::vector<std::string>& args)
 {
     if (const std::string p = option(args, "portal-port"); !p.empty()) return std::atoi(p.c_str());
@@ -111,19 +114,29 @@ int runUp(const std::vector<std::string>& args, const std::string& exe)
         std::vector<std::string> argv = {exe, "serve", "--max-jobs", option(args, "max-jobs", "4"), "--frontier", option(args, "frontier", "stub")};
         if (const auto started = startDetached(argv, upDir / "daemon.log"); !started) { std::fprintf(stderr, "up: %s\n", started.error().c_str()); return 1; }
         bool up = false;
-        for (int i = 0; i < 100 && !up; ++i) { std::this_thread::sleep_for(std::chrono::milliseconds(100)); up = daemonAnswers(paths); }
+        for (int i = 0; i < kStartTenths && !up; ++i) { std::this_thread::sleep_for(std::chrono::milliseconds(100)); up = daemonAnswers(paths); }
         if (!up) { std::fprintf(stderr, "up: the daemon did not come up; see %s\n", (upDir / "daemon.log").string().c_str()); return 1; }
         std::printf("daemon: started (log: %s)\n", (upDir / "daemon.log").string().c_str());
     }
     if (flag(args, "no-portal")) std::printf("portal: not started (--no-portal)\n");
     else {
-        const int port = portalPort(args);
-        if (portInUse(port)) std::printf("portal: port %d is already in use; open http://127.0.0.1:%d/ (or pick another with --portal-port N)\n", port, port);
+        const int port = portalPort(args);   // 0: the system picks a free pair, so parallel instances never collide
+        if (port != 0 && portInUse(port)) std::printf("portal: port %d is already in use; open http://127.0.0.1:%d/ (or pick another with --portal-port N)\n", port, port);
         else {
-            const auto pid = startDetached({exe, "portal", "--port", std::to_string(port)}, upDir / "portal.log");
+            // The portal writes its port once it holds it: the URL printed is the one it serves, whether asked for or picked by the system.
+            const fs::path portFile = upDir / "portal.port";
+            fs::remove(portFile, ec);
+            const auto pid = startDetached({exe, "portal", "--port", std::to_string(port), "--port-file", portFile.string()}, upDir / "portal.log");
             if (!pid) { std::fprintf(stderr, "up: %s\n", pid.error().c_str()); return 1; }
             (void)platform::writeFile(upDir / "portal.pid", std::to_string(*pid) + "\n");
-            std::printf("portal: http://127.0.0.1:%d/  (the work graph; click a node to watch its transcript live)\n", port);
+            int serving = 0;
+            for (int i = 0; i < kStartTenths && serving == 0; ++i) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                std::ifstream in(portFile);
+                if (!(in >> serving)) serving = 0;
+            }
+            if (serving == 0) { std::fprintf(stderr, "up: the portal did not start; see %s\n", (upDir / "portal.log").string().c_str()); return 1; }
+            std::printf("portal: http://127.0.0.1:%d/  (the work graph; click a node to watch its transcript live)\n", serving);
         }
     }
     std::printf("\nnext:\n"
@@ -189,7 +202,8 @@ std::vector<DoctorCheck> doctorChecks(const std::vector<std::string>& args, cons
     if (usable == 0) fix("harness", "no project harness has its tools: install a C++ compiler with cmake and ninja, or python3, or node");
 
     const int port = portalPort(args);
-    if (portInUse(port)) note("ports", "port " + std::to_string(port) + " is in use (a portal is probably running: http://127.0.0.1:" + std::to_string(port) + "/)");
+    if (port == 0) ok("ports", "portal port 0: the system picks a free one when the portal starts");
+    else if (portInUse(port)) note("ports", "port " + std::to_string(port) + " is in use (a portal is probably running: http://127.0.0.1:" + std::to_string(port) + "/)");
     else ok("ports", "portal port " + std::to_string(port) + " is free");
 
     if (const std::string engine = option(args, "engine"); !engine.empty()) {

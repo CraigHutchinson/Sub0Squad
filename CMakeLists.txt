@@ -176,7 +176,7 @@ sub0squad_add_test(test_project kernel)
 add_executable(test_readme tests/test_readme.cpp)
 target_compile_options(test_readme PRIVATE ${SUB0SQUAD_STRICT})
 target_include_directories(test_readme PRIVATE tests)
-target_link_libraries(test_readme PRIVATE sub0squad_platform)   # its runner and the free-port probe
+target_link_libraries(test_readme PRIVATE sub0squad_platform)   # its runner
 add_test(NAME test_readme COMMAND test_readme $<TARGET_FILE:sub0squad> ${CMAKE_CURRENT_SOURCE_DIR}/README.md)
 add_dependencies(test_readme sub0squad)
 set_tests_properties(test_readme PROPERTIES TIMEOUT 900)

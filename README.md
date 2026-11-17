@@ -54,7 +54,7 @@ sub0squad project wait w-000001 --timeout 900 # blocks until the project ends (s
 sub0squad project status                      # the workflow and each item
 ```
 
-* **Watch it live:** `up` prints the portal's address (http://127.0.0.1:8780/ unless `SUB0SQUAD_PORTAL_PORT` or `--portal-port` says otherwise). It shows the
+* **Watch it live:** `up` prints the portal's address (http://127.0.0.1:8780/ unless `SUB0SQUAD_PORTAL_PORT` or `--portal-port` says otherwise; `0` lets the system pick a free port, as the tests do, and `up` prints the one it got). It shows the
   work graph; click a node for its conversation, which follows the model's tokens as they are generated.
 * **Where the result is:** `$SUB0SQUAD_HOME/state/workflows/w-000001/project` is the finished project (here `project/build/calc_cli '2^3^2'` prints 512),
   `state/workflows/w-000001/report.md` the report, and `items/<item>/attempt-N/` every attempt with its conversation, files and gate output.
