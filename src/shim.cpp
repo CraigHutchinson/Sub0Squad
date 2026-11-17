@@ -102,6 +102,10 @@ bool Shim::start()
     // A small fixed environment, then the job's own. The Windows names are what a program there needs to start at all; none is set on Linux.
     for (const char* key : {"PATH", "HOME", "LANG", "SYSTEMROOT", "WINDIR", "TEMP", "TMP", "USERPROFILE", "LOCALAPPDATA", "APPDATA", "PATHEXT", "COMSPEC"})
         if (const char* v = std::getenv(key)) env.push_back(std::string{key} + "=" + v);
+    // Measurement switches, set on the squad's environment to compare one build both ways (docs/LAYERED_DOCUMENT.md): passed through, or the A/B
+    // silently measures the default twice.
+    for (const char* key : {"SUB0SQUAD_ISSUE_LAYER"})
+        if (const char* v = std::getenv(key)) env.push_back(std::string{key} + "=" + v);
     env.push_back("SUB0SQUAD_RUN_DIR=" + dir_.string());
     for (const auto& [k, v] : spec_.env) env.push_back(k + "=" + v);
     ps.environment = std::move(env);
