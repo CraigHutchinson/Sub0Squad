@@ -56,6 +56,14 @@ std::optional<ucred> credentials(const SocketStream& s)
 
 std::expected<std::filesystem::path, PlatformError> localSocketFile(const std::filesystem::path& path) { return path; }   // /proc/self/fd: any length
 
+void removeLocal(const std::filesystem::path& path)
+{
+    std::error_code ec;
+    std::filesystem::remove(path, ec);   // unlink: a socket file is removed by name
+}
+
+int clearStaleLocalSockets(std::chrono::seconds) { return 0; }   // no moved names on POSIX
+
 std::expected<SocketListener, PlatformError> listenLocal(const std::filesystem::path& path)
 {
     auto a = addressOf(path);

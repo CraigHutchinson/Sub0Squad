@@ -69,6 +69,7 @@ int main(int argc, char** argv)
 
     const fs::path home = makeTempDir("readme");
     sub0squad::platform::setEnvironment("SUB0SQUAD_HOME", home.string());
+    sub0squad::platform::setEnvironment("SUB0SQUAD_EXIT_WITH", std::to_string(sub0squad::platform::currentProcess()));   // `up`'s daemon ends with this test
     // Port 0: the portal takes a free pair from the system and `up` prints the one it got, so neither a real portal nor a parallel test can collide.
     sub0squad::platform::setEnvironment("SUB0SQUAD_PORTAL_PORT", "0");
     bool sawDo = false, sawUp = false, sawDown = false, sawDoctor = false, sawProcessAdd = false;

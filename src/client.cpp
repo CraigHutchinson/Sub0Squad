@@ -38,7 +38,15 @@ std::expected<ControlClient, ControlClient::ConnectError> ControlClient::connect
     if (!s) return std::unexpected(ConnectError{s.error().error.message, s.error().noServer});
     ControlClient c;
     c.stream_ = std::move(*s);
+    c.setReceiveTimeout(defaultReceiveSeconds());
     return c;
+}
+
+int ControlClient::defaultReceiveSeconds()
+{
+    const char* env = std::getenv("SUB0SQUAD_REPLY_TIMEOUT");
+    const int seconds = env && *env ? std::atoi(env) : 0;
+    return seconds > 0 ? seconds : 30;
 }
 
 void ControlClient::setReceiveTimeout(int seconds)
@@ -52,7 +60,11 @@ std::expected<std::string, std::string> ControlClient::request(std::string_view 
     if (!extra.empty()) { body += ","; body += extra; }
     body += "}";
     if (auto w = writeFrameBlocking(stream_, body); !w) return std::unexpected(w.error());
-    return readFrameBlocking(stream_, receiveTimeout_);
+    auto reply = readFrameBlocking(stream_, receiveTimeout_);
+    if (!reply && reply.error() == "timed out" && receiveTimeout_)
+        return std::unexpected("timed out: the daemon did not answer '" + std::string{cmd} + "' within " + std::to_string(receiveTimeout_->count() / 1000) +
+                               " s; it may be hung (see daemon.log in its state directory; `sub0squad down`, then `sub0squad up`, restarts it)");
+    return reply;
 }
 
 }  // namespace sub0squad

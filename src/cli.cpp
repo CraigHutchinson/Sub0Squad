@@ -73,6 +73,7 @@ const char* const kUsage =
     "  blueprint NAME                       print a built-in plan-2 (calculator-web, calculator-cpp, calculator-py)\n"
     "  project status [ID] [--json] | project cancel ID | project wait ID [--timeout SEC]\n"
     "  serve also takes --frontier off|stub (default stub: the escalation path runs, nothing is sent)\n"
+    "  serve also takes --exit-with PID: stop when that process ends (a test names itself, so a killed test leaves no daemon behind)\n"
     "  --selftest | --version\n";
 
 }  // namespace cli

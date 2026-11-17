@@ -275,10 +275,10 @@ int cmdWait(const RuntimePaths& paths, int argc, char** argv)
         std::fprintf(stderr, "daemon not running: cannot wait\n");
         return 3;
     }
-    if (timeout > 0) client->setReceiveTimeout(timeout);
+    client->setReceiveTimeout(timeout);   // 0: wait as long as the job runs (the daemon answers `wait` only when it ends)
     auto reply = client->request("wait", "\"id\":\"" + id + "\"");
     if (!reply) {
-        const bool timedOut = timeout > 0 && reply.error() == "timed out";   // ControlClient's word for a receive timeout, on every system
+        const bool timedOut = timeout > 0 && reply.error().starts_with("timed out");   // ControlClient's word for a receive timeout, on every system
         std::fprintf(stderr, "%s\n", timedOut ? "timed out waiting for the job to finish (it keeps running)" : reply.error().c_str());
         return timedOut ? 124 : 1;
     }

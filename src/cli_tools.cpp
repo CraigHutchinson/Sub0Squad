@@ -39,9 +39,12 @@ int cmdServe(const RuntimePaths& paths, int argc, char** argv)
     opts.paths = paths;
     const auto self = platform::selfExecutable();
     opts.exe = self.empty() ? std::filesystem::path{argv[0]} : self;
+    // SUB0SQUAD_EXIT_WITH is --exit-with for a daemon started by `up` on a test's behalf; the flag wins.
+    if (const char* exitWith = std::getenv("SUB0SQUAD_EXIT_WITH"); exitWith && *exitWith) opts.exitWith = std::atoll(exitWith);
     for (int i = 2; i + 1 < argc; ++i) {
         if (std::string_view{argv[i]} == "--mem-shed-mib") opts.memShedMiB = std::max(0, std::atoi(argv[i + 1]));
         if (std::string_view{argv[i]} == "--max-jobs") opts.maxJobs = std::max(1, std::atoi(argv[i + 1]));
+        if (std::string_view{argv[i]} == "--exit-with") opts.exitWith = std::atoll(argv[i + 1]);
         if (std::string_view{argv[i]} == "--frontier") {
             const std::string_view m = argv[i + 1];
             if (m == "off") opts.frontier = FrontierMode::off;

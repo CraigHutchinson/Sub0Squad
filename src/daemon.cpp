@@ -217,9 +217,14 @@ int Daemon::Impl::loop()
         // Blocks when there is nothing to watch (the idle state: no wake-ups); with jobs running or queued it wakes every 5 s (1 s near the reserve) to check memory.
         std::optional<std::chrono::milliseconds> timeout;
         if (hasWorkToWatch()) timeout = std::chrono::milliseconds(watchMs);
-        if (!polledShims.empty()) timeout = std::min(timeout.value_or(std::chrono::milliseconds(1000)), std::chrono::milliseconds(1000));
+        if (!polledShims.empty() || opts.exitWith != 0) timeout = std::min(timeout.value_or(std::chrono::milliseconds(1000)), std::chrono::milliseconds(1000));
         auto events = waiter.wait(timeout);
         if (!events) { logf("%s", events.error().what().c_str()); return 1; }
+        if (opts.exitWith != 0 && !platform::isAlive(opts.exitWith, exitWithStart)) {
+            logf("process %lld, which this daemon serves (--exit-with), has ended: stopping (jobs keep running)", static_cast<long long>(opts.exitWith));
+            stopping = true;
+            break;
+        }
         if (!polledShims.empty()) checkPolledShims();
         if (const auto now = std::chrono::steady_clock::now(); now - lastMemCheck >= std::chrono::milliseconds(watchMs) && hasWorkToWatch()) {
             lastMemCheck = now;
@@ -241,7 +246,13 @@ int Daemon::Impl::loop()
 
 
 Daemon::Daemon(std::unique_ptr<Impl> impl) : impl_(std::move(impl)) {}
-Daemon::~Daemon() = default;
+Daemon::~Daemon()
+{
+    // The socket's file goes while the instance lock is still held (the Impl and its lock go after this body): a moved name (a long path on
+    // Windows) would otherwise stay behind in the user's profile.
+    impl_->listener = {};
+    platform::removeLocal(impl_->opts.paths.controlSocket());
+}
 
 std::expected<std::unique_ptr<Daemon>, std::string> Daemon::create(DaemonOptions options)
 {
@@ -264,6 +275,12 @@ std::expected<std::unique_ptr<Daemon>, std::string> Daemon::create(DaemonOptions
     impl->journal = std::move(*journal);
     for (const auto& rec : impl->journal.records()) { impl->store.apply(rec); impl->wfStore.apply(rec); }
 
+    if (impl->opts.exitWith != 0) {
+        const auto start = platform::processStart(impl->opts.exitWith);
+        if (!start) return std::unexpected("--exit-with " + std::to_string(impl->opts.exitWith) + ": no such process");
+        impl->exitWithStart = *start;
+    }
+    (void)platform::clearStaleLocalSockets();   // names moved for daemons that were killed
     auto listener = platform::listenLocal(impl->opts.paths.controlSocket());
     if (!listener) return std::unexpected(listener.error().message);
     impl->listener = std::move(*listener);

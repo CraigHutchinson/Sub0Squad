@@ -29,12 +29,21 @@ struct Result { int exitCode = -1; std::string out; };
 class Squad
 {
 public:
-    Squad(std::string exe, const char* tag) : exe_(std::move(exe)), home_(makeTempDir(tag)) { sub0squad::platform::setEnvironment("SUB0SQUAD_HOME", home_.string()); }
+    Squad(std::string exe, const char* tag) : exe_(std::move(exe)), home_(makeTempDir(tag))
+    {
+        sub0squad::platform::setEnvironment("SUB0SQUAD_HOME", home_.string());
+        // A daemon that `up` starts for this test stops when the test ends, even when ctest kills it (startDaemon passes --exit-with as well).
+        sub0squad::platform::setEnvironment("SUB0SQUAD_EXIT_WITH", std::to_string(sub0squad::platform::currentProcess()));
+    }
     ~Squad() { stopDaemon(); removeTree(home_); }
 
     void startDaemon(int maxJobs = 2, std::vector<std::string> extra = {})
     {
-        sub0squad::platform::ProcessSpec spec{.argv = {exe_, "serve", "--max-jobs", std::to_string(maxJobs)}, .outputFile = home_ / "daemon.log", .appendOutput = true};
+        // --exit-with this test: a test that ctest kills on its timeout runs no destructor, and its daemon would live on, holding the home and
+        // whatever waits on the test's process tree.
+        sub0squad::platform::ProcessSpec spec{.argv = {exe_, "serve", "--max-jobs", std::to_string(maxJobs), "--exit-with",
+                                                       std::to_string(sub0squad::platform::currentProcess())},
+                                              .outputFile = home_ / "daemon.log", .appendOutput = true};
         for (auto& e : extra) spec.argv.push_back(e);
         auto child = sub0squad::platform::spawn(spec);
         CHECK(child.has_value());

@@ -6,6 +6,7 @@
 
 #include "sub0squad/platform_net.hpp"
 
+#include <chrono>
 #include <filesystem>
 #include <string>
 
@@ -23,6 +24,15 @@ struct LocalConnectError
 /// %USERPROFILE%\.sub0squad\sockets (the user's temp directory when that is unset), so a daemon and its clients agree on it. An error when even
 /// that name is too long.
 [[nodiscard]] std::expected<std::filesystem::path, PlatformError> localSocketFile(const std::filesystem::path& path);
+
+/// Remove the file of the socket named `path`, wherever localSocketFile put it: a daemon calls this as it stops, while it still holds the instance
+/// lock. Nothing there is not an error.
+void removeLocal(const std::filesystem::path& path);
+
+/// Remove moved socket names (Windows: under %USERPROFILE%\.sub0squad\sockets) that nobody listens on any more: left by a daemon that was
+/// killed. A name younger than `minAge` is left alone, as its daemon may be between bind and listen. POSIX moves no names: nothing to do.
+/// Returns how many went.
+int clearStaleLocalSockets(std::chrono::seconds minAge = std::chrono::minutes(1));
 
 /// Listen on `path`, creating it owner-only. A stale socket file is removed first: the caller must already hold the instance lock.
 [[nodiscard]] std::expected<SocketListener, PlatformError> listenLocal(const std::filesystem::path& path);

@@ -127,6 +127,7 @@ struct Daemon::Impl
     DaemonOptions opts;
     platform::FileLock instanceLock;      ///< one daemon per state directory
     platform::SocketListener listener;    ///< the control socket
+    std::uint64_t exitWithStart = 0;      ///< the start stamp of opts.exitWith, so a reused process id is not taken for it
     platform::Waiter waiter;              ///< the reactor: the listener, the clients, the shims' exits, posts (wake) and stop requests
     Journal journal;
     JobStore store;

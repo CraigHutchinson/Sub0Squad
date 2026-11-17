@@ -1,6 +1,9 @@
 // End-to-end gates (M1_PLAN.md (archived: docs/ARCHIVE.md)): cancel leaves no child; a dead supervisor is `lost`, never `running`; a daemon crash leaves
-// jobs running and the next daemon adopts them; status reports progress without parsing logs.
+// jobs running and the next daemon adopts them; status reports progress without parsing logs. Then the daemon's edges: a hung daemon is a clear
+// error within the reply timeout, --exit-with ends a daemon with the process it serves, and a deep home's moved socket name is removed or cleared.
 #include "e2e.hpp"
+#include "sub0squad/platform_file.hpp"
+#include "sub0squad/platform_ipc.hpp"
 
 using namespace e2e;
 
@@ -247,6 +250,73 @@ int main(int, char** argv)
         sub0squad::platform::unsetEnvironment("SUB0SQUAD_FAKE_MEMAVAILABLE_FILE");
         (void)sq.cli({"cancel", older});
         (void)sq.cli({"cancel", srv});
+    }
+
+    { // A hung daemon: something listens on the control socket and never answers. The CLI says so within its reply timeout instead of hanging.
+        Squad sq(exe, "hung");
+        const auto sock = sq.home() / "run" / "control.sock";
+        std::filesystem::create_directories(sock.parent_path());
+        auto hung = sub0squad::platform::listenLocal(sock);   // accepts in the system's backlog, reads nothing, answers nothing
+        CHECK(hung.has_value());
+        sub0squad::platform::setEnvironment("SUB0SQUAD_REPLY_TIMEOUT", "1");
+        const auto began = std::chrono::steady_clock::now();
+        const Result r = sq.cli({"ping"}, true);
+        CHECK(r.exitCode != 0);
+        CHECK(r.out.find("timed out: the daemon did not answer 'ping' within 1 s") != std::string::npos);
+        CHECK(std::chrono::steady_clock::now() - began < std::chrono::seconds(20));
+        CHECK(sq.cli({"status"}, true).out.find("did not answer 'status'") != std::string::npos);
+        sub0squad::platform::unsetEnvironment("SUB0SQUAD_REPLY_TIMEOUT");
+    }
+
+    { // --exit-with: the daemon stops once the process it serves ends (a test killed on its timeout leaves no daemon behind), and refuses a
+      // process that does not exist.
+        Squad sq(exe, "exitwith");
+        auto served = sub0squad::platform::spawn({.argv = {exe, "mock-worker", "--tag", "xw", "--steps", "100000", "--step-ms", "20"}, .outputFile = sq.home() / "served.log"});
+        CHECK(served.has_value());
+        if (served) {
+            auto daemon = sub0squad::platform::spawn({.argv = {exe, "serve", "--exit-with", std::to_string(served->id())}, .outputFile = sq.home() / "daemon.log"});
+            CHECK(daemon.has_value());
+            bool up = false;
+            for (int i = 0; i < 500 && !up; ++i) { up = sq.cli({"ping"}).exitCode == 0; if (!up) sleepMs(10); }
+            CHECK(up);
+            served->kill();
+            (void)served->wait();
+            bool gone = false;
+            const auto start = daemon ? sub0squad::platform::processStart(daemon->id()) : std::nullopt;
+            for (int i = 0; i < 200 && start && !gone; ++i) { gone = !sub0squad::platform::isAlive(daemon->id(), *start); if (!gone) sleepMs(50); }
+            CHECK(gone);   // within ten seconds: it checks once a second
+            if (daemon) { if (!gone) daemon->kill(); (void)daemon->wait(); }
+            CHECK(slurp(sq.home() / "daemon.log").find("has ended: stopping") != std::string::npos);
+        }
+        killByTag("xw");
+        auto none = sub0squad::platform::runCaptured({.argv = {exe, "serve", "--exit-with", "999999999"}}, {.timeout = std::chrono::seconds(30), .includeStderr = true});
+        CHECK(none.has_value() && none->status.code != 0 && none->output.find("no such process") != std::string::npos);
+    }
+
+    { // A home deeper than sockaddr_un allows (Windows moves the socket to a short name in the user's profile): the daemon serves it, removes the
+      // moved name when it stops, and a name left by a killed daemon is cleared as stale.
+        Squad sq(exe, "deep");
+        const auto deep = sq.home() / std::string(110, 'h');
+        std::filesystem::create_directories(deep);
+        sub0squad::platform::setEnvironment("SUB0SQUAD_HOME", deep.string());
+        const auto sock = deep / "run" / "control.sock";
+        const auto file = sub0squad::platform::localSocketFile(sock);
+        CHECK(file.has_value());
+        const auto present = [&] { return file && sub0squad::platform::modifiedSeconds(*file).has_value(); };   // reads attributes, opens nothing
+        sq.startDaemon();
+        CHECK(sq.cli({"ping"}).exitCode == 0);
+        CHECK(present());
+        sq.stopDaemon();
+        CHECK(!present());   // removed as the daemon stopped
+        sq.startDaemon();
+        CHECK(present());
+        sq.killDaemon();     // no chance to clean up
+        if (file && *file != sock) {
+            CHECK(present());
+            CHECK(sub0squad::platform::clearStaleLocalSockets(std::chrono::seconds(0)) >= 1);
+            CHECK(!present());
+        }
+        sub0squad::platform::setEnvironment("SUB0SQUAD_HOME", sq.home().string());
     }
     return finish();
 }

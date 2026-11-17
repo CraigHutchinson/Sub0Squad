@@ -12,6 +12,7 @@
 #include <cstdio>
 #include <cstring>
 #include <cwctype>
+#include <vector>
 
 namespace sub0squad::platform {
 
@@ -70,6 +71,33 @@ std::expected<std::filesystem::path, PlatformError> localSocketFile(const std::f
                                                  " bytes, and its short name " + name + " is too long as well"});
     std::filesystem::create_directories(dir, ec);   // an existing directory is fine; a real failure shows at bind
     return file;
+}
+
+void removeLocal(const std::filesystem::path& path)
+{
+    if (const auto file = localSocketFile(path)) ::DeleteFileW(file->wstring().c_str());   // by name: a socket file cannot be opened
+}
+
+int clearStaleLocalSockets(std::chrono::seconds minAge)
+{
+    const std::wstring dir = fallbackDir().wstring();
+    WIN32_FIND_DATAW found{};
+    const HANDLE h = ::FindFirstFileW((dir + L"\\*.sock").c_str(), &found);
+    if (h == INVALID_HANDLE_VALUE) return 0;
+    FILETIME nowFt{};
+    ::GetSystemTimeAsFileTime(&nowFt);
+    const std::uint64_t now = win32::ticks(nowFt), youngest = static_cast<std::uint64_t>(minAge.count()) * 10'000'000ULL;
+    std::vector<std::filesystem::path> stale;
+    do {
+        if (now - win32::ticks(found.ftLastWriteTime) < youngest) continue;   // its daemon may be between bind and listen
+        const std::filesystem::path file = std::filesystem::path(dir) / found.cFileName;
+        auto c = connectLocal(file);   // a moved name is short: it names itself
+        if (!c && c.error().noServer) stale.push_back(file);
+    } while (::FindNextFileW(h, &found));
+    ::FindClose(h);
+    int removed = 0;
+    for (const auto& f : stale) removed += ::DeleteFileW(f.wstring().c_str()) ? 1 : 0;
+    return removed;
 }
 
 std::expected<SocketListener, PlatformError> listenLocal(const std::filesystem::path& path)

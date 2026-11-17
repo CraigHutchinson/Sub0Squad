@@ -10,6 +10,7 @@
 #include "sub0squad/paths.hpp"
 #include "sub0squad/policy.hpp"
 
+#include <cstdint>
 #include <expected>
 #include <filesystem>
 #include <memory>
@@ -24,6 +25,8 @@ struct DaemonOptions
     int maxJobs = 2;            ///< the only M1 concurrency limit; replaced by arbiter leases in M2
     int memShedMiB = 1536;      ///< below this much available memory the daemon sheds work (newest job first, servers last) and admits nothing new; 0 = off
     FrontierMode frontier = FrontierMode::stub;  ///< owner setting: `off` forbids escalation, `stub` runs it without sending anything
+    std::int64_t exitWith = 0;  ///< `serve --exit-with PID`: stop (as on SIGTERM) within a second of that process ending; 0 = never. A test's daemon names
+                                ///< the test, so a test killed on a timeout leaves no daemon behind holding its home or its runner
 };
 
 class Daemon
