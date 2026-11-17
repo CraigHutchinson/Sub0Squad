@@ -1,8 +1,11 @@
 # Follow-up session: one shared platform library for the Sub0 projects
 
 Status: in progress (2026-11-17). **Sub0Platform** (owner, 2026-11-17) is public at
-https://github.com/CraigHutchinson/Sub0Platform: the Python package seeded from Sub0LlmEngine, shared conformance
-vectors, CI green on Windows and Linux. The C++ library has not moved yet. Other decisions below still open. Evidence: a review
+https://github.com/CraigHutchinson/Sub0Platform, tagged v0.1.0: the Python package (`env`, `paths`, `dirs`, `proc`,
+`fs`, `lock`), shared conformance vectors, CI green on Windows and Linux. **Sub0LlmEngine and Sub0LlmModelRegistry
+depend on it** (2026-11-17; both CI green on Windows and Linux, the registry's CI new). The C++ library has not moved
+yet. Tracking: [Sub0Platform#1](https://github.com/CraigHutchinson/Sub0Platform/issues/1), with one migration issue per
+consumer (listed under Steps). Evidence: a review
 of the CraigHutchinson and Kismotech repositories (2026-11-16, Haiku agent, main claims re-checked against the local
 checkouts); Sub0Squad [../PLATFORM.md](../PLATFORM.md); Sub0LlmEngine `sub0llmengine/platform.py`.
 
@@ -41,7 +44,7 @@ Not a conflict: Sub0LlmModelRegistry keeps *config* in `%APPDATA%` and Sub0Tiere
 `%LOCALAPPDATA%`; that is the usual Windows split (roaming config, local cache). The shared `dirs` module should
 encode it (`userConfigDir` roaming, `userCacheDir`/`userStateDir` local).
 
-**CI today**: Sub0Squad and Sub0LlmModelRegistry have none (Sub0LlmEngine gained Windows and Linux CI on
+**CI today**: Sub0Squad has none (Sub0LlmEngine and Sub0LlmModelRegistry gained Windows and Linux CI on
 2026-11-17). Sub0Pipeline, Sub0Log, Sub0Pub, Sub0MemPage, Sub0TieredCache, Sub0ECS and others run Windows jobs.
 
 **Defects found in passing** (not yet fixed):
@@ -70,11 +73,24 @@ One repository, **Sub0Platform** (decided 2026-11-17), with three parts:
 
 Keep Sub0Squad's layering rule and its CMake check in the new library.
 
-## Steps (after the decisions)
+## Steps
 
-1. Create the repository with CI on Windows and Linux (MSVC and MinGW for C++; Python 3.10 and 3.12), and write the
+Migration issues: [Sub0Squad#1](https://github.com/CraigHutchinson/Sub0Squad/issues/1),
+[Sub0Log#23](https://github.com/CraigHutchinson/Sub0Log/issues/23),
+[Sub0TieredCache#5](https://github.com/CraigHutchinson/Sub0TieredCache/issues/5),
+[Sub0Llm#109](https://github.com/CraigHutchinson/Sub0Llm/issues/109),
+[Sub0Math#4](https://github.com/CraigHutchinson/Sub0Math/issues/4),
+[Sub0ECS#26](https://github.com/CraigHutchinson/Sub0ECS/issues/26),
+[Sub0MemPage#5](https://github.com/CraigHutchinson/Sub0MemPage/issues/5), NestNinja.pro#6 (private),
+Gemma4-LlamaCpp-AutoScript#1 (private), [Llm-OpenVino-ModelServer#1](https://github.com/CraigHutchinson/Llm-OpenVino-ModelServer/issues/1).
+Not filed: Sub0Pub and Sub0Pipeline (stop-and-ask projects), Kismotech (licence first).
+
+1. **Done**: create the repository with CI on Windows and Linux (MSVC and MinGW for C++; Python 3.10 and 3.12), and write the
    conformance vectors from today's behaviour.
-2. Python first (lowest risk): move Sub0LlmEngine `platform.py` in, then `machine.py` facts and `activity.py`
+2. Python first (lowest risk). **Done 2026-11-17** for the engine (`platform.py` is an adapter; `activity.py` CPU
+   time and heartbeat, the bench lock and lock-owner check use `proc`, `fs`, `lock`) and the registry (config dir,
+   default root, manifest and usage writes). **Left**: engine `machine.py` and Sub0Squad `campaign.py` wait for a
+   Python `host` module; registry symlinks wait for `fs` links. Original step: move Sub0LlmEngine `platform.py` in, then `machine.py` facts and `activity.py`
    CPU-time sampling to `host`, `bench.py`/`activity.py` writes to `fs.atomic_replace`; Sub0LlmModelRegistry's path
    and config-root functions to `paths`/`dirs`; Sub0Squad `campaign.py` memory to `host.memory()` (fixes the 1 TiB
    default). Engine and registry depend on the package; keep a vendored fallback only if "standard library only"
@@ -94,7 +110,8 @@ Keep Sub0Squad's layering rule and its CMake check in the new library.
 2. The C++ floor: C++23 with `std::expected` (Sub0Squad) or C++20 for Clang below 19 (Sub0Log's constraint); which
    Windows toolchains CI must cover (MinGW-w64 GCC and MSVC at least).
 3. Whether Sub0Log depends on it (gains process and file dependencies) or keeps its own copy of the rules.
-4. Whether the Python packages may depend on it, or must stay standard-library-only with a vendored copy.
+4. ~~Whether the Python packages may depend on it~~: they do, pinned to the v0.1.0 tag (2026-11-17, owner handed
+   the engine and registry to this session); a clone beside the repository is found without installing.
 5. The fate of the PowerShell launchers and of Sub0Pipeline's shared-memory module.
 6. Kismotech repositories: licence and ownership before any code moves (KismoEngine is described as AGPL-3.0 or
    commercial; board-support repositories stay out of scope).
