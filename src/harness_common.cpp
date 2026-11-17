@@ -143,7 +143,10 @@ std::string multilineDiff(const std::string& error)
         std::size_t c = 0;
         while (c < got[i].size() && c < want[i].size() && got[i][c] == want[i][c]) ++c;
         where = "line " + std::to_string(i + 1) + ", column " + std::to_string(c + 1) + ": the code's line is " + std::to_string(got[i].size()) +
-                " characters, the expected one " + std::to_string(want[i].size());
+                " characters, the expected one " + std::to_string(want[i].size()) +
+                (got[i].size() == want[i].size() ? std::string{}
+                 : got[i].size() < want[i].size() ? " (" + std::to_string(want[i].size() - got[i].size()) + " short)"
+                                                  : " (" + std::to_string(got[i].size() - want[i].size()) + " too long)");
     }
     return show("the code gave", got) + show("the test expected", want) + (where.empty() ? std::string{} : "  first difference: " + where + "\n");
 }
@@ -182,7 +185,7 @@ Tap parseTap(const std::string& out)
             std::string e = tl.substr(7);
             if (e == "|-" || e == "|") e.clear();
             failures.back().error = e;
-        } else if (inError && !tl.empty() && errLines < 4 && tl.rfind("code:", 0) != 0 && tl.rfind("name:", 0) != 0 && tl.rfind("stack:", 0) != 0 && tl.rfind("location:", 0) != 0 && tl.rfind("expected:", 0) != 0 && tl.rfind("actual:", 0) != 0 && tl.rfind("operator:", 0) != 0 && tl.rfind("duration_ms", 0) != 0 && tl.rfind("type:", 0) != 0 && tl.rfind("failureType", 0) != 0 && tl.rfind("...", 0) != 0 && tl.rfind("---", 0) != 0) {
+        } else if (inError && !tl.empty() && errLines < 4 && tl.rfind("code:", 0) != 0 && tl.rfind("name:", 0) != 0 && tl.rfind("stack:", 0) != 0 && tl.rfind("location:", 0) != 0 && tl.rfind("expected:", 0) != 0 && tl.rfind("actual:", 0) != 0 && tl.rfind("operator:", 0) != 0 && tl.rfind("duration_ms", 0) != 0 && tl.rfind("type:", 0) != 0 && tl.rfind("failureType", 0) != 0 && tl.rfind("...", 0) != 0 && tl.rfind("---", 0) != 0 && tl.rfind("1..", 0) != 0) {   // "1..N" is the plan line, not more of the message
             failures.back().error += (failures.back().error.empty() ? "" : " | ") + tl;
             ++errLines;
         } else if (tl.rfind("code:", 0) == 0 || tl.rfind("stack:", 0) == 0 || tl.rfind("name:", 0) == 0) inError = false;

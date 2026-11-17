@@ -297,7 +297,10 @@ int main()
         CHECK(contains(t.excerpt, "FAIL 1 - screen_frame: CHECK_EQ failed\n"));
         CHECK(contains(t.excerpt, "  the code gave:\n    \"+--+\"\n    \"| = 4 |\"\n    \"+--+\"\n"));
         CHECK(contains(t.excerpt, "  the test expected:\n    \"+--+\"\n    \"| = 4  |\"\n"));
-        CHECK(contains(t.excerpt, "first difference: line 2, column 7: the code's line is 7 characters, the expected one 8"));
+        CHECK(contains(t.excerpt, "first difference: line 2, column 7: the code's line is 7 characters, the expected one 8 (1 short)"));
+        // The TAP plan line after the failure is not more of its message (it showed as an extra expected line).
+        const harnessutil::Tap planned = harnessutil::parseTap("not ok 1 - f\n  ---\n  error: CHECK_EQ failed: out is a\\nb\\n but expected is a\\nc\\n\n1..1\n# tests 1\n# pass 0\n# fail 1\n");
+        CHECK(!contains(planned.excerpt, "1..1"));
         const harnessutil::Tap single = harnessutil::parseTap("not ok 1 - add\n  ---\n  error: CHECK_EQ failed: add(1, 2) is 4 but 3 is 3\n  ...\n# tests 1\n# pass 0\n# fail 1\n");
         CHECK(contains(single.excerpt, "FAIL 1 - add: CHECK_EQ failed: add(1, 2) is 4 but 3 is 3\n"));   // one-line values stay as they were
         const harnessutil::Tap inExpr = harnessutil::parseTap("not ok 1 - mixed\n  ---\n  error: CHECK_EQ failed: count(\"a\\n b\") is 1 but 2 is 2\n  ...\n# tests 1\n# pass 0\n# fail 1\n");
