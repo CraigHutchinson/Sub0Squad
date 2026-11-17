@@ -44,6 +44,15 @@ int main()
             CHECK(tight.find("lines folded: 7-47") != std::string::npos && tight.find("double first(double x)") != std::string::npos && tight.find("class A {") != std::string::npos && tight.find("x += 20;") == std::string::npos);
             const std::string open = foldedView(big, false, {70}, 1300);   // a failure at line 70 (inside `second`) keeps that function open, `first` stays folded
             CHECK(open.find("lines folded: 7-47") != std::string::npos && open.find("lines folded: 51-") == std::string::npos && open.find("x += 20;") != std::string::npos);
+            {   // Bodies of one or two lines are shown even when the view is folded; a failing test opening is pinned in test_canvas_agent (tier 0 write-tests).
+                std::string tests = "#include \"helpers/check.hpp\"\n";
+                for (int k = 0; k < 30; ++k) tests += "TEST(t" + std::to_string(k) + ") {\n    CHECK_EQ(f(" + std::to_string(k) + "), " + std::to_string(k) + ");\n}\n";
+                tests += "TEST(long_one) {\n";
+                for (int k = 0; k < 30; ++k) tests += "    CHECK_EQ(g(" + std::to_string(k) + "), 0);\n";
+                tests += "}\n";
+                const std::string view = foldedView(tests, false, {}, 2500);
+                CHECK(view.find("CHECK_EQ(f(7), 7);") != std::string::npos && view.find("lines folded") != std::string::npos && view.find("CHECK_EQ(g(7), 0);") == std::string::npos);
+            }
             const auto reqs = parseReadRequests("Let me look.\n=== READ: src/a.cpp LINES 9-12 ===\n=== READ: src/a.cpp SYMBOL f ===\n");
             CHECK(reqs.size() == 2 && reqs[0].from == 9 && reqs[0].to == 12 && reqs[1].symbol == "f");
             const std::string ans = answerRead(reqs[0], cpp, false);

@@ -62,6 +62,9 @@ bool functionLike(const std::string& line)
 /// The last component of a qualified name (`Parser::term` -> `term`).
 std::string leafName(const std::string& name) { const auto c = name.rfind(':'); return c == std::string::npos ? name : name.substr(c + 1); }
 
+/// Bodies of at most this many lines are never folded.
+constexpr int kShowBodyLines = 2;
+
 /// The numbered view with every region folded to one line except those marked open.
 std::string renderFolded(const std::vector<std::string>& lines, const std::vector<FoldRegion>& regions, const std::vector<bool>& open, bool python)
 {
@@ -256,7 +259,17 @@ std::string foldedView(const std::string& text, bool python, const std::vector<i
         for (std::size_t i = 0; i < lines.size(); ++i) used += folded[i] ? 0 : row(i).size();
         used += regions.size() * 60;
     }
+    // A body of one or two lines is shown, before any focus: folding it saves at most one line and hides the very line a short test or function is
+    // (tier 0 write-tests: a 365-line test file with every one-line TEST body folded, the failing tests unreadable, two empty replies an attempt).
     for (std::size_t r = 0; r < regions.size(); ++r) {
+        if (regions[r].bodyTo - regions[r].bodyFrom + (python ? 1 : 0) > kShowBodyLines) continue;
+        std::size_t cost = 0;
+        for (int k = regions[r].bodyFrom; k <= regions[r].bodyTo - (python ? 0 : 1); ++k) cost += row(static_cast<std::size_t>(k) - 1).size();
+        open[r] = true;
+        used += cost;
+    }
+    for (std::size_t r = 0; r < regions.size(); ++r) {
+        if (open[r]) continue;
         bool has = false;
         for (int f : focus) if (f >= regions[r].first && f <= regions[r].bodyTo + 1) has = true;
         if (!has) continue;

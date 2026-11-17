@@ -116,7 +116,9 @@ std::string leadingSpace(std::string_view s) { return std::string{s.substr(0, st
 /// 73 of 105 changed lines were re-indentation). Indentations that are not one a prefix of the other (tabs against spaces) leave the text alone.
 std::string shiftIndent(const std::string& repl, const std::string& from, const std::string& to)
 {
-    if (from == to) return repl;
+    // Only a replacement written at the SEARCH's indentation moves: one already at another (a SEARCH copied sloppily, the REPLACE right) is kept.
+    const std::size_t firstText = repl.find_first_not_of(" \t\r\n");
+    if (from == to || firstText == std::string::npos || leadingSpace(std::string_view{repl}.substr(repl.rfind('\n', firstText) + 1)) != from) return repl;
     const bool deeper = to.size() > from.size() && to.compare(0, from.size(), from) == 0;
     const bool shallower = from.size() > to.size() && from.compare(0, to.size(), to) == 0;
     if (!deeper && !shallower) return repl;

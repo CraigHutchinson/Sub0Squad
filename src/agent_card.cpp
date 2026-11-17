@@ -54,6 +54,17 @@ std::string draftView(const std::string& path, const std::string& text, const st
     std::vector<int> focus;
     static const std::regex ref(R"([\w./+-]+\.[a-z]+:(\d+))");
     for (std::sregex_iterator it(gate.begin(), gate.end(), ref), end; it != end; ++it) focus.push_back(std::atoi((*it)[1].str().c_str()));
+    // A failing test names no line, only itself (`FAIL 13 - trailing_operator_throws`): its definition in this file is a focus too, so a tester sees the
+    // tests it must correct (tier 0 write-tests).
+    static const std::regex failing(R"(FAIL \d+ - (\w+))");
+    for (std::sregex_iterator it(gate.begin(), gate.end(), failing), end; it != end; ++it) {
+        const std::string name = (*it)[1].str();
+        for (const std::string& def : {"TEST(" + name + ")", "def " + name + "("}) {
+            const auto at = text.find(def);
+            // The line after the definition's own: inside its body, not also "just past the end" of the test before it.
+            if (at != std::string::npos) { focus.push_back(2 + static_cast<int>(std::count(text.begin(), text.begin() + static_cast<std::ptrdiff_t>(at), '\n'))); break; }
+        }
+    }
     return foldedView(text, isPythonPath(path), focus, budget);
 }
 

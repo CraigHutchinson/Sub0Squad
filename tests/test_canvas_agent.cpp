@@ -5,6 +5,7 @@
 #include "agent_bench.hpp"
 #include "sub0squad/harness_registry.hpp"
 #include "sub0squad/outline.hpp"
+#include "../src/agent_impl.hpp"
 
 using namespace sub0squad;
 using namespace bench;
@@ -275,6 +276,17 @@ int main()
         }
         CHECK(engine.abortedAfter(0) >= 0);                      // stopped while it streamed
         CHECK(slurp(attemptDir(d, 2) / "agent.json").find("\"thinkingStops\":1") != std::string::npos);
+    }
+    {   // A failing test named by the gate opens its definition in the folded view of a test file (tier 0 write-tests: no line number to focus on).
+        std::string tests = "#include \"helpers/check.hpp\"\n";
+        for (int k = 0; k < 20; ++k) {
+            tests += "TEST(t" + std::to_string(k) + ") {\n";
+            for (int j = 0; j < 6; ++j) tests += "    CHECK_EQ(f(" + std::to_string(k) + "), 0);\n";
+            tests += "}\n";
+        }
+        const std::string gate = "GATE FAIL: 1 of 20 tests failed\nFAIL 13 - t13: CHECK_EQ failed: f(13) is 1 but 0 is 0\n";
+        const std::string view = agent::draftView("tests/more.test.cpp", tests, gate, 2500);
+        CHECK(view.find("lines folded") != std::string::npos && view.find("CHECK_EQ(f(13), 0);") != std::string::npos && view.find("CHECK_EQ(f(12), 0);") == std::string::npos);
     }
     return finish();
 }
