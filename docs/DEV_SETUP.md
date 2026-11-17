@@ -15,7 +15,7 @@ On the Sub0 dev machine this is set for the nine libraries by `~/.config/sub0/cp
 | Variable | Checkout |
 |---|---|
 | `CPM_Sub0Pipeline_SOURCE` `CPM_Sub0Pub_SOURCE` `CPM_Sub0Log_SOURCE` `CPM_Sub0ECS_SOURCE` `CPM_Sub0Math_SOURCE` | `$SUB0_GITHUB_DIR/<Name>` |
-| `CPM_Sub0MemPage_SOURCE` `CPM_Sub0TieredCache_SOURCE` `CPM_Sub0HexGrid_SOURCE` `CPM_Sub0Physics_SOURCE` | `$SUB0_GITHUB_DIR/<Name>` |
+| `CPM_Sub0MemPage_SOURCE` `CPM_Sub0TieredCache_SOURCE` `CPM_Sub0HexGrid_SOURCE` `CPM_Sub0Physics_SOURCE` `CPM_sub0canvas_SOURCE` | `$SUB0_GITHUB_DIR/<Name>` |
 
 `SUB0_GITHUB_DIR` is the directory that holds the sibling checkouts; `. scripts/dev-env.sh` sets it to this repository's parent and exports every `CPM_<Name>_SOURCE`, so no machine-specific path is written anywhere (set `SUB0_GITHUB_DIR_OVERRIDE` to use another directory). A configure with the overrides active logs
 `CPM: 'Sub0Pipeline' version overridden by environment variable`. To build the pinned revisions instead, unset the variables
@@ -72,7 +72,7 @@ when each runs; `ctest --preset quick` there means "everything not labelled `ful
 | `platform` | the platform library: processes, files, sockets, waits, host facts | test_platform_process, test_platform_file | proc, host, net, wait |
 | `kernel` | durable jobs: job spec, journal, job store, shim, idle, guards, archive | test_job_spec, test_journal | job_store, shim, idle, host_guard, archive, adapter, m0_graph_growth (POSIX) |
 | `workflow` | plans, the policy ladder, workflow stages, processes, predicates, stances, clarify | test_policy, test_workflow, test_plan | workflow_stages, workflow_mends, process, predicate, stance, clarify |
-| `harness` | the project harnesses and their gates: diagnostics, edits, real builds | test_diagnostics, test_edits | platforms, project |
+| `harness` | the project harnesses and their gates: diagnostics, edits, real builds | test_diagnostics (test_edits moved to sub0canvas) | platforms, project |
 | `agents` | executors from recorded replies: session, canvas, fork, planner, mends, blocks, turn control | test_agent, test_mends | canvas_agent, fork, planner, blocks, stream |
 | `portal` | the portal page and the wizard | test_portal, test_portal_page (needs node) | wizard |
 | `e2e` | a real daemon and CLI: scenarios, the README path, healing, near pass, thrash | test_e2e | readme, scenarios, executors, heal, nearpass, thrash |

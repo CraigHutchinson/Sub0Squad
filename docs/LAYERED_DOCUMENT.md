@@ -263,7 +263,7 @@ The viewer is its own project, **sub0canvas** ([github.com/CraigHutchinson/sub0c
 the view on any layer (code, prose, issues, review or others; nothing about the set is hard-coded), drills down from prose to code and back, shows a block's
 identity history and the revisions that touched it, and steps through the anchors of a 1-N item. The owner decided (2026-11-17) that the C++ index and layers move into
 sub0canvas as a library (`sub0canvas::layers`, pure, with block discovery passed in), with Sub0Squad consuming it pinned to a tag, and one golden set of turn
-files tested on both sides. That move is the next step after slice 1. The viewer's further schema requests (anchor columns, a proposed `fix` per item,
+files tested on both sides. That move was made on 2026-11-17: outline, edits, canvas and doc_layers, with test_edits and test_doc_layers, are the `sub0canvas::sub0canvas` library (sub0canvas v0.2.0, imported from Sub0Squad d54758f), consumed here through CPM; `include/sub0squad/{outline,edits,canvas,doc_layers}.hpp` forward to it. Changes to that code are made in sub0canvas first, then the pin is bumped here. The viewer's further schema requests (anchor columns, a proposed `fix` per item,
 `mergedFrom` for unified reports, a `revision` on loose anchors, a `layerMeta` map) are listed in its repository and are not built here yet.
 
 ## Direction: sub0canvas as the squad's backbone (owner, 2026-11-17)

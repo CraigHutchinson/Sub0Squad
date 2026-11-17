@@ -62,6 +62,8 @@ if(WIN32)
     target_link_libraries(sub0squad_platform PUBLIC stdc++exp)
   endif()
 endif()
+# The canvas tooling is the sub0canvas library (cmake/dependencies.cmake); the domain layer's forwarding headers (outline, edits, canvas, doc_layers) name it.
+target_link_libraries(sub0squad_domain PUBLIC sub0canvas::sub0canvas)
 # The daemon's job graph and typed events are the Sub0 libraries; only the orchestration layer uses them.
 target_link_libraries(sub0squad_orchestration PUBLIC Sub0Pipeline::Sub0Pipeline Sub0Pipeline::Priority Sub0Pub::Sub0Pub)
 # The portal's page is two files of its own (web/portal.html, web/portal.js), compiled in as strings; editing either rebuilds the generated source.
@@ -141,8 +143,6 @@ target_compile_definitions(test_process PRIVATE SUB0SQUAD_REGISTRY_DIR="${CMAKE_
 # The domain layer's tests, one program per unit; the three engine programs share tests/workflow_sim.hpp and the golden action logs in tests/data/actions.
 sub0squad_add_test(test_plan harnesses)
 sub0squad_add_test(test_policy harnesses)
-sub0squad_add_test(test_edits harnesses)
-sub0squad_add_test(test_doc_layers harnesses)
 sub0squad_add_test(test_diagnostics harnesses)
 foreach(t test_workflow test_workflow_stages test_workflow_mends)
   sub0squad_add_test(${t} harnesses)
