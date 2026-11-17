@@ -2,6 +2,7 @@
 // for appends and descriptors, GetFileAttributesExW for the modification time. The whole-file functions are in platform_file.cpp.
 #include "sub0squad/platform_file.hpp"
 
+#include "platform_util.hpp"
 #include "platform_win32_util.hpp"
 
 #include <fcntl.h>
@@ -138,5 +139,11 @@ std::expected<std::size_t, PlatformError> readSome(int descriptor, char* buffer,
 }
 
 const char* nullDevice() { return "NUL"; }
+
+std::error_code detail::replaceFile(const fs::path& from, const fs::path& to)
+{
+    if (::MoveFileExW(from.c_str(), to.c_str(), MOVEFILE_REPLACE_EXISTING)) return {};
+    return {static_cast<int>(::GetLastError()), std::system_category()};
+}
 
 }  // namespace sub0squad::platform

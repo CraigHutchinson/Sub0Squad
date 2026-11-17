@@ -2,12 +2,15 @@
 // functions are in platform_file.cpp.
 #include "sub0squad/platform_file.hpp"
 
+#include "platform_util.hpp"
+
 #include <fcntl.h>
 #include <sys/file.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
 #include <cerrno>
+#include <cstdio>
 #include <cstring>
 
 namespace sub0squad::platform {
@@ -127,5 +130,11 @@ std::expected<std::size_t, PlatformError> readSome(int descriptor, char* buffer,
 }
 
 const char* nullDevice() { return "/dev/null"; }
+
+std::error_code detail::replaceFile(const fs::path& from, const fs::path& to)
+{
+    if (::rename(from.c_str(), to.c_str()) == 0) return {};
+    return {errno, std::generic_category()};
+}
 
 }  // namespace sub0squad::platform

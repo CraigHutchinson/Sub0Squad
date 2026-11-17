@@ -1,13 +1,20 @@
 #pragma once
 /// @file platform_util.hpp
 /// Private to the platform library's backends (docs/PLATFORM.md), on every system: a deadline from an optional timeout, the one place that turns
-/// "wait up to this long" into the milliseconds a system wait takes.
+/// "wait up to this long" into the milliseconds a system wait takes; and the one-call file replace that atomic writes end with.
 
 #include <algorithm>
 #include <chrono>
+#include <filesystem>
 #include <optional>
+#include <system_error>
 
 namespace sub0squad::platform::detail {
+
+/// Rename `from` over `to`, replacing an existing file, in one system call: rename(2), or MoveFileExW with MOVEFILE_REPLACE_EXISTING.
+/// std::filesystem::rename does the same on POSIX, but libstdc++ on Windows looks up both paths' status first (two more opens per call).
+/// Implemented in platform_file_posix.cpp and platform_file_win32.cpp.
+[[nodiscard]] std::error_code replaceFile(const std::filesystem::path& from, const std::filesystem::path& to);
 
 using Clock = std::chrono::steady_clock;
 

@@ -16,6 +16,13 @@ using detail::Deadline;
 
 SOCKET sock(NativeSocket s) { return static_cast<SOCKET>(s); }
 
+/// Send small writes at once (no Nagle): the library's TCP traffic is requests and replies, where a held write waits for a delayed ACK.
+void setNoDelay(SOCKET s)
+{
+    const BOOL on = TRUE;
+    ::setsockopt(s, IPPROTO_TCP, TCP_NODELAY, reinterpret_cast<const char*>(&on), sizeof on);
+}
+
 /// WSAPoll on one socket. 1 ready, 0 timed out, -1 failed.
 int waitOne(SOCKET s, short events, const Deadline& deadline)
 {
@@ -122,6 +129,7 @@ std::expected<std::optional<SocketStream>, PlatformError> SocketListener::accept
             u_long on = 1;
             ::ioctlsocket(c, FIONBIO, &on);   // inherited from the listener already; said again so it never depends on that
             ::SetHandleInformation(reinterpret_cast<HANDLE>(c), HANDLE_FLAG_INHERIT, 0);
+            setNoDelay(c);
             return std::optional<SocketStream>{SocketStream{static_cast<NativeSocket>(c)}};
         }
         const int err = ::WSAGetLastError();
@@ -149,6 +157,7 @@ std::expected<SocketStream, PlatformError> connectTcp(const std::string& host, s
         err = connectBlocking(s, a->ai_addr, static_cast<int>(a->ai_addrlen));
         if (err == 0) {
             ::freeaddrinfo(res);
+            setNoDelay(s);
             return SocketStream{static_cast<NativeSocket>(s)};
         }
         ::closesocket(s);

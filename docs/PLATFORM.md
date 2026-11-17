@@ -179,9 +179,36 @@ What Windows will not match exactly, and must be designed for:
 * **Peer credentials** on the local socket: the folder's ACL stands in for `SO_PEERCRED`.
 * **The engine** (llama-server) already runs natively on Windows; nothing in the squad needs WSL for it.
 
+### The primitives' cost (2026-11-17)
+
+`benchmarks/bench_platform.cpp` pairs each primitive with a hand-written twin: the fewest direct system calls that do the same job on that system.
+The ratio is the library call over the twin (1.00x is parity), from the baselines in `perf/baselines/` (`croglegion` is Windows 11 with MinGW-w64
+GCC 16.2; `croglegion-wsl` is WSL2 Ubuntu 24.04 with GCC 15 on the same machine). Neither has hardware counters, so the ratios are wall time.
+
+| Pair | Windows (twin) | Ratio | WSL (twin) | Ratio |
+|---|---:|---:|---:|---:|
+| waiter wake and wait (`Waiter`) | 260 ns | 1.15x | 410 ns | 1.04x |
+| loopback 64 B write and read (`SocketStream`) | 7.5 µs | 1.00x | 70 µs | 0.93x |
+| atomic replace 4 KiB (`writeFileAtomic`) | 300 µs | 1.08x | 78 µs | 0.98x |
+| spawn and wait (`platform::spawn`) | 14.9 ms | 1.01x | 0.61 ms | 1.01x |
+
+What the pass changed, and what is left:
+
+* **`writeFileAtomic` on Windows was 1.19x.** libstdc++'s `std::filesystem::rename` looks up the status of both paths before `MoveFileExW`; the replace is
+  now one call per system (`detail::replaceFile`), and the temporary name is built without a narrow-string round trip. `writeFile` creates the parent
+  folder only when the open fails (it was 1.22x on Linux from a stat of every ancestor).
+* **The Windows `Waiter` was 1.32x.** It waited on the socket event even with no socket watched; now that handle is in the wait only while a socket is.
+  The 1.15x left is the returned `std::vector`'s allocation (25 ns of the 40 on UCRT's heap, measured) plus moving the result; a borrowed span would
+  remove it at the cost of a lifetime rule on every caller, for a wake that happens at human rates.
+* **The loopback twin was wrong.** It gave up on `EAGAIN` (the library's sockets are non-blocking), so it skipped the wait the library is measured
+  doing and showed the library 270x slower on Linux. It now waits in `poll`, as any reader must. TCP streams now set `TCP_NODELAY`: the library's TCP
+  traffic is requests and replies, where a held small write waits for a delayed ACK. WSL's 70 µs round trip is the VM's wake-up from `poll`, on both sides.
+* **Not platform primitives, for the record:** `Journal::append` is 1.9x a bare `write()` on Linux (1.07x on Windows): the journal formats the record and
+  keeps it in memory, about 180 ns over a 210 ns write. `encodeFrame` is 2.4x its stack-only twin on Windows: one heap allocation for the returned string.
+
 ## 7. Recommendation
 
 Slices 0 to 5 are done: they removed duplicated code and kept operating-system types out of the interfaces, and the platform layer has Windows
 backends that pass its tests. The program runs natively on Windows (section 6). The platform primitives are benchmarked against hand-written twins on
-both systems (`benchmarks/bench_platform.cpp`, part of `Sub0Squad_Bench`; [DEV_SETUP.md](DEV_SETUP.md), "Tests and benchmarks"). Next: the remaining
-native project scenarios, then MSVC or clang-cl.
+both systems (`benchmarks/bench_platform.cpp`, part of `Sub0Squad_Bench`; [DEV_SETUP.md](DEV_SETUP.md), "Tests and benchmarks"; section 6 has the
+figures). Next: MSVC or clang-cl.

@@ -140,11 +140,12 @@ std::expected<std::vector<WaitEvent>, PlatformError> Waiter::wait(std::optional<
 
         // The rare stop event first, then the socket and wake events, then the processes. WaitForMultipleObjects names the lowest signalled
         // index, so every handle before it was quiet at that moment: only it and the ones after it need a look (no heap, no probe per wake).
+        // The socket event only while a socket is watched: each handle costs the wait, and nothing else sets it.
         HANDLE handles[MAXIMUM_WAIT_OBJECTS];
         DWORD count = 0;
         const DWORD stopAt = state_->stopEvent.valid() ? count++ : MAXIMUM_WAIT_OBJECTS;
         if (stopAt != MAXIMUM_WAIT_OBJECTS) handles[stopAt] = state_->stopEvent.get();
-        handles[count++] = state_->socketEvent.get();
+        if (!state_->sockets.empty()) handles[count++] = state_->socketEvent.get();
         const DWORD wakeAt = count;
         handles[count++] = state_->wakeEvent.get();
         const DWORD firstProcess = count;

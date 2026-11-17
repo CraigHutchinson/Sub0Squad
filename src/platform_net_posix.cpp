@@ -8,6 +8,7 @@
 #include <fcntl.h>
 #include <netdb.h>
 #include <netinet/in.h>
+#include <netinet/tcp.h>
 #include <poll.h>
 #include <sys/socket.h>
 #include <unistd.h>
@@ -28,6 +29,13 @@ void setNonBlocking(int fd)
 {
     const int flags = ::fcntl(fd, F_GETFL, 0);
     if (flags >= 0) ::fcntl(fd, F_SETFL, flags | O_NONBLOCK);
+}
+
+/// Send small writes at once (no Nagle): the library's TCP traffic is requests and replies, where a held write waits for a delayed ACK.
+void setNoDelay(int fd)
+{
+    const int one = 1;
+    ::setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof one);
 }
 
 /// poll() on one descriptor until `events`, the deadline or an error; EINTR restarts with the time left. 1 ready, 0 timed out, -1 failed.
@@ -127,7 +135,7 @@ std::expected<std::optional<SocketStream>, PlatformError> SocketListener::accept
     const Deadline deadline{timeout};
     for (;;) {
         const int c = ::accept4(fd, nullptr, nullptr, SOCK_NONBLOCK | SOCK_CLOEXEC);
-        if (c >= 0) return std::optional<SocketStream>{SocketStream{c}};
+        if (c >= 0) { setNoDelay(c); return std::optional<SocketStream>{SocketStream{c}}; }
         if (errno == EINTR || errno == ECONNABORTED) continue;
         if (errno != EAGAIN && errno != EWOULDBLOCK) return std::unexpected(sysError("accept a connection"));
         const int r = waitOne(fd, POLLIN, deadline);
@@ -153,6 +161,7 @@ std::expected<SocketStream, PlatformError> connectTcp(const std::string& host, s
         if (rc == 0) {
             ::freeaddrinfo(res);
             setNonBlocking(fd);
+            setNoDelay(fd);
             return SocketStream{fd};
         }
         err = errno;

@@ -16,6 +16,7 @@
 #include <winsock2.h>
 #include <windows.h>
 #else
+#include <poll.h>
 #include <spawn.h>
 #include <sys/epoll.h>
 #include <sys/eventfd.h>
@@ -26,6 +27,7 @@
 #include <fcntl.h>
 #endif
 
+#include <cerrno>
 #include <cstring>
 #include <filesystem>
 #include <string>
@@ -39,14 +41,30 @@ namespace fs = std::filesystem;
 
 namespace {
 
-/// Read exactly `size` bytes from a raw socket (a loopback read can return part of a small write).
+/// Read exactly `size` bytes from a raw socket (a loopback read can return part of a small write). The library's sockets are non-blocking, so
+/// an empty read waits for data in poll, as any real reader must (giving up on EAGAIN would let the twin skip the wait it is measured against).
 void recvAll(platform::NativeSocket s, char* buf, std::size_t size)
 {
     std::size_t got = 0;
 #if defined(_WIN32)
-    while (got < size) { const int n = ::recv(static_cast<SOCKET>(s), buf + got, static_cast<int>(size - got), 0); if (n <= 0) return; got += static_cast<std::size_t>(n); }
+    const auto sock = static_cast<SOCKET>(s);
+    while (got < size) {
+        const int n = ::recv(sock, buf + got, static_cast<int>(size - got), 0);
+        if (n > 0) { got += static_cast<std::size_t>(n); continue; }
+        if (n == 0 || ::WSAGetLastError() != WSAEWOULDBLOCK) return;
+        WSAPOLLFD p{sock, POLLRDNORM, 0};
+        (void)::WSAPoll(&p, 1, -1);
+    }
 #else
-    while (got < size) { const ssize_t n = ::recv(static_cast<int>(s), buf + got, size - got, 0); if (n <= 0) return; got += static_cast<std::size_t>(n); }
+    const int fd = static_cast<int>(s);
+    while (got < size) {
+        const ssize_t n = ::recv(fd, buf + got, size - got, 0);
+        if (n > 0) { got += static_cast<std::size_t>(n); continue; }
+        if (n == 0 || (errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR)) return;
+        if (errno == EINTR) continue;
+        pollfd p{fd, POLLIN, 0};
+        (void)::poll(&p, 1, -1);
+    }
 #endif
 }
 

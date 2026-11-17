@@ -2,6 +2,8 @@
 // and the one-record append. The descriptors, appends and modification time are in platform_file_posix.cpp and platform_file_win32.cpp.
 #include "sub0squad/platform_file.hpp"
 
+#include "platform_util.hpp"
+
 #include <cerrno>
 #include <cstring>
 #include <fstream>
@@ -48,7 +50,8 @@ std::expected<void, PlatformError> writeFile(const fs::path& path, std::string_v
 
 std::expected<void, PlatformError> writeFileAtomic(const fs::path& path, std::string_view text, bool durable)
 {
-    const fs::path tmp = path.string() + ".tmp";
+    fs::path tmp = path;
+    tmp += ".tmp";   // appended in the path's own encoding (no round trip through a narrow string on Windows)
     std::error_code ec;
     if (durable) {
         fs::remove(tmp, ec);
@@ -59,7 +62,7 @@ std::expected<void, PlatformError> writeFileAtomic(const fs::path& path, std::st
     } else if (auto w = writeFile(tmp, text); !w) {
         return w;
     }
-    fs::rename(tmp, path, ec);   // replaces an existing file on both systems (MoveFileExW with MOVEFILE_REPLACE_EXISTING on Windows)
+    ec = detail::replaceFile(tmp, path);
     if (ec) { fs::remove(tmp, ec); return std::unexpected(fromCode("rename to " + path.string(), ec)); }
     return {};
 }

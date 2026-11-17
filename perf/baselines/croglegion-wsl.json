@@ -1,0 +1,148 @@
+{
+  "format": 2,
+  "host": "CrogLegion",
+  "machine": "x86_64",
+  "system": "Linux 6.6.87.2-microsoft-standard-WSL2",
+  "note": "Medians per op after calibration scaling, with robust CV across interleaved rounds. Regenerate deliberately; say why in the commit. Regressions are accepted with `accept`.",
+  "power": {
+    "state": "ac",
+    "saver": false
+  },
+  "calibration_ns": 4846.857,
+  "calibration_sustained_ns": 4789.38,
+  "epochs": 0,
+  "cpu": 23,
+  "benchmarks": {
+    "atomic replace 4 KiB, hand-written": {
+      "median_ns": 69717.345,
+      "cv": 0.0563,
+      "rounds": 5,
+      "modes": [
+        68547.895,
+        79376.319
+      ]
+    },
+    "atomic replace 4 KiB, writeFileAtomic()": {
+      "median_ns": 73143.305,
+      "cv": 0.1205,
+      "rounds": 5
+    },
+    "frame encode 256 B, encodeFrame()": {
+      "median_ns": 10.803,
+      "cv": 0.1132,
+      "rounds": 5
+    },
+    "frame encode 256 B, hand-written": {
+      "median_ns": 10.848,
+      "cv": 0.1992,
+      "rounds": 5,
+      "modes": [
+        9.738,
+        16.098
+      ]
+    },
+    "job-spec parse, JobSpec::fromJson()": {
+      "median_ns": 442.373,
+      "cv": 0.0467,
+      "rounds": 5,
+      "modes": [
+        428.82,
+        542.346
+      ]
+    },
+    "job-spec serialise, JobSpec::toJson()": {
+      "median_ns": 220.769,
+      "cv": 0.143,
+      "rounds": 5
+    },
+    "journal append (fdatasync per record)": {
+      "median_ns": 1541467.649,
+      "cv": 0.0802,
+      "rounds": 5
+    },
+    "journal append (no fsync), Journal::append()": {
+      "median_ns": 407.759,
+      "cv": 0.0044,
+      "rounds": 5
+    },
+    "journal append (no fsync), hand-written write()": {
+      "median_ns": 217.831,
+      "cv": 0.0188,
+      "rounds": 5
+    },
+    "loopback 64 B write and read, SocketStream": {
+      "median_ns": 62939.66,
+      "cv": 0.0542,
+      "rounds": 5
+    },
+    "loopback 64 B write and read, hand-written": {
+      "median_ns": 66924.538,
+      "cv": 0.0475,
+      "rounds": 5
+    },
+    "progress tail 400 events, readProgress()": {
+      "median_ns": 58164.031,
+      "cv": 0.0565,
+      "rounds": 5
+    },
+    "spawn and wait, hand-written": {
+      "median_ns": 642430.577,
+      "cv": 0.0576,
+      "rounds": 5,
+      "modes": [
+        572599.224,
+        647376.339
+      ]
+    },
+    "spawn and wait, platform::spawn()": {
+      "median_ns": 587781.157,
+      "cv": 0.0447,
+      "rounds": 5
+    },
+    "waiter wake and wait, Waiter": {
+      "median_ns": 384.703,
+      "cv": 0.0609,
+      "rounds": 5
+    },
+    "waiter wake and wait, hand-written": {
+      "median_ns": 368.905,
+      "cv": 0.0639,
+      "rounds": 5
+    }
+  },
+  "pairs": {
+    "atomic replace 4 KiB, writeFileAtomic()": {
+      "reference": "atomic replace 4 KiB, hand-written",
+      "ratio": 0.9756
+    },
+    "frame encode 256 B, encodeFrame()": {
+      "reference": "frame encode 256 B, hand-written",
+      "ratio": 0.9766,
+      "modes": [
+        0.6932,
+        1.0094
+      ]
+    },
+    "journal append (no fsync), Journal::append()": {
+      "reference": "journal append (no fsync), hand-written write()",
+      "ratio": 1.8903
+    },
+    "loopback 64 B write and read, SocketStream": {
+      "reference": "loopback 64 B write and read, hand-written",
+      "ratio": 0.9322
+    },
+    "spawn and wait, platform::spawn()": {
+      "reference": "spawn and wait, hand-written",
+      "ratio": 1.005,
+      "modes": [
+        0.8977,
+        1.0051
+      ]
+    },
+    "waiter wake and wait, Waiter": {
+      "reference": "waiter wake and wait, hand-written",
+      "ratio": 1.0403
+    }
+  },
+  "accepted": []
+}
