@@ -83,7 +83,8 @@ Migration issues: [Sub0Squad#1](https://github.com/CraigHutchinson/Sub0Squad/iss
 [Sub0ECS#26](https://github.com/CraigHutchinson/Sub0ECS/issues/26),
 [Sub0MemPage#5](https://github.com/CraigHutchinson/Sub0MemPage/issues/5), NestNinja.pro#6 (private),
 Gemma4-LlamaCpp-AutoScript#1 (private), [Llm-OpenVino-ModelServer#1](https://github.com/CraigHutchinson/Llm-OpenVino-ModelServer/issues/1).
-Not filed: Sub0Pub and Sub0Pipeline (stop-and-ask projects), Kismotech (licence first).
+[Sub0Pub#40](https://github.com/CraigHutchinson/Sub0Pub/issues/40) (owner approved, 2026-11-17).
+Not filed: Sub0Pipeline (stop-and-ask project), Kismotech (licence first).
 
 1. **Done**: create the repository with CI on Windows and Linux (MSVC and MinGW for C++; Python 3.10 and 3.12), and write the
    conformance vectors from today's behaviour.
