@@ -102,6 +102,10 @@ int main()
                 auto wrote = server.writeSome("reply");
                 CHECK(wrote.has_value() && *wrote == 5);
                 CHECK(w.watchSocket(server.native(), true, false, 14).has_value());
+                // The peer reads the reply before it closes: a socket closed with unread data sends a reset, not an end of stream, and the server's
+                // last read would then be an error on Linux whenever the reply arrived first (the CI runners hit it, a loaded machine did not).
+                auto reply = c->readSome(buf, sizeof buf, 1s);
+                CHECK(reply && *reply && **reply == 5);
                 *c = SocketStream{};   // the peer closes
                 e = waitFor(w, WaitEvent::Kind::socket);
                 CHECK(e && e->tag == 14 && (e->readable || e->hangup));

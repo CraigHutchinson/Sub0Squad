@@ -171,7 +171,8 @@ std::expected<std::vector<WaitEvent>, PlatformError> Waiter::wait(std::optional<
             state_->processes.resize(kept);
         }
         if (!out.empty()) return out;
-        if (r == WAIT_TIMEOUT && ms != 0) return out;   // the time passed
+        // A timed-out wait is not proof the time passed: Windows rounds waits to its timer tick (about 15.6 ms) and can return a few
+        // milliseconds early, so the deadline, not WAIT_TIMEOUT, decides, and the rest is waited for on the next turn.
         if (deadline.passed()) return out;
         // Only the socket event fired and no socket is ready now (its event was for a state already gone): look again.
     }
