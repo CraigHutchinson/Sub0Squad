@@ -194,6 +194,21 @@ int main()
         CHECK_EQ(idOf(index, "calc/ops.py", "sub"), sub);
         CHECK_EQ(index.resolve(sub)->first, 1);
     }
+    {   // An operator held by several blocks points at none of them (tier 0 bugs-10: "(1+2" did not throw was put on expr() and unary(), the defect was
+        // in primary()); held by one block, it still points there.
+        BlockIndex index;
+        const std::string withUnary = replaceOnce(kCalc, "    static double factorial", "    double unary()\n    {\n        if (eat('-')) return -unary();\n        return 0;\n    }\n    static double factorial");
+        index.update(path, withUnary);
+        const auto issues = parseIssues("GATE FAIL: 2 of 16 tests failed\n"
+                                        "FAIL 1 - invalid_input_throws: CHECK_THROWS failed: ev(\"(1-2\") did not throw\n"
+                                        "FAIL 2 - remainder: CHECK_NEAR failed: ev(\"10%3\") is 3.33333 but 1 is 1\n", index);
+        CHECK_EQ(issues.size(), static_cast<std::size_t>(2));
+        if (issues.size() == 2) {
+            CHECK(issues[0].anchors.empty());
+            CHECK(issues[1].anchors.size() == 1 && issues[1].anchors[0].blockId == idOf(index, path, "term"));
+            CHECK(layerSummary(issues, index).find(" 1. test invalid_input_throws: CHECK_THROWS failed: ev(\"(1-2\") did not throw\n") != std::string::npos);
+        }
+    }
     {   // A verdict becomes issues bound to blocks: failing tests to their suspect block (named like the test, or holding the literal under test), every
         // diagnostic to the block holding its line, and one diagnostic at several places to ONE issue with an anchor per place.
         BlockIndex index;

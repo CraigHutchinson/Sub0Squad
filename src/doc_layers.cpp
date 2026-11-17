@@ -340,8 +340,10 @@ std::set<std::string> probeTokens(const std::string& expr)
     return probe;
 }
 
-/// The suspects of a failing test: the block named like a word of the test's name (3 points), plus for each token of the expression under test 1/k
-/// points to each of the k blocks whose literals hold it (a rare token says more). Every block at the top score, in file order, at most three.
+/// The suspects of a failing test: the block named like a word of the test's name (3 points), plus for each identifier of the expression under test
+/// 1/k points to each of the k blocks whose literals hold it (a rare token says more). An operator character counts only when ONE block holds it: `+`
+/// in `expr()` and `unary()` says nothing about which is wrong, and a wrong pointer costs more than none (tier 0, bugs-10). Every block at the top
+/// score, in file order, at most three; no evidence, no suspect.
 std::vector<Anchor> suspects(const std::string& testName, const std::string& expr, const std::vector<const Block*>& blocks)
 {
     std::map<std::string, double> score;
@@ -352,6 +354,8 @@ std::vector<Anchor> suspects(const std::string& testName, const std::string& exp
     for (const auto& t : probeTokens(expr)) {
         std::vector<const Block*> holders;
         for (const Block* b : blocks) if (b->literals.count(t)) holders.push_back(b);
+        const bool word = std::isalpha(static_cast<unsigned char>(t[0])) || t[0] == '_';
+        if (!word && holders.size() != 1) continue;
         for (const Block* b : holders) score[b->id] += 1.0 / static_cast<double>(holders.size());
     }
     double top = 0;
