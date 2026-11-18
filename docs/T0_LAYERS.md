@@ -131,6 +131,8 @@ The `--t1-source` option freezes the replay's CLI and the original calculator he
 
 **First live delimiter diagnostic.** The initial runner setup was invalid because a custom C++ scaffold suppressed the harness header. The corrected runner includes the frozen header and preflights the seed. The corrected trial `20261118T210043Z-19dc5e578658` started with 7 of 22 failures and ended with the same count. The initial view folded the relevant token accessor even at the 65,536-token server profile. The worker used broad reads and edited the already working power grammar. This is a localization failure on a valid seed. A focused prompt arm can ask the worker to group actual errors and inspect shared token handling without naming the repair.
 
+**Focused localization prompt.** Trial `20261118T210323Z-54fcb796adaa` kept the same seed, tests and limits. Asking the worker to group actual failures and trace shared token handling still led to an unrelated power rewrite and a compile failure. The trial used nine turns and 4,217 recorded output tokens versus five turns and 502 in the first valid trial. This is one matched-seed observation. The next receiving experiment should vary access to the relevant source region independently of prompt wording so it can distinguish localization from faulty edits.
+
 ## 3. Modes
 
 All three judge the run directories, as `gate_t0.py` does today: a run counts when its `case_key`, build and engine match; stale runs are listed, not counted.
