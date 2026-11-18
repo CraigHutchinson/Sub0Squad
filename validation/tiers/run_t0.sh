@@ -9,7 +9,8 @@ repo=$(cd "$1" && pwd); engine=$2; repeats=$3; shift 3
 . "$repo/validation/tiers/lib.sh"
 exe="$repo/out/build/mingw/sub0squad.exe"
 set_args=()
-if [ "${1:-}" = "@smoke" ]; then shift; set -- $(python -I "$repo/validation/tiers/make_t0.py" "$repo" --list smoke | awk '{print $1}'); set_args=(--set smoke --min-runs 1); fi
+setname=""
+case "${1:-}" in @*) setname=${1#@}; shift; set -- $(python -I "$repo/validation/tiers/make_t0.py" "$repo" --list "$setname" | awk '{print $1}'); set_args=(--set "$setname" --min-runs 1);; esac
 cases=${*:-$(python -I "$repo/validation/tiers/make_t0.py" "$repo" --list | awk '{print $1}')}
 python -I "$repo/validation/tiers/make_t0.py" "$repo" $cases >/dev/null
 sum="$repo/out/runs/t0/summary.md"
@@ -37,5 +38,5 @@ EOF
     printf '| %s | %s | %s | %s |\n' "$c" "$r" "$state" "$row" | tee -a "$sum"
   done
 done
-name=gate; [ ${#set_args[@]} -gt 0 ] && name=smoke
+name=gate; [ -n "$setname" ] && name=$setname
 python -I "$repo/validation/tiers/gate_t0.py" "$(winpath "$repo")" --engine "${engine%%=*}" "${set_args[@]}" >/dev/null; echo "tier 0 $name: see $repo/out/runs/t0/$name.md (exit $?)"

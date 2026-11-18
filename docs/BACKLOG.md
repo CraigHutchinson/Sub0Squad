@@ -106,6 +106,44 @@ The queue, with hypotheses, arms, measures and commands, is [EXPERIMENTS.md](EXP
 - Blocks 7 to 10: section integration seams, division, golden decision logs, process as data as a block.
 - The fork executor inside a workflow through the daemon (`llm-fork --agent-exit 1` as the agent job) has no test.
 
+**Tier 0 layers** ([T0_LAYERS.md](T0_LAYERS.md), design 2026-11-18: the T0 cases as a tree, quick / release / dig-down modes)
+- Build it in the order of T0_LAYERS.md section 5: `requires` data and the DAG asserts; the tree in `gate.md`; the three composites staged and calibrated
+  (edit-mix, build-mix, files-mix); `dig_t0.py` and `@quick`/`@release`/`T0_OUT`; then the switch of `GATE` and the release verdict.
+- Context compaction for continuations (owner, 2026-11-18). A cut-off reply is now continued as itself (the canvas sends its text, cut to the last complete
+  line, back as the assistant's unfinished message: a prefill, measured on the 35B to continue cleanly at a line or word boundary and to stop at once mid-token).
+  It needs the prompt, the partial and the reply's budget to fit the context, and falls back to the tail prompt when they do not (`prefilled` against `continued`
+  in agent.json says how often). Compaction keeps it on the prefill path: fold the canvas view of a file the reply is replacing whole (FILE over a stub, or after a
+  restructure), drop the issue and stance sections on a continuation turn, and size the reply budget to what is left. Measure first: how often the fallback is taken.
+- New leaves, none built yet (evidence: `out/runs/t0-101e19c/gate.md` and `out/runs/wa-scope-v1..v4-partial`):
+  - Continuation seams on a long FILE with recorded replies (model-free replay of cut-off replies through `joinContinuation` and the line-boundary resume: lost
+    spaces, stray fences, SEARCH/REPLACE of the tail, file restarts). Parent: write-engine.
+  - Continuation re-emits functions already written (redefinition): a replayed continuation that repeats a finished function must not leave two copies. Parents:
+    write-engine, skeleton.
+  - Scope-stop compliance: under an edits-first scope the model must stop when told it is rewriting; `refused` 7 to 11 a run in wa-scope-v2. Parent: replace-function.
+  - Escalation trigger: restructure allowed after 2 tested revisions without progress or 2 replies stopped for growing into a rewrite (replay of `turn_control`).
+    Parent: replace-function.
+  - Skeleton decomposition: skeleton-fill (one stub method), skeleton-expr (the expression layer: expr, term, unary), skeleton-primary (number, name, call);
+    skeleton passed 1 of 3 with 80 turns and 48k tokens. Parent: skeleton.
+  - Thinking-stop behaviour in attempts after a card rewrite: wa-scope-v3 runs ended with 25 to 60 reply tokens, 17 to 18 aborted turns and 3 thinking stops. Parent:
+    replace-function (a replay of attempts 2 and later).
+  - A grammar-precedence leaf: only `unary_minus_binds_looser_than_power` (`-2^2` is -4), the test that recurs in the failed rewrites. Parent: replace-function.
+  - Length is not the measure; what the extra code is, is. Analysed 2026-11-18 (T0 write-engine run 1, attempt 1, `canvas/src_calc.cpp.r2` against the reference
+    `validation/reference/calculator-cpp/src/calc.cpp`): the 587-line file was two engines (a class parser cut at line 328, then a continuation that wrote a second,
+    free-function engine instead of finishing it: a seam, fixed by the new-block join). Part 1 alone: 2 661 code tokens, cut before pow/min/max and `evaluate`, against
+    1 759 for the complete reference (about 1.7 times when finished; lines exaggerate it, 2 times, through formatting). The extra was not added expertise: the same
+    feature set and checks as the reference, and no more; per-function copies of the arity check and the degree conversion (20 copies against one shared check and
+    `toRad`/`fromRad`); dead code (an unused `Token` struct, an unused `get()`, `parse_primary` defined and never called); 14 lines of precedence reasoning left in
+    comments; a hand-written number lexer four times the reference's `strtod`, with a defect (`std::stod` throws `std::out_of_range`, not `std::runtime_error`, on
+    `1e999`); and a grammar that cannot work (`parse_unary` and `parse_power` call each other with no way down to a number: endless recursion), less specific error
+    messages ("wrong argument count" against "sin takes one argument"). So the fix is quality, not brevity: tell the worker its reply limit and ask for one place per
+    rule, no dead code, no reasoning in comments (done in the canvas turn tail, 2026-11-18); and measure it in quality_t0: repeated blocks, unreferenced functions and
+    types, comment-reasoning lines, code tokens against the reference, never a line count alone. Parents: write-engine (where it shows), write-function (cross-cutting).
+  - fix-missing-check, 19 turns and 0 of 3 first attempts for one missing check (against 3 turns for the other single edits), and bugs-3 at 1.29 defects a turn against 3.0
+    for bugs-6: a leaf that separates "does not know where to add" from "adds it wrongly". Parents: fix-missing-check, bugs-3.
+  - write-file, 1 of 3 first attempts and 22 turns for a 43-line app: a smaller leaf (argument parsing only) to tell the file length from the content. Parent: write-file.
+- Gate judging from run data the summary rows hold but the gate ignores: attempts to pass (wrong-approach passed on its 5th attempt), aborted turns and thinking stops;
+  the WEAK state of T0_LAYERS.md section 3.2.
+
 **Getting started and run hygiene**
 - `project submit --task calculator-cpp` should consult the harness registry (`harnessWithBlueprint`) instead of stopping at `needs a plan`.
 - `up` warns when an older daemon is running; `up` starts the portal by default in the scripts (`scripts/start-campaign.sh`) and prints its address.

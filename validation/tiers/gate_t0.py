@@ -66,15 +66,15 @@ def judge_run(run, plan, ref_dir):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("repo"); ap.add_argument("--engine", required=True); ap.add_argument("--build"); ap.add_argument("--min-runs", type=int, default=3)
-    ap.add_argument("--json", action="store_true"); ap.add_argument("--set", choices=["all", "smoke"], default="all")
+    ap.add_argument("--json", action="store_true"); ap.add_argument("--set", default="all")
     a = ap.parse_args()
     repo = pathlib.Path(a.repo).resolve()
     sys.argv = ["make_t0.py", str(repo)]
     import make_t0
     build = a.build or subprocess.run([str(repo / "out/build/mingw/sub0squad.exe"), "--version"], capture_output=True, text=True).stdout.split()[1]
     cases, verdict = {}, "PASS"
-    smoke = a.set == "smoke"
-    for name in (make_t0.SMOKE if smoke else make_t0.CASES):
+    smoke = a.set != "all"   # a named set (make_t0.SETS): a quick check, never the gate
+    for name in (make_t0.SETS[a.set] if smoke else make_t0.GATE):
         plan = make_t0.plan_for(name)
         key = case_key(plan)
         runs = [judge_run(r, plan, make_t0.REF) for r in sorted((repo / "out/runs/t0" / name).glob("run-*"))]
@@ -93,9 +93,9 @@ def main():
     gate = {"schema": "t0-gate-1", "set": a.set, "verdict": verdict, "build": build, "engine": a.engine, "minRuns": a.min_runs, "cases": cases}
     out = repo / "out/runs/t0"
     out.mkdir(parents=True, exist_ok=True)
-    stem = "smoke" if smoke else "gate"
+    stem = a.set if smoke else "gate"
     (out / f"{stem}.json").write_text(json.dumps(gate, indent=1))
-    md = [f"# Tier 0 smoke: {verdict} (the smoke set only; not the gate)" if smoke else f"# Tier 0 gate: {verdict}", "", f"Build `{build}`, engine `{a.engine}`, at least {a.min_runs} counted runs per case, every one passed by a model "
+    md = [f"# Tier 0 {a.set}: {verdict} (the {a.set} set only; not the gate)" if smoke else f"# Tier 0 gate: {verdict}", "", f"Build `{build}`, engine `{a.engine}`, at least {a.min_runs} counted runs per case, every one passed by a model "
           "with nothing left unfinished (quality_t0.py: a stub or conflict marker left behind fails the run; the other quality measures are reported).", "",
           "| case | state | passed | first attempt | turns | out tokens | quality per run (changed/ideal lines, then what deserves a look) | not counted |",
           "|---|---|---|---|---|---|---|---|"]

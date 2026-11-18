@@ -1,7 +1,7 @@
 """Tier 0 plans for the C++ calculator: small, seeded tasks that each isolate one kind of work a canvas worker must do, before tier 1 (the whole program).
 
     python validation/tiers/make_t0.py <repo> [case ...]      (no case: all)  ->  out/runs/t0/<case>/plan.json
-    python validation/tiers/make_t0.py <repo> --list [smoke]
+    python validation/tiers/make_t0.py <repo> --list [smoke | rewrite | tree]      (tree: the case tree by layer, docs/T0_LAYERS.md)
 
 Every case seeds the reference implementation (validation/reference/calculator-cpp) with a defect, a stub or a missing part, and gives the reference
 tests as the owner's (`given`) tests. The cases are built on validation/tiers/t1-plan.json (the tier 1 plan). `--check <case> <dir>` writes the seeded
@@ -44,7 +44,12 @@ TRIG_TESTS = TEST_HEAD + (
     "TEST(degrees_forward) { CHECK_NEAR(ev(\"cos(60)\", true), 0.5, 1e-9); CHECK_NEAR(ev(\"tan(45)\", true), 1, 1e-9); CHECK_NEAR(ev(\"sin(30)\", true), 0.5, 1e-9); }\n"
     "TEST(degrees_inverse) { CHECK_NEAR(ev(\"acos(0.5)\", true), 60, 1e-9); CHECK_NEAR(ev(\"atan(1)\", true), 45, 1e-9); CHECK_NEAR(ev(\"asin(0.5)\", true), 30, 1e-9); }\n"
     "TEST(radians_unchanged) { CHECK_NEAR(ev(\"cos(0)\"), 1, 1e-9); CHECK_NEAR(ev(\"atan(1)\"), 0.785398163397448, 1e-9); }\n")
-GIVEN_TEXT = {"tests/fact.test.cpp": FACT_TESTS, "tests/trig.test.cpp": TRIG_TESTS}
+# Arithmetic only (the reference tests of + - * / ^ %, precedence, unary minus, decimals and division by zero): replace-function asks for one function
+# redesigned at a modest size, not the whole engine.
+EVAL_TESTS = ref("tests/eval.test.cpp")
+ARITH_TESTS = TEST_HEAD + "".join(l + "\n" for l in EVAL_TESTS.splitlines() if re.match(
+    r"TEST\((addition_and_subtraction|multiplication_and_division|precedence|power_is_right_associative|unary_minus_binds_looser_than_power|modulo|decimals|division_by_zero_throws)\)", l))
+GIVEN_TEXT = {"tests/fact.test.cpp": FACT_TESTS, "tests/trig.test.cpp": TRIG_TESTS, "tests/arith.test.cpp": ARITH_TESTS}
 
 # Curveballs: a naive engine whose approach cannot meet the spec (the right reply is a rewrite), and a parser skeleton with every method still a stub.
 NAIVE = '''#include "calc/calc.hpp"
@@ -138,6 +143,11 @@ def with_defects(n):
 
 
 NUMBER = CALC[CALC.index("    double number()"):CALC.index("    double name()")]
+STUB_ENGINE = (CALC[:CALC.index("namespace calc {")] + "namespace calc {\n\ndouble evaluate(const std::string& expr, bool degrees)\n{\n    (void)expr;\n"
+               "    (void)degrees;\n    throw std::runtime_error(\"not implemented\");\n}\n\n}  // namespace calc\n")
+TRIG_HELPERS = CALC[CALC.index("    double toRad(double x)"):CALC.index("    double call(const std::string& f")]
+CALL_AT = CALC.index("    double call(const std::string& f")
+CALL = CALC[CALL_AT:CALC.index("\n    }\n", CALL_AT) + len("\n    }\n")]
 CALL_HEAD = "    double call(const std::string& f, const std::vector<double>& a)\n    {\n"
 FACTORIAL = CALC[CALC.index("    static double factorial(double v)"):CALC.index("    double primary()")]
 
@@ -229,6 +239,19 @@ CASES = {
         exercises="curveball: a parser skeleton, every method a stub: the whole engine written into an outline",
         calc=skeleton(CALC),
         context="src/calc.cpp is the outline of a recursive descent calculator engine: the class and its methods are laid out, but no method is written yet."),
+    # ---- base requirements of a rewrite (wrong-approach decomposed, 2026-11-18): each tested on its own, the composite only once they pass ----
+    "write-engine": dict(
+        exercises="base of a rewrite, R1: the whole engine written over a stub (FILE allowed; long enough to need continuations if written verbosely)",
+        calc=STUB_ENGINE, diagnostic=True,
+        context="src/calc.cpp is a stub: evaluate() only throws. Write the calculator engine."),
+    "add-functions": dict(
+        exercises="base of a rewrite, R2: a design grown function by function (four missing functions added with SYMBOL; the file does not compile until they are)",
+        calc=CALC.replace(FACTORIAL, "").replace(TRIG_HELPERS, "").replace(CALL, ""), diagnostic=True,
+        context="src/calc.cpp is a calculator engine with four functions missing: factorial, toRad, fromRad and call (it does not build). Add them."),
+    "replace-function": dict(
+        exercises="base of a rewrite, R3: one function whose approach is wrong, redesigned at a modest size (arithmetic only: scope rules and escalation)",
+        calc=NAIVE, only_given=["tests/arith.test.cpp"], diagnostic=True,
+        context="src/calc.cpp is a calculator engine. Most of the provided tests fail."),
     # ---- scaling: more independent defects (each a prefix of the next); the gate reports defects fixed per turn ----
     **{f"bugs-{n}": dict(
         exercises=f"scaling: {n} independent defects, each breaking a different test (defects fixed per turn)",
@@ -256,12 +279,55 @@ CASES = {
 # gate. For iterating on a change; it never stands in for the gate (gate_t0.py --set smoke writes smoke.md, not gate.md).
 SMOKE = ["fix-op", "fix-two-bugs", "fix-missing-check", "compile-typo", "write-function", "write-file", "merge-conflict", "two-files"]
 assert set(SMOKE) <= set(CASES)
+# Named sets for run_t0.sh @<set> and gate_t0.py --set <set>. The diagnostic cases are not part of the gate: they localise a failure of a gate case.
+SETS = {"smoke": SMOKE, "rewrite": ["write-engine", "add-functions", "replace-function"]}
+GATE = [n for n in CASES if not CASES[n].get("diagnostic")]
+
+# The case tree (docs/T0_LAYERS.md, step 1 of its migration: data only, no plan, key or gate changes). A case's children are the base requirements that
+# explain it: when it fails, they localise the cause (the hand decomposition of wrong-approach on 2026-11-18 is the first branch). The layer is derived: 0 for
+# a leaf, else 1 + its highest child. The composites the design proposes (edit-mix, build-mix, files-mix, skeleton-fill) are backlog.
+REQUIRES = {
+    "wrong-approach": ["replace-function", "write-engine", "add-functions"],
+    "skeleton": ["write-engine", "add-functions"],
+    "add-functions": ["write-function", "write-feature"],
+    "write-file": ["half-written", "write-engine"],
+    "half-written": ["write-function"],
+    "bugs-10": ["bugs-6"], "bugs-6": ["bugs-3"],
+    "bugs-3": ["fix-op", "fix-boundary", "fix-missing-check"],
+    "fix-many": ["fix-op", "fix-boundary", "fix-missing-check"],
+    "fix-two-bugs": ["fix-op", "fix-boundary", "fix-missing-check"],
+    "compile-and-logic": ["compile-typo", "fix-op"],
+    "merge-conflict": ["fix-op"], "two-files": ["fix-op"],
+}
+assert all(p in CASES and set(c) <= set(CASES) for p, c in REQUIRES.items()), "REQUIRES names a case that does not exist"
+LAYER = {}
+
+
+def layer_of(name, path=()):
+    assert name not in path, f"REQUIRES has a cycle through {name}"
+    if name not in LAYER: LAYER[name] = 1 + max((layer_of(c, path + (name,)) for c in REQUIRES.get(name, [])), default=-1)
+    return LAYER[name]
+
+
+for _n in CASES: layer_of(_n)
+TOPS = [n for n in CASES if not any(n in c for c in REQUIRES.values())]
+
+
+def tree_lines(name, depth=0, seen=None):
+    """The case tree under `name`, one line per node (a node already shown is named, not expanded again)."""
+    seen = set() if seen is None else seen
+    lines = [f"{'  ' * depth}{name} (layer {LAYER[name]}){' ...' if name in seen and REQUIRES.get(name) else ''}"]
+    if name not in seen:
+        seen.add(name)
+        for c in REQUIRES.get(name, []): lines += tree_lines(c, depth + 1, seen)
+    return lines
 
 
 def plan_for(name):
     c = CASES[name]
     files = c.get("files", ["src/calc.cpp"])
-    given = (["tests/eval.test.cpp"] if "src/calc.cpp" in files or c.get("persona") == "tester" else []) + (["tests/cli.test.cpp"] if "src/main.cpp" in files else []) + c.get("given", [])
+    given = c["only_given"] if "only_given" in c else ((["tests/eval.test.cpp"] if "src/calc.cpp" in files or c.get("persona") == "tester" else []) +
+                                                       (["tests/cli.test.cpp"] if "src/main.cpp" in files else []) + c.get("given", []))
     tests = c.get("tests", given)
     base = json.loads((ROOT / "validation/tiers/t1-plan.json").read_text(encoding="utf-8"))
     item = base["items"][0]
@@ -294,8 +360,11 @@ def plan_for(name):
 
 if __name__ == "__main__":
     args = sys.argv[2:]
+    if args[:2] == ["--list", "tree"]:
+        for t in sorted(TOPS, key=lambda n: -LAYER[n]): print("\n".join(tree_lines(t)))
+        sys.exit(0)
     if args[:1] == ["--list"]:
-        for n in (SMOKE if args[1:2] == ["smoke"] else CASES): print(f"{n:18} {CASES[n]['exercises']}")
+        for n in (SETS[args[1]] if args[1:2] else GATE): print(f"{n:18} {CASES[n]['exercises']}")
         sys.exit(0)
     if args[:1] == ["--check"]:
         p = plan_for(args[1])
