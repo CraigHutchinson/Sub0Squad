@@ -159,7 +159,17 @@ The queue, with hypotheses, arms, measures and commands, is [EXPERIMENTS.md](EXP
     refusals, a SYMBOL edit whose SEARCH copied the fold marker (`... (72 lines folded: 31-102; tokenize)`), an empty SYMBOL edit, a long-search stop.
   - **fix-contract**: two functions that disagree on a representation (a token kind against a character); either side may be fixed, the tests name neither.
   - Harness, not a case: a READ of lines already answered in this attempt is the multi-turn loop of the Loops entry (only the latest answer stays in
-    view, so the worker reads again): keep each answered range in view, folded to what was read, or answer "unchanged since turn N" and ask for the edit.
+    view, so the worker reads again). Built (2026-11-18): what was read stays open in the view (it joins the view's focus); where the window has no room
+    (ctx 6144) it is answered again from the file as it stands, above a view folded further; a repeat on an unchanged revision is named as one.
+- Fold markers that carry a status (owner, 2026-11-18; A/B, to iterate): `... (16 lines folded: 37-52; term)` could also say what the worker knows of it,
+  e.g. `unchanged since you read it (turn 2)`, `changed since you read it`, `not read`, `stub` / `no content` (a body that only raises or returns a
+  neutral value). Measured as an arm against today's markers on fix-folded and the T1 plan: reads per attempt, repeated reads, turns, pass rate. The
+  markers are rendered by Sub0Canvas (`foldedView`), so the status needs a per-region annotation passed in (by name or line range).
+- Measure what folding saves (owner, 2026-11-18): the trade is not free. A fold marker costs a line, and a read costs a turn plus the answer; folding a
+  three-line body saves little, and folding a body the worker then reads costs more than showing it. Per run: the view's characters folded against
+  whole, prompt tokens per turn, reads and repeated reads, and the share of folded regions later read. Then tune the fold threshold (today a body of two
+  lines or more folds) and try folding only what is far from the focus. A model-free first pass: render the T1 calc.cpp at ctx 6144 / 8192 / 16384 and
+  count the characters each view and each read answer takes.
   - Length is not the measure; what the extra code is, is. Analysed 2026-11-18 (T0 write-engine run 1, attempt 1, `canvas/src_calc.cpp.r2` against the reference
     `validation/reference/calculator-cpp/src/calc.cpp`): the 587-line file was two engines (a class parser cut at line 328, then a continuation that wrote a second,
     free-function engine instead of finishing it: a seam, fixed by the new-block join). Part 1 alone: 2 661 code tokens, cut before pow/min/max and `evaluate`, against

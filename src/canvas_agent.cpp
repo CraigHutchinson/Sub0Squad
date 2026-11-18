@@ -21,6 +21,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>
+#include <set>
 #include <sstream>
 
 namespace sub0squad::agent {
@@ -425,6 +426,13 @@ int runCanvasAttempt(const AttemptContext& a)
         }
     }
     std::string lastReadAnswer;           // the latest read answered, kept in view when a read past the allowance is refused
+    // What the worker read stays open in the view for the rest of the attempt (`path:line` references, the form the folded view's focus takes), and a
+    // read of lines already read on an unchanged revision is named as such (tier 1 of 2026-11-18: only the latest answer stayed in view, the regions
+    // folded again, and the 35B read the same two ranges at least six times, its reads used up and turns spent).
+    std::string readFocus;
+    std::vector<ReadRequest> readKept;    // the line and symbol reads of this attempt, answered again when the view cannot keep them open
+    std::string readCarried;              // this turn's re-answered reads (empty when the view holds them all)
+    std::map<std::string, std::pair<int, int>> readBefore;   // "path LINES a-b" | "path SYMBOL name" -> (turn, revision of the file then)
     bool verdictIsRead = false;           // the verdict is a read answer (set where it is written, cleared once a message carried it)
     std::string carriedReasoning;         // the end of reasoning that ran out before an edit, shown with the next turn
     std::string carriedLoop;              // ... and what repeated, when the reasoning was stopped in a loop (rolled back to where it began)
@@ -451,15 +459,40 @@ int runCanvasAttempt(const AttemptContext& a)
         std::string state;
         if (canvas.paths().empty()) state = "No file exists yet. Write every file whole: === FILE: <path> === ... === END FILE ===\n";
         else {
+            const auto viewWith = [&](long availChars) {
+                const std::size_t perFile = static_cast<std::size_t>(std::clamp(availChars / std::max<long>(1, static_cast<long>(canvas.paths().size())), 800L, 9000L));
+                std::string s;
+                for (const auto& path : canvas.paths()) {
+                    const std::string& text = canvas.text(path);
+                    s += "=== CANVAS: " + path + " (revision " + std::to_string(canvas.revision(path)) + ", " + std::to_string(std::count(text.begin(), text.end(), '\n')) + " lines) ===\n" + draftView(path, text, focus + "\n" + readFocus, perFile) + "=== END CANVAS ===\n";
+                }
+                return s;
+            };
             const long availChars = windowChars - static_cast<long>(std::min(verdict.size(), verdictCap));
-            const std::size_t perFile = static_cast<std::size_t>(std::clamp(availChars / std::max<long>(1, static_cast<long>(canvas.paths().size())), 800L, 9000L));
-            for (const auto& path : canvas.paths()) {
-                const std::string& text = canvas.text(path);
-                state += "=== CANVAS: " + path + " (revision " + std::to_string(canvas.revision(path)) + ", " + std::to_string(std::count(text.begin(), text.end(), '\n')) + " lines) ===\n" + draftView(path, text, focus, perFile) + "=== END CANVAS ===\n";
+            state = viewWith(availChars);
+            // A short window has no room to keep what was read open (T0 at ctx 6144: every body folded again, so the worker reads the same lines again). The
+            // regions read in this attempt that the view folded are answered again from the files as they now stand and shown above the view, which folds
+            // further to make room: what was read is never lost from sight, whatever the window.
+            readCarried.clear();
+            if (!verdictIsRead) {
+                std::set<std::string> done;
+                for (const auto& rq : readKept) {
+                    const std::string key = rq.path + " " + rq.symbol + " " + std::to_string(rq.from) + "-" + std::to_string(rq.to);
+                    if (!canvas.has(rq.path) || !done.insert(key).second) continue;
+                    const std::string ans = answerRead(rq, canvas.text(rq.path), isPythonPath(rq.path));
+                    std::string last;   // the answer's last numbered line: in the view when the region is open there
+                    std::istringstream in(ans);
+                    for (std::string l; std::getline(in, l);) if (l.find("| ") != std::string::npos && l.find("| ") < 8) last = l;
+                    if (!last.empty() && state.find(last) == std::string::npos) readCarried += ans;
+                }
+                if (!readCarried.empty()) {
+                    readCarried = "The lines you read earlier in this attempt, as they now stand (the view below has no room to keep them open):\n" + clip(readCarried, 4000);
+                    state = viewWith(availChars - static_cast<long>(readCarried.size()));
+                }
             }
             for (const auto& f : a.item->files) if (!canvas.has(f)) state += "(" + f + " does not exist yet: write it whole with === FILE: " + f + " ===)\n";
         }
-        const std::string user = a.card + (a.guidance.empty() ? std::string{} : "\n" + a.guidance + "\n") + (verdict.empty() ? std::string{} : "\n" + clip(verdict, verdictCap) + "\n") + "\n" + state +
+        const std::string user = a.card + (a.guidance.empty() ? std::string{} : "\n" + a.guidance + "\n") + (verdict.empty() ? std::string{} : "\n" + clip(verdict, verdictCap) + "\n") + "\n" + readCarried + state +
                                  (canvas.paths().empty() ? "" : "Reply with the transaction that fixes EVERYTHING listed above (every failing test, every error, one edit each), its form picked once by the rules above: " +
                                                                     std::string{restructure ? "a few functions wrong, edit just them; the approach wrong, the complete new file (in steps when it is long).\n"
                                                                                             : "a few lines wrong, SEARCH/REPLACE; a function wrong or missing, SYMBOL (as many as it takes; FILE only for a file that is new or a stub).\n"} +
@@ -679,8 +712,26 @@ int runCanvasAttempt(const AttemptContext& a)
             if (asksToRead && !canvas.paths().empty()) {
                 // A read (docs/CANVAS.md (Folded views)): the first two read-only replies are answered without using a turn; after that the worker must edit.
                 std::string answer;
-                for (const auto& rq : parsed.reads)
-                    answer += canvas.has(rq.path) ? answerRead(rq, canvas.text(rq.path), isPythonPath(rq.path)) : "=== " + rq.path + ": not one of the files of this item ===\n";
+                int readEarlier = -1;   // every region read before, on the same revision: the turn it was first read in; -1 when any region is new
+                for (const auto& rq : parsed.reads) {
+                    if (!canvas.has(rq.path)) { answer += "=== " + rq.path + ": not one of the files of this item ===\n"; readEarlier = -2; continue; }
+                    const std::string& textNow = canvas.text(rq.path);
+                    answer += answerRead(rq, textNow, isPythonPath(rq.path));
+                    int from = rq.from, to = rq.to;
+                    if (!rq.symbol.empty())
+                        for (const auto& r : foldRegions(textNow, isPythonPath(rq.path), true))
+                            if (r.name == rq.symbol || (rq.symbol.size() > r.name.size() && rq.symbol.ends_with("::" + r.name))) { from = r.first; to = r.bodyTo; break; }
+                    if (from <= 0) { readEarlier = -2; continue; }   // an outline: nothing to keep open
+                    readKept.push_back(rq);
+                    for (int l = from; l <= std::max(from, to); l += 8) readFocus += rq.path + ":" + std::to_string(l) + "\n";
+                    const std::string key = rq.path + (rq.symbol.empty() ? " LINES " + std::to_string(rq.from) + "-" + std::to_string(rq.to) : " SYMBOL " + rq.symbol);
+                    const int rev = canvas.revision(rq.path);
+                    if (const auto seen = readBefore.find(key); seen != readBefore.end() && seen->second.second == rev) { if (readEarlier != -2) readEarlier = std::max(readEarlier, seen->second.first); }
+                    else { readEarlier = -2; readBefore[key] = {call, rev}; }
+                }
+                if (readEarlier >= 0 && issueAsks.empty())
+                    answer = "You read all of these lines before (turn " + std::to_string(readEarlier) + ") and they have not changed since: the canvas view keeps "
+                             "them open from now on while it has room. Do not read them again; write the edit.\n" + answer;
                 for (const int n : issueAsks) {   // an issue in full, its anchors resolved to the lines of the files as they now stand
                     ++issueReads;
                     for (const auto& [path, textNow] : canvas.files()) blockIndex.update(path, textNow);

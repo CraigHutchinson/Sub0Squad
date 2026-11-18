@@ -185,6 +185,49 @@ int main()
         }
         CHECK(slurp(attemptDir(d, 2) / "out" / kFile).find(fixedLine) != std::string::npos);
     }
+    {   // What was read stays open in the folded view on later turns, and a read of the same lines on an unchanged revision is named as a repeat (tier 1 of
+        // 2026-11-18: only the latest answer stayed in view and the 35B read the same ranges at least six times).
+        const auto viewOf = [](const std::string& m) { const auto at = m.find("=== CANVAS:"); return at == std::string::npos ? std::string{} : m.substr(at); };
+        const fs::path d = workflow("canvas-readfocus");
+        failedAttempt(d, 1, bad);
+        const std::string readTerm = std::string{"=== READ: "} + kFile + " SYMBOL term ===\n";
+        const auto firstLine = lines(bad)[0];
+        fake::Engine engine({{readTerm}, {std::string{"=== EDIT: "} + kFile + " LINES 1 ===\n# a note\n" + firstLine + "\n=== END EDIT ===\n"}, {fixBySymbol}});
+        CHECK_EQ(runLlmAgent(canvasArgsCtx(d, engine, 2, 2, 7168)), 0);
+        CHECK_EQ(slurp(attemptDir(d, 2) / "out" / kFile), "# a note\n" + ref);
+        const auto rq = engine.requests();
+        CHECK_EQ(rq.size(), static_cast<std::size_t>(3));
+        if (rq.size() == 3) {
+            CHECK(viewOf(rq[0].last()).find("v = v / d") == std::string::npos);   // folded at first
+            CHECK(viewOf(rq[2].last()).find("v = v / d") != std::string::npos);   // open after it was read, an edit later
+            CHECK(rq[2].last().find("The lines you read earlier") == std::string::npos);   // the view holds it: nothing carried
+        }
+        {   // A short window (ctx 6144) has no room to keep it open: it is answered again from the file as it now stands and shown above the view.
+            const fs::path ds = workflow("canvas-readfocus-short");
+            failedAttempt(ds, 1, bad);
+            fake::Engine es({{readTerm}, {std::string{"=== EDIT: "} + kFile + " LINES 1 ===\n# a note\n" + firstLine + "\n=== END EDIT ===\n"}, {fixBySymbol}});
+            CHECK_EQ(runLlmAgent(canvasArgsCtx(ds, es, 2, 2, 6144)), 0);
+            const auto rs = es.requests();
+            CHECK_EQ(rs.size(), static_cast<std::size_t>(3));
+            if (rs.size() == 3) {
+                const std::string& m = rs[2].last();
+                const auto carried = m.find("The lines you read earlier in this attempt");
+                CHECK(carried != std::string::npos && carried < m.find("=== CANVAS:"));
+                CHECK(between(m, "The lines you read earlier", "=== CANVAS:").find(" 51|                 v = v / d") != std::string::npos);   // renumbered after the edit
+            }
+        }
+
+        const fs::path d2 = workflow("canvas-readagain");
+        failedAttempt(d2, 1, bad);
+        fake::Engine engine2({{readTerm}, {readTerm}, {fixBySymbol}});
+        CHECK_EQ(runLlmAgent(canvasArgsCtx(d2, engine2, 2, 1, 6144)), 0);
+        CHECK_EQ(slurp(attemptDir(d2, 2) / "out" / kFile), ref);
+        const auto rq2 = engine2.requests();
+        if (rq2.size() == 3) {
+            CHECK(rq2[1].last().find("You read all of these lines before") == std::string::npos);
+            CHECK(rq2[2].last().find("You read all of these lines before (turn 0)") != std::string::npos);
+        }
+    }
     {   // With no turns left a third read ends the attempt: reads cannot loop.
         const fs::path d = workflow("canvas-readloop");
         failedAttempt(d, 1, bad);
