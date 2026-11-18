@@ -410,8 +410,10 @@ int runCanvasAttempt(const AttemptContext& a)
     // EXPERIMENT (SUB0SQUAD_FIXSITE=1, the A/B of 2026-11-18): a compile verdict says the cause may be away from the lines the errors name. T0
     // undeclared-member/-many (T1's check_eol): the 35B edited the definition and the call the errors named, never the declaration the class lacked.
     const bool fixSite = [] { const char* v = std::getenv("SUB0SQUAD_FIXSITE"); return v && std::string_view{v} == "1"; }();
-    const std::string causeNote = "An error is reported where the compiler noticed it, which is not always where the cause is: a declaration missing from a "
-                                  "class or header, a missing include, a brace left open. Find the cause and fix it there.\n";
+    // The owner's wording (2026-11-18): every error reviewed, the root cause addressed directly, the how left to the worker.
+    const std::string causeNote = "Review all of these errors together before you edit: several may come from one root cause, and an error is reported "
+                                  "where the compiler noticed it, which is not always where the cause is. Address the root cause directly; how is yours "
+                                  "to decide.\n";
 
     // A seeded canvas is judged before the first turn, so the worker starts from what fails (a fix-one-bug task names its bug; stubs say every test fails)
     // instead of having to edit before it can see anything. It is also the first best revision: a commit worse than the seed is undone.
@@ -823,7 +825,7 @@ int runCanvasAttempt(const AttemptContext& a)
                 break;
             }
             verdict = skippedNote + "Your edits were KEPT (" + revisionList(canvas) + "; nothing was thrown away), but the files do not compile yet:\n" + badVerdict +
-                      (fixSite ? "\n" + causeNote + "The line numbers are those of the files shown below. Fix it with edits; do not rewrite the file."
+                      (fixSite ? "\n" + causeNote + "The line numbers are those of the files shown below. Edit; do not rewrite the file."
                                : std::string{"\nThe line numbers are those of the files shown below. Fix just those lines with edits; do not rewrite the file."});
             traceVerdict(tracePath, call, "staged (does not compile yet): " + clip(bad, 600));
             std::printf("canvas turn %d: staged, does not compile yet\n", call);
