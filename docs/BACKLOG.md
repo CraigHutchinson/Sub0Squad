@@ -109,6 +109,23 @@ The queue, with hypotheses, arms, measures and commands, is [EXPERIMENTS.md](EXP
 **Tier 0 layers** ([T0_LAYERS.md](T0_LAYERS.md), design 2026-11-18: the T0 cases as a tree, quick / release / dig-down modes)
 - Build it in the order of T0_LAYERS.md section 5: `requires` data and the DAG asserts; the tree in `gate.md`; the three composites staged and calibrated
   (edit-mix, build-mix, files-mix); `dig_t0.py` and `@quick`/`@release`/`T0_OUT`; then the switch of `GATE` and the release verdict.
+- Token usage as a gate measure, T0 and up (owner, 2026-11-18): an expected budget per case, and the usage broken down by area, so a workflow that
+  passes by going round the harness (rework, rereads, rewrites, restarts) shows up even when the tests pass. What exists: agent.json `tokensIn` and
+  `tokensOut` per attempt, gate.md's out tokens per case, and the ledger's estimates (`tokens.work`, accepted against rework tokens, prompt overhead,
+  harness bytes; `project status`). To build:
+  - **Areas** (per turn, summed per attempt, case and run). Workflow and process: planning, rearchitect and card rewrites, attempts after the first,
+    manager strategies. Harness, the prompt: system and card, the canvas view, verdicts and gate output, read answers, carried reads and reasoning,
+    the issue layer, prefill and continuation context. Model, the output: the accepted deliverable, thinking (kept, and stopped or carried), replies
+    stopped while streaming (wasted), continuations, rework (edits later undone, replaced or reverted), and read-only turns. Most of this is known at the
+    point of sending (the message parts are built separately) and of the reply (the stream guard and the verdicts): record it as it happens, in
+    agent.json, not estimated after.
+  - **Expected usage per case**, worked out, not fitted: the reference solution's size in tokens (what an ideal worker writes), the prompt of an ideal
+    path (system, card, the view at the case's file size, one verdict per turn) times the turns that path takes (a one-line fix: 1; skeleton: one per
+    method), plus allowances for thinking. In make_t0.py beside each case (`expect`), derived from the case's own files where it can be.
+  - **Watermarks**: a warning flag in gate.md when a run passes at more than k times its expected usage (k about 3 to start), or when one area's
+    share is out of line (rework or wasted output over half of the output, reads over a set count): the case passed but the path was not the expected
+    one. A warning first; a gate failure only once the expectations are calibrated over a few gates. The same flags for T1 and T2 runs (their plan has
+    the same expected budget, built from its items).
 - A gate-wide progress view in the portal (owner, 2026-11-18). Each tier run has its own squad home with its own daemon and portal (`up` in
   validation/tiers/lib.sh), so http://127.0.0.1:8780/ shows only the run in flight, drops between runs, and nothing shows the whole gate: cases × runs
   with result, attempts, turns and tokens (today `out/runs/t0/summary.md`), the run in flight, and the tree (T0_LAYERS.md) coloured by result. One way:
