@@ -121,6 +121,16 @@ Evidence lives at `out/runs/t1-diagnostics/20261118T205335Z-65f73352/summary.jso
 
 The next bounded model experiment starts with those two isolated failure groups. Use an artifact that retains the relevant contract defect while the other group passes. Keep the expected behavior public, keep the accepted patch private, and require the original tests for each arm. First establish the repair with the target region readable, then repeat the same defect with the region folded. Two live short-window `fix-op` runs already read a folded region and passed, so the open question is whether that behavior transfers to a T1-sized artifact and survives a subsequent revision. Track requested regions, repeated reads and edit targets. Add a named leaf only where existing tests and profiles cannot exercise that distinction. Receive both defects together through the original 22 tests before spending on another whole-project model run. A full gated T1 run still needs a current T0 PASS. [Archived T1 failure and fold evidence](BACKLOG.md), [T1 gate policy](BLOCK_PROVING_GROUNDS.md#model-tiers-and-the-tier-0-gate-2026-11-17).
 
+Run a single T1-derived repair in the sandbox by passing the source directory from the selected replay arm. For the delimiter repair, use the arm in which only power was fixed:
+
+```powershell
+python -B validation/tiers/t0_sandbox.py run --t1-source out/runs/t1-diagnostics/20261118T205335Z-65f73352/power/items/app/attempt-1/out/src --seed 4101 --timeout 240
+```
+
+The `--t1-source` option freezes the replay's CLI and the original calculator header and permits edits to `src/calc.cpp`. Before inference it builds the supplied seed and requires a behavioral failure from the original 22-test suite. It keeps the same tests for the worker and the independent checker. These runs are repair diagnostics outside the gated whole-project T1 result.
+
+**First live delimiter diagnostic.** The initial runner setup was invalid because a custom C++ scaffold suppressed the harness header. The corrected runner includes the frozen header and preflights the seed. The corrected trial `20261118T210043Z-19dc5e578658` started with 7 of 22 failures and ended with the same count. The initial view folded the relevant token accessor even at the 65,536-token server profile. The worker used broad reads and edited the already working power grammar. This is a localization failure on a valid seed. A focused prompt arm can ask the worker to group actual errors and inspect shared token handling without naming the repair.
+
 ## 3. Modes
 
 All three judge the run directories, as `gate_t0.py` does today: a run counts when its `case_key`, build and engine match; stale runs are listed, not counted.

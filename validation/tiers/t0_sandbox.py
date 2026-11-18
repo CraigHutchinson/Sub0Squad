@@ -130,6 +130,23 @@ def probes(seed):
     return cases
 
 
+def owner_test_count(plan):
+    test_paths = set(plan["items"][0]["gate"]["tests"])
+    return sum(len(re.findall(r"^TEST\(", f["content"], re.MULTILINE))
+               for f in plan["given"] if f["path"] in test_paths)
+
+
+def check_t1_seed(exe, plan, private):
+    folder = private / "seed"
+    materialize(plan, folder, source(plan).encode())
+    result, message = gate(exe, folder, private / "seed.log")
+    expected = owner_test_count(plan)
+    match = re.match(r"GATE FAIL: ([1-9]\d*) of (\d+) tests failed", message)
+    if not result.returncode or not match or int(match[2]) != expected:
+        raise RuntimeError(f"T1 seed must compile and fail behavior tests: {message.splitlines()[0]}")
+    return int(match[1])
+
+
 def private_check(exe, plan, ref, trial, private, seed, prompt, before, manifest):
     """Check exact accepted bytes in a fresh workspace, separate from the agent packet."""
     if manifest() != before:
@@ -149,7 +166,8 @@ def private_check(exe, plan, ref, trial, private, seed, prompt, before, manifest
         return "REJECT", "accepted bytes differ from the worker output"
     # Screen verbatim reference leakage in actual worker requests. Only the proposed system
     # addition is screened for semantic leakage by the separately owned prompt review.
-    suffix = ref[len(source(plan)):].splitlines()
+    seed_source = source(plan)
+    suffix = ref[len(seed_source):].splitlines() if ref.startswith(seed_source) else []
     request_files = sorted((trial / "requests").glob("*.json"))
     if not request_files:
         return "INDETERMINATE", "no captured worker request"
@@ -168,7 +186,7 @@ def private_check(exe, plan, ref, trial, private, seed, prompt, before, manifest
     materialize(plan, folder, artifact)
     log = private / "checker.log"
     result, msg = gate(exe, folder, log)
-    if result.returncode or "(16 tests," not in msg:
+    if result.returncode or f"({owner_test_count(plan)} tests," not in msg:
         return "REJECT", "fresh owner gate did not reproduce acceptance"
     workspace = folder / "items/app/attempt-1/ws"
     (workspace / "checker.cpp").write_text(DRIVER, encoding="utf-8")
@@ -329,6 +347,20 @@ def prepare(args):
         import make_t0
     finally:
         sys.argv = original
+    if args.t1_source:
+        plan = json.loads((ROOT / "validation/tiers/t1-plan.json").read_text(encoding="utf-8"))
+        plan["project"] = "t1-repair"
+        item = plan["items"][0]
+        item["files"] = [SOURCE]
+        item["card"]["context"] = "Repair the existing scientific calculator. The command-line frontend is fixed."
+        item["card"]["notes"] = ["Output only src/calc.cpp."]
+        updated = {f"src/{name}": (args.t1_source / name).read_text(encoding="utf-8")
+                   for name in ("calc.cpp", "main.cpp")}
+        scaffold = {"include/calc/calc.hpp": make_t0.HEADER}
+        scaffold.update((f["path"], f["content"]) for f in plan.get("scaffold", []))
+        scaffold.update(updated)
+        plan["scaffold"] = [{"path": name, "content": text} for name, text in scaffold.items()]
+        return plan, make_t0.CALC, make_t0.REF
     case = "fix-op" if args.mode == "continuation" else CASE
     plan = make_t0.plan_for(case)
     ref = make_t0.CALC
@@ -395,6 +427,7 @@ def main():
     ap.add_argument("--model", default="qwen35")
     ap.add_argument("--ctx", type=int, default=65536)
     ap.add_argument("--seed", type=int, default=4101)
+    ap.add_argument("--t1-source", type=pathlib.Path, help="run a one-file T1 repair diagnostic from a directory with calc.cpp and main.cpp")
     ap.add_argument("--cut", type=int, help="prepare a companion resume context; omit for canonical T0")
     ap.add_argument("--handoff", type=pathlib.Path, help="owner-authored resume note for a companion cut")
     ap.add_argument("--prompt", type=pathlib.Path, help="UTF-8 text to append to the worker system prompt")
@@ -432,9 +465,14 @@ def main():
         ap.error("endpoint must be http://127.0.0.1:PORT/v1")
     if not re.fullmatch(r"[A-Za-z0-9._-]+", args.model) or min(args.ctx - args.max_tokens, args.timeout, args.seed + 1) <= 0:
         ap.error("check model alias, context, generation limit, timeout and seed")
+    if args.t1_source and (args.mode != "run" or args.cut is not None or args.handoff):
+        ap.error("--t1-source is only for a separate run without a resume cut or handoff")
     if args.handoff and args.cut is None:
         ap.error("the canonical fixture has a fixed handoff; use --handoff with --cut")
-    plan, ref, ref_dir = prepare(args)
+    try:
+        plan, ref, ref_dir = prepare(args)
+    except (OSError, ValueError) as e:
+        ap.error(str(e))
     if args.parent and (not re.fullmatch(r"\d{8}T\d{6}Z-[0-9a-f]{12}", args.parent)
                         or not (OUT / args.parent / "verdict.json").is_file()):
         ap.error("parent must identify a finished sandbox trial")
@@ -501,6 +539,8 @@ def main():
                 raise RuntimeError(f"known-good repair failed independent checks: {detail}")
             result = {"public": "PASS", "tester": "PASS", "detail": "seed, repair, allowlist and production canvas controls passed"}
         else:
+            if args.t1_source:
+                result["seedFailures"] = check_t1_seed(args.exe, plan, private)
             state = execute(args, plan, trial, target, prompt)
             info = gate_t0.judge_run(trial / "home", plan, ref_dir)
             result["gate"] = info
