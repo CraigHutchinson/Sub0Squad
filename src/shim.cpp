@@ -104,7 +104,7 @@ bool Shim::start()
         if (const char* v = std::getenv(key)) env.push_back(std::string{key} + "=" + v);
     // Measurement switches, set on the squad's environment to compare one build both ways (docs/LAYERED_DOCUMENT.md): passed through, or the A/B
     // silently measures the default twice.
-    for (const char* key : {"SUB0SQUAD_ISSUE_LAYER", "SUB0SQUAD_ISSUE_INLINE"})
+    for (const char* key : {"SUB0SQUAD_ISSUE_LAYER", "SUB0SQUAD_ISSUE_INLINE", "SUB0SQUAD_FIXSITE"})
         if (const char* v = std::getenv(key)) env.push_back(std::string{key} + "=" + v);
     env.push_back("SUB0SQUAD_RUN_DIR=" + dir_.string());
     for (const auto& [k, v] : spec_.env) env.push_back(k + "=" + v);

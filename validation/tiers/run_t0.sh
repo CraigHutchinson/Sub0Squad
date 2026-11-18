@@ -16,7 +16,7 @@ case "$T0_DIR" in
     *) T0_DIR="$repo/$T0_DIR" ;;
 esac
 . "$repo/validation/tiers/lib.sh"
-exe="$repo/out/build/mingw/sub0squad.exe"
+exe="${T0_EXE:-$repo/out/build/mingw/sub0squad.exe}"   # T0_EXE: another build (the release exe may be held by a running portal)
 if $plan_only; then
     case "${1:-}" in
       @*) python -I "$repo/validation/tiers/make_t0.py" "$repo" --list "${1#@}"; exit $? ;;
