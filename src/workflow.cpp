@@ -384,8 +384,10 @@ const RequestRecord* escalationFor(const WorkflowRecord& wf, const std::string& 
 
 // The manager's strategies, tried in order when an item's ladder is spent, before anything reaches the owner: think (reasoning on, a bigger
 // budget), then a stronger local engine when one is configured. The owner decides intent and permissions, never how to solve a task.
+const Stage& itemsStageOf(const WorkflowRecord& wf);
 std::vector<std::string> strategyOrder(const WorkflowRecord& wf)
 {
+    if (!itemsStageOf(wf).leaf.allowStrategies) return {};   // the process turns the manager's strategies off (tier 0)
     std::vector<std::string> o{"think"};
     if (!wf.spec.fallbackEngine.empty()) o.push_back("engine");
     return o;

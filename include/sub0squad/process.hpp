@@ -59,6 +59,9 @@ struct LeafParams
     /// A STUCK near pass (two near-pass attempts ending on the same files, gate exit 7) goes to the `think` strategy first, before the tests are sent
     /// back or the card rewritten: tests of which nearly all pass are probably right, and a plain repair has just shown it changes nothing.
     bool allowThinkFirst = true;
+    /// When the ladder is spent the manager applies its strategies (`think`, then `engine` with a fallback engine) before failing the item. Off for a
+    /// process that measures one step (tier 0: a run ends at its own attempts, not in a long failure through every strategy).
+    bool allowStrategies = true;
     int agentWallLlmSeconds = 10800;             ///< a local model-driven attempt
     int agentWallOtherSeconds = 120;             ///< a mock or stub attempt
     int gateWallSeconds = 120;

@@ -54,6 +54,7 @@ std::vector<Field> fieldsOf(Stage& st)
         flag("leaf.allow.rearchitect", st.leaf.allowRearchitect);
         flag("leaf.allow.escalate", st.leaf.allowEscalate);
         flag("leaf.allow.thinkFirst", st.leaf.allowThinkFirst);
+        flag("leaf.allow.strategies", st.leaf.allowStrategies);
         num("leaf.wallSeconds.agentLlm", st.leaf.agentWallLlmSeconds);
         num("leaf.wallSeconds.agentOther", st.leaf.agentWallOtherSeconds);
         num("leaf.wallSeconds.gate", st.leaf.gateWallSeconds);

@@ -2,7 +2,8 @@
 # Run tier 0 cases on a model, one fresh squad home per run, then judge them (gate_t0.py writes out/runs/t0/gate.md and gate.json).
 #   [START=n] validation/tiers/run_t0.sh <repo> <engine spec> <repeats> [case ... | @smoke]      (no case: all; runs are numbered from START, default 1)
 # @smoke runs the smoke set (make_t0.py SMOKE: one fast case per kind of edit) and judges it with gate_t0.py --set smoke: smoke.md, never the gate.
-# Each run: its own home out/runs/t0/<case>/run-N, the "single" process, the canvas executor, the case's plan (make_t0.py); then `down`.
+# Each run: its own home out/runs/t0/<case>/run-N, the "t0" process (lib.sh: single, no ladder past the local attempts), the canvas executor, the
+# case's plan (make_t0.py), T0_ATTEMPTS local attempts (default 1: a run stops at its first failed attempt); then `down`.
 # out/runs/t0/summary.md gains one row per run as it ends (a progress log; the gate judges the run directories, not this table).
 set -u
 repo=$(cd "$1" && pwd); engine=$2; repeats=$3; shift 3
@@ -18,7 +19,7 @@ sum="$repo/out/runs/t0/summary.md"
 for c in $cases; do
   for r in $(seq "${START:-1}" $(( ${START:-1} + repeats - 1 ))); do
     home="$repo/out/runs/t0/$c/run-$r"; rm -rf "$home"
-    start_squad "$exe" "$home" "$engine" canvas single "$repo/out/runs/t0/$c/plan.json" "tier zero spike: $c"
+    start_squad "$exe" "$home" "$engine" canvas t0 "$repo/out/runs/t0/$c/plan.json" "tier zero spike: $c" --max-local "${T0_ATTEMPTS:-1}"
     state=$(wait_workflow "$exe" 3600)
     "$exe" down >/dev/null 2>&1
     items="$home/state/workflows/w-000001/items/app"
