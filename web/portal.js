@@ -3,6 +3,8 @@ const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&g
 const fmt=n=>n==null||isNaN(n)?'–':n>=10000?(n/1000).toFixed(1)+'k':n>=1000?(n/1000).toFixed(2)+'k':Math.round(n);
 const f1=n=>n==null||isNaN(n)?'–':(+n).toFixed(1);
 const last=a=>a&&a.length?a[a.length-1]:null;
+const selectedSource=((location.search||'').match(/[?&]source=([A-Za-z0-9_-]+)/)||[])[1]||'';
+const portalUrl=url=>selectedSource?url+(url.includes('?')?'&':'?')+'source='+encodeURIComponent(selectedSource):url;
 const TOKEN='__PORTAL_TOKEN__';   // per run; only this page has it, so a generated page cannot post to the inbox
 let state=null,live=null,sel=null,big=null,bigAt=0;   // sel: {type:'node'|'tile'|'engine'|'engtile'|'slot'|'file', key}
 
@@ -209,7 +211,7 @@ let pkg=null,pkgWf=null,pkgAt=0,fileView=null;
 // generated sites are served from the next port: a different origin from this page, with no network access of their own
 const siteBase=()=>location.protocol+'//'+location.hostname+':'+(+location.port+1);
 async function loadPkg(force){const wf=currentWf();if(!wf||document.hidden)return;if(!force&&pkgWf===wf.id&&Date.now()-pkgAt<5000)return;pkgAt=Date.now();pkgWf=wf.id;
-  try{pkg=await (await fetch('/api/files?wf='+encodeURIComponent(wf.id),{cache:'no-store'})).json();renderPkg();renderPlanning();if(sel&&sel.type=='node')drawDrawer()}catch(e){}}
+  try{pkg=await (await fetch(portalUrl('/api/files?wf='+encodeURIComponent(wf.id)),{cache:'no-store'})).json();renderPkg();renderPlanning();if(sel&&sel.type=='node')drawDrawer()}catch(e){}}
 const fl=(p,label)=>`<a href="#" class="flink" data-p="${esc(p)}">${esc(label||p)}</a>`;
 function groupFiles(files){const g={};files.forEach(f=>{const parts=f.p.split('/');const k=parts[0]==='items'&&parts.length>2?'items/'+parts[1]:parts[0]==='project'?'project':'(workflow)';(g[k]=g[k]||[]).push(f)});return g}
 function renderPkg(){
@@ -217,7 +219,7 @@ function renderPkg(){
   const d=pkg.deliverables&&pkg.deliverables.items||[];const files=pkg.files||[];const g=groupFiles(files);
   const kind={'web-page':'page','report':'report','source-tree':'sources'};
   setInner($('pk-info'),`<div class="kv"><span>request</span><span>${esc(wf.taskText||wf.task)}</span><span>workflow</span><span>${esc(wf.id)} · ${esc(wf.state)} · <code>${esc(wf.sandbox)}</code></span><span>engines</span><span>${(wf.engines||[]).map(e=>esc(e)).join('<br>')||'mock agents'}</span></div>`);
-  setInner($('pk-del'),d.length?'<table><tbody>'+d.map(x=>`<tr><td><span class="pill">${esc(kind[x.kind]||x.kind)}</span></td><td>${esc(x.title)}${x.run?`<br><span class="mute"><code>${esc(x.run)}</code></span>`:''}</td><td>${x.open==='site'?`<a href="${siteBase()}/site/${encodeURIComponent(wf.id)}/${esc((x.path||'').replace(/^project\//,'')||'index.html')}" target="_blank" rel="noopener">open ↗</a>`:x.open==='file'?fl(x.path,'view'):''}</td></tr>`).join('')+'</tbody></table>'+(pkg.deliverables.summary?`<div class="mute">${esc(pkg.deliverables.summary)}</div>`:'')
+  setInner($('pk-del'),d.length?'<table><tbody>'+d.map(x=>`<tr><td><span class="pill">${esc(kind[x.kind]||x.kind)}</span></td><td>${esc(x.title)}${x.run?`<br><span class="mute"><code>${esc(x.run)}</code></span>`:''}</td><td>${x.open==='site'&&!selectedSource?`<a href="${siteBase()}/site/${encodeURIComponent(wf.id)}/${esc((x.path||'').replace(/^project\//,'')||'index.html')}" target="_blank" rel="noopener">open ↗</a>`:x.open==='file'?fl(x.path,'view'):''}</td></tr>`).join('')+'</tbody></table>'+(pkg.deliverables.summary?`<div class="mute">${esc(pkg.deliverables.summary)}</div>`:'')
     :`<div class="mute">${wf.state==='running'?'The deliverables appear when the integrator has passed.':'No deliverables manifest in this workflow.'}</div>`);
   setText($('pk-count'),`${files.length} files, per-attempt workspaces (ws/) left out`);
   setInner($('pk-top'),(g['(workflow)']||[]).map(f=>f.p).sort().map(p=>fl(p)).join(' · '));
@@ -233,7 +235,7 @@ function renderPkg(){
 // planner ends) and the files the planner leaves as it goes (planner/prose.md, turn-N.txt, doc/turn-N/, live.txt), so it shows while the plan is being written.
 let planRec=null,planWf=null,planAt=0;
 async function loadPlan(force){const wf=currentWf();if(!wf||document.hidden)return;if(!force&&planWf===wf.id&&Date.now()-planAt<4000)return;planAt=Date.now();planWf=wf.id;
-  try{const r=await fetch('/api/file?wf='+encodeURIComponent(wf.id)+'&p=planner.json',{cache:'no-store'});planRec=r.ok?JSON.parse(await r.text()):null}catch(e){planRec=null}
+  try{const r=await fetch(portalUrl('/api/file?wf='+encodeURIComponent(wf.id)+'&p=planner.json'),{cache:'no-store'});planRec=r.ok?JSON.parse(await r.text()):null}catch(e){planRec=null}
   renderPlanning()}
 function planningHtml(){
   const wf=currentWf();if(!wf)return null;
@@ -294,13 +296,13 @@ $('q').addEventListener('input',()=>{clearTimeout(searchTimer);searchTimer=setTi
 async function runSearch(){
   const wf=currentWf(),text=$('q').value.trim();if(!wf)return;
   if(text.length<3){setText($('q-note'),'');setInner($('q-out'),'');return}
-  try{const j=await (await fetch('/api/search?wf='+encodeURIComponent(wf.id)+'&q='+encodeURIComponent(text),{cache:'no-store'})).json();
+  try{const j=await (await fetch(portalUrl('/api/search?wf='+encodeURIComponent(wf.id)+'&q='+encodeURIComponent(text)),{cache:'no-store'})).json();
     setText($('q-note'),j.hits.length+' line'+(j.hits.length==1?'':'s')+(j.hits.length>=40?' (best 40)':''));
     setInner($('q-out'),j.hits.map(h=>`<div class="reqline"><span class="pill">${esc(h.kind)}</span> ${fl(h.p,h.p.replace(/^items\//,''))}<span class="mute">:${h.line}</span> <span class="mute">${esc(h.text)}</span></div>`).join('')||'<span class="mute">nothing matched</span>')}catch(e){setText($('q-note'),'search failed: '+e)}}
 // A transcript (conversation.md) or a gate output is followed live: re-read every 1.5 s, the end of a long file, the view kept at the bottom while it grows.
 const followable=p=>/(^|\/)(conversation(-skeleton)?\.md|gate\.txt|stdout\.log|stderr\.log)$/.test(p);
 function fileUrl(fv){return '/api/file?wf='+encodeURIComponent(fv.wf)+'&p='+encodeURIComponent(fv.p)+(fv.follow?'&tail=200000':'')}
-async function loadFile(){const fv=fileView;if(!fv)return;try{const r=await fetch(fileUrl(fv),{cache:'no-store'});const t=r.ok?await r.text():'(not available: '+r.status+')';if(fileView===fv&&t!==fv.text){fv.text=t;drawDrawer()}}catch(e){if(fileView===fv&&fv.text=='loading…'){fv.text='(error: '+e+')';drawDrawer()}}}
+async function loadFile(){const fv=fileView;if(!fv)return;try{const r=await fetch(portalUrl(fileUrl(fv)),{cache:'no-store'});const t=r.ok?await r.text():'(not available: '+r.status+')';if(fileView===fv&&t!==fv.text){fv.text=t;drawDrawer()}}catch(e){if(fileView===fv&&fv.text=='loading…'){fv.text='(error: '+e+')';drawDrawer()}}}
 async function openFile(p){const wf=currentWf();if(!wf)return;sel={type:'file',key:p};fileView={p,text:'loading…',wf:wf.id,follow:/(conversation(-skeleton)?\.md|live\.txt)$/.test(p)};openDrawerShell();drawDrawer();await loadFile()}
 function setFollow(on){if(fileView){fileView.follow=!!on;loadFile()}}
 async function tickFile(){if(document.hidden||busy.file||!fileView||!fileView.follow||!sel||sel.type!='file')return;busy.file=true;try{await loadFile()}finally{busy.file=false}}
@@ -314,7 +316,7 @@ function renderIntent(){
   const reqs=[{n:'REQ-1',t:wf.taskText||wf.task,by:'owner',when:wf.submittedAt}].concat(rq.filter(r=>r.kind==='requirement'&&r.status==='answered').map((r,i)=>({n:'REQ-'+(i+2),t:r.answer||r.detail||r.title,by:r.answeredBy||r.from,when:r.answeredAt,scope:r.scope})));
   setInner($('in-req'),reqs.map(r=>`<div class="reqline"><span class="pill">${esc(r.n)}</span> ${esc(r.t)} <span class="mute">· ${esc(r.by)}${r.scope&&r.scope.length?' · applies to '+esc(r.scope.join(', ')):''}</span></div>`).join('')+((wf.reasons||[]).length?`<div class="mute" style="margin-top:4px">Assumptions made when planning: ${(wf.reasons||[]).map(esc).join(' · ')}</div>`:''));
   // an answer can only be delivered to a running daemon: say so, and do not offer buttons that cannot work
-  const daemonUp=(state.workflows&&state.workflows.source)==='live';
+  const daemonUp=!selectedSource&&(state.workflows&&state.workflows.source)==='live';
   setInner($('offlinebar'),daemonUp?'':'<div class="warnbar">The daemon is not running, so this is the last recorded state: answers cannot be delivered until it is started again (<code>sub0squad serve</code>); the workflow resumes from its journal.</div>');
   $('inbox').classList.toggle('offline',!daemonUp);
   const open=rq.filter(r=>r.status==='open'),openBlocking=open.filter(r=>r.blocking).length;
@@ -331,7 +333,7 @@ function renderIntent(){
   setInner($('in-log'),done.length?done.map(r=>`<div class="reqline"><span class="pill">${esc(kindLabel[r.kind]||r.kind)}</span> <b>${esc(r.title)}</b> <span class="mute">${esc(r.id)} · ${esc(r.from)} → ${esc(r.answeredBy||'')}${r.resolution?' · '+esc(r.resolution):''}</span>${r.analysis&&r.answeredBy==='overseer'?`<div class="mute">Overseer's analysis: ${esc(r.analysis)}</div>`:''}${r.answer?`<div class="mute" style="white-space:pre-wrap">${esc(r.answer)}</div>`:''}</div>`).join(''):'<span class="mute">None yet.</span>');
   reconcile($('add-scope'),wf.items.map(i=>({k:i.id,cls:'',html:`<label><input type="checkbox" value="${esc(i.id)}"> ${esc(i.id)}</label>`})),{tag:'span'});
 }
-async function postJson(path,body){try{const r=await fetch(path,{method:'POST',headers:{'content-type':'application/json','x-portal-token':TOKEN},body:JSON.stringify(body)});try{return await r.json()}catch(e){return {ok:false,error:'HTTP '+r.status}}}catch(e){return {ok:false,error:'the portal is not reachable (was it restarted? reload this page)'}}}
+async function postJson(path,body){if(selectedSource)return {ok:false,error:'Registered workflow details are read-only'};try{const r=await fetch(path,{method:'POST',headers:{'content-type':'application/json','x-portal-token':TOKEN},body:JSON.stringify(body)});try{return await r.json()}catch(e){return {ok:false,error:'HTTP '+r.status}}}catch(e){return {ok:false,error:'the portal is not reachable (was it restarted? reload this page)'}}}
 $('inbox').addEventListener('click',async ev=>{
   const card=ev.target.closest('.rq');if(!card)return;const wf=currentWf();if(!wf)return;
   const opt=ev.target.closest('[data-opt]');if(opt){const ta=card.querySelector('textarea');ta.value=opt.getAttribute('data-opt');ta.focus();return}
@@ -385,7 +387,7 @@ function drawDrawer(){
   if(!sel||frozen())return;const L=big||live||{};let a='',b='',c='';
   if(sel.type=='file'){
     if(!fileView){return}
-    const wf=fileView.wf,raw='/api/file?wf='+encodeURIComponent(wf)+'&p='+encodeURIComponent(fileView.p),isSite=fileView.p.startsWith('project/')&&/\.html?$/.test(fileView.p);
+    const wf=fileView.wf,raw=portalUrl('/api/file?wf='+encodeURIComponent(wf)+'&p='+encodeURIComponent(fileView.p)),isSite=!selectedSource&&fileView.p.startsWith('project/')&&/\.html?$/.test(fileView.p);
     a=`<h2 style="word-break:break-all">${esc(fileView.p)}</h2><div class="mute"><a href="${raw}" target="_blank" rel="noopener">raw</a>${isSite?` · <a href="${siteBase()}/site/${encodeURIComponent(wf)}/${esc(fileView.p.replace(/^project\//,''))}" target="_blank" rel="noopener">open as a page ↗</a>`:''}${followable(fileView.p)?` · <label><input type="checkbox" ${fileView.follow?'checked':''} onchange="setFollow(this.checked)"> follow live</label>`:''}</div><pre class="viewer"></pre>`;}
   else if(sel.type=='tile'){const s=L.system||{};const t=sysTiles().find(x=>x.k==sel.key);const m={cpu:['CPU busy','%'],mem:['Memory used','%'],swapMiB:['Swap used','MiB'],load:['Load average',''],gpu:['GPU busy','%'],vramMiB:['GPU VRAM','MiB'],gttMiB:['GPU GTT','MiB']}[sel.key]||[sel.key,''];
     a=`<h2>${m[0]}</h2><div class="mute">now ${t?t.v:''}</div>`;b=chart(s[sel.key],m[1],'',null);}
@@ -426,12 +428,58 @@ function drawDrawer(){
 let view='overview';
 const cv={auto:true,pick:null,file:null,rev:0,follow:true,log:null,logText:null,texts:new Map(),live:null,shown:null};
 function setView(v){
-  view=v==='canvas'?'canvas':'overview';
+  view=v==='canvas'||v==='work'?v:'overview';
+  $('v-work').style.display=view==='work'?'':'none';
   $('v-overview').style.display=view==='overview'?'':'none';$('v-canvas').style.display=view==='canvas'?'':'none';
   for(const b of $('tabs').children)b.classList.toggle('on',b.getAttribute('data-v')===view);
-  try{history.replaceState(null,'',view==='canvas'?'#canvas':location.pathname+location.search)}catch(e){}
-  if(view==='canvas'){loadPkg(true);tickCanvas()}}
+  try{history.replaceState(null,'',view==='canvas'||view==='work'?'#'+view:location.pathname+location.search)}catch(e){}
+  if(view==='canvas'){loadPkg(true);tickCanvas()}
+  if(view==='work')renderWork()}
 // every attempt with a canvas, in the plan's item order, then by attempt
+function renderWork(){
+  const work=state&&state.workOverview;
+  $('work-tab').style.display=work?'':'none';
+  $('work-back').style.display=selectedSource?'':'none';
+  if(!work||view!=='work'||frozen())return;
+  const rows=work.rows||[];
+  const fields={project:'project',kind:'kind',tier:'tier',status:'lifecycle'};
+  const filters={};
+  for(const [control,field] of Object.entries(fields)){
+    const el=$('work-'+control), keep=el.value;
+    const choices=[...new Set(rows.map(row=>row[field]).filter(Boolean))].sort();
+    if(setInner(el,'<option value="">All</option>'+choices.map(value=>`<option value="${esc(value)}">${esc(value)}</option>`).join(''))){
+      el.value=choices.includes(keep)?keep:'';
+    }
+    filters[field]=el.value;
+  }
+  const group=$('work-view').value;
+  const grouped=rows.filter(row=>{
+    const staged=['staged','backlog'].includes(row.lifecycle);
+    if(group==='activity')return !staged&&row.lifecycle!=='finished';
+    if(group==='staged')return staged;
+    if(group==='evidence')return row.lifecycle==='finished'||Boolean(row.verdict);
+    return true;
+  });
+  const visible=grouped.filter(row=>Object.entries(filters).every(([field,value])=>!value||row[field]===value));
+  setText($('work-note'),work.error||`${visible.length} of ${rows.length} records${work.limited?' · result limit reached':''}`);
+  reconcile($('work-rows'),visible.map(row=>{
+    const wf=row.workflow?`<a href="/?wf=${encodeURIComponent(row.workflow)}${row.source?'&amp;source='+encodeURIComponent(row.source):''}">Open workflow</a>`:'';
+    const report=row.report?`<a href="/api/work-report?id=${encodeURIComponent(row.report)}" target="_blank" rel="noopener">${esc(row.reportLabel||'Open report')}</a>`:'';
+    const stages=(row.stages||[]).map(s=>`${esc(s.name)} ${esc(s.state)}${s.waitingOn?' ('+esc(s.waitingOn)+')':''}`).join(' · ');
+    const counts=row.completed!=null?`${fmt(row.completed)} counted${row.planned!=null?' / '+fmt(row.planned)+' planned':''} · ${fmt(row.passed)} passed`:'';
+    const cases=(row.cases||[]).map(c=>`<li>${esc(c.name)} · ${esc(c.state)} · ${fmt(c.passed)}/${fmt(c.completed)}</li>`).join('');
+    const evidence=[row.verdict,row.classification,row.build,row.engine].filter(Boolean).map(esc).join(' · ');
+    const detail=[row.owner,row.brief,row.note,row.parent].filter(Boolean).map(esc).join(' · ');
+    return {k:JSON.stringify([row.project,row.source||'',row.kind,row.id]),html:
+      `<td>${esc(row.project)}</td><td><b>${esc(row.title)}</b><br><span class="mute">${esc([row.kind,row.tier,row.id].filter(Boolean).join(' · '))}</span></td>`+
+      `<td>${esc(row.lifecycle)}<br><span class="mute">${esc(row.freshness)}${row.asOf?' · '+esc(new Date(row.asOf*1000).toLocaleTimeString()):''}</span></td>`+
+      `<td>${evidence||'–'}${counts?'<br>'+counts:''}${cases?'<details><summary>Cases</summary><ul>'+cases+'</ul></details>':''}</td>`+
+      `<td>${wf||report}${detail?'<div class="mute">'+detail+'</div>':''}${stages?'<div class="mute">'+stages+'</div>':''}`+
+      `${row.dependsOn&&row.dependsOn.length?'<div class="mute">Depends on '+row.dependsOn.map(esc).join(', ')+'</div>':''}</td>`};
+  }),{tag:'tr'});
+}
+for(const field of ['view','project','kind','tier','status'])$('work-'+field).addEventListener('change',renderWork);
+
 function canvasList(){
   const wf=currentWf(),order=(wf&&wf.items||[]).map(i=>i.id),out=[];
   for(const f of (pkg&&pkg.files)||[]){const m=/^items\/([^/]+)\/attempt-(\d+)\/canvas\.json$/.exec(f.p);if(m)out.push({item:m[1],attempt:+m[2],dir:'items/'+m[1]+'/attempt-'+m[2]})}
@@ -442,7 +490,7 @@ function autoPick(list){
   const pool=list.filter(c=>running.has(c.item)),src=pool.length?pool:list;
   return src.length?src.reduce((a,b)=>b.attempt>=a.attempt?b:a):null}
 async function sandboxText(wf,p,tail){
-  const r=await fetch('/api/file?wf='+encodeURIComponent(wf)+'&p='+encodeURIComponent(p)+(tail?'&tail='+tail:''),{cache:'no-store'});
+  const r=await fetch(portalUrl('/api/file?wf='+encodeURIComponent(wf)+'&p='+encodeURIComponent(p)+(tail?'&tail='+tail:'')),{cache:'no-store'});
   return r.ok?await r.text():null}
 const revPath=(dir,file,rev)=>dir+'/canvas/'+file.replace(/\//g,'_')+'.r'+rev;
 async function tickCanvas(){
@@ -521,7 +569,7 @@ async function poll(name,url,apply){
   finally{clearTimeout(to);busy[name]=false}}
 // the long series (900 s) behind the drawer's charts, refreshed every 5 s while a chart is open
 function pollBig(force){if(!sel||sel.type=='file'||sel.type=='node')return;if(!force&&Date.now()-bigAt<5000)return;bigAt=Date.now();poll('big','/api/live?n=900',j=>{big=j;drawDrawer()})}
-const tickState=()=>poll('state','/api/state',j=>{state=j;render();loadPkg();loadPlan()});
+const tickState=()=>poll('state',portalUrl('/api/state'),j=>{state=j;render();renderWork();loadPkg();loadPlan()});
 const tickLive=()=>poll('live','/api/live?n=120',j=>{live=j;renderLive();if(state)render();if($('drawer').classList.contains('open'))pollBig(false)});
 // one delegated handler per region instead of handlers re-attached on every refresh
 $('sys').addEventListener('click',ev=>{const t=ev.target.closest('.tile');if(t)openDrawer({type:'tile',key:t.getAttribute('data-k')})});
@@ -535,5 +583,5 @@ $('nodes').addEventListener('click',ev=>{const r=ev.target.closest('tr');if(r)op
 document.addEventListener('click',ev=>{const a=ev.target.closest('.flink');if(a){ev.preventDefault();openFile(a.dataset.p)}});
 document.addEventListener('selectionchange',()=>{if(!frozen()){renderLive();render()}});
 document.addEventListener('visibilitychange',()=>{if(!document.hidden){tickState();tickLive();tickCanvas()}});
-if(location.hash==='#canvas')setView('canvas');   // a link or a reload keeps the canvas view
+if(location.hash==='#canvas'||location.hash==='#work')setView(location.hash.slice(1));   // a link or a reload keeps the canvas view
 tickState();tickLive();setInterval(tickState,2000);setInterval(tickLive,1000);setInterval(tickFile,1500);setInterval(tickCanvas,1000);

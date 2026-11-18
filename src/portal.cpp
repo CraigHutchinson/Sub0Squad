@@ -1,5 +1,6 @@
 // The portal's HTTP server and API routes (portal_impl.hpp names the other units).
 #include "portal_impl.hpp"
+#include "portal_work.hpp"
 
 #include "sub0squad/platform_file.hpp"
 #include "sub0squad/platform_net.hpp"
@@ -46,7 +47,7 @@ std::string headerValue(const std::string& req, const std::string& name)  // cas
 }  // namespace
 
 int servePortal(int port, const std::function<std::string()>& state, const std::vector<std::string>& extraEngines, const PortalAct& act,
-                const std::filesystem::path& portFile)
+                const std::filesystem::path& portFile, const std::filesystem::path& workRegistry)
 {
     const std::string token = randomToken();
     // Loopback only: the portal is never reachable from another machine. Generated sites are served from a second loopback port, the next one
@@ -159,6 +160,11 @@ int servePortal(int port, const std::function<std::string()>& state, const std::
         else {
             const std::string target = req.substr(4, req.find(' ', 4) - 4);
             const std::string path = target.substr(0, target.find('?'));
+            const auto selected = [&] {
+                std::string cached;
+                { std::lock_guard lock(live.m); cached = live.stateJson; }
+                return selectWorkSource(cached, queryParam(target, "source"));
+            };
             if (onSite && path.rfind("/site/", 0) != 0) respond(c, 404, "text/plain", "this port serves /site/<workflow>/ only\n");
             else if (path == "/" || path == "/index.html") {
                 std::string page = portalPage();
@@ -166,18 +172,25 @@ int servePortal(int port, const std::function<std::string()>& state, const std::
                 for (auto at = page.find(ph); at != std::string::npos; at = page.find(ph, at + token.size())) page.replace(at, ph.size(), token);
                 respond(c, 200, "text/html; charset=utf-8", page);
             }
-            else if (path == "/api/state") { std::string cached; { std::lock_guard lock(live.m); cached = live.stateJson; } respond(c, 200, "application/json", cached); }
+            else if (path == "/api/state") {
+                const auto cached = selected();
+                respond(c, cached.empty() ? 404 : 200, "application/json", cached.empty() ? "{}" : cached);
+            }
+            else if (path == "/api/work-report" && !workRegistry.empty()) {
+                const auto report = readWorkReport(workRegistry, queryParam(target, "id"));
+                respond(c, report.empty() ? 404 : 200, "text/plain; charset=utf-8", report);
+            }
             else if (path == "/api/live") {
                 std::size_t n = 120;
                 if (const auto q = target.find("n="); q != std::string::npos) n = std::clamp<long>(std::atol(target.c_str() + q + 2), 10, static_cast<long>(kKeep));
                 respond(c, 200, "application/json", liveJson(live, n));
             }
             else if (path == "/api/files") {  // the packages of one workflow: its files and its deliverables manifest
-                const std::string root = sandboxOf(live, queryParam(target, "wf"));
+                const std::string root = sandboxOf(selected(), queryParam(target, "wf"));
                 if (root.empty()) respond(c, 404, "text/plain", "unknown workflow\n"); else respond(c, 200, "application/json", filesJson(root));
             }
             else if (path == "/api/search") {  // what the workflow already did: conversations, gate outputs, briefings, sizing; read only
-                const std::string root = sandboxOf(live, queryParam(target, "wf"));
+                const std::string root = sandboxOf(selected(), queryParam(target, "wf"));
                 if (root.empty()) respond(c, 404, "text/plain", "unknown workflow\n");
                 else {
                     json::Writer w;
@@ -189,7 +202,7 @@ int servePortal(int port, const std::function<std::string()>& state, const std::
                 }
             }
             else if (path == "/api/file") {  // one file as plain text (the request, a prompt, a reply, a gate output, an artifact), capped
-                const std::string root = sandboxOf(live, queryParam(target, "wf"));
+                const std::string root = sandboxOf(selected(), queryParam(target, "wf"));
                 fs::path full;
                 if (root.empty() || !(jobFilePath(root, queryParam(target, "p"), full) || insideSandbox(root, queryParam(target, "p"), full)) || !fs::is_regular_file(full)) respond(c, 404, "text/plain", "not found\n");
                 else {
@@ -218,7 +231,7 @@ int servePortal(int port, const std::function<std::string()>& state, const std::
                 const std::string wf = rest.substr(0, slash);
                 std::string rel = slash == std::string::npos ? "" : rest.substr(slash + 1);
                 if (rel.empty() || rel.back() == '/') rel += "index.html";
-                const std::string root = sandboxOf(live, wf);
+                const std::string root = sandboxOf(selected(), wf);
                 fs::path full;
                 if (root.empty() || !insideSandbox(fs::path(root) / "project", rel, full) || !fs::is_regular_file(full)) respond(c, 404, "text/plain", "not found\n");
                 else respond(c, 200, mimeOf(full.string()), slurp(full), ("Content-Security-Policy: default-src http://127.0.0.1:" + std::to_string(port + 1) + " 'unsafe-inline'; connect-src 'none'\r\n").c_str());

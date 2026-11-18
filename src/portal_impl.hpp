@@ -103,7 +103,7 @@ void discover(Live& L, const std::string& text);
 [[nodiscard]] std::string liveJson(Live& L, std::size_t n);
 
 // ---- portal_files.cpp: a workflow's files, read only; a path is served only when it resolves inside the sandbox or a job's run directory ----
-[[nodiscard]] std::string sandboxOf(Live& L, const std::string& wf);
+[[nodiscard]] std::string sandboxOf(const std::string& state, const std::string& wf);
 [[nodiscard]] std::string urlDecode(const std::string& s);
 [[nodiscard]] std::string queryParam(const std::string& target, const std::string& name);
 [[nodiscard]] bool insideSandbox(const fs::path& root, const std::string& rel, fs::path& out);

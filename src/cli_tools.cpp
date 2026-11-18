@@ -1,5 +1,6 @@
 // Commands that are tools around a run: serve (the daemon), portal, replay, qa, recall, plan-lint.
 #include "cli_impl.hpp"
+#include "portal_work.hpp"
 
 #include "sub0squad/client.hpp"
 #include "cmd_archive.hpp"
@@ -78,24 +79,32 @@ int cmdPlanLint(const RuntimePaths& /*paths*/, int argc, char** argv)
 int cmdPortal(const RuntimePaths& paths, int argc, char** argv)
 {
     int port = 8780;
-    std::filesystem::path portFile;
+    std::filesystem::path portFile, workRegistry;
     std::vector<std::string> engines;
     for (int i = 2; i + 1 < argc; ++i) {
         if (std::string_view{argv[i]} == "--port") port = std::atoi(argv[i + 1]);
         else if (std::string_view{argv[i]} == "--port-file") portFile = argv[i + 1];
         else if (std::string_view{argv[i]} == "--engine-url") engines.push_back(argv[i + 1]);
+        else if (std::string_view{argv[i]} == "--work-registry") workRegistry = std::filesystem::absolute(argv[i + 1]);
     }
-    return servePortal(port, [&paths] {
+    const auto readStatus = [](const RuntimePaths& source) {
         bool offline = false;
-        const std::string wf = workflowStatusAnyway(paths, "", offline);
-        auto jobs = statusAnyway(paths, "", offline);
+        const std::string wf = workflowStatusAnyway(source, "", offline);
+        auto jobs = statusAnyway(source, "", offline);
         return "{\"workflows\":" + (wf.empty() ? std::string{"{\"workflows\":[]}"} : wf) + ",\"jobs\":" + (jobs ? *jobs : std::string{"{\"jobs\":[]}"}) + "}";
-   }, engines, [&paths](const std::string& command, const std::string& workflow, const std::string& spec) -> std::string {
+    };
+    return servePortal(port, [&] {
+        auto local = readStatus(paths);
+        if (workRegistry.empty()) return local;
+        return portal::workOverview(workRegistry, std::move(local), [&](const std::filesystem::path& home) {
+            return readStatus(RuntimePaths{home / "state", home / "run"});
+        });
+    }, engines, [&paths](const std::string& command, const std::string& workflow, const std::string& spec) -> std::string {
         auto client = ControlClient::connect(paths);
         if (!client) return "{\"ok\":false,\"error\":\"the daemon is not running\"}";
         auto reply = client->request(command, "\"id\":\"" + workflow + "\",\"spec\":" + spec);
         return reply ? *reply : "{\"ok\":false,\"error\":\"" + reply.error() + "\"}";
-    }, portFile);
+    }, portFile, workRegistry);
 }
 
 /// sub0squad replay WF NODE [--seeds 1,2,3] [--think] [--decompose] [--engine PROFILE] [--max-tokens N] [--repair-turns N]

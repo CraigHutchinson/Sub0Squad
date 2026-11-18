@@ -45,7 +45,14 @@ pre.code .ln.ch{background:color-mix(in srgb,var(--running) 16%,transparent)}pre
 .cvlog div{padding:2px 4px;border-bottom:1px solid var(--line);font-size:13px;cursor:pointer}.cvlog div:hover,.cvlog div.on{background:var(--bg)}
 @media(min-width:900px){main{grid-template-columns:3fr 2fr}.wide{grid-column:1/-1}}
 </style></head><body>
-<header><h1>Sub0Squad portal</h1><span class="mute" title="Small work: be the expert and do it best. Larger work: divide it well and make sure the separation and the interactions hold. The squad is part of your team.">Many small minds, one whole solution.</span><span id="asof" class="mute">connecting…</span><span class="mute">read-only · loopback · live 1 s · click anything for detail</span><nav class="tabs" id="tabs"><button data-v="overview" class="on">Overview</button><button data-v="canvas">Canvas</button></nav></header>
+<header><h1>Sub0Squad portal</h1><span class="mute" title="Small work: be the expert and do it best. Larger work: divide it well and make sure the separation and the interactions hold. The squad is part of your team.">Many small minds, one whole solution.</span><span id="asof" class="mute">connecting…</span><span class="mute">read-only · loopback · live 1 s · click anything for detail</span><nav class="tabs" id="tabs"><button data-v="overview" class="on">Overview</button><button data-v="canvas">Canvas</button><button id="work-tab" data-v="work" style="display:none">Work</button></nav><a id="work-back" href="/#work" style="display:none">All work</a></header>
+<main id="v-work" style="display:none">
+<section class="card wide"><h2>Project work</h2><div class="mute" id="work-note"></div>
+<p><label>View <select id="work-view"><option value="">All work</option><option value="activity">Activity</option><option value="staged">Staged and backlog</option><option value="evidence">Evidence</option></select></label>
+<label>Project <select id="work-project"></select></label> <label>Type <select id="work-kind"></select></label>
+<label>Tier <select id="work-tier"></select></label> <label>Status <select id="work-status"></select></label></p>
+<table><thead><tr><th>Project</th><th>Work</th><th>Status</th><th>Evidence</th><th>Detail</th></tr></thead><tbody id="work-rows"></tbody></table></section>
+</main>
 <main id="v-canvas" style="display:none">
 <section class="card wide"><div class="cvbar"><b>Canvas</b> <select id="cv-pick" aria-label="item and attempt"></select><span id="cv-files"></span>
 <label class="mute">revision <input type="range" id="cv-rev" min="1" max="1" value="1"> <span id="cv-revl"></span></label><label class="mute"><input type="checkbox" id="cv-follow" checked> follow the latest</label></div>

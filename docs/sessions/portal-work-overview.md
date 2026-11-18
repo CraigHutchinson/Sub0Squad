@@ -1,6 +1,6 @@
 # Follow-up session: Project and test work overview
 
-Status: open (written 2026-11-18). Backlog: [Portal](../BACKLOG.md). Design: [Portal work overview](../PORTAL_WORK_OVERVIEW.md). Evidence contract: [Model tiers](../BLOCK_PROVING_GROUNDS.md#scope-and-scaling-beyond-the-proving-grounds).
+Status: received on Windows (2026-11-18). Backlog: [Portal](../BACKLOG.md). Design: [Portal work overview](../PORTAL_WORK_OVERVIEW.md). Evidence contract: [Model tiers](../BLOCK_PROVING_GROUNDS.md#scope-and-scaling-beyond-the-proving-grounds).
 
 ## Goal
 
@@ -19,6 +19,10 @@ The current portal selects one workflow in one home with `?wf=`. The workflow da
 ## Done means
 
 The browser shows the expected statuses and grouping from test-owned or approved sources, links to the correct workflow even when IDs collide, preserves selection on refresh, and shows archived evidence when the daemon exits. The staged row never appears as a queued or running job based on its brief alone. Focused portal tests and the browser walkthrough both pass.
+
+## Outcome
+
+The tracked portal implementation provides the Work tab, cross-home selectors, and adapters for gate, scenario and sandbox evidence. Native and page tests passed. The local HTTP and Edge check opened two separately registered workflows with the same short ID and rendered staged work and gate counts. Live status was covered by the native fixture. Linux browser receiving and measured live-load cost remain open in the design's durability slice.
 
 ## Environment and constraints
 

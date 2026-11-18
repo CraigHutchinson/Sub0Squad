@@ -66,7 +66,7 @@ const char* const kUsage =
     "  qa DIR|WORKFLOW                      quality findings over sources: duplicated code, the same helper declared twice, very long functions\n"
     "  recall WF words... [--item NODE] [--limit N]   search what a workflow already did: conversations, replies, gate outputs, briefings\n"
     "  plan-lint FILE [--tps N] [--slots N [--sigma X]]   audit a plan: width, critical path, rough time, serial tails; with --slots, the slot fill expected when item sizes are unknown\n"
-    "  portal [--port N] [--port-file FILE] [--engine-url URL]  read-only status portal on 127.0.0.1 (default 8780; 0 lets the system pick, and\n"
+    "  portal [--port N] [--work-registry FILE] [--port-file FILE] [--engine-url URL]  read-only status portal on 127.0.0.1 (default 8780; 0 lets the system pick, and\n"
     "                                       FILE receives the port): the work graph, tokens per node, daemon jobs\n"
     "  guard [--memory-mib N] [--reserve-mib R] [--disk-path P --disk-mib N]   explicit host guards (exit 1 when refused)\n"
     "  fetch-model --url https://huggingface.co/... --out FILE [--sha256 H]   guarded, resumable, verified download (run it as a job)\n"

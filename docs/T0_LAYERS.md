@@ -133,6 +133,8 @@ The `--t1-source` option freezes the replay's CLI and the original calculator he
 
 **Focused localization prompt.** Trial `20261118T210323Z-54fcb796adaa` kept the same seed, tests and limits. Asking the worker to group actual failures and trace shared token handling still led to an unrelated power rewrite and a compile failure. The trial used nine turns and 4,217 recorded output tokens versus five turns and 502 in the first valid trial. This is one matched-seed observation. The next receiving experiment should vary access to the relevant source region independently of prompt wording so it can distinguish localization from faulty edits.
 
+**Matched visibility control.** On the same build and seed, the folded arm `20261118T214305Z-115d167b648a` remained 7/22 failing after five turns. The visible arm `20261118T213931Z-393de05aa8ba` received the unmodified contents of `Parser::peek` in the initial view and failed after changing power parsing. The gate reported an undeclared parser function. The intervention changes only visibility via `--t1-visible Parser::peek`. This comparison establishes that showing the source in the initial request did not resolve this seed's failure. It leaves both arms outside T1 promotion evidence.
+
 ## 3. Modes
 
 All three judge the run directories, as `gate_t0.py` does today: a run counts when its `case_key`, build and engine match; stale runs are listed, not counted.
@@ -237,11 +239,11 @@ on `cases`. The quick and dig files state in the title that they are not the gat
 1. **Data only** (`make_t0.py`), **done 2026-11-18** (`REQUIRES`, `LAYER`, `TOPS`, `--list tree`; the 24 gate plans checked byte-identical; the composites'
    edges wait for step 3): `requires` on the existing cases, `layer`/`CHILDREN`/`TOPS` derived, the DAG asserts, `--list tree`. `GATE`, `SETS`, `SMOKE` and
    `diagnostic` untouched; `plan_for`, `case_key` and every plan unchanged (check: all 27 `case_key` hashes before and after). The rewrite cases stay `diagnostic`.
-2. **Report only** (`gate_t0.py`): render the tree in `gate.md` under the flat table, same verdict and exit codes. Rewrite cases appear as `NOT IN GATE` children.
-3. **Composites staged**: add the three new composites with `staged=True` (excluded from `GATE`, `SETS`, tops until switched). Each is calibrated without a model
+2. **Report only**, implemented (`gate_t0.py`): render the tree in `gate.md` under the flat table, same verdict and exit codes. Rewrite cases appear as `NOT IN GATE` children.
+3. **Composites staged**, implemented: the three composites are available in `@calibration` and shadow tier sets, outside the 24-case release gate. Each is calibrated without a model
    (`make_t0.py --check`: it must fail in the way it says: every defect present, the right tests red), then 3 runs each on the current build. Calibration passes when a
    composite's pass rate is no worse than the lowest of its children's; a composite that fails while all its children pass is itself the first interaction finding.
-4. **Driver**: `dig_t0.py` and the `run_t0.sh` names (`@quick`, `@release`, `@tops`, `T0_OUT`). Dry-run mode (`--plan`) prints what it would run.
+4. **Driver**, implemented: `dig_t0.py` reads recorded evidence and plans the next useful cases. `run_t0.sh --plan` lists `@quick`, `@release`, `@tops` or `@calibration` without running a model. Set `T0_OUT` for an isolated cohort. The shadow `@release` writes `release.json` and leaves `gate.json` for the existing release gate.
 5. **Switch**: one commit changes `GATE` (tops) and adds `RELEASE` (all nodes): `gate.md` becomes the release verdict, `quick.md` the default fast check, `@smoke` keeps
    working. `diagnostic` is replaced by "a lower node": the rewrite set joins the release. Update `BLOCK_PROVING_GROUNDS.md` and the `run_t0.sh` header in the same commit.
    The pre-push and CI paths that cite the smoke set are unchanged.

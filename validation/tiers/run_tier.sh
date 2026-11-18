@@ -16,7 +16,7 @@ case "$tier" in
   2) process=forked; executor=fork ;;
   *) echo "tier $tier is not defined (1: single worker, 2: forked sections)"; exit 2 ;;
 esac
-python -I "$repo/validation/tiers/gate_t0.py" "$(winpath "$repo")" --engine "$name" >/dev/null; gate=$?
+T0_OUT="$(winpath "$repo/out/runs/t0")" python -I "$repo/validation/tiers/gate_t0.py" "$(winpath "$repo")" --engine "$name" >/dev/null; gate=$?
 case "$gate" in 0) verdict=PASS ;; 1) verdict=FAIL ;; 2) verdict=INCOMPLETE ;; *) verdict="UNREADABLE (gate exit $gate)" ;; esac
 if [ "$gate" -ne 0 ]; then
   if [ -z "$force" ]; then

@@ -203,6 +203,26 @@ const shown = () => all.map((e) => e.innerHTML + '\n' + e.textContent).join('\n'
   for (let i = 0; i < 10; ++i) await new Promise((resolve) => setImmediate(resolve));
   check(shown().includes('No workflows yet'), 'an empty state shows the invitation');
 
+  const workState = JSON.parse(answers['/api/state']);
+  workState.workOverview = {rows:[
+    {id:'w-000001', project:'Calculator', kind:'workflow', title:'Running calculator', lifecycle:'running', freshness:'live', workflow:'w-000001', source:'east'},
+    {id:'w-000001', project:'Store', kind:'workflow', title:'Archived store', lifecycle:'finished', freshness:'archive', workflow:'w-000001', source:'west', verdict:'fail'},
+    {id:'case', project:'Store', kind:'scenario', title:'Staged scenario', lifecycle:'staged', freshness:'recorded', report:'brief-id', reportLabel:'Open brief'}
+  ]};
+  answers['/api/state'] = JSON.stringify(workState);
+  sandbox.__page.setView('work');
+  sandbox.__page.tickState();
+  await flush();
+  check(shown().includes('Staged scenario') && shown().includes('Archived store') && shown().includes('Running calculator'), 'work view separates live, archived and staged work');
+  check(shown().includes('source=east') && shown().includes('source=west') && shown().includes('Open brief'), 'same short workflow IDs and staged briefs link to their owners');
+  const project = byId.get('work-project');
+  project.value = 'Store';
+  project.listeners.change();
+  check(byId.get('work-rows').children.length === 2 && byId.get('work-rows').children.every(row => !row.innerHTML.includes('Running calculator')), 'project filter applies to work rows');
+  sandbox.__page.tickState();
+  await flush();
+  check(project.value === 'Store' && byId.get('work-rows').children.length === 2, 'refresh preserves project selection');
+
   if (failed) { console.error(failed + ' check(s) failed'); process.exit(1); }
   console.log('portal page: rendered ' + wf.items.length + ' items and ' + wf.decisions.length + ' decisions from the recorded state');
 })().catch((err) => { console.error('the page test threw: ' + (err && err.stack ? err.stack : err)); process.exit(1); });

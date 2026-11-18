@@ -2,6 +2,7 @@
 // is rendered by test_portal_page (tests/portal_page_test.js, with node); the server's routes run in test_readme (`up` starts a portal).
 #include "check.hpp"
 #include "portal_impl.hpp"
+#include "portal_work.hpp"
 #include "sub0squad/platform_proc.hpp"
 
 #include <fstream>
@@ -49,6 +50,30 @@ int main()
         CHECK(!jobFilePath(root, "@jobs/j-000006/run-1/other.txt", out) && !jobFilePath(root, "@jobs/../run-1/stdout.log", out) && !jobFilePath(root, "@jobs/j-6x/run-1/stdout.log", out) && !jobFilePath(root, "items/a/gate.txt", out));
         const std::string listing = filesJson(root);
         CHECK(listing.find("{\"p\":\"items/a/gate.txt\",\"s\":10}") != std::string::npos && listing.find("copy.txt") == std::string::npos && listing.find("\"deliverables\":null") != std::string::npos);
+        fs::remove_all(home, ec);
+    }
+    {
+        const auto home = fs::temp_directory_path() / ("s0q-work-" + std::to_string(platform::currentProcess()));
+        const auto config = home / "work.json";
+        put(config, R"({"localProject":"primary","homes":[{"id":"east","project":"calculator","home":"east"},{"id":"west","project":"store","home":"west"}],"work":[{"id":"outline","project":"store","state":"staged","title":"Plan the outline"}],"reports":[{"id":"gate","project":"calculator","root":"results","file":"gate.json","kind":"gate"},{"id":"private","project":"store","root":"checker","file":"verdict.json"}]})");
+        put(home / "results/gate.json", R"({"schema":"t0-gate-1","minRuns":3,"verdict":"FAIL","cases":{"repair":{"runs":3,"passed":2,"state":"FAIL"}}})");
+        put(home / "checker/verdict.json", "private");
+        const std::string state = workOverview(config, R"({"jobs":{"jobs":[]},"workflows":{"workflows":[]}})", [&](const fs::path& source) {
+            const bool east = source.filename() == "east";
+            const auto root = source / "state/workflows/w-000001";
+            sub0squad::json::Writer w;
+            return w.beginObject().key("workflows").beginObject().kv("source", east ? "live" : "journal")
+                .key("workflows").beginArray().beginObject().kv("id", "w-000001").kv("sandbox", root.generic_string())
+                .kv("state", east ? "running" : "succeeded").kv("jobsActive", east ? 1 : 0)
+                .endObject().endArray().endObject().endObject().take();
+        });
+        CHECK(state.find("\"lifecycle\":\"running\"") != std::string::npos && state.find("\"lifecycle\":\"staged\"") != std::string::npos);
+        CHECK(state.find("\"freshness\":\"archive\"") != std::string::npos && state.find("\"completed\":3") != std::string::npos);
+        CHECK_EQ(fs::path{sandboxOf(selectWorkSource(state, "east"), "w-000001")}.generic_string(), (home / "east/state/workflows/w-000001").generic_string());
+        CHECK_EQ(fs::path{sandboxOf(selectWorkSource(state, "west"), "w-000001")}.generic_string(), (home / "west/state/workflows/w-000001").generic_string());
+        CHECK(selectWorkSource(state, "unknown").empty() && readWorkReport(config, "private").empty());
+        CHECK(readWorkReport(config, "gate").find("t0-gate-1") != std::string::npos);
+        std::error_code ec;
         fs::remove_all(home, ec);
     }
     return finish();

@@ -58,6 +58,16 @@ def digest(data):
     return hashlib.sha256(data if isinstance(data, bytes) else encode(data)).hexdigest()
 
 
+def claim(ledger, key, run_id):
+    """Atomically claim effective inputs. Return an existing trial ID when already claimed."""
+    with sqlite3.connect(ledger) as conn:
+        conn.execute("CREATE TABLE IF NOT EXISTS trials (key TEXT PRIMARY KEY, id TEXT NOT NULL)")
+        inserted = conn.execute("INSERT OR IGNORE INTO trials VALUES (?, ?)", (key, run_id))
+        if not inserted.rowcount:
+            return conn.execute("SELECT id FROM trials WHERE key = ?", (key,)).fetchone()[0]
+    return None
+
+
 def save(path, obj):
     pending = path.with_suffix(path.suffix + ".tmp")
     pending.write_bytes(encode(obj) + b"\n")
@@ -212,7 +222,22 @@ def private_check(exe, plan, ref, trial, private, seed, prompt, before, manifest
     return "PASS", "fresh owner gate and independent calculator probes passed"
 
 
-def proxy(trial, target, prompt, scripted_reply=None, first_reply_tokens=None):
+def reveal_t1_region(request, plan, symbol):
+    """Expand one folded region using the seed's existing lines and numbering."""
+    user = request["messages"][-1]
+    marker = re.compile(r"(?m)^ +\.\.\. \(\d+ lines folded: (\d+)-(\d+); " + re.escape(symbol) + r"\)$")
+    match = marker.search(user["content"]) if user["role"] == "user" else None
+    if not match:
+        raise ValueError(f"initial view did not contain a fold for {symbol}")
+    first, last = map(int, match.groups())
+    lines = source(plan).splitlines()
+    if not 1 <= first <= last <= len(lines):
+        raise ValueError("fold range does not match the seed")
+    revealed = "\n".join(f"{n:5}| {lines[n-1]}" for n in range(first, last + 1))
+    user["content"] = user["content"][:match.start()] + revealed + user["content"][match.end():]
+
+
+def proxy(trial, target, prompt, scripted_reply=None, first_reply_tokens=None, expose_initial=None):
     requests = trial / "requests"
     requests.mkdir()
 
@@ -241,6 +266,8 @@ def proxy(trial, target, prompt, scripted_reply=None, first_reply_tokens=None):
                 with self.lock:
                     index = Handler.counter
                     Handler.counter += 1
+                if index == 0 and expose_initial is not None:
+                    expose_initial(request)
                 if index == 0 and first_reply_tokens is not None:
                     request["max_tokens"] = first_reply_tokens
                 save(requests / f"{index:04}.json", request)
@@ -327,7 +354,12 @@ def workflow(args, plan, trial, engine):
 
 def execute(args, plan, trial, target, prompt, scripted_reply=None):
     first_reply_tokens = args.first_reply_tokens if args.mode == "continuation" else None
-    with proxy(trial, target, prompt, scripted_reply, first_reply_tokens) as server:
+    expose_initial = None
+    if args.t1_visible:
+        def expose_initial(request):
+            reveal_t1_region(request, plan, args.t1_visible)
+
+    with proxy(trial, target, prompt, scripted_reply, first_reply_tokens, expose_initial) as server:
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         engine = f"{args.model}=http://127.0.0.1:{server.server_port}/v1,model={args.model},ctx={args.ctx},slots=1,seed={args.seed},cache=0"
@@ -427,6 +459,7 @@ def main():
     ap.add_argument("--model", default="qwen35")
     ap.add_argument("--ctx", type=int, default=65536)
     ap.add_argument("--seed", type=int, default=4101)
+    ap.add_argument("--t1-visible", help="expand one named fold in the initial T1 worker view")
     ap.add_argument("--t1-source", type=pathlib.Path, help="run a one-file T1 repair diagnostic from a directory with calc.cpp and main.cpp")
     ap.add_argument("--cut", type=int, help="prepare a companion resume context; omit for canonical T0")
     ap.add_argument("--handoff", type=pathlib.Path, help="owner-authored resume note for a companion cut")
@@ -465,6 +498,8 @@ def main():
         ap.error("endpoint must be http://127.0.0.1:PORT/v1")
     if not re.fullmatch(r"[A-Za-z0-9._-]+", args.model) or min(args.ctx - args.max_tokens, args.timeout, args.seed + 1) <= 0:
         ap.error("check model alias, context, generation limit, timeout and seed")
+    if args.t1_visible and (not args.t1_source or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_:]*", args.t1_visible)):
+        ap.error("--t1-visible requires a T1 source and a C++ symbol")
     if args.t1_source and (args.mode != "run" or args.cut is not None or args.handoff):
         ap.error("--t1-source is only for a separate run without a resume cut or handoff")
     if args.handoff and args.cut is None:
@@ -499,6 +534,8 @@ def main():
     identity = {"inputs": before, "plan": digest(plan), "prompt": prompt, "endpoint": args.endpoint,
                 "model": args.model, "ctx": args.ctx, "seed": args.seed, "maxTokens": args.max_tokens,
                 "repairTurns": args.repair_turns, "wallSeconds": args.timeout, "mode": args.mode, "backend": backend}
+    if args.t1_visible:
+        identity["visibleSymbol"] = args.t1_visible
     if args.mode == "continuation":
         identity["firstReplyTokens"] = args.first_reply_tokens
     key = digest(identity)
@@ -506,13 +543,10 @@ def main():
     OUT.mkdir(parents=True, exist_ok=True)
     trial = OUT / run_id
     private = OUT / "checker" / run_id
-    with sqlite3.connect(OUT / "ledger.sqlite3") as conn:
-        conn.execute("CREATE TABLE IF NOT EXISTS trials (key TEXT PRIMARY KEY, id TEXT NOT NULL)")
-        claim = conn.execute("INSERT OR IGNORE INTO trials VALUES (?, ?)", (key, run_id))
-        if not claim.rowcount:
-            prior = conn.execute("SELECT id FROM trials WHERE key = ?", (key,)).fetchone()
-            print(f"already scheduled: {OUT / prior[0]}", flush=True)
-            return 3
+    prior = claim(OUT / "ledger.sqlite3", key, run_id)
+    if prior:
+        print(f"already scheduled: {OUT / prior}", flush=True)
+        return 3
     trial.mkdir()
     private.mkdir(parents=True)
     checker_seed = secrets.randbits(64)

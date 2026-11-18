@@ -16,10 +16,10 @@ namespace sub0squad {
 /// They require the per-run token embedded in the page (`X-Portal-Token`) and a same-origin `Origin`, and call `act(command, workflow, specJson)`,
 /// which returns the daemon's JSON reply. A page the models wrote is on another origin and has neither the token nor a way to read it.
 /// Generated sites are served from the next port, `port + 1`. `port` 0 lets the system pick a free pair (parallel instances never collide);
-/// `portFile`, when given, receives the portal's port once both are held, which is how a caller learns the port the system picked.
+/// `portFile`, when given, receives the portal's port once both are held. `workRegistry` enables read-only registered report routes.
 using PortalAct = std::function<std::string(const std::string& command, const std::string& workflow, const std::string& specJson)>;
 [[nodiscard]] int servePortal(int port, const std::function<std::string()>& state, const std::vector<std::string>& extraEngines = {}, const PortalAct& act = {},
-                              const std::filesystem::path& portFile = {});
+                              const std::filesystem::path& portFile = {}, const std::filesystem::path& workRegistry = {});
 
 /// The portal page (HTML, CSS and JS in one string; no external resources).
 [[nodiscard]] const char* portalPage();

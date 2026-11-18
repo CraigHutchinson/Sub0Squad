@@ -1,6 +1,6 @@
 # Portal work overview
 
-Status: design, 2026-11-18. This extends the current per-workflow portal with a read-only view of projects, backlog work, scenarios and tier campaigns. Use the [implementation brief](sessions/portal-work-overview.md) to begin the first slice.
+Status: initial overview and evidence adapters implemented, 2026-11-18. This extends the current per-workflow portal with a read-only view of projects, backlog work, scenarios and tier campaigns. Use the [implementation brief](sessions/portal-work-overview.md) to begin the first slice.
 
 ## What the owner needs to see
 
@@ -43,6 +43,26 @@ Use one long-lived loopback overview over explicitly registered local roots. Ind
 Prioritize durable inputs that already exist: workflow `run-info.json`, workflow status, `gate.json`, the scenario runner's result, and the sandbox's `manifest.json` and `verdict.json`. Treat historical `summary.md` as a human-readable link. For an older campaign without a machine-readable planned denominator, display the verified counts and leave the total unknown. Prefer progress emitted by the owning runner when adding a campaign adapter. Tail or index only what the view requests, keep refresh work bounded, and surface source errors per row so one broken archive cannot blank the overview.
 
 Serve the overview through the existing local portal boundary. Give browser requests opaque project/source/run keys. Resolve artifact paths against their registered roots on the server and preserve the existing path checks, preview isolation and output caps. Exclude private checker artifacts from the index. Cross-project views are read-only in the first slice. The existing single-workflow inbox remains routed to its owning home and is outside the overview. Remote access and scheduling controls remain separate owner decisions.
+
+## Run the overview
+
+Save a registry such as the following as `out/work-overview.json`. Paths are relative to the registry. Use a home directory for each workflow source and a public root for each brief or report.
+
+```json
+{
+  "localProject": "Squad",
+  "homes": [{"id":"calculator-t1","project":"Calculator","home":"runs/t1/qwen35-example"}],
+  "work": [{"id":"parser-repair","project":"Calculator","kind":"scenario","state":"staged","tier":"T1",
+            "title":"Parser repair","root":"../docs","brief":"T0_LAYERS.md","dependsOn":["t0-gate"]}],
+  "reports": [{"id":"t0-gate","project":"Calculator","kind":"gate","tier":"T0","root":"runs/t0","file":"gate.json"}],
+  "sandboxCampaigns": [{"id":"iterative","project":"Calculator","root":"runs/t0-iterative"},
+                       {"id":"products","project":"Calculator","root":"runs/product-tiers"}]
+}
+```
+
+Launch `out/build/mingw/sub0squad.exe portal --port 0 --work-registry out/work-overview.json` and open the Work tab at the printed local address. The gate adapter reads the counted case rows, the scenario adapter reads `scenario-results.json`, and sandbox campaigns read public manifests and terminal verdicts. Homes with no current daemon use the existing journal reader. An unconfirmed trial gets its own state until the owning daemon or a terminal artifact supplies evidence.
+
+On Windows, the HTTP and Edge receiving check used two archived homes with the same workflow ID, a staged scenario, a historical T0 gate and the sandbox/product campaigns. Both deep links served their original detail and the checker path was rejected. The native fixture also checks a live source projection and the page test checks filtering and refresh. Cross-platform browser receiving and measured refresh cost stay open.
 
 ## Backlog and receiving order
 

@@ -9,4 +9,4 @@ set(LAYER3 attempt_failure clarify stance engine plan division policy predicate 
 set(LAYER4 harness_registry harness_common harness_web harness_cpp cpp_templates harness_py py_templates calculator_spec web_templates sandbox)
 set(LAYER5 llm_agent agent_card canvas_agent fork architect planner optimizer replay scenario blocks)
 set(LAYER6 daemon daemon_impl daemon_jobs daemon_workflow daemon_governance)
-set(LAYER7 portal portal_impl portal_sampler portal_files portal_page client cli cli_impl cli_jobs cli_project cli_tools cmd_process cmd_archive first_use wizard sub0squad)
+set(LAYER7 portal portal_impl portal_sampler portal_files portal_page portal_work client cli cli_impl cli_jobs cli_project cli_tools cmd_process cmd_archive first_use wizard sub0squad)

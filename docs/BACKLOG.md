@@ -107,8 +107,7 @@ The queue, with hypotheses, arms, measures and commands, is [EXPERIMENTS.md](EXP
 - The fork executor inside a workflow through the daemon (`llm-fork --agent-exit 1` as the agent job) has no test.
 
 **Tier 0 layers** ([T0_LAYERS.md](T0_LAYERS.md), design 2026-11-18: the T0 cases as a tree, quick / release / dig-down modes)
-- Build it in the order of T0_LAYERS.md section 5: `requires` data and the DAG asserts; the tree in `gate.md`; the three composites staged and calibrated
-  (edit-mix, build-mix, files-mix); `dig_t0.py` and `@quick`/`@release`/`T0_OUT`; then the switch of `GATE` and the release verdict.
+- The tree report, shadow tier sets and scoped runner are implemented. The three new composites passed model-free seed and positive controls. Run their live calibration before deciding whether to promote them or change `GATE`. [Migration](T0_LAYERS.md#5-migration-with-no-behaviour-change-until-switched).
 - A failing composite reported as blocked by its failing requirements, not as a failure of its own (2026-11-18: wrong-approach fails while write-engine
   and replace-function fail on their own; `gate_t0.py` does not read `REQUIRES` yet).
 - Half-written follow-up, parked until incomplete source blocks a later workflow. Some appends close the current function and leave required declarations or the public entry point missing. Cascade diagnostics can then send the worker back into the correct prefix. Try a hint that derives a short list of unresolved names and missing public definitions from the compiler diagnostics, header and visible contract. Keep the fixture, output scope and gate fixed, and leave the missing implementation to the worker. [T0 evidence](BLOCK_PROVING_GROUNDS.md).
@@ -130,7 +129,7 @@ The queue, with hypotheses, arms, measures and commands, is [EXPERIMENTS.md](EXP
     share is out of line (rework or wasted output over half of the output, reads over a set count): the case passed but the path was not the expected
     one. A warning first; a gate failure only once the expectations are calibrated over a few gates. The same flags for T1 and T2 runs (their plan has
     the same expected budget, built from its items).
-- Gate and scenario progress are part of the [portal work overview](PORTAL_WORK_OVERVIEW.md). Group planned and counted cases with their source artifacts and link work across projects. Build the [two-home overview](sessions/portal-work-overview.md) first, then add campaign and scenario adapters.
+- The [portal work overview](PORTAL_WORK_OVERVIEW.md) now shows registered homes, backlog and staged items, gate and scenario reports, and sandbox campaigns. Verify the received view under real live load and on Linux before selecting further indexing or layout work.
 - Context compaction for continuations (owner, 2026-11-18). A cut-off reply is now continued as itself (the canvas sends its text, cut to the last complete
   line, back as the assistant's unfinished message: a prefill, measured on the 35B to continue cleanly at a line or word boundary and to stop at once mid-token).
   It needs the prompt, the partial and the reply's budget to fit the context, and falls back to the tail prompt when they do not (`prefilled` against `continued`

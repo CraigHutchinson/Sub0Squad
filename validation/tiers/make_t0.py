@@ -7,7 +7,7 @@ Every case seeds the reference implementation (validation/reference/calculator-c
 tests as the owner's (`given`) tests. The cases are built on validation/tiers/t1-plan.json (the tier 1 plan). `--check <case> <dir>` writes the seeded
 workspace files to <dir> so a case can be checked without a model (it must fail in the way the case says).
 """
-import json, pathlib, re, sys
+import json, os, pathlib, re, sys
 
 ROOT = pathlib.Path(sys.argv[1] if len(sys.argv) > 1 else ".")
 REF = ROOT / "validation/reference/calculator-cpp"
@@ -274,6 +274,25 @@ CASES = {
         context="src/calc.cpp (the engine) and src/main.cpp (the app) nearly work: some of the provided tests fail, and there is a defect in each file. Fix each with the smallest edit."),
 }
 
+# Staged composites are calibration cases until live evidence justifies promotion.
+edit_mixed = repeat_trig(CASES["fix-distant"]["calc"])
+for index in (0, 1, 3, 4, 5):
+    edit_mixed = sub(edit_mixed, *DEFECT_BANK[index])
+build_mixed = sub(CASES["compile-and-logic"]["calc"], NUMBER,
+                  NUMBER + NUMBER.replace("std::strtod", "std::strtol").replace("(start, &end)", "(start, &end, 10)"))
+build_mixed = sub(build_mixed, "        const double base = postfix();",
+                  "        const double base = postfix();\n        const double unused = base;")
+CASES.update({
+    "edit-mix": dict(exercises="independent local, grammar and repeated conversion defects", diagnostic=True,
+                     calc=edit_mixed, given=["tests/trig.test.cpp"],
+                     context="The calculator builds and several distinct behaviors fail. Repair the individual causes."),
+    "build-mix": dict(exercises="syntax, duplicate definitions, unresolved names, a warning and a logic defect", diagnostic=True,
+                      calc=repeat_rename(build_mixed), context="The calculator does not build. Repair it until all tests pass."),
+    "files-mix": dict(exercises="a conflict in the evaluator alongside defects across two source files", diagnostic=True,
+                      calc=sub(CASES["merge-conflict"]["calc"], *DEFECT_BANK[1]), main=CASES["two-files"]["main"],
+                      files=["src/calc.cpp", "src/main.cpp"], context="Repair the engine and command-line app. Begin with the broken build."),
+})
+
 # The smoke set: one fast case for each kind of edit the worker must make (a snippet, several edits in one reply, an insertion, a broken build, SYMBOL,
 # FILE, conflict markers, two files), one run each: about 8 minutes on the 35B (tier 0 of 1e74bd4: the seven measured each under 90 s a run; two-files not yet run) against about 3.5 hours for the
 # gate. For iterating on a change; it never stands in for the gate (gate_t0.py --set smoke writes smoke.md, not gate.md).
@@ -298,6 +317,9 @@ REQUIRES = {
     "fix-two-bugs": ["fix-op", "fix-boundary", "fix-missing-check"],
     "compile-and-logic": ["compile-typo", "fix-op"],
     "merge-conflict": ["fix-op"], "two-files": ["fix-op"],
+    "edit-mix": ["bugs-10", "fix-distant", "repeat-trig", "fix-many", "fix-two-bugs"],
+    "build-mix": ["compile-and-logic", "compile-warning", "duplicate", "repeat-rename"],
+    "files-mix": ["two-files", "merge-conflict"],
 }
 assert all(p in CASES and set(c) <= set(CASES) for p, c in REQUIRES.items()), "REQUIRES names a case that does not exist"
 LAYER = {}
@@ -311,6 +333,7 @@ def layer_of(name, path=()):
 
 for _n in CASES: layer_of(_n)
 TOPS = [n for n in CASES if not any(n in c for c in REQUIRES.values())]
+SETS.update(quick=TOPS, tops=TOPS, calibration=["edit-mix", "build-mix", "files-mix"], release=list(CASES))
 
 
 def tree_lines(name, depth=0, seen=None):
@@ -375,7 +398,7 @@ if __name__ == "__main__":
         print(json.dumps({"files": p["items"][0]["files"], "tests": p["items"][0]["gate"]["tests"]}))
         sys.exit(0)
     for n in args or list(CASES):
-        out = ROOT / "out/runs/t0" / n / "plan.json"
+        out = pathlib.Path(os.environ.get("T0_OUT", ROOT / "out/runs/t0")) / n / "plan.json"
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(json.dumps(plan_for(n), indent=1), encoding="utf-8")
         print(out)

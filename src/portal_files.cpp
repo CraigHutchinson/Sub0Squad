@@ -4,11 +4,12 @@
 namespace sub0squad::portal {
 
 // ---- workflow packages: files of a workflow's sandbox, read only ----------------------------------------------------------------
-std::string sandboxOf(Live& L, const std::string& wf)
+std::string sandboxOf(const std::string& text, const std::string& wf)
 {
-    std::string text;
-    { std::lock_guard lock(L.m); text = L.stateJson; }
     try {
+        simdjson::dom::parser addressParser;
+        std::string_view registeredHome;
+        const bool scoped = !addressParser.parse(text)["workHome"].get(registeredHome);
         simdjson::ondemand::parser parser;
         simdjson::padded_string padded{text};
         auto doc = parser.iterate(padded);
@@ -23,7 +24,12 @@ std::string sandboxOf(Live& L, const std::string& wf)
                         if (k == "id") id = std::string{std::string_view{f.value().get_string()}};
                         else if (k == "sandbox") sandbox = std::string{std::string_view{f.value().get_string()}};
                     }
-                    if (id == wf) return sandbox;
+                    if (id != wf) continue;
+                    if (!scoped) return sandbox;
+                    fs::path path;
+                    const auto workflows = fs::path{registeredHome} / "state" / "workflows";
+                    if (!insideSandbox(workflows, fs::path{sandbox}.lexically_relative(workflows).generic_string(), path)) return {};
+                    return path.string();
                 }
             }
         }
@@ -104,8 +110,7 @@ bool jobFilePath(const fs::path& sandbox, const std::string& rel, fs::path& out)
     std::error_code ec;
     const fs::path jobs = fs::weakly_canonical(sandbox.parent_path().parent_path() / "jobs", ec);
     if (ec) return false;
-    out = jobs / parts[0] / parts[1] / parts[2];
-    return true;
+    return insideSandbox(jobs, parts[0] + "/" + parts[1] + "/" + parts[2], out);
 }
 
 // Everything worth opening in a sandbox, without the duplicated per-attempt workspaces (`ws/`): path and size.
