@@ -289,9 +289,11 @@ int runCanvasAttempt(const AttemptContext& a)
     // The issues layer (docs/LAYERED_DOCUMENT.md): a verdict is parsed into issues bound to stable block ids, the worker is shown their summary (every
     // failure, each with the function it is in or likely in), the first few in full with their functions' code (slice 2), and reads any one in full with
     // `=== READ: ISSUE n ===`. SUB0SQUAD_ISSUE_LAYER picks the mode, so one build is measured every way: 0 off (the gate's text), 1 always on, 2 (the
-    // default) adaptive: on only where the gate's text would be clipped or lists more than kAdaptiveIssues failures, since on tier 0 the summary helped
+    // default) adaptive: on only where the gate's text is clipped, by length or by more than kAdaptiveIssues failures, since on tier 0 the summary helped
     // long, clipped verdicts and cost short ones. SUB0SQUAD_ISSUE_INLINE is how many issues are shown in full (default 3; 0 is slice 1's summary alone).
-    constexpr std::size_t kAdaptiveIssues = 3;
+    // kAdaptiveIssues is the gate's own excerpt (gate.txt keeps six failures): at 3, adaptive showed the layer for fix-many's five short failures, which
+    // the gate's text already held, and cost it as much as always-on (docs/LAYERED_DOCUMENT.md, "Slice 2 on tier 0").
+    constexpr std::size_t kAdaptiveIssues = 6;
     const auto envInt = [](const char* name, int fallback) {
         const char* v = std::getenv(name);
         if (!v || !*v) return fallback;
