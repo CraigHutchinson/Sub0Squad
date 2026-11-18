@@ -102,7 +102,7 @@ The queue, with hypotheses, arms, measures and commands, is [EXPERIMENTS.md](EXP
   `test_shim` flake, not reproduced).
 
 **Scenarios and blocks** ([SCENARIOS.md](SCENARIOS.md), [BLOCK_PROVING_GROUNDS.md](BLOCK_PROVING_GROUNDS.md))
-- The remaining scenarios: interface gap, decompose, reviseTests, read-then-edit, integrate, length continuation.
+- The remaining scenarios: interface gap, decompose, reviseTests, read-then-edit, integrate. The sandbox has a separate live length-continuation diagnostic on the unmodified `fix-op` plan ([runner and evidence](T0_ITERATIVE_SANDBOX.md#dedicated-reply-continuation)).
 - Blocks 7 to 10: section integration seams, division, golden decision logs, process as data as a block.
 - The fork executor inside a workflow through the daemon (`llm-fork --agent-exit 1` as the agent job) has no test.
 
@@ -111,8 +111,7 @@ The queue, with hypotheses, arms, measures and commands, is [EXPERIMENTS.md](EXP
   (edit-mix, build-mix, files-mix); `dig_t0.py` and `@quick`/`@release`/`T0_OUT`; then the switch of `GATE` and the release verdict.
 - A failing composite reported as blocked by its failing requirements, not as a failure of its own (2026-11-18: wrong-approach fails while write-engine
   and replace-function fail on their own; `gate_t0.py` does not read `REQUIRES` yet).
-- half-written, if iterated on: the cut-off hint lists what the tail must still hold (the undeclared names from the compile errors, the declared
-  functions the file lacks); the hint's failures append too little ([BLOCK_PROVING_GROUNDS.md](BLOCK_PROVING_GROUNDS.md), "Tier 0 iteration").
+- Half-written follow-up, parked until incomplete source blocks a later workflow. Some appends close the current function and leave required declarations or the public entry point missing. Cascade diagnostics can then send the worker back into the correct prefix. Try a hint that derives a short list of unresolved names and missing public definitions from the compiler diagnostics, header and visible contract. Keep the fixture, output scope and gate fixed, and leave the missing implementation to the worker. [T0 evidence](BLOCK_PROVING_GROUNDS.md).
 - The near-pass repair attempt goes past `--max-local` in the t0 process: decide whether tier 0 keeps it.
 - Token usage as a gate measure, T0 and up (owner, 2026-11-18): an expected budget per case, and the usage broken down by area, so a workflow that
   passes by going round the harness (rework, rereads, rewrites, restarts) shows up even when the tests pass. What exists: agent.json `tokensIn` and

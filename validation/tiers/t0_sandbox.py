@@ -1,4 +1,4 @@
-"""Run one isolated half-written T0 generation against a local llama.cpp server."""
+"""Run isolated T0 repair or reply-continuation trials against a local llama.cpp server."""
 
 import argparse
 import copy
@@ -194,7 +194,7 @@ def private_check(exe, plan, ref, trial, private, seed, prompt, before, manifest
     return "PASS", "fresh owner gate and independent calculator probes passed"
 
 
-def proxy(trial, target, prompt, scripted_reply=None):
+def proxy(trial, target, prompt, scripted_reply=None, first_reply_tokens=None):
     requests = trial / "requests"
     requests.mkdir()
 
@@ -223,6 +223,8 @@ def proxy(trial, target, prompt, scripted_reply=None):
                 with self.lock:
                     index = Handler.counter
                     Handler.counter += 1
+                if index == 0 and first_reply_tokens is not None:
+                    request["max_tokens"] = first_reply_tokens
                 save(requests / f"{index:04}.json", request)
                 if scripted_reply is not None:
                     self.send_response(200)
@@ -280,7 +282,8 @@ def workflow(args, plan, trial, engine):
     try:
         settings = [option for name in OPTIONS for option in ("--set", f"build.leaf.allow.{name}=false")]
         require(cli("process", "add", "t0", *settings))
-        require(cli("do", "tier zero spike: half-written", "--agent", "llm", "--engine", engine,
+        task = plan["project"].removeprefix("t0-")
+        require(cli("do", f"tier zero spike: {task}", "--agent", "llm", "--engine", engine,
                     "--executor", "canvas", "--process", "t0", "--max-local", "1",
                     "--max-tokens", str(args.max_tokens), "--repair-turns", str(args.repair_turns)))
         started = True
@@ -305,7 +308,8 @@ def workflow(args, plan, trial, engine):
 
 
 def execute(args, plan, trial, target, prompt, scripted_reply=None):
-    with proxy(trial, target, prompt, scripted_reply) as server:
+    first_reply_tokens = args.first_reply_tokens if args.mode == "continuation" else None
+    with proxy(trial, target, prompt, scripted_reply, first_reply_tokens) as server:
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         engine = f"{args.model}=http://127.0.0.1:{server.server_port}/v1,model={args.model},ctx={args.ctx},slots=1,seed={args.seed},cache=0"
@@ -325,7 +329,8 @@ def prepare(args):
         import make_t0
     finally:
         sys.argv = original
-    plan = make_t0.plan_for(CASE)
+    case = "fix-op" if args.mode == "continuation" else CASE
+    plan = make_t0.plan_for(case)
     ref = make_t0.CALC
     if args.cut is not None:
         lines = ref.splitlines(keepends=True)
@@ -354,6 +359,26 @@ def backend_profile(target):
             "build": props.get("build_info")}
 
 
+def continuation_evidence(trial):
+    """Require the first real reply to be truncated and the next request to resume it."""
+    attempt = trial / "home/state/workflows/w-000001/items/app/attempt-1"
+    try:
+        trace = (attempt / "conversation.md").read_text(encoding="utf-8")
+        second = json.loads((trial / "requests/0001.json").read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return None
+    if not re.search(r"^### Reply, turn 0 .*finish `length`", trace, re.MULTILINE):
+        return None
+    if not re.search(r"^cut off at the token limit .*asked to continue \(continuation 1\)", trace, re.MULTILINE):
+        return None
+    last = second["messages"][-1]
+    if last["role"] == "assistant":
+        return "assistant-prefill"
+    if last["role"] == "user" and last["content"].startswith("Your reply was cut off at the token limit."):
+        return "tail-fallback"
+    return None
+
+
 def write_review(trial, identity, result):
     attempt = "home/state/workflows/w-000001/items/app/attempt-1"
     public_evidence = [f"{attempt}/{name}" for name in ("conversation.md", "gate.txt", "failures.txt", "agent.json")]
@@ -364,7 +389,7 @@ def write_review(trial, identity, result):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("mode", choices=("preflight", "run", "review"))
+    ap.add_argument("mode", choices=("preflight", "run", "continuation", "review"))
     ap.add_argument("--exe", type=pathlib.Path, default=ROOT / "out/build/mingw/sub0squad.exe")
     ap.add_argument("--endpoint", default="http://127.0.0.1:8092/v1")
     ap.add_argument("--model", default="qwen35")
@@ -374,6 +399,7 @@ def main():
     ap.add_argument("--handoff", type=pathlib.Path, help="owner-authored resume note for a companion cut")
     ap.add_argument("--prompt", type=pathlib.Path, help="UTF-8 text to append to the worker system prompt")
     ap.add_argument("--parent", help="previous trial ID for a Codex-authored generation")
+    ap.add_argument("--first-reply-tokens", type=int, help="cap the first reply only in continuation mode (default: 64)")
     ap.add_argument("--max-tokens", type=int, default=3000)
     ap.add_argument("--repair-turns", type=int, default=2)
     ap.add_argument("--timeout", type=int, default=600)
@@ -387,11 +413,19 @@ def main():
             result = json.loads((trial / "verdict.json").read_text(encoding="utf-8"))
         except (OSError, ValueError) as e:
             ap.error(f"could not read the trial: {e}")
-        if identity["mode"] != "run":
+        if identity["mode"] not in ("run", "continuation"):
             ap.error("review expects a model trial")
         write_review(trial, identity, result)
         print(trial / "review.json")
         return 0
+    if args.mode == "continuation":
+        args.first_reply_tokens = 64 if args.first_reply_tokens is None else args.first_reply_tokens
+        if not 0 < args.first_reply_tokens < args.max_tokens:
+            ap.error("first reply cap must be positive and below the normal reply budget")
+        if args.cut is not None or args.handoff:
+            ap.error("continuation uses the unchanged fix-op fixture")
+    elif args.first_reply_tokens is not None:
+        ap.error("--first-reply-tokens is only for continuation")
     args.exe = args.exe.resolve(strict=True)
     target = urlsplit(args.endpoint)
     if target.scheme != "http" or target.hostname != "127.0.0.1" or not target.port or target.path != "/v1" or target.query:
@@ -417,7 +451,7 @@ def main():
 
     before = manifest()
     backend = None
-    if args.mode == "run":
+    if args.mode in ("run", "continuation"):
         try:
             backend = backend_profile(target)
         except (OSError, ValueError, KeyError, RuntimeError, http.client.HTTPException) as e:
@@ -427,6 +461,8 @@ def main():
     identity = {"inputs": before, "plan": digest(plan), "prompt": prompt, "endpoint": args.endpoint,
                 "model": args.model, "ctx": args.ctx, "seed": args.seed, "maxTokens": args.max_tokens,
                 "repairTurns": args.repair_turns, "wallSeconds": args.timeout, "mode": args.mode, "backend": backend}
+    if args.mode == "continuation":
+        identity["firstReplyTokens"] = args.first_reply_tokens
     key = digest(identity)
     run_id = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime()) + "-" + uuid.uuid4().hex[:12]
     OUT.mkdir(parents=True, exist_ok=True)
@@ -468,8 +504,12 @@ def main():
             state = execute(args, plan, trial, target, prompt)
             info = gate_t0.judge_run(trial / "home", plan, ref_dir)
             result["gate"] = info
+            if args.mode == "continuation":
+                result["continuation"] = continuation_evidence(trial)
             if not list((trial / "requests").glob("*.json")) or (trial / "proxy-errors.log").exists():
                 result["detail"] = "inference transport incomplete"
+            elif args.mode == "continuation" and result["continuation"] is None:
+                result["detail"] = "first reply did not exercise the required continuation path"
             elif state == "succeeded" and info["passed"] and info["key"] == gate_t0.case_key(plan):
                 result["public"] = "PASS"
                 tester, detail = private_check(args.exe, plan, ref, trial, private, checker_seed, prompt, before, manifest)
@@ -480,7 +520,7 @@ def main():
     except (OSError, RuntimeError, ValueError, KeyError, subprocess.TimeoutExpired) as e:
         result["detail"] = str(e)
     save(trial / "verdict.json", result)
-    if args.mode == "run":
+    if args.mode in ("run", "continuation"):
         write_review(trial, {"trial": key, "parent": args.parent, "prompt": prompt}, result)
     print(json.dumps(result, ensure_ascii=False), flush=True)
     return 0 if result["public"] == "PASS" and (args.mode == "preflight" or result["tester"] == "PASS") else 1
