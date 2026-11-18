@@ -126,6 +126,18 @@ The queue, with hypotheses, arms, measures and commands, is [EXPERIMENTS.md](EXP
   intercept, as within a reply. Also when a case shows it (owner, 2026-11-18): an escalation ladder past the interception and retry, a penalty added
   dynamically but only over the scope of the loop (its repeated lines or block, e.g. a logit bias or DRY limited to those tokens), never globally: in normal
   turns the model is free to make its own judgement.
+- Loops in the thinking (owner, 2026-11-18). Built: the reasoning stream is judged by the same verbatim rules (every 400 characters); a loop stops it where
+  the loop began, the rest is carried named as a loop, and the next turn decides with thinking off: the ladder's "summarise and change strategy, fresh
+  decoding state" step, without a penalty. Not built, for when a run shows loops it misses or a second loop after the decide turn:
+  - Semantic loops (the same idea reworded): verbatim lines miss them. Cheap signals first: similarity of recent reasoning paragraphs (word shingles),
+    no new identifiers or line numbers named for N paragraphs. Candidate-set recurrence (the same top-k next tokens repeating, reported to catch loops
+    earlier than text) needs per-token `n_probs` from llama.cpp's stream, a cost on every token: measure it before adopting.
+  - A scoped, adaptive penalty (nudge, then escape): llama.cpp takes `repeat_penalty` with a recency window `repeat_last_n`, `presence_penalty`,
+    `frequency_penalty`, DRY (`dry_multiplier`, `dry_allowed_length`, `dry_penalty_last_n` as its window, `dry_sequence_breakers`) and `logit_bias`, all per
+    request, but for the whole request: there is no switch between reasoning and answer within one. So a penalty scoped to thinking needs a turn that
+    only thinks (continue the reasoning, then answer in a separate turn with no penalty): the decide-turn split already exists. The experiment: four arms
+    (none / fixed scoped / adaptive scoped / summarise-and-restart) on real loops AND on repetition-heavy work (proofs, table-driven tests), scored on
+    correctness, tokens and premature stops.
 - New leaves, none built yet (evidence: `out/runs/t0-101e19c/gate.md` and `out/runs/wa-scope-v1..v4-partial`):
   - Continuation seams on a long FILE with recorded replies (model-free replay of cut-off replies through `joinContinuation` and the line-boundary resume: lost
     spaces, stray fences, SEARCH/REPLACE of the tail, file restarts). Parent: write-engine.

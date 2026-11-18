@@ -29,6 +29,7 @@ struct Runaway
     /// A loop ("repeat"): how much of the reply is worth keeping, in characters: everything before the loop began, its first copy included (0: nothing).
     /// The agent rolls the reply back to it and asks for the rest with the interception, instead of throwing the reply away.
     std::size_t keep = 0;
+    std::string detail = {};       ///< a loop: what repeated ("the same 11 lines 3 times over"), for a message of the caller's own (reasoning loops)
     [[nodiscard]] explicit operator bool() const { return !kind.empty(); }
 };
 

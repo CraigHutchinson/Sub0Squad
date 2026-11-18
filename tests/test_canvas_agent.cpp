@@ -410,6 +410,31 @@ int main()
         CHECK(engine.abortedAfter(0) >= 0);                      // stopped while it streamed
         CHECK(slurp(attemptDir(d, 2) / "agent.json").find("\"thinkingStops\":1") != std::string::npos);
     }
+    {   // Thinking that goes round in a loop is stopped where the loop began, well before the cap: what came before it (its first copy included) is carried,
+        // named as a loop, and the next turn decides with thinking off.
+        const fs::path d = workflow("canvas-thinking-loop");
+        failedAttempt(d, 1, bad);
+        std::string loop;
+        for (int i = 0; i < 12; ++i) loop += "Wait, let me reconsider the modulo branch.\nMaybe the divisor check is wrong here.\nNo, the divisor check is fine as it is.\n";
+        fake::Reply thinker{"", "stop", "so the modulo branch divides: replace it with math.fmod\n" + loop};
+        thinker.pieceChars = 60;
+        thinker.pauseMs = 1;
+        fake::Engine engine({thinker, {fixByLine}});
+        std::vector<std::string> args = canvasArgs(d, engine, 2, 0);
+        for (std::size_t i = 0; i + 1 < args.size(); ++i) if (args[i] == "--engine") args[i + 1] += ",thinking=1";
+        CHECK_EQ(runLlmAgent(args), 0);
+        CHECK_EQ(slurp(attemptDir(d, 2) / "out" / kFile), ref);
+        const auto rq = engine.requests();
+        CHECK_EQ(rq.size(), static_cast<std::size_t>(2));
+        if (rq.size() == 2) {
+            const std::string& m = rq[1].last();
+            CHECK(m.find("went round in a loop (the same 3 lines") != std::string::npos && m.find("replace it with math.fmod") != std::string::npos);
+            const auto first = m.find("Maybe the divisor check is wrong here.");
+            CHECK(first != std::string::npos && m.find("Maybe the divisor check is wrong here.", first + 1) == std::string::npos);   // its first copy only
+            CHECK(rq[1].thinking == 0);
+        }
+        CHECK(engine.abortedAfter(0) >= 0);
+    }
     {   // A failing test named by the gate opens its definition in the folded view of a test file (tier 0 write-tests: no line number to focus on).
         std::string tests = "#include \"helpers/check.hpp\"\n";
         for (int k = 0; k < 20; ++k) {

@@ -89,7 +89,7 @@ Runaway detectRunaway(std::string_view reply, const std::map<std::string, std::s
             for (std::size_t i = 0; i < n; ++i) { const auto nl = reply.find('\n', at); if (nl == std::string_view::npos) return reply.size(); at = nl + 1; }
             return at;
         };
-        const auto loop = [&](const std::string& what, std::size_t keepLines) { return Runaway{"repeat", looped(what), upToLine(keepLines)}; };
+        const auto loop = [&](const std::string& what, std::size_t keepLines) { return Runaway{"repeat", looped(what), upToLine(keepLines), what}; };
         const std::string last = trimmed(lines.back());
         if (last.size() >= 8) {
             int run = 0;

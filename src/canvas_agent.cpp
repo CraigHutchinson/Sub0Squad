@@ -427,6 +427,7 @@ int runCanvasAttempt(const AttemptContext& a)
     std::string lastReadAnswer;           // the latest read answered, kept in view when a read past the allowance is refused
     bool verdictIsRead = false;           // the verdict is a read answer (set where it is written, cleared once a message carried it)
     std::string carriedReasoning;         // the end of reasoning that ran out before an edit, shown with the next turn
+    std::string carriedLoop;              // ... and what repeated, when the reasoning was stopped in a loop (rolled back to where it began)
     bool decideNext = false;              // the next turn writes down what was reasoned, with thinking off
     std::string loopKept;                 // a loop stop: the reply up to where the loop began (Runaway::keep), set by the stream guard
     std::string interception;             // the next turn resumes `partial` after a loop: the reply so far in full, then this instruction
@@ -471,10 +472,16 @@ int runCanvasAttempt(const AttemptContext& a)
         verdictIsRead = false;
         // Reasoning that ran out before an edit is kept, not thrown away: its end comes back with this turn, which runs with thinking off so the decision
         // already reasoned out is written down (the 35B runs: 19 turns, 114k tokens of thinking that never reached an edit).
+        // A loop in the thinking is the same, rolled back to where the loop began, and the decision asked for names the loop: the "change strategy"
+        // step of the loop ladder, with a fresh decoding state and no penalty (docs/BACKLOG.md, Loops).
         const std::string carried = carriedReasoning.empty() ? std::string{}
+            : !carriedLoop.empty()
+            ? "\nYour reasoning in the last turn went round in a loop (" + carriedLoop + ") and was stopped where the loop began. What came before it is kept. Its end:\n[reasoning]\n" +
+                  carriedReasoning + "\n[end of reasoning]\nDo not reason over it again. Pick one approach (a different one if the loop was going nowhere) and write the transaction now.\n"
             : "\nYour reasoning from the last turn is kept: it ran out before you wrote an edit. Its end:\n[reasoning]\n" + carriedReasoning +
               "\n[end of reasoning]\nDo not start the reasoning over. Write the transaction it was leading to now.\n";
         carriedReasoning.clear();
+        carriedLoop.clear();
         std::vector<ChatMessage> convo = {{"system", system}, {"user", user + carried}};
         // A reply cut off at the token limit is continued as itself: its text so far goes back as the assistant's own unfinished message (a prefill), cut to
         // its last complete line, so the model carries on token by token, seeing everything it wrote (2026-11-18: shown only a 700-character tail, the 35B
@@ -509,9 +516,11 @@ int runCanvasAttempt(const AttemptContext& a)
         const fs::path livePath = attemptDir / "live.txt";
         (void)writeFile(livePath, "(turn " + std::to_string(calls) + " sent; waiting for the first token)\n");
         bool liveStarted = false, inReasoning = false;
-        std::size_t reasoningChars = 0;
+        std::size_t reasoningChars = 0, reasoningJudged = 0;
+        std::string reasoningSoFar;
         const DeltaSink liveSink = [&](std::string_view content, std::string_view reasoning) {
             reasoningChars += reasoning.size();
+            reasoningSoFar += reasoning;
             std::ofstream o(livePath, std::ios::app | std::ios::binary);   // streamed in pieces as tokens arrive
             if (!liveStarted) { o.close(); (void)writeFile(livePath, ""); o.open(livePath, std::ios::app | std::ios::binary); liveStarted = true; }
             if (!reasoning.empty()) { if (!inReasoning) { o << "[thinking]\n"; inReasoning = true; } o << reasoning; }
@@ -528,6 +537,12 @@ int runCanvasAttempt(const AttemptContext& a)
             // The whole reply so far: a prefill turn's stream repeats the prefill (llama.cpp); a fallback continuation is appended to the partial.
             const std::string soFar = !prefill.empty() ? (streamed.rfind(prefill, 0) == 0 ? streamed : prefill + streamed) : partial + streamed;
             if (thinkingCap > 0 && reasoningChars > thinkingCap && soFar.find("=== ") == std::string::npos) { runaway.kind = "thinking"; return true; }
+            // Thinking that goes round in a loop (the same verbatim lines, as in a reply) is stopped where the loop began, not at the cap: what came
+            // before is carried, and the next turn decides with thinking off (judged every 400 characters of reasoning: the rule walks the whole text).
+            if (thinkingCap > 0 && reasoningSoFar.size() >= reasoningJudged + 400 && soFar.find("=== ") == std::string::npos) {
+                reasoningJudged = reasoningSoFar.size();
+                if (auto r = detectRunaway(reasoningSoFar, {}); r.kind == "repeat") { runaway = {"thinking-loop", r.instruction, r.keep, r.detail}; return true; }
+            }
             // The scope rules never run out (2026-11-18: after two free stops the 35B's third rewrite went through, ran past the token limit and failed
             // to apply); a scope stop past the free aborts costs a turn instead.
             // A FILE header over a file the scope does not yet open: stopped at the header, before thousands of tokens of rewrite are spent on it.
@@ -567,6 +582,17 @@ int runCanvasAttempt(const AttemptContext& a)
         lastFinish = reply->finishReason;
         std::printf("canvas turn %d: %ld prompt tokens, %ld completion tokens, finish=%s\n", call, reply->promptTokens, reply->completionTokens, reply->finishReason.c_str());
 
+        if (reply->finishReason == "aborted" && runaway.kind == "thinking-loop") {   // a loop in the thinking: rolled back to where it began, then decided
+            if (++thinkingStops > 1) ++spent;
+            const std::string& r = reply->reasoning.size() >= reasoningSoFar.size() ? reply->reasoning : reasoningSoFar;
+            carriedReasoning = tailAtLine(r.substr(0, std::min(runaway.keep, r.size())), kCarriedReasoningChars);
+            carriedLoop = runaway.detail;
+            decideNext = true;
+            traceVerdict(tracePath, call, "thinking stopped in a loop (" + runaway.detail + "): rolled back to where it began and carried into the next turn, which runs with thinking off");
+            std::printf("canvas turn %d: thinking loop (%s), carried over\n", call, runaway.detail.c_str());
+            events::note("thinking loop stopped and carried over");
+            continue;
+        }
         if (reply->finishReason == "aborted" && runaway.kind == "thinking") {   // stopped thinking: kept, and written down next turn (the verdict stands)
             if (++thinkingStops > 1) ++spent;
             carriedReasoning = tailAtLine(reply->reasoning, kCarriedReasoningChars);
