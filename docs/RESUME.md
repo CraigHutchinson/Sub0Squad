@@ -76,7 +76,7 @@ Cheap first; each step names what proves it. Rules in section 5 apply throughout
 6. **Prompt wording A/B** (BACKLOG): prompts as data, variants B to E from the owner against today's wording, at least 10 seeds each. Built since (local session, 2026-11-16): the worker stance switch `--stance baseline|specialist` and the CONCERN block (experiment E1,
    [EXPERIMENTS.md](EXPERIMENTS.md) section 9, [PROMPTS.md](PROMPTS.md)); `--stance` is the first prompt-as-data switch. Also built: the platform layer
    ([PLATFORM.md](PLATFORM.md)), process launch in one place.
-7. **Portal**: the planning card and the planning graph node are built (see BACKLOG); still to do: the dispute edges and gate classes in the decision view, a workflow selector (today `?wf=w-000022` in the URL); make `up` start the portal by default (it was off only because `--no-portal` was passed); ngrok later (needs the owner: install, account, token, authentication design).
+7. **Portal**: the planning card and graph node are built. The [work overview design](PORTAL_WORK_OVERVIEW.md) covers multiple projects, stages, backlog items, scenarios and tier evidence. The [first implementation brief](sessions/portal-work-overview.md) receives two homes, staged work and archived detail before adding campaign adapters. Dispute edges, gate classes and remote access remain separate backlog work.
 8. **Slot save and restore** measurement; per-role windows; the phased design and execution planner (BACKLOG, CLEAN_SLATE section 6).
 9. Fault-injection campaign at every step and role; web and Python scaffolds (only C++ self-scaffolds today); a section-count cap in the fork split (a 15-section skeleton for a 20-line file); the A/B context campaigns.
 

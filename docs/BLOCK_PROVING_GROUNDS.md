@@ -175,6 +175,31 @@ T0, T1 and T2 have repository runners. The T1 and T2 runner currently enforces a
 
 The next balanced slice stays at T1: exercise the same delimiter defect with the relevant source visible and folded, using the current archive and original tests. The top-down goal is a builder who can use the gate's diagnostics to finish a working calculator. The bottom-up constraint is the canvas view and read budget, which already affected localization at T1 size. Exposing the region isolates the cost of finding it while preserving the repair task. A passing isolated control is received back into the complete T1 build before using it as a prerequisite for later tier evidence. [Current T1 slice and results](T0_LAYERS.md#24-first-t1-rework-slice).
 
+#### Admission, comparisons and release evidence
+
+| Decision | Evidence to check before moving on |
+| --- | --- |
+| Receive a proving block | Its starting condition is observable, the control demonstrates the expected result, and the named workflow can consume it. Keep a model-free failure reproduction where the defect is mechanical. Use real-model trials to measure worker capability. |
+| Admit T1 or T2 | Use the current runner's T0 PASS rule. Separately label an explicitly authorized forced diagnostic and preserve the gate it bypassed. Use completed T1 runs as the serial performance baseline for T2. |
+| Receive the T3 handoff | Start from a received serial product and isolated tester and integration checks. Require fork evidence only for a workflow that uses the fork executor. A deliberate interface mismatch or wrong expectation is its own diagnostic cohort after a clean supplied workflow works. |
+| Receive T4 planning | Hold the T3 scope and external grader fixed. Pin the public request, compare supplied and generated plans, and record whether a failed run stopped at planning, a handoff, integration or the product grade. |
+| Admit a T5 scale experiment | Start from a received T4 slice. Name the dimension and bound under test, capture a same-profile control, and stop at the first unresolved limit. Decouple recovery challenges from load until each is understood on the small workflow. |
+
+Use a **targeted check** during daily changes, then a **receiving cohort** when a change crosses a workflow boundary. Keep **release evidence** tied to the build and the existing gate policy. Choose the cohort size, seeds and time and token budgets before running it. Use full budgets for proof. Allocation, infrastructure failures and discovery stops stay visible with their own dispositions. Report the scheduled denominator, counted results and pass fraction with uncertainty. For throughput, report wall time to an accepted product and the pass fraction together, with coordination and retry costs included.
+
+#### Scale the work without losing the diagnostic
+
+- **Product scope.** Expand the public behavior or number of modules one at a time. For the calculator, accept a small scientific CLI across the evaluator seam before adding richer functions or a different interface.
+- **Source and context.** Hold the defect and behavioral judge fixed while varying file size, visibility and effective context. Record where the source was shown and when a read or continuation was necessary. Keep output truncation, context fallback and incomplete inherited source as separate mechanisms.
+- **Coordination and load.** Add independent workers or projects against the same acceptance and adjudication budget. Measure actual active slots and queue wait. A runnable staged plan does not establish achieved parallelism.
+- **Recovery and portability.** Use one seeded failure at a known boundary per control, then exercise the real recovery path. Repeat the received slice on another platform before changing product scope there.
+
+#### Run and evidence contract for the portal
+
+Each cohort identifies its project, tier or scenario, planned cases and seeds, admission decision, and the pinned build, fixture or request, and engine profile. Each execution records its source, terminal verdict when available, observed phases, artifact identity, and evidence classification. Classifications distinguish live model, scripted harness, replay, forced, and discovery-stopped outcomes. An early-stop count can explain investigation cost. It does not fill a release sample.
+
+Reuse existing gate, workflow and scenario records as the durable sources. The portal should group them by project and cohort and link to their owners' original records. Show staged work from an explicit brief or prepared spec, running work from current activity, and historical outcomes from the owning runner. Display unresolved prerequisites and unknown totals explicitly. The [portal work overview](PORTAL_WORK_OVERVIEW.md) defines identity, states and receiving checks for this view.
+
 ### Tier 0 iteration (2026-11-18): stopping early, the failure breakdown, the half-written A/B
 
 **A run stops at its first failed attempt** (owner: tier 0 checks a targeted step, so a run should not grind through the squad's retries into a long

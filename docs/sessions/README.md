@@ -47,6 +47,7 @@ machine (frontier off), no commits without the owner's go-ahead, ask before chan
 |---|---|---|
 | [engine-registry-integration.md](engine-registry-integration.md) | Run the squad on Sub0LlmEngine and Sub0LlmModelRegistry instead of its own `llama-server` line | 2026-11-16 |
 | [platform-unification.md](platform-unification.md) | Sub0Platform (github.com/CraigHutchinson/Sub0Platform): Python package live; C++ move and remaining decisions open | 2026-11-17 |
+| [portal-work-overview.md](portal-work-overview.md) | Show staged, active and archived work across registered projects and homes | 2026-11-18 |
 
 Elsewhere: Sub0LlmEngine's `docs/sessions/` has the brief for isolating the Qwen3.8-27B UD-IQ3_XXS CUDA fault.
 Sub0Canvas's `docs/sessions/` has the canvas briefs (S0 scale harness, B0 format catch-up, G1 git history); work that reaches this repository arrives as a pull request bumping its pin.
