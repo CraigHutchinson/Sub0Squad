@@ -109,6 +109,11 @@ The queue, with hypotheses, arms, measures and commands, is [EXPERIMENTS.md](EXP
 **Tier 0 layers** ([T0_LAYERS.md](T0_LAYERS.md), design 2026-11-18: the T0 cases as a tree, quick / release / dig-down modes)
 - Build it in the order of T0_LAYERS.md section 5: `requires` data and the DAG asserts; the tree in `gate.md`; the three composites staged and calibrated
   (edit-mix, build-mix, files-mix); `dig_t0.py` and `@quick`/`@release`/`T0_OUT`; then the switch of `GATE` and the release verdict.
+- A gate-wide progress view in the portal (owner, 2026-11-18). Each tier run has its own squad home with its own daemon and portal (`up` in
+  validation/tiers/lib.sh), so http://127.0.0.1:8780/ shows only the run in flight, drops between runs, and nothing shows the whole gate: cases × runs
+  with result, attempts, turns and tokens (today `out/runs/t0/summary.md`), the run in flight, and the tree (T0_LAYERS.md) coloured by result. One way:
+  a portal started once by `run_t0.sh` / `run_tier.sh` on the tier's output folder (summary.md and gate.json as its data, each run's home linked to
+  open its live view), outliving the per-run homes; a run's own portal then binds port 0 so the two never collide.
 - Context compaction for continuations (owner, 2026-11-18). A cut-off reply is now continued as itself (the canvas sends its text, cut to the last complete
   line, back as the assistant's unfinished message: a prefill, measured on the 35B to continue cleanly at a line or word boundary and to stop at once mid-token).
   It needs the prompt, the partial and the reply's budget to fit the context, and falls back to the tail prompt when they do not (`prefilled` against `continued`
