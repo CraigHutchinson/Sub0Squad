@@ -267,13 +267,11 @@ int runCanvasAttempt(const AttemptContext& a)
     bool restructure = false;
     int noProgress = 0, restructuredAt = -1;
     // A file cut off part way (its braces still open at its end: T0 half-written, 2026-11-18, 3/3 first attempt before the edits-first scope, 0/3
-    // after it, the completion stopped as a big edit over and over). EXPERIMENT, the A/B of docs/BACKLOG.md (SUB0SQUAD_CUTOFF): "stub" treats it as
-    // a stub (FILE allowed, no edit size limits); "edits" keeps FILE refused but lifts the edit size limits; unset: neither (today's rules).
-    const std::string cutoffArm = [] { const char* v = std::getenv("SUB0SQUAD_CUTOFF"); return std::string{v ? v : ""}; }();
+    // after it: the completion stopped as a big edit over and over). It is named as cut off, with the form that finishes it (the A/B of 2026-11-18 on
+    // the 35B, 5 runs an arm: the hint 2/5 in 4-7 turns; treating it as a stub 0/5; lifting the edit size limits 0/5; neither 4/19).
     const auto cutOff = [&](const std::string& path, const std::string& text) { return !isPythonPath(path) && endsInsideBlock(text); };
     const auto isStub = [&](const std::string& path, const std::string& text) {   // the harness's own stub, or a skeleton's `not implemented` bodies
         if (text.find("not implemented") != std::string::npos) return true;
-        if (cutoffArm == "stub" && cutOff(path, text)) return true;
         return harness && harness->scaffoldFile && !text.empty() && text == harness->scaffoldFile(path);
     };
     // After a loop's rollback the worker may move on to other blocks instead of continuing the kept one (35B, 2026-11-18: an EDIT of the file's enum, the
@@ -497,15 +495,14 @@ int runCanvasAttempt(const AttemptContext& a)
                 }
             }
             for (const auto& f : a.item->files) if (!canvas.has(f)) state += "(" + f + " does not exist yet: write it whole with === FILE: " + f + " ===)\n";
-            // EXPERIMENT arm "hint" (SUB0SQUAD_CUTOFF): a cut-off file is named as such, with the form that finishes it under the edits-first scope. The
-            // 35B's first moves were a 43-line SEARCH of the cut region and a 165-line completion, both stopped; appending after the last line never came up.
-            if (cutoffArm == "hint")
-                for (const auto& path : canvas.paths())
-                    if (const std::string& t = canvas.text(path); cutOff(path, t)) {
-                        const auto n = std::to_string(std::count(t.begin(), t.end(), '\n') + (t.empty() || t.back() == '\n' ? 0 : 1));
-                        state += "(" + path + " is cut off: it ends at line " + n + " inside a block that is never closed. Finish it by appending only what is "
-                                 "missing after its last line: === EDIT: " + path + " AFTER " + n + " === then the rest of the code, then === END EDIT ===)\n";
-                    }
+            // A cut-off file is named as such, with the form that finishes it under the edits-first scope (without it the 35B's first moves were a
+            // 43-line SEARCH of the cut region and a 165-line completion, both stopped; appending after the last line never came up).
+            for (const auto& path : canvas.paths())
+                if (const std::string& t = canvas.text(path); cutOff(path, t)) {
+                    const auto n = std::to_string(std::count(t.begin(), t.end(), '\n') + (t.empty() || t.back() == '\n' ? 0 : 1));
+                    state += "(" + path + " is cut off: it ends at line " + n + " inside a block that is never closed. Finish it by appending only what is "
+                             "missing after its last line: === EDIT: " + path + " AFTER " + n + " === then the rest of the code, then === END EDIT ===)\n";
+                }
         }
         const std::string user = a.card + (a.guidance.empty() ? std::string{} : "\n" + a.guidance + "\n") + (verdict.empty() ? std::string{} : "\n" + clip(verdict, verdictCap) + "\n") + "\n" + readCarried + state +
                                  (canvas.paths().empty() ? "" : "Reply with the transaction that fixes EVERYTHING listed above (every failing test, every error, one edit each), its form picked once by the rules above: " +
@@ -579,7 +576,7 @@ int runCanvasAttempt(const AttemptContext& a)
         Runaway runaway;
         const auto drafts = canvas.files();
         std::map<std::string, std::string> locked;   // under the narrow scope: the files that exist and are not stubs, improved by edits of a function's size
-        if (!restructure) for (const auto& [p, t] : drafts) if (!isStub(p, t) && !(cutoffArm == "edits" && cutOff(p, t))) locked[p] = t;
+        if (!restructure) for (const auto& [p, t] : drafts) if (!isStub(p, t)) locked[p] = t;
         const std::size_t thinkingCap = turnEngine.thinking ? static_cast<std::size_t>(a.maxTokens * kThinkingShare * kCharsPerToken) : 0;
         const StreamGuard guard = [&](const std::string& streamed) {
             // The whole reply so far: a prefill turn's stream repeats the prefill (llama.cpp); a fallback continuation is appended to the partial.
