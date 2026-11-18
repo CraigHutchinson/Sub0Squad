@@ -111,7 +111,7 @@ sub0squad archive --label NAME                         # after the run, daemon s
 * **The shared engine:** `llama-server` on port 8092 is shared by every session; never stop, restart or retune it, and never start a second server on
   its port. Coordinate tier 0 runs with the session running them.
 * **The canvas library** is [Sub0Canvas](https://github.com/CraigHutchinson/Sub0Canvas) (that spelling in prose and URLs; its code identifiers,
-  `sub0canvas::`, `CPM_sub0canvas_SOURCE`, stay lower-case). Changes to it are made there first, tagged, and arrive here as a pull request bumping
+  `sub0canvas::`, the `sub0canvas/` headers, stay lower-case; its CPM package is `Sub0Canvas`). Changes to it are made there first, tagged, and arrive here as a pull request bumping
   the pin (its `docs/INTEGRATION.md`).
 * **This list is complete.** Everything needed to work here is in this repository; nothing depends on notes kept outside it (an assistant's local
   memory, a chat, a session card). When the owner gives a new standing instruction, add it here in the same change.

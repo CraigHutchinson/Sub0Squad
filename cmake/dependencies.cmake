@@ -44,7 +44,7 @@ CPMAddPackage(NAME simdjson
 # Sub0Canvas: the canvas tooling (folded views, edits, the revisioned canvas, stable block ids and layers; its docs/INTEGRATION.md), split out of this
 # repository on 2026-11-17 so it can serve other consumers. Sub0Squad is its first. Pinned to a tag; changes to that code are made there first, then
 # the pin is bumped here (test_blocks' recorded replies exercise it, so they run against every new pin). It reuses the simdjson target above.
-CPMAddPackage(NAME sub0canvas
+CPMAddPackage(NAME Sub0Canvas
   GIT_REPOSITORY https://github.com/CraigHutchinson/Sub0Canvas.git
   GIT_TAG v0.2.1
   OPTIONS "SUB0CANVAS_BUILD_TESTING OFF")

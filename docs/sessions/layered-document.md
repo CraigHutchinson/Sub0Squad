@@ -39,7 +39,7 @@ Sub0Squad pins that tag in `cmake/dependencies.cmake`. Its `include/sub0squad/{o
 2. Bump `GIT_TAG` in Sub0Squad, build, and run at least `test_blocks`, `test_canvas_agent` and the full suite.
 3. Push Sub0Canvas (main and the tag) before the Sub0Squad pin. A pin to a tag nobody can fetch breaks CI.
 
-For local work, `. scripts/dev-env.sh` exports `CPM_sub0canvas_SOURCE` to the sibling checkout `../sub0canvas`.
+For local work, `. scripts/dev-env.sh` exports `CPM_Sub0Canvas_SOURCE` to the sibling checkout `../Sub0Canvas` (on Windows it is a user-level variable, DEV_SETUP.md).
 The cut-over import script has since been removed from Sub0Canvas.
 
 **Tier 0 results (one build, 3 runs per case and arm; suggestive, not significant).**
@@ -96,7 +96,7 @@ directory. This belongs to whoever owns the Windows port.
 ## Environment and constraints
 
 * Windows 11, MinGW-w64 GCC (WinLibs), Ninja, CMake ≥ 3.24.
-* Build with `CPM_SOURCE_CACHE=D:\Craig\GitHub\Sub0Squad\out\cpm-cache` and `cmake --build out/build/mingw -j6`. Don't rebuild an exe that a tier 0 run
+* Build with the global `CPM_SOURCE_CACHE` (DEV_SETUP.md) and `cmake --build out/build/mingw -j6`. Don't rebuild an exe that a tier 0 run
   is using.
 * The engine is qwen35 at `http://127.0.0.1:8092/v1`, model `qwen35`, ctx 16384, 4 slots.
 * Style: camelCase, Doxygen, `#pragma once`, `[[nodiscard]]`, std::format and std::print, `-Wall -Wextra -Werror`.

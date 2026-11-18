@@ -9,13 +9,22 @@ builds reproducibly. For day-to-day work CPM honours `CPM_<NAME>_SOURCE` (the NA
 verified in CPM.cmake 0.43.2): the package then comes from that directory and **the pin is ignored**, so every project builds
 against the local checkouts under the GitHub folder.
 
-On the Sub0 dev machine this is set for the nine libraries by `~/.config/sub0/cpm-env.sh` (sourced from `~/.bashrc` and
+**On the Windows dev machine** these are user-level environment variables (set once; every new shell, IDE and agent session sees them):
+`CPM_SOURCE_CACHE=%USERPROFILE%\.cache\cpm`, and `CPM_<Name>_SOURCE=<GitHub folder>\<Name>` (the folder holding the sibling checkouts) for every Sub0 checkout (the nine libraries below,
+`Sub0Canvas`, `Sub0Squad`, `Sub0h264`) and `Version.cmake`. Local sources are the default for all the owner's projects; build a pin only on purpose
+(clear the variable for that shell: `$env:CPM_Sub0Canvas_SOURCE = $null`). To add one:
+
+```powershell
+[Environment]::SetEnvironmentVariable('CPM_<Name>_SOURCE', '<GitHub folder>\<Name>', 'User')   # then open a new shell
+```
+
+On the Sub0 Linux dev machine this is set for the nine libraries by `~/.config/sub0/cpm-env.sh` (sourced from `~/.bashrc` and
 `~/.profile`, and listed in `~/.config/environment.d/60-sub0-cpm.conf` for desktop-launched apps after a re-login):
 
 | Variable | Checkout |
 |---|---|
 | `CPM_Sub0Pipeline_SOURCE` `CPM_Sub0Pub_SOURCE` `CPM_Sub0Log_SOURCE` `CPM_Sub0ECS_SOURCE` `CPM_Sub0Math_SOURCE` | `$SUB0_GITHUB_DIR/<Name>` |
-| `CPM_Sub0MemPage_SOURCE` `CPM_Sub0TieredCache_SOURCE` `CPM_Sub0HexGrid_SOURCE` `CPM_Sub0Physics_SOURCE` `CPM_sub0canvas_SOURCE` | `$SUB0_GITHUB_DIR/<Name>` |
+| `CPM_Sub0MemPage_SOURCE` `CPM_Sub0TieredCache_SOURCE` `CPM_Sub0HexGrid_SOURCE` `CPM_Sub0Physics_SOURCE` `CPM_Sub0Canvas_SOURCE` | `$SUB0_GITHUB_DIR/<Name>` |
 
 `SUB0_GITHUB_DIR` is the directory that holds the sibling checkouts; `. scripts/dev-env.sh` sets it to this repository's parent and exports every `CPM_<Name>_SOURCE`, so no machine-specific path is written anywhere (set `SUB0_GITHUB_DIR_OVERRIDE` to use another directory). A configure with the overrides active logs
 `CPM: 'Sub0Pipeline' version overridden by environment variable`. To build the pinned revisions instead, unset the variables
@@ -35,8 +44,9 @@ project; update with `git -C <dir> pull`.
 ## CPM source cache
 
 `CPM_SOURCE_CACHE=$HOME/.cache/CPM` is exported by `~/.config/sub0/cpm-env.sh` (and listed in `environment.d/60-sub0-cpm.conf`
-for desktop-launched apps after a re-login), so every build directory and CPM project shares one download. It lives on the
-internal disk, outside any repository. It matters most when Boost's CMake tarball (about 102 MiB) is added in M3/M5; today it
+for desktop-launched apps after a re-login), and on Windows `CPM_SOURCE_CACHE=%USERPROFILE%\.cache\cpm` is a user-level variable, so every
+build directory, worktree and CPM project shares one download. It lives outside any repository on purpose: a cache under `out/` is lost to a
+clean build and has to be filled again in every worktree. CPM downloads what is missing into it. It matters most when Boost's CMake tarball (about 102 MiB) is added in M3/M5; today it
 holds simdjson and the pinned Sub0 libraries from a pinned-only build.
 
 ## Pinned-only build check (no local overrides)
@@ -143,7 +153,7 @@ lists what it took and what is left). Toolchain: MinGW-w64 with the UCRT runtime
 `PATH`. Configure uses `cmake/git-semver.cmd` in place of the shell script. From PowerShell in the checkout:
 
 ```powershell
-$env:CPM_SOURCE_CACHE = "$PWD\out\cpm-cache"
+# CPM_SOURCE_CACHE and the CPM_<Name>_SOURCE overrides come from the user environment ("Dependencies" above); nothing to set here
 cmake -S . -B out/build/mingw -G Ninja -DCMAKE_CXX_COMPILER=g++ -DCMAKE_C_COMPILER=gcc -DCMAKE_BUILD_TYPE=Release
 cmake --build out/build/mingw -j6
 ctest --test-dir out/build/mingw --timeout 900 --output-on-failure -L smoke   # the smoke tier; drop -L smoke for the full suite
