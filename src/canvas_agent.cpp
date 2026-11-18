@@ -266,8 +266,14 @@ int runCanvasAttempt(const AttemptContext& a)
     constexpr int kRestructureAfter = 2;
     bool restructure = false;
     int noProgress = 0, restructuredAt = -1;
+    // A file cut off part way (its braces still open at its end: T0 half-written, 2026-11-18, 3/3 first attempt before the edits-first scope, 0/3
+    // after it, the completion stopped as a big edit over and over). EXPERIMENT, the A/B of docs/BACKLOG.md (SUB0SQUAD_CUTOFF): "stub" treats it as
+    // a stub (FILE allowed, no edit size limits); "edits" keeps FILE refused but lifts the edit size limits; unset: neither (today's rules).
+    const std::string cutoffArm = [] { const char* v = std::getenv("SUB0SQUAD_CUTOFF"); return std::string{v ? v : ""}; }();
+    const auto cutOff = [&](const std::string& path, const std::string& text) { return !isPythonPath(path) && endsInsideBlock(text); };
     const auto isStub = [&](const std::string& path, const std::string& text) {   // the harness's own stub, or a skeleton's `not implemented` bodies
         if (text.find("not implemented") != std::string::npos) return true;
+        if (cutoffArm == "stub" && cutOff(path, text)) return true;
         return harness && harness->scaffoldFile && !text.empty() && text == harness->scaffoldFile(path);
     };
     // After a loop's rollback the worker may move on to other blocks instead of continuing the kept one (35B, 2026-11-18: an EDIT of the file's enum, the
@@ -564,7 +570,7 @@ int runCanvasAttempt(const AttemptContext& a)
         Runaway runaway;
         const auto drafts = canvas.files();
         std::map<std::string, std::string> locked;   // under the narrow scope: the files that exist and are not stubs, improved by edits of a function's size
-        if (!restructure) for (const auto& [p, t] : drafts) if (!isStub(p, t)) locked[p] = t;
+        if (!restructure) for (const auto& [p, t] : drafts) if (!isStub(p, t) && !(cutoffArm == "edits" && cutOff(p, t))) locked[p] = t;
         const std::size_t thinkingCap = turnEngine.thinking ? static_cast<std::size_t>(a.maxTokens * kThinkingShare * kCharsPerToken) : 0;
         const StreamGuard guard = [&](const std::string& streamed) {
             // The whole reply so far: a prefill turn's stream repeats the prefill (llama.cpp); a fallback continuation is appended to the partial.

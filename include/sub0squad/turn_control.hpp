@@ -68,6 +68,10 @@ struct Runaway
 /// after the last one it reached (by name), in their order. `python` selects indentation instead of braces.
 [[nodiscard]] std::string completeCutFile(std::string_view cut, const std::string& previous, bool python);
 
+/// Whether a C-like source file ends inside a block: its braces (outside strings, characters and line comments) are still open at its end, as in a
+/// file cut off part way through a function (T0 half-written). Python is never judged: indentation cannot show it.
+[[nodiscard]] bool endsInsideBlock(std::string_view text);
+
 /// Whether a reply that ended at the token limit stopped inside an EDIT block (its last `=== EDIT:` has no `=== END EDIT ===`): such a reply is continued
 /// by appending, like a cut-off file (row 34).
 [[nodiscard]] bool cutOffInsideEdit(std::string_view reply);

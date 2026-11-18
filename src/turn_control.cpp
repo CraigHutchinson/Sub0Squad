@@ -468,6 +468,29 @@ std::string completeCutFile(std::string_view cutView, const std::string& previou
     return out;
 }
 
+bool endsInsideBlock(std::string_view text)
+{
+    int depth = 0;
+    bool block = false;   // inside a /* */ comment
+    for (const auto& line : completeLines(text)) {
+        char quote = 0;
+        for (std::size_t k = 0; k < line.size(); ++k) {
+            const char ch = line[k];
+            if (block) { if (ch == '*' && k + 1 < line.size() && line[k + 1] == '/') { block = false; ++k; } continue; }
+            if (quote) { if (ch == '\\') ++k; else if (ch == quote) quote = 0; continue; }
+            if (ch == '"' || ch == '\'') quote = ch;
+            else if (ch == '/' && k + 1 < line.size() && line[k + 1] == '/') break;
+            else if (ch == '/' && k + 1 < line.size() && line[k + 1] == '*') { block = true; ++k; }
+            else if (ch == '{') ++depth;
+            else if (ch == '}') --depth;
+        }
+    }
+    if (const auto nl = text.rfind('\n'); nl + 1 < text.size()) {   // an unfinished last line counts too
+        for (char ch : text.substr(nl == std::string_view::npos ? 0 : nl + 1)) depth += ch == '{' ? 1 : ch == '}' ? -1 : 0;
+    }
+    return depth > 0;
+}
+
 bool cutOffInsideEdit(std::string_view reply)
 {
     const auto open = reply.rfind("=== EDIT:");

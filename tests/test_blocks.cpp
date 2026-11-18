@@ -128,6 +128,10 @@ int main(int argc, char** argv)
             CHECK_EQ(completeCutFile("class E:\n    def a(self):\n        return 10\n\n    def b(self):\n        # rethink\n", py, true),
                      std::string("class E:\n    def a(self):\n        return 10\n\n\n    def b(self):\n        return 2\n\n    def c(self):\n        return 3\n"));
         }
+        // A file cut off part way through a function ends inside a block; braces in strings, characters and comments do not count.
+        CHECK(endsInsideBlock("int f() {\n    return 1;\n}\nint g(int x) {\n    if (x) {\n        return 2;\n"));
+        CHECK(!endsInsideBlock("int f() {\n    const char* s = \"{\";   // {\n    char c = '{';\n    /* { */\n    return 1;\n}\n"));
+        CHECK(!endsInsideBlock("int f() { return 1; }"));
         // An EDIT of another part of the file after a cut FILE is a block of its own, not the FILE's tail (its SEARCH does not match the cut's last lines).
         CHECK_EQ(joinContinuation("=== FILE: a.cpp ===\nint a() {\n    return 1;\n}\nint b() {\n", "=== EDIT: a.cpp ===\n<<<<<<< SEARCH\nint a() {\n=======\nint a(int) {\n>>>>>>> REPLACE\n=== END EDIT ===\n"),
                  std::string("=== FILE: a.cpp ===\nint a() {\n    return 1;\n}\nint b() {\n=== END FILE ===\n=== EDIT: a.cpp ===\n<<<<<<< SEARCH\nint a() {\n=======\nint a(int) {\n>>>>>>> REPLACE\n=== END EDIT ===\n"));
