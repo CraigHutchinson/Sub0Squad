@@ -14,10 +14,11 @@ harness builds sandbox projects from a bare request with local models; the Qwen3
   pinned tag (v0.2.0), with forwarding headers so callers are unchanged. A change there lands in sub0canvas first, is tagged, and the pin is bumped here
   (then run `test_blocks`). The next step is [sessions/layered-document.md](sessions/layered-document.md).
 * **Model tiers and the tier 0 gate** ([BLOCK_PROVING_GROUNDS.md](BLOCK_PROVING_GROUNDS.md)): 24 seeded cases on the reference calculator; tier 1 and
-  above run only on a tier 0 PASS. The last run (build `1e74bd4`, the 35B, stopped at 52 of 72 runs as superseded): every case passed 3 of 3 except
-  wrong-approach (0 of 3: a draft that did not compile ranked best, fixed in `58d8c28`) and write-tests (2 of 3: folded test bodies, fixed in `38da8e7`).
-  The definitive gate on the current build is next. The smoke set (`run_t0.sh <repo> <engine> 1 @smoke`, about 8 minutes) is for iterating, and never
-  stands in for the gate.
+  above run only on a tier 0 PASS. **The definitive gate (2026-11-18, build `101e19c`, the 35B, 72 runs): FAIL.** 22 of 24 cases passed 3 of 3,
+  bugs-3/6/10 included (1.29, 3.0 and 3.0 defects a turn; fix-many 3.75). The two whole-engine rewrites passed 1 of 3 each: wrong-approach and
+  skeleton. Every run of both, passing or failing, used all 5 attempts, and the failures ended close: 1 or 2 tests failing, or a cut-off reply that did
+  not compile. The same test recurs: `unary_minus_binds_looser_than_power` (`-2^2` is -4). Results: `out/runs/t0-101e19c/gate.md`. Tier 1 stays
+  closed until these two pass. The smoke set (`run_t0.sh <repo> <engine> 1 @smoke`, about 8 minutes) is for iterating, and never stands in for the gate.
 * **Engine**: Qwen3.6-35B-A3B APEX I-Compact on `llama-server` port 8092 (`-c 65536 -np 4`, alias `qwen35`). A 9B (Qwen3.5-9B Q4_K_M) is downloaded
   for tier 0 once the 35B passes it reliably.
 
@@ -57,7 +58,7 @@ Last pushed commit when this was written: `4adca03` on `origin/main`; 48 of 48 c
 
 Cheap first; each step names what proves it. Rules in section 5 apply throughout.
 
-0. **(2026-11-17) The tier 0 gate first**: a PASS on the 35B (`run_t0.sh` then `gate_t0.py`; `out/runs/t0/gate.md`), then tier 1 (`run_tier.sh <repo> 1
+0. **(2026-11-18) The tier 0 gate first**: it FAILS on wrong-approach and skeleton (section 1); make them pass on the 35B, then a PASS (`run_t0.sh` then `gate_t0.py`; `out/runs/t0/gate.md`), then tier 1 (`run_tier.sh <repo> 1
    <engine>`), then tier 0 on the 9B. The items below predate the model tiers.
 
 1. **Re-measure on the faster machine before anything else**: decode and prefill speed, then the planner success rate over at least 10 seeds with the current code (`llm-planner --workflow-dir D --engine "qwen35=URL,model=qwen35,ctx=8192,slots=4,seed=N" --request "write a scientific calculator in C++" --max-turns 6`, with and without `--prose`). A faster machine changes which timeouts, wall budgets and context sizes are right; the numbers in section 1 are CPU-bound. Record them in `docs/CLEAN_SLATE.md` section 7.
