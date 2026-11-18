@@ -117,6 +117,21 @@ The canonical and line-116 scripted controls passed through the real canvas and 
 
 The first live prompt trial (`20261118T194934Z-35cd7ce0f0fb`) produced a compile failure and was recorded as indeterminate because the relay initially misclassified the canvas closing an aborted stream. The relay now distinguishes that intentional stop from an upstream error. The second live prompt (`20261118T195529Z-a84469733348`) reached the canvas on the shared 65,536-token profile and hit the 600-second workflow limit before acceptance. Its review packet keeps the observed edits and refusals available for the next generation. Neither live trial supplies proof of a passing candidate.
 
+## Early stopping during discovery
+
+The production canvas already stops oversize edits and rewrite attempts mid-stream, and ends attempts after repeated identical refusals or compiler errors. Keep those controls fixed. A partial append, a new compiler diagnostic, or a compiling revision with failing tests can still lead to a valid repair.
+
+A candidate discovery rule is to stop before starting a sixth model call if the first five calls completed and the canvas has yet to produce a compiling revision. Count calls after the harness evaluates their edits, and use a trusted harness event for the compilation milestone. A staged edit, timeout, or model claim does not establish compilation. This rule caps time spent on a hypothesis and cannot establish that the candidate would fail at full budget.
+
+A retrospective check on the five corrected cutoff-hint trials and Generation 3 observed:
+
+| Stop if nothing compiles after | Corrected hint passes preserved | Generation 3 model calls skipped | Time between the cutoff and final reply in Generation 3 |
+| --- | ---: | ---: | ---: |
+| Four calls | 1 of 2 | 3 | 155 s |
+| Five calls | 2 of 2 | 2 | 134 s |
+
+The later successful hint trial first compiled on call five and passed on call seven. Generation 3 ended with a compile failure after seven calls. These six observations justify shadowing the five-call rule on more full-budget trials. In shadow mode, log when it would have stopped, then measure any valid late passes and time saved. If enabled later, label stopped runs DISCOVERY STOPPED, record the rule and supporting artifact, and keep the result outside proof denominators. Full-budget proof keeps the same gate and budgets for both arms.
+
 ## Evidence on disk
 
 Store local results under `out/runs/t0-iterative/<UTC>-<uuid>/`. Use append-only records for decisions and unique, exclusively created trial directories. Keep campaign-wide duplicate claims in a durable ledger outside individual run folders. Each campaign folder holds the frozen control, engine calibration logs and manifest, seed and proof plan, artifact index and final summary. Generation folders record parent, hashes, effective prompt, exact diff and reviewer input/output. Every trial folder holds its own Squad home, request and response trace, launch/build and gate logs, compiled and tested revision identity, timing, token and memory observations, and an atomic final verdict. A stopped attempt retains partial logs. The tester stores the sealed check manifest, audited request and artifact hashes, independent run logs, and verdict under a private path indexed by trial ID. The owner-facing report can show tester disposition while private artifacts stay outside model-visible packets. Record elapsed time, attempts, turns, input/reasoning/output tokens when exposed by the server, and changed/collateral lines alongside pass counts. Keep these artifacts local.
