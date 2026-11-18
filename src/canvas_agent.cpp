@@ -497,6 +497,15 @@ int runCanvasAttempt(const AttemptContext& a)
                 }
             }
             for (const auto& f : a.item->files) if (!canvas.has(f)) state += "(" + f + " does not exist yet: write it whole with === FILE: " + f + " ===)\n";
+            // EXPERIMENT arm "hint" (SUB0SQUAD_CUTOFF): a cut-off file is named as such, with the form that finishes it under the edits-first scope. The
+            // 35B's first moves were a 43-line SEARCH of the cut region and a 165-line completion, both stopped; appending after the last line never came up.
+            if (cutoffArm == "hint")
+                for (const auto& path : canvas.paths())
+                    if (const std::string& t = canvas.text(path); cutOff(path, t)) {
+                        const auto n = std::to_string(std::count(t.begin(), t.end(), '\n') + (t.empty() || t.back() == '\n' ? 0 : 1));
+                        state += "(" + path + " is cut off: it ends at line " + n + " inside a block that is never closed. Finish it by appending only what is "
+                                 "missing after its last line: === EDIT: " + path + " AFTER " + n + " === then the rest of the code, then === END EDIT ===)\n";
+                    }
         }
         const std::string user = a.card + (a.guidance.empty() ? std::string{} : "\n" + a.guidance + "\n") + (verdict.empty() ? std::string{} : "\n" + clip(verdict, verdictCap) + "\n") + "\n" + readCarried + state +
                                  (canvas.paths().empty() ? "" : "Reply with the transaction that fixes EVERYTHING listed above (every failing test, every error, one edit each), its form picked once by the rules above: " +

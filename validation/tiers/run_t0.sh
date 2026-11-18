@@ -9,6 +9,15 @@ set -u
 repo=$(cd "$1" && pwd); engine=$2; repeats=$3; shift 3
 . "$repo/validation/tiers/lib.sh"
 exe="$repo/out/build/mingw/sub0squad.exe"
+# One loop at a time (2026-11-18: a stopped caller left its loop running, and three loops wrote into out/runs/t0, wiping each other's homes).
+lock="$repo/out/runs/t0.lock"
+mkdir -p "$repo/out/runs"
+if ! mkdir "$lock" 2>/dev/null; then
+  if [ -f "$lock/pid" ] && kill -0 "$(cat "$lock/pid")" 2>/dev/null; then echo "run_t0: another loop is running (pid $(cat "$lock/pid"), $lock); stop it first" >&2; exit 4; fi
+  rm -rf "$lock"; mkdir "$lock"   # left by a loop that is gone
+fi
+echo $$ >"$lock/pid"
+trap 'rm -rf "$lock"' EXIT
 set_args=()
 setname=""
 case "${1:-}" in @*) setname=${1#@}; shift; set -- $(python -I "$repo/validation/tiers/make_t0.py" "$repo" --list "$setname" | awk '{print $1}'); set_args=(--set "$setname" --min-runs 1);; esac
