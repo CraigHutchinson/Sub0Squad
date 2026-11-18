@@ -72,7 +72,7 @@ when each runs; `ctest --preset quick` there means "everything not labelled `ful
 | `platform` | the platform library: processes, files, sockets, waits, host facts | test_platform_process, test_platform_file | proc, host, net, wait |
 | `kernel` | durable jobs: job spec, journal, job store, shim, idle, guards, archive | test_job_spec, test_journal | job_store, shim, idle, host_guard, archive, adapter, m0_graph_growth (POSIX) |
 | `workflow` | plans, the policy ladder, workflow stages, processes, predicates, stances, clarify | test_policy, test_workflow, test_plan | workflow_stages, workflow_mends, process, predicate, stance, clarify |
-| `harness` | the project harnesses and their gates: diagnostics, edits, real builds | test_diagnostics (test_edits moved to sub0canvas) | platforms, project |
+| `harness` | the project harnesses and their gates: diagnostics, edits, real builds | test_diagnostics (test_edits is in Sub0Canvas) | platforms, project |
 | `agents` | executors from recorded replies: session, canvas, fork, planner, mends, blocks, turn control | test_agent, test_mends | canvas_agent, fork, planner, blocks, stream |
 | `portal` | the portal page and the wizard | test_portal, test_portal_page (needs node) | wizard |
 | `e2e` | a real daemon and CLI: scenarios, the README path, healing, near pass, thrash | test_e2e | readme, scenarios, executors, heal, nearpass, thrash |

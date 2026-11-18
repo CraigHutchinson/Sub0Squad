@@ -46,9 +46,12 @@ The queue, with hypotheses, arms, measures and commands, is [EXPERIMENTS.md](EXP
 
 ## Next: what the experiments need
 
-**Layered document** ([LAYERED_DOCUMENT.md](LAYERED_DOCUMENT.md); brief: [sessions/layered-document.md](sessions/layered-document.md))
-- Slice 2 of the issues layer: the summary only when the verdict would be clipped, the first issues in full, an A/B with three arms at 5 runs each.
-- The sub0canvas backbone and source adapters (tags and state, subscriptions as inboxes, claims, a revision-aware index, the GitHub project view): design first, in sub0canvas.
+**Layered document** ([LAYERED_DOCUMENT.md](LAYERED_DOCUMENT.md); slice 2 done 2026-11-18, brief closed: [sessions/layered-document.md](sessions/layered-document.md))
+- Measure the layer where it acts: off against adaptive on bugs-10 and other clipped cases, 10 runs per arm; inline detail against the summary alone
+  (`SUB0SQUAD_ISSUE_INLINE=0` against 3). A pull request here with no library change.
+- The backbone, sources (git, GitHub) and scale work is planned and briefed in Sub0Canvas (`docs/BACKLOG.md`, `docs/sessions/`). Each of its steps that
+  changes what the squad sees reaches this repository as a pull request bumping the pin (Sub0Canvas `docs/INTEGRATION.md`); review and measure those
+  here.
 
 **Measurement** ([METRICS.md](METRICS.md))
 - Accounting that reconciles with the engine (a blocker for every efficiency figure): the ledger records a fraction of a forked run's tokens (1.4k, 38k and 40k

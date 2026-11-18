@@ -10,9 +10,11 @@ harness builds sandbox projects from a bare request with local models; the Qwen3
   tiers with area labels: smoke runs on every change, full at the gates ([DEV_SETUP.md](DEV_SETUP.md)). Windows Server 2022 behaves differently from
   Windows 11 for AF_UNIX sockets, and the fixes are in `1f45940` (a socket file is seen without opening it; the waiter sees a connection that arrived before
   its first wait; a socket path over 107 bytes moves to a short name). `f25441c` lets the portal take port 0, so parallel tests never collide.
-* **The canvas tooling lives in [sub0canvas](https://github.com/CraigHutchinson/sub0canvas)**: outline, edits, canvas and doc_layers, consumed through CPM at a
-  pinned tag (v0.2.0), with forwarding headers so callers are unchanged. A change there lands in sub0canvas first, is tagged, and the pin is bumped here
-  (then run `test_blocks`). The next step is [sessions/layered-document.md](sessions/layered-document.md).
+* **The canvas tooling lives in [Sub0Canvas](https://github.com/CraigHutchinson/Sub0Canvas)**: outline, edits, canvas and doc_layers, consumed through CPM at a
+  pinned tag (v0.2.1), with forwarding headers so callers are unchanged. A change there lands in Sub0Canvas first, is tagged, and reaches this repository
+  as a pull request bumping the pin (Sub0Canvas `docs/INTEGRATION.md`; run `test_blocks` and `test_canvas_agent`). The issues layer's slice 2 is done
+  and measured (adaptive is the default; [LAYERED_DOCUMENT.md](LAYERED_DOCUMENT.md)). The design ahead (the backbone, git and GitHub sources, scale) and
+  its follow-up briefs are in Sub0Canvas (`docs/RESUME.md`, `docs/BACKBONE.md`, `docs/sessions/`), worked there.
 * **Model tiers and the tier 0 gate** ([BLOCK_PROVING_GROUNDS.md](BLOCK_PROVING_GROUNDS.md)): 24 seeded cases on the reference calculator; tier 1 and
   above run only on a tier 0 PASS. **The definitive gate (2026-11-18, build `101e19c`, the 35B, 72 runs): FAIL.** 22 of 24 cases passed 3 of 3,
   bugs-3/6/10 included (1.29, 3.0 and 3.0 defects a turn; fix-many 3.75). The two whole-engine rewrites passed 1 of 3 each: wrong-approach and

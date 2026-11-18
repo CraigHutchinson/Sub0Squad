@@ -2,6 +2,11 @@
 
 Status: slice 0 (a single-worker canvas per attempt) and forked sections are BUILT and tested without a model (2026-11-12, `src/canvas.cpp`, `src/canvas_agent.cpp`, `src/fork.cpp`; `test_canvas_agent`, `test_fork`, `test_blocks`); neither has run on a real model yet. Claims, notes and presence (slices 1 to 4) are design only. Section "As built" below records what was decided while building and why.
 
+Where the code is now: `src/canvas.cpp`, `src/outline.cpp` and `src/edits.cpp` moved to [Sub0Canvas](https://github.com/CraigHutchinson/Sub0Canvas)
+(`lib/src/`) on 2026-11-17, and are consumed here at a pinned tag through forwarding headers; `src/canvas_agent.cpp` and `src/fork.cpp` stay here. The
+library half of this design (the model, the safety rules, reply forms, transactions, folded views and reads) is kept current in Sub0Canvas
+`docs/CANVAS.md`; this document keeps the squad's side (forks, the V model, the runs and their catalogue rows) as written at the time.
+
 ## The idea
 
 The project and its code live in one shared document. Agents edit it **section by section**, each section is visibly *held* by whoever is working in it, and

@@ -1,6 +1,6 @@
 # Follow-up session: the layered document, slice 2 and the sub0canvas backbone
 
-Status: strand 1 done, strand 2 designed and waiting for the owner (written 2026-11-17). Backlog: "Layered document" under *Next* in [../BACKLOG.md](../BACKLOG.md). Evidence:
+Status: **done** (written 2026-11-17, closed 2026-11-18; see "Outcome" at the end). Strand 2 continues in Sub0Canvas, where its design waits for the owner. Backlog: "Layered document" under *Next* in [../BACKLOG.md](../BACKLOG.md). Evidence:
 [../LAYERED_DOCUMENT.md](../LAYERED_DOCUMENT.md) (the design, slice 1 as built, the tier 0 A/B and its trace); the run directories in
 `out/runs/layers-ab-2026-11-17/` (their README says what each one is).
 
@@ -22,9 +22,9 @@ Do not retune or restart the llama server, and do not start a second one on its 
 
 ## What is known
 
-**Where the code lives (since 2026-11-17).** The canvas tooling is the **sub0canvas** library (github.com/CraigHutchinson/sub0canvas), with
+**Where the code lives (since 2026-11-17).** The canvas tooling is the **Sub0Canvas** library (github.com/CraigHutchinson/Sub0Canvas), with
 `lib/include/sub0canvas/{outline,edits,canvas,doc_layers}.hpp`, namespace `sub0canvas`, CMake target `sub0canvas::sub0canvas`, and tests
-`test_edits` and `test_doc_layers`. It is tagged **v0.2.0**, imported from Sub0Squad d54758f.
+`test_edits` and `test_doc_layers`. It was tagged **v0.2.0** when imported from Sub0Squad d54758f (v0.2.1 since slice 2).
 
 Sub0Squad pins that tag in `cmake/dependencies.cmake`. Its `include/sub0squad/{outline,edits,canvas,doc_layers}.hpp` are forwarding headers
 (`using namespace sub0canvas`). What stays in Sub0Squad:
@@ -40,7 +40,7 @@ Sub0Squad pins that tag in `cmake/dependencies.cmake`. Its `include/sub0squad/{o
 3. Push sub0canvas (main and the tag) before the Sub0Squad pin. A pin to a tag nobody can fetch breaks CI.
 
 For local work, `. scripts/dev-env.sh` exports `CPM_sub0canvas_SOURCE` to the sibling checkout `../sub0canvas`.
-`sub0canvas/tools/import-sub0squad.sh` was for the cut-over only; do not use it again.
+The cut-over import script has since been removed from Sub0Canvas.
 
 **Tier 0 results (one build, 3 runs per case and arm; suggestive, not significant).**
 * Overall, the layer took defects per turn from 2.18 to 2.48 and prompt tokens down 10%. Completion tokens rose 36%.
@@ -106,3 +106,24 @@ directory. This belongs to whoever owns the Windows port.
   * in a shared checkout, commit only your own files, and never stash, reset or switch branches;
   * ask before downloads or installs;
   * nothing leaves the machine (frontier off).
+
+## Outcome (2026-11-18)
+
+**Strand 1, done.**
+* Sub0Canvas `layerInline` (86e261d), released as v0.2.1 with the family CI (593dff3, full tier green).
+* Sub0Squad 7ef8ff8: adaptive mode (`SUB0SQUAD_ISSUE_LAYER=2`, the default), `SUB0SQUAD_ISSUE_INLINE` (default 3), the pin bumped, `test_canvas_agent`
+  in all three modes.
+* 15baab1: the adaptive threshold raised from 3 to 6 (`kAdaptiveIssues`, the gate's own excerpt), after the threshold of 3 misfired on fix-many.
+* 82f6fe3: "Slice 2 on tier 0" in [../LAYERED_DOCUMENT.md](../LAYERED_DOCUMENT.md), four arms at 5 runs each. Always-on regressed fix-many, bugs-3 and
+  bugs-6; adaptive at 6 regressed nothing; bugs-10 rose from 3.12 to 4.17 defects per turn. READ ISSUE was used 0 times in 80 runs. The spread between
+  identically treated arms reached 67%, so the gain is suggestive.
+
+**Strand 2, designed; continues in Sub0Canvas.**
+* `docs/BACKBONE.md` (ff19342, extended in cc99644 with scale to billions of lines and the S slices) waits for the owner's answers (its section 11).
+* Everything needed to continue there without this repository was moved in on 2026-11-18: the general design (`docs/LAYERED_DOCUMENT.md`,
+  `docs/CANVAS.md`, the owner's direction verbatim in `docs/DIRECTION.md`), use cases (`docs/USE_CASES.md`), the proving ladder (`docs/TESTING.md`), the
+  loop with this repository (`docs/INTEGRATION.md`), golden fixtures from the slice 2 runs, a backlog, and briefs for S0 (scale harness), B0 (format
+  catch-up) and G1 (git history). This repository's LAYERED_DOCUMENT.md now keeps only the squad's integration and its measurements.
+
+**Left here:** measure the layer where it acts (10 runs per arm on clipped cases; inline against summary alone), in [../BACKLOG.md](../BACKLOG.md).
+The Windows socket-path finding above was fixed by the Windows port (`1f45940`).
