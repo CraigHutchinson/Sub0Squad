@@ -511,7 +511,7 @@ Next, from this:
 
 * **Three modes**, chosen per run by `SUB0SQUAD_ISSUE_LAYER` (passed through by the shim): `0` off (the gate's clipped text), `1` always on, and `2`
   adaptive, the default: the layer is used only when the gate's text would be clipped (longer than the verdict's clip, 1.2k or 1.5k characters) or the
-  verdict parses into more than 3 issues (`kAdaptiveIssues`); otherwise the gate's text is sent unchanged, with the gate's own focus, exactly as in mode 0.
+  verdict parses into more than 6 issues (`kAdaptiveIssues`, gate.txt's own excerpt; it was 3 until the A/B below); otherwise the gate's text is sent unchanged, with the gate's own focus, exactly as in mode 0.
   The layers are written to `layers/turn-N.json` in modes 1 and 2 either way, and READ ISSUE is answered in both.
 * **Inline detail.** Where the layer is used, the first issues are shown in full under the summary, each with its function's current code
   (`layerInline` in sub0canvas v0.2.1: the first `SUB0SQUAD_ISSUE_INLINE` issues, default 3, within 3,000 characters, the first always; a function
@@ -522,5 +522,57 @@ Next, from this:
 * Tests: `test_doc_layers` (`layerInline`: the count, the budget, the empty cases, a function shared by two issues) and the `test_canvas_agent` block
   "The issues layer", now run in all three modes (mode 1 shows the issue in full in the verdict; mode 2 passes a short single failure through unchanged
   and still writes the layers).
-* The A/B drivers are prepared in `out/runs/layers-slice2/` (`measure_slice2.sh`, three arms; `compare_slice2.py`, which also reads each arm's
-  per-run lines and collateral from its `gate.md`).
+* The A/B drivers and runs are in `out/runs/layers-slice2/` (`measure_slice2.sh`; `compare_slice2.py`, which also reads each arm's per-run lines
+  and collateral from its `gate.md`; `table.md`; the README says which build each arm ran).
+
+## Slice 2 on tier 0
+
+Measured 2026-11-18. Engine `qwen35` (port 8092, ctx 16384, 4 slots). Cases bugs-3, bugs-6, bugs-10 and fix-many, **5 runs per case per arm**,
+80 runs, **all 80 passed**. Arms off, on and adaptive (threshold 3) ran on build `0.0.0-178-ga03fb86`; the fourth arm, adaptive at threshold 6, on
+`0.0.0-180-g15baab1`, which differs only in that constant. Every run's `agent.json` records its mode, and every run matches its arm. Defects per turn
+is the gate's measure (defects × passed runs ÷ turns of the passed runs). Tokens are means per run.
+
+| case | off | on | adaptive (>3) | adaptive (>6) | layer shown, adaptive >6 (verdicts) |
+|---|---|---|---|---|---|
+| bugs-3 | 1.50 (3 3 2 1 1) | **1.07** (1 5 2 5 1) | 1.67 (1 1 3 1 3) | 2.50 (2 1 1 1 1) | 0 of 6 |
+| bugs-6 | 2.73 (1 5 1 3 1) | 2.31 (3 3 2 3 2) | **1.88** (3 3 3 2 5) | 3.00 (2 3 3 1 1) | 0 of 10 |
+| bugs-10 | 3.12 (3 3 3 2 5) | 3.85 (2 4 4 2 1) | 3.57 (2 2 3 2 5) | 4.17 (3 3 3 1 2) | 5 of 12 |
+| fix-many | 5.00 (1 1 1 1 1) | **2.50** (2 3 1 3 1) | **3.57** (2 1 1 2 1) | 5.00 (1 1 1 1 1) | 0 of 5 |
+| all | 2.86 (42 turns) | 2.40 (50 turns) | 2.61 (46 turns) | 3.64 (33 turns) | |
+| first attempt | 18/20 | 19/20 | 18/20 | 20/20 | |
+| prompt tokens | 10,565 | 13,897 (+32%) | 12,077 (+14%) | 8,494 | |
+| out tokens | 811 | 1,097 (+35%) | 950 (+17%) | 862 | |
+| issue reads | 0 | 0 | 0 | 0 | |
+
+(Turns per run in brackets. Bold: the regressions against off named below.)
+
+**Every regression, named.**
+* **Always on (mode 1) lost on three of four cases.** fix-many halved (5.0 → 2.5: three of five runs needed 2 or 3 turns where off needed 1),
+  bugs-3 fell 29% and bugs-6 15%; overall 2.86 → 2.40, with 32% more prompt and 35% more completion tokens. The inline detail makes a short verdict
+  much longer (bugs-3's prompts 10.0k → 15.6k). This repeats slice 1's finding on fix-many and bugs-3, now at n = 5.
+* **Adaptive at threshold 3 misfired.** fix-many's five short failures fit in the gate's text, but 5 > 3, so the layer was shown on the first verdict
+  of every run, and fix-many fell to 3.57. bugs-6 (six failures) fell to 1.88: its run 1 changed 40 lines where 6 were needed, **21 of them
+  collateral**, and run 5 changed 10 lines (4 collateral, a repeated edit of 3 lines); the layer was shown on 5 of its 14 verdicts.
+* **Collateral elsewhere** (gate.md's quality column): off, bugs-6 run 2 changed 10 lines (1 collateral); on, fix-many run 1 changed 7 (3 collateral)
+  and bugs-10 run 5 changed 17 (1 collateral), and on's bugs-6 runs 2, 4 and 5 changed 14, 14 and 10 lines where 6 were needed. Adaptive at 6 had
+  none: its worst run changed 14 lines of 10 on bugs-10, no collateral flagged.
+* **Adaptive at threshold 6 regressed nothing**, and it is the one arm where every case is at or above off.
+
+**What this shows, and what it does not.**
+* **The noise is measured, and it is large.** Adaptive at 6 never showed the layer on bugs-3, bugs-6 or fix-many: those 15 runs got exactly the off
+  arm's treatment. Yet bugs-3 scored 2.50 against off's 1.50 and bugs-6 3.00 against 2.73. Identical treatment, 67% apart on bugs-3. So no
+  difference in this table below about 60% on one case is evidence, and adaptive-at-6's overall 3.64 against 2.86 is mostly that noise.
+* **The only treatment difference at threshold 6 is bugs-10**, where the gate clips: 4.17 against off's 3.12 (+34%), 5/5 first attempts against
+  4/5, no collateral. Always on scored 3.85 there and adaptive at 3 scored 3.57. Three arms that show the layer on bugs-10 are all above off, which is
+  consistent with slice 1, but each alone is inside the noise.
+* **The worker never asked for detail**: 0 READ ISSUE in 80 runs (1 in 12 in slice 1). Inline detail replaces the query rather than complementing it.
+* **The baseline moved.** The off arm is far better than slice 1's (2.86 against 2.18; the applier, localiser and prompt changes since), so there is
+  less for any layer to gain.
+
+**Decision taken here:** adaptive's threshold is 6 (`kAdaptiveIssues`, commit "Issues layer: adaptive mode shows the layer only where the gate
+clipped"), and adaptive stays the default: it costs nothing where the gate's text fits (it is then mode 0) and is the best-measured arm where it
+clips. Always-on with inline detail should not be used on short verdicts.
+
+Next, from this:
+* Measure the layer where it acts: bugs-10 and larger clipped cases only, more runs (10 per arm), off against adaptive. The short cases add only noise.
+* Inline detail versus summary alone where the gate clips (`SUB0SQUAD_ISSUE_INLINE=0` against 3 on bugs-10), since READ ISSUE is never used.

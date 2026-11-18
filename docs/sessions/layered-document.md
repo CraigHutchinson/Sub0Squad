@@ -1,12 +1,13 @@
 # Follow-up session: the layered document, slice 2 and the sub0canvas backbone
 
-Status: open (written 2026-11-17). Backlog: "Layered document" under *Next* in [../BACKLOG.md](../BACKLOG.md). Evidence:
+Status: strand 1 done, strand 2 designed and waiting for the owner (written 2026-11-17). Backlog: "Layered document" under *Next* in [../BACKLOG.md](../BACKLOG.md). Evidence:
 [../LAYERED_DOCUMENT.md](../LAYERED_DOCUMENT.md) (the design, slice 1 as built, the tier 0 A/B and its trace); the run directories in
 `out/runs/layers-ab-2026-11-17/` (their README says what each one is).
 
-**Progress (2026-11-17, late):** strand 1 steps 1 and 2 are built (sub0canvas v0.2.1 `layerInline`; the adaptive mode and inline detail in
-`canvas_agent.cpp`; "Slice 2 as built" in LAYERED_DOCUMENT.md; full suite 54/54). Step 3, the A/B, waits for the engine (reserved for the tier 0
-gate); its drivers are in `out/runs/layers-slice2/`. Strand 2: the design is written, sub0canvas `docs/BACKBONE.md`, for the owner to read.
+**Progress (2026-11-18):** strand 1 is done: the adaptive switch and inline detail are built (sub0canvas v0.2.1 `layerInline`;
+`canvas_agent.cpp`), measured at 5 runs per arm in four arms ("Slice 2 on tier 0" in LAYERED_DOCUMENT.md: always-on regressed fix-many, bugs-3 and
+bugs-6; adaptive at a threshold of 3 misfired on fix-many; at 6, the gate's own excerpt, nothing regressed), and the threshold is now 6. Strand 2:
+the design is written, sub0canvas `docs/BACKBONE.md`, waiting for the owner to read it.
 
 ## Goal
 
