@@ -109,6 +109,11 @@ The queue, with hypotheses, arms, measures and commands, is [EXPERIMENTS.md](EXP
 **Tier 0 layers** ([T0_LAYERS.md](T0_LAYERS.md), design 2026-11-18: the T0 cases as a tree, quick / release / dig-down modes)
 - Build it in the order of T0_LAYERS.md section 5: `requires` data and the DAG asserts; the tree in `gate.md`; the three composites staged and calibrated
   (edit-mix, build-mix, files-mix); `dig_t0.py` and `@quick`/`@release`/`T0_OUT`; then the switch of `GATE` and the release verdict.
+- A failing composite reported as blocked by its failing requirements, not as a failure of its own (2026-11-18: wrong-approach fails while write-engine
+  and replace-function fail on their own; `gate_t0.py` does not read `REQUIRES` yet).
+- half-written, if iterated on: the cut-off hint lists what the tail must still hold (the undeclared names from the compile errors, the declared
+  functions the file lacks); the hint's failures append too little ([BLOCK_PROVING_GROUNDS.md](BLOCK_PROVING_GROUNDS.md), "Tier 0 iteration").
+- The near-pass repair attempt goes past `--max-local` in the t0 process: decide whether tier 0 keeps it.
 - Token usage as a gate measure, T0 and up (owner, 2026-11-18): an expected budget per case, and the usage broken down by area, so a workflow that
   passes by going round the harness (rework, rereads, rewrites, restarts) shows up even when the tests pass. What exists: agent.json `tokensIn` and
   `tokensOut` per attempt, gate.md's out tokens per case, and the ledger's estimates (`tokens.work`, accepted against rework tokens, prompt overhead,

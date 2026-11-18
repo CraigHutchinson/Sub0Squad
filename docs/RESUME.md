@@ -61,7 +61,10 @@ Last pushed commit when this was written: `4adca03` on `origin/main`; 48 of 48 c
 Cheap first; each step names what proves it. Rules in section 5 apply throughout.
 
 0. **(2026-11-18) The tier 0 gate first**: it FAILS on wrong-approach and skeleton (section 1); make them pass on the 35B, then a PASS (`run_t0.sh` then `gate_t0.py`; `out/runs/t0/gate.md`), then tier 1 (`run_tier.sh <repo> 1
-   <engine>`), then tier 0 on the 9B. The items below predate the model tiers.
+   <engine>`), then tier 0 on the 9B. The items below predate the model tiers. **Where it got to** (late 2026-11-18): a T0 run stops at its first failed
+   attempt; wrong-approach and skeleton are worked through the cases they require (write-engine 0/2, replace-function 1/2), not directly; half-written
+   gained a cut-off hint from an A/B (2/5 against 4/19). The record and the order of work: [BLOCK_PROVING_GROUNDS.md](BLOCK_PROVING_GROUNDS.md),
+   "Tier 0 iteration (2026-11-18)".
 
 1. **Re-measure on the faster machine before anything else**: decode and prefill speed, then the planner success rate over at least 10 seeds with the current code (`llm-planner --workflow-dir D --engine "qwen35=URL,model=qwen35,ctx=8192,slots=4,seed=N" --request "write a scientific calculator in C++" --max-turns 6`, with and without `--prose`). A faster machine changes which timeouts, wall budgets and context sizes are right; the numbers in section 1 are CPU-bound. Record them in `docs/CLEAN_SLATE.md` section 7.
 2. **Get one full run through `do` to pass and grade it** (`validation/grade_blackbox.py WORKFLOW_DIR`, and the literal audit it includes). Then repeat for a 20-seed clean-slate baseline (`scripts/start-campaign.sh`; the campaign driver still starts from blueprints and has no grader, plan-validity or repair columns: extend `scripts/campaign.py`).

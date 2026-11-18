@@ -152,6 +152,51 @@ It found a harness defect on its first day: a SYMBOL edit whose signature came f
 * **A smaller model** (a 9B, a 12B) runs the same tier 0 suite once the proving engine (the 35B) passes it reliably: a smaller model that passes tier 0 shows the
   cases are well defined as building blocks; one that fails shows where the edge is.
 
+### Tier 0 iteration (2026-11-18): stopping early, the failure breakdown, the half-written A/B
+
+**A run stops at its first failed attempt** (owner: tier 0 checks a targeted step, so a run should not grind through the squad's retries into a long
+failure). `run_t0.sh` runs under the `t0` process (`lib.sh`: no decompose or sections, and `rearchitect`, `thinkFirst`, `escalate` and the new
+`strategies` flag all off; `leaf.allow.strategies` turns off the manager's think and engine strategies) with `--max-local ${T0_ATTEMPTS:-1}`. One
+exception remains: the near-pass rule (at most 15 % of the tests failing) still allows a repair attempt past the limit (`skeleton` run 1 of the
+baseline). A failing run now takes 1 to 4 minutes instead of 10 to 14. `run_t0.sh` takes a lock (`out/runs/t0.lock`; exit 4 while another loop
+lives): a stopped caller had left its bash loop running, and three loops wiped each other's homes, which looked like the strategy fix not taking.
+
+**Baseline, one attempt a run** (`out/runs/t0-baseline-1attempt`): half-written 1/3, wrong-approach 0/3, skeleton 1/3.
+
+**The breakdown.**
+* **half-written** has one clear objective (finish the file) and a known cause: before the edits-first scope it passed 3/3 on its first attempt
+  (`t0-101e19c`); after it, the 35B's first move was a 43-line SEARCH of the cut region (stopped: long SEARCH), then a 165-line completion (stopped:
+  big edit), and it never appended after the last line.
+* **wrong-approach has no clear resolve of its own.** Its brief says only "most of the provided tests fail"; the model has to decide on a rewrite, so a
+  failure does not tell a wrong decision from a rewrite done badly. It is a composite ([T0_LAYERS.md](T0_LAYERS.md); `REQUIRES` in `make_t0.py`), and
+  two of the cases it requires fail on their own (`out/runs/t0-rewrite-b155485`, with the full ladder): **write-engine 0/2** (4 to 5 attempts each),
+  **replace-function 1/2** (the pass on attempt 5), add-functions 1/1. It is not worked on directly: it is checked again once its requirements pass.
+  `skeleton` requires the same write-engine.
+
+**The half-written A/B** (35B, 5 runs an arm, one attempt; `out/runs/t0-ab-<arm>`):
+
+| arm | passed | turns | out tokens |
+|---|---|---|---|
+| **hint**: the cut-off file is named, with the form that finishes it (`=== EDIT: <file> AFTER <n> ===`) | **2/5** | 4 to 7 | 85 to 6,656 |
+| stub: the file treated as a stub (FILE allowed, no edit size limits) | 0/5 | 8 to 11 | 2,604 to 9,665 |
+| edits: FILE still refused, the edit size limits lifted | 0/5 | 8 to 11 | 3,069 to 11,415 |
+| today's rules (19 runs: the baseline, plus the first A/B, which ran the default in every arm) | 4/19 | 4 to 19 | 1,739 to 10,680 |
+
+The hint is kept (`95b4c6a`; `endsInsideBlock` in `turn_control.cpp` decides a cut-off file) and the experiment switch is gone. 2/5 against about
+20 % is within the noise of 5 runs (identical code gave 0/5 and 2/5 in the first A/B), but it is the only arm that changed the first move: 3 of 5 runs
+opened with the append. **The hint runs that still fail append too little:** the missing tail is 56 lines (under the 100-line edit limit), but the
+model appended 11 lines (the current function), then 2, leaving the class's members (`s_`, `pos_`, `degrees_`) and `evaluate()` unwritten; the
+compile errors then point at line 16 (the constructor), and it goes back to editing code that was right. A next step, if half-written is iterated
+on: the hint lists what the tail must still hold (the names the errors report as undeclared, the functions the spec declares that the file lacks).
+
+**A measurement pitfall found by it:** jobs run with a fixed environment (`src/shim.cpp`), and a measurement switch reaches the agent only when it is
+listed there beside `SUB0SQUAD_ISSUE_LAYER`. The first A/B had `SUB0SQUAD_CUTOFF` missing from that list and measured the default four times;
+the hint arm's transcripts, which never showed the hint, gave it away. Check an arm's transcript for its effect after its first turn.
+
+**Next, in order:** half-written (iterate the hint, or take the gain); write-engine (it blocks wrong-approach, skeleton and write-file);
+replace-function; then wrong-approach and skeleton again; then a fresh full gate on that build, then tier 1. Also, the gate should report a failing
+composite as blocked by a failing requirement (`gate_t0.py` does not read `REQUIRES` yet), not as a failure of its own.
+
 ## How the blocks are used
 
 * **Before a change** to a prompt, a view, a reply format, a gate or the policy: run the blocks it touches, keep the result as the baseline.
