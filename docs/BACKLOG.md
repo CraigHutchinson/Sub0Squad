@@ -151,6 +151,15 @@ The queue, with hypotheses, arms, measures and commands, is [EXPERIMENTS.md](EXP
   - Thinking-stop behaviour in attempts after a card rewrite: wa-scope-v3 runs ended with 25 to 60 reply tokens, 17 to 18 aborted turns and 3 thinking stops. Parent:
     replace-function (a replay of attempts 2 and later).
   - A grammar-precedence leaf: only `unary_minus_binds_looser_than_power` (`-2^2` is -4), the test that recurs in the failed rewrites. Parent: replace-function.
+- From the tier 1 smoke (b155485, forced past an incomplete gate, `out/runs/t1/qwen35-20261118-150840`): 10 of 22 tests failing after attempt 1, unchanged
+  through attempts 2 to 5. Two defects in one 447-line calc.cpp: `peek()` returns a character only for OP tokens while `(` `)` `,` are their own token types
+  (every function call and parenthesis fails), and `^` is tokenized but has no grammar level. What T0 does not test, as leaves:
+  - **fix-folded** (the main gap): a defect inside a function the view folds (a file of about 450 lines at ctx 16384; every T0 file is shown whole). T1
+    showed: the same READ ranges asked turn after turn and attempt after attempt (31-102 and 135-364, at least 6 times), reads used up and turns spent on
+    refusals, a SYMBOL edit whose SEARCH copied the fold marker (`... (72 lines folded: 31-102; tokenize)`), an empty SYMBOL edit, a long-search stop.
+  - **fix-contract**: two functions that disagree on a representation (a token kind against a character); either side may be fixed, the tests name neither.
+  - Harness, not a case: a READ of lines already answered in this attempt is the multi-turn loop of the Loops entry (only the latest answer stays in
+    view, so the worker reads again): keep each answered range in view, folded to what was read, or answer "unchanged since turn N" and ask for the edit.
   - Length is not the measure; what the extra code is, is. Analysed 2026-11-18 (T0 write-engine run 1, attempt 1, `canvas/src_calc.cpp.r2` against the reference
     `validation/reference/calculator-cpp/src/calc.cpp`): the 587-line file was two engines (a class parser cut at line 328, then a continuation that wrote a second,
     free-function engine instead of finishing it: a seam, fixed by the new-block join). Part 1 alone: 2 661 code tokens, cut before pow/min/max and `evaluate`, against
