@@ -89,6 +89,38 @@ skeleton ........... write-engine     add-functions     (skeleton-fill, backlog)
 The saving is honest but modest while the rewrites fail: they dominate. The real quick-mode gain is that the 21 cheap cases become 5 composites and stand-alones, about 14 min a pass
 down to about 8, and that failures arrive with their explanation attached.
 
+### 2.3 Case review before T1 rework
+
+Use a case to answer one question about a named workflow. Record the triggering state, the capability needed, the frozen outcome, and the evidence that ties it to a real workflow or a plausible failure mechanism. When a test bundles several mechanisms, use isolated controls to find which ones cause the failure, then retain the composite as an integration check. Archive a redundant test only when its replacement covers the same failure and boundary. An unobserved case with a credible mechanism can stay at lower cadence. A speculative case without a credible mechanism belongs in the backlog until it can justify measurement.
+
+| T0 family | Trigger and what it proves | Near-term treatment |
+| --- | --- | --- |
+| `fix-op`, `fix-boundary`, `fix-distant`, `fix-missing-check` | A complete source file fails behavior tests. Localize and repair a wrong operation, boundary, distant grammar cause, or absent check. | Keep as small controls. Reuse existing precedence assertions when developing T1 grammar checks. |
+| `compile-typo`, `compile-warning`, `duplicate`, `compile-and-logic` | A build failure or warning prevents useful behavior feedback. Repair the compile failure, then follow the test evidence for any remaining defect. | Keep. Run the relevant controls when changing build or repair feedback. |
+| `write-function`, `write-feature`, `write-file`, `write-tests` | A stub, missing feature, missing file, or missing tests with a known contract. Proves bounded construction and the separate tester role. | Keep as construction controls. Use the named role and contract to judge each output. |
+| `merge-conflict`, `two-files` | Competing source edits or coordinated edits across files. | Keep distinct integration controls. Run on changes to those paths or in the full gate. |
+| `fix-two-bugs`, `fix-many`, `bugs-3/6/10`, `repeat-trig`, `repeat-rename` | Multiple fixes or one repeated defect class. Distinguishes a valid repair from throughput and batching of repairs. | Use as scale or cadence probes. Their old passes give a reference point. Additional synthetic permutations need a receiving workflow. |
+| `half-written` | Pre-existing source fails compilation at EOF. Finishing only the open function can leave declarations and entry points missing, causing misleading follow-on diagnostics. | Park further tuning until it blocks a downstream workflow. Preserve the failed evidence, fixture and full-gate membership. |
+| `wrong-approach`, `skeleton` | Strategy selection, whole-engine construction and long-reply handling can all contribute. Failures of smaller rewrite cases have been observed. | Keep composite verdicts visible. Debug the smallest demonstrated mechanism first and revisit the composites once it works. |
+| Own-reply continuation diagnostic | The engine reports an interrupted reply with a usable transaction prefix. Success requires actual continuation and the original gate. | Keep separate from source repair. The live assistant-prefill case passed and the tail fallback has scripted coverage. |
+
+The historical flat gate at `101e19c` passed 22 of 24 cases three times each. Only `wrong-approach` and `skeleton` failed. Those results describe that build. These dispositions control where to spend development time. The release gate and its verdict keep their current rules. [Historical T0 evidence](BLOCK_PROVING_GROUNDS.md#tier-0-iteration-2026-11-18-stopping-early-the-failure-breakdown-the-half-written-ab), [continuation evidence](T0_ITERATIVE_SANDBOX.md#dedicated-reply-continuation).
+
+### 2.4 First T1 rework slice
+
+The T1 consumer is the scientific calculator built by one worker. It needs to accept expressions with grouping and function arguments, preserve power precedence and associativity, and give the same answers through the CLI. Starting from the archived 447-line failed T1 artifact, four model-free replays used its original 22-test plan, the same CLI source and the current production C++ gate:
+
+| Artifact | Failures |
+| --- | ---: |
+| Archived baseline | 10/22 |
+| Restore delimiter recognition in the token-to-parser contract | 3/22, all power-related |
+| Restore the power grammar only | 7/22, all grouping or function-related |
+| Both repairs | 0/22 |
+
+Evidence lives at `out/runs/t1-diagnostics/20261118T205335Z-65f73352/summary.json`, with per-arm source hashes and gate logs. This received the causal split through the real gate using human-authored control edits. The original live T1 result remains a failure.
+
+The next bounded model experiment starts with those two isolated failure groups. Use an artifact that retains the relevant contract defect while the other group passes. Keep the expected behavior public, keep the accepted patch private, and require the original tests for each arm. First establish the repair with the target region readable, then repeat the same defect with the region folded. Two live short-window `fix-op` runs already read a folded region and passed, so the open question is whether that behavior transfers to a T1-sized artifact and survives a subsequent revision. Track requested regions, repeated reads and edit targets. Add a named leaf only where existing tests and profiles cannot exercise that distinction. Receive both defects together through the original 22 tests before spending on another whole-project model run. A full gated T1 run still needs a current T0 PASS. [Archived T1 failure and fold evidence](BACKLOG.md), [T1 gate policy](BLOCK_PROVING_GROUNDS.md#model-tiers-and-the-tier-0-gate-2026-11-17).
+
 ## 3. Modes
 
 All three judge the run directories, as `gate_t0.py` does today: a run counts when its `case_key`, build and engine match; stale runs are listed, not counted.
