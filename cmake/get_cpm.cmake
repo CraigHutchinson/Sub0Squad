@@ -46,4 +46,18 @@ else()
   endif()
 endif()
 
+# CPM.cmake records the directory it was loaded from in the cache (CPM_DIRECTORY). On a later configure, finding that entry set to another
+# directory, it assumes a parent project already loaded CPM and returns without defining CPMAddPackage ("Unknown CMake command"). The entry goes
+# stale whenever CPM_SOURCE_CACHE changes between configures of one build directory (a user-level cache set after the build was made). Forget it
+# unless CPM really is loaded in this run already (a parent project that includes this one).
+if(NOT COMMAND CPMAddPackage AND DEFINED CACHE{CPM_DIRECTORY})
+  get_filename_component(_getCpmDir "${CPM_DOWNLOAD_LOCATION}" DIRECTORY)
+  get_filename_component(_getCpmDir "${_getCpmDir}" REALPATH)
+  if(NOT CPM_DIRECTORY STREQUAL _getCpmDir)
+    message(STATUS "CPM.cmake: this build last loaded it from ${CPM_DIRECTORY}; now from ${_getCpmDir} (CPM_SOURCE_CACHE changed)")
+    unset(CPM_DIRECTORY CACHE)
+  endif()
+  unset(_getCpmDir)
+endif()
+
 include("${CPM_DOWNLOAD_LOCATION}")
