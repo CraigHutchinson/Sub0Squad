@@ -47,6 +47,60 @@ int main(int argc, char** argv)
         // continuationText: a fence and a repeated header are not content.
         CHECK_EQ(continuationText("int a = 1;\nint b", "```\n = 2;\nint c = 3;\n```\n"), std::string(" = 2;\nint c = 3;\n"));
         CHECK_EQ(continuationText("=== FILE: a.cpp ===\nint a;\n", "=== FILE: a.cpp ===\nint b;\n"), std::string("int b;\n"));
+        // joinContinuation: every seam class of the 18 recorded cut-offs of the 2026-11-18 gate (35B; out/runs/t0-101e19c), from their own lines.
+        {
+            const std::string head = "=== FILE: a.cpp ===\nint f(int a)\n{\n";
+            // The cut line written again in full, as asked: joined at the line boundary.
+            CHECK_EQ(joinContinuation(head + "    if (a > 0)\n    return std", "    return std::max(a, 0);\n}\n=== END FILE ===\n"),
+                     head + "    if (a > 0)\n    return std::max(a, 0);\n}\n=== END FILE ===\n");
+            // A stray `===` and a fence, then two lines before the cut again, then the cut line in full (seam 08).
+            CHECK_EQ(joinContinuation(head + "    int m = std::min(a, 1);\n    if (a > 9) {\n        return std",
+                                      "===\n```cpp\n    int m = std::min(a, 1);\n    if (a > 9) {\n        return std::max(a, 0);\n    }\n```\n"),
+                     head + "    int m = std::min(a, 1);\n    if (a > 9) {\n        return std::max(a, 0);\n    }\n");
+            // Continued from the cut, the token's space lost: after a keyword (seam 04), before a comparison (seams 06, 09); a word split is not touched (seam 16).
+            CHECK_EQ(joinContinuation(head + "    return", "std::min(a, 1);\n"), head + "    return std::min(a, 1);\n");
+            CHECK_EQ(joinContinuation(head + "    } else if (name", "== \"pow\") {\n"), head + "    } else if (name == \"pow\") {\n");
+            CHECK_EQ(joinContinuation(head + "    return std::log", "2(a);\n"), head + "    return std::log2(a);\n");
+            CHECK_EQ(joinContinuation(head + "    if (a[0] <= 0) fail", "(\"log of non-positive\");\n"), head + "    if (a[0] <= 0) fail(\"log of non-positive\");\n");   // seam 01
+            // The rest as a SEARCH/REPLACE of the block's own tail (seams 02, 05): spliced.
+            CHECK_EQ(joinContinuation(head + "    std::string s_;\n    bool",
+                                      "=== EDIT: a.cpp ===\n<<<<<<< SEARCH\n    std::string s_;\n    bool\n=======\n    std::string s_;\n    bool d_;\n>>>>>>> REPLACE\n=== END EDIT ===\n};\n"),
+                     head + "    std::string s_;\n    bool d_;\n};\n");
+            // ... its last line's indentation lost (seen from the 35B in wrong-approach, 2026-11-18).
+            CHECK_EQ(joinContinuation(head + "    int r = g(a);\n    if (r",
+                                      "=== EDIT: a.cpp ===\n<<<<<<< SEARCH\n    int r = g(a);\nif (r\n=======\n    int r = g(a);\n    if (r > 0) return r;\n>>>>>>> REPLACE\n}\n"),
+                     head + "    int r = g(a);\n    if (r > 0) return r;\n}\n");
+            // A block of its own replaces the partial: read requests (seam 12), the file begun again from its first line (seam 13).
+            CHECK_EQ(joinContinuation(head + "    int x", "=== READ: a.cpp SYMBOL f ===\n"), std::string("=== READ: a.cpp SYMBOL f ===\n"));
+            CHECK_EQ(joinContinuation(head + "    int x", head + "    return a;\n}\n"), head + "    return a;\n}\n");
+            // A different block instead of the rest (T0 write-engine): the open block ends at its last complete line, the new one follows whole.
+            CHECK_EQ(joinContinuation(head + "    int v = a;\n    if (v < 0", "=== EDIT: a.cpp SYMBOL g ===\nint g() { return 1; }\n=== END EDIT ===\n"),
+                     head + "    int v = a;\n=== END FILE ===\n=== EDIT: a.cpp SYMBOL g ===\nint g() { return 1; }\n=== END EDIT ===\n");
+            // Cut again mid-line: the continuation's own unfinished line stays unfinished for the next join.
+            CHECK_EQ(joinContinuation(head + "    int x = 1;\n", "    int y = 2;\n    int z"), head + "    int x = 1;\n    int y = 2;\n    int z");
+            // The prompt: whole lines only, the unfinished line named.
+            const std::string p = continuationPrompt(head + "    int x = 1;\n    return std");
+            CHECK(p.find("    int x = 1;\n```") != std::string::npos && p.find("the unfinished line `return std`") != std::string::npos && p.find("write it again in full") != std::string::npos);
+            CHECK(continuationPrompt(head + "    int x = 1;\n").find("Continue with the line that follows them") != std::string::npos);
+        }
+        // detectEditOverrun: a SEARCH of most of a file that exists (the file replaced in disguise), one edit past the limit; a stub or new file is not judged.
+        {
+            std::string file, many;
+            for (int i = 0; i < 12; ++i) file += "int v" + std::to_string(i) + " = " + std::to_string(i) + ";\n";
+            for (int i = 0; i < 101; ++i) many += "    x += " + std::to_string(i) + ";\n";
+            const std::map<std::string, std::string> locked{{"a.cpp", file}};
+            CHECK_EQ(detectEditOverrun("=== EDIT: a.cpp ===\n<<<<<<< SEARCH\n" + file, locked, 100, 0.8, 10).kind, std::string("rewrite-search"));
+            CHECK(!detectEditOverrun("=== EDIT: a.cpp ===\n<<<<<<< SEARCH\n" + file, locked));   // 12 lines, under the default 60: one function is most of it
+            CHECK(!detectEditOverrun("=== EDIT: a.cpp ===\n<<<<<<< SEARCH\nint v1 = 1;\nint v2 = 2;\n=======\nint v1 = 2;\n", locked));
+            CHECK_EQ(detectEditOverrun("=== EDIT: a.cpp SYMBOL f ===\nvoid f()\n{\n" + many, locked).kind, std::string("big-edit"));
+            CHECK(!detectEditOverrun("=== EDIT: b.cpp SYMBOL f ===\nvoid f()\n{\n" + many, locked));   // not locked: a stub or a new file
+            CHECK(!detectEditOverrun("=== EDIT: a.cpp SYMBOL f ===\nvoid f()\n{\n" + many.substr(0, many.size() / 2), locked));
+            // Reasoning written as comments: 25 in a row stop the reply; preprocessor lines are not comments.
+            std::string ramble = "=== FILE: a.cpp ===\n", code = "=== FILE: a.py ===\n";
+            for (int i = 0; i < 25; ++i) { ramble += "        // Wait, what about case " + std::to_string(i) + "?\n"; code += "#include <x" + std::to_string(i) + ">\n"; }
+            CHECK_EQ(detectRunaway(ramble, {}).kind, std::string("comment-run"));
+            CHECK(!detectRunaway(code, {}));
+        }
         CHECK(cutOffInsideEdit("=== EDIT: a.cpp LINES 3 ===\nint x"));
         CHECK(!cutOffInsideEdit("=== EDIT: a.cpp LINES 3 ===\nint x;\n=== END EDIT ===\n"));
         CHECK(!cutOffInsideEdit("=== FILE: a.cpp ===\nint x"));

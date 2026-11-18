@@ -34,10 +34,10 @@ const char* const kCanvasSyntax =
     "=== EDIT: <path> ===\n<<<<<<< SEARCH\n<a few lines copied exactly from the file, without the line numbers>\n=======\n<what replaces them>\n>>>>>>> REPLACE\n=== END EDIT ===\n"
     "=== FILE: <path> ===\n<the complete new file>\n=== END FILE ===\n"
     "Pick the form ONCE, by the first rule that fits, and do not reconsider it:\n"
-    "1. The file does not exist yet, or its approach is wrong (its structure, its grammar, how data flows through it), or you would change most of its "
-    "functions: FILE, the complete new file. It replaces everything, folded parts included, so do not read them first. A long file may be written in steps: "
-    "FILE with its first part, then one SYMBOL edit for each function still to add.\n"
-    "2. A whole function is wrong or missing: SYMBOL. It replaces the function of that name, or adds it when there is none.\n"
+    "1. The file does not exist yet, or is only a stub: FILE, the complete new file. It replaces everything, folded parts included, so do not read them "
+    "first. A long file may be written in steps: FILE with its first part, then one SYMBOL edit for each function still to add.\n"
+    "2. A whole function is wrong or missing: SYMBOL. It replaces the function of that name, or adds it when there is none. A file that exists is improved "
+    "this way, not replaced, even when its approach is wrong: a new design goes in function by function. FILE over it is allowed only once the harness says so.\n"
     "3. A few lines are wrong: SEARCH/REPLACE. The SEARCH part is at most about 15 lines and must occur once in the file (indentation need not match exactly); "
     "the REPLACE part may be empty to delete them.\n"
     "To change a folded function you have not seen, read it first: reply with ONLY read requests, `=== READ: <path> SYMBOL name ===` or "
@@ -70,6 +70,7 @@ long long turnSeed(long long base, const std::string& label)
 namespace {
 constexpr double kThinkingShare = 0.6;               ///< share of a turn's token budget thinking may use before it is stopped and carried over
 constexpr double kCharsPerToken = 3.5;               ///< characters per token, to judge streamed reasoning without a tokenizer
+constexpr int kTokensPerLine = 12;                    ///< tokens per line of code (about 40 characters), to tell the worker its reply limit in lines
 constexpr std::size_t kCarriedReasoningChars = 3000; ///< how much of stopped reasoning comes back with the next turn (its end, where it was heading)
 
 /// The last `n` characters of `s`, starting at a line boundary when one is near.
@@ -246,6 +247,8 @@ int runCanvasAttempt(const AttemptContext& a)
     std::string verdict = a.baselineFiles.empty() ? (seeded.empty() ? std::string{} : "These files are what the workspace starts with (" + seededNote + "): change them with edits, or write one whole when it is only a stub.") : (a.draftOrigin.empty() ? "These files are your best earlier draft. It failed:\n" : "These files are an earlier draft from before '" + a.draftOrigin + "' was divided (keep what is right, fix the rest). It failed:\n") + clip(a.draftGate, 1200);
     std::string focus = a.draftGate;      // the text whose file:line references keep regions of the view open
     std::string partial;                  // a reply cut off at the token limit, so far: the next reply is appended to it
+    std::string prefill;                  // this turn continues `partial` as the assistant's own message, from this text (empty: not a prefill turn)
+    int prefilled = 0;                    // continuations sent as a prefill (the rest fell back to the tail prompt)
     int spent = 0;                        // turns used of repairTurns + 1
     int readReplies = 0, rejects = 0, aborts = 0, continuations = 0, calls = 0, commits = 0, reverts = 0, concernCount = 0, concernOnly = 0;
     const int freeRejects = 3, freeAborts = 2, freeReads = 2, freeContinuations = 3;
@@ -255,6 +258,47 @@ int runCanvasAttempt(const AttemptContext& a)
     bool bestIsSeed = false;              // the best tested revision is the starting files, not the worker's: a draft is not traded back for them
     std::string lastFinish, lastGate, lastRefusal, lastRefusalKey;
     int sameRefusals = 0;
+    // Scope escalation. A file that exists is improved by edits; FILE may replace only a file that does not exist yet or is a stub. When edits stop
+    // making progress (kRestructureAfter tested revisions in a row without fewer failing tests), the harness widens the scope: the worker is told the
+    // approach may be wrong and FILE is allowed for every file. Tier 0 wrong-approach (2026-11-18): offered a whole rewrite on turn 0, the 35B wrote
+    // 300-650-line files past the token limit; stitched from continuations they did not compile, and the attempts went on repairing seams.
+    constexpr int kRestructureAfter = 2;
+    bool restructure = false;
+    int noProgress = 0, restructuredAt = -1;
+    const auto isStub = [&](const std::string& path, const std::string& text) {   // the harness's own stub, or a skeleton's `not implemented` bodies
+        if (text.find("not implemented") != std::string::npos) return true;
+        return harness && harness->scaffoldFile && !text.empty() && text == harness->scaffoldFile(path);
+    };
+    // After a tested revision: a revision with fewer failing tests than the best so far is progress; anything else counts towards the escalation.
+    const auto scopeRefusalFor = [&](const std::string& path) -> std::string {   // why a FILE over `path` is refused now ("" when it is allowed)
+        if (restructure || !canvas.has(path) || isStub(path, canvas.text(path))) return {};
+        return "FILE would replace " + path + ", which exists and is not a stub. Improve it with edits instead: SYMBOL for a whole function (replaced, or added "
+               "when it is new), SEARCH/REPLACE for a few lines; a new design goes in function by function. The harness allows a restructure once edits stop "
+               "making progress.";
+    };
+    // The second way edits fail to make progress: the worker keeps writing the rewrite and every reply is stopped (2026-11-18, 35B wrong-approach: 0 of 3,
+    // every turn stopped). kRestructureAfter scope stops in a row, with no tested revision between them, widen the scope too.
+    int scopeStops = 0;
+    const auto widen = [&](const std::string& why, int call, std::string& verdictOut) {
+        restructure = true;
+        restructuredAt = call;
+        verdictOut += "\nRESTRUCTURE ALLOWED: " + why + ", so the approach itself may be wrong (its structure, its grammar, how data flows through it). You may "
+                      "now replace a file whole: FILE, the complete new file, written in steps when it is long (FILE with its first part, then one SYMBOL edit "
+                      "for each function still to add). Edits remain allowed.";
+        traceVerdict(tracePath, call, "scope widened: restructure allowed: " + why);
+        std::printf("canvas turn %d: restructure allowed (%s)\n", call, why.c_str());
+        events::note("restructure allowed: " + why);
+    };
+    const auto noteProgress = [&](bool improved, int call, std::string& verdictOut) {
+        noProgress = improved ? 0 : noProgress + 1;
+        scopeStops = 0;
+        if (restructure || noProgress < kRestructureAfter) return;
+        widen(std::to_string(noProgress) + " tested revisions in a row have not reduced the failing tests", call, verdictOut);
+    };
+    const auto noteScopeStop = [&](int call, std::string& verdictOut) {
+        if (restructure || ++scopeStops < kRestructureAfter) return;
+        widen(std::to_string(scopeStops) + " replies in a row were stopped for growing into a rewrite", call, verdictOut);
+    };
     double totIn = 0, totOut = 0, decodeTps = 0, prefillTps = 0;
     long changedLines = 0;
 
@@ -387,8 +431,15 @@ int runCanvasAttempt(const AttemptContext& a)
             for (const auto& f : a.item->files) if (!canvas.has(f)) state += "(" + f + " does not exist yet: write it whole with === FILE: " + f + " ===)\n";
         }
         const std::string user = a.card + (a.guidance.empty() ? std::string{} : "\n" + a.guidance + "\n") + (verdict.empty() ? std::string{} : "\n" + clip(verdict, verdictCap) + "\n") + "\n" + state +
-                                 (canvas.paths().empty() ? "" : "Reply with the transaction that fixes EVERYTHING listed above (every failing test, every error, one edit each), its form picked once by the rules above: "
-                                                                 "a few functions wrong, edit just them; the approach wrong, the complete new file.\n");
+                                 (canvas.paths().empty() ? "" : "Reply with the transaction that fixes EVERYTHING listed above (every failing test, every error, one edit each), its form picked once by the rules above: " +
+                                                                    std::string{restructure ? "a few functions wrong, edit just them; the approach wrong, the complete new file (in steps when it is long).\n"
+                                                                                            : "a few lines wrong, SEARCH/REPLACE; a function wrong or missing, SYMBOL (as many as it takes; FILE only for a file that is new or a stub).\n"} +
+                                                                    // The worker cannot know the reply limit, and its overrun was not thoroughness (T0 write-engine, 2026-11-18, docs/BACKLOG.md:
+                                                                    // the same features as the reference at 1.7 times the code, through per-case copies, dead code and reasoning in comments).
+                                                                    // So the ask is quality, never fewer checks: decide the design first, each rule in one place.
+                                                                    "A reply holds about " + std::to_string(a.maxTokens / kTokensPerLine) + " lines at most. Decide the design before you write; "
+                                                                    "keep each rule in one place (a shared helper, not a copy per case), no unused code, no reasoning in comments; keep every check "
+                                                                    "the contract needs. A longer file is written in steps (its first part, then the remaining functions as SYMBOL edits).\n");
         verdictIsRead = false;
         // Reasoning that ran out before an edit is kept, not thrown away: its end comes back with this turn, which runs with thinking off so the decision
         // already reasoned out is written down (the 35B runs: 19 turns, 114k tokens of thinking that never reached an edit).
@@ -397,16 +448,29 @@ int runCanvasAttempt(const AttemptContext& a)
               "\n[end of reasoning]\nDo not start the reasoning over. Write the transaction it was leading to now.\n";
         carriedReasoning.clear();
         std::vector<ChatMessage> convo = {{"system", system}, {"user", user + carried}};
-        if (!partial.empty()) {   // continue a reply that was cut off: its tail is shown, the rest is appended (never started over)
-            convo.push_back({"assistant", "[your reply so far is kept; it was cut off at the token limit]"});
-            convo.push_back({"user", "Your reply was cut off at the token limit. It ended with:\n```\n" + (partial.size() > 700 ? partial.substr(partial.size() - 700) : partial) + "\n```\nContinue from exactly that point: reply with only the rest (no header, no repetition, no explanation) and finish it."});
+        // A reply cut off at the token limit is continued as itself: its text so far goes back as the assistant's own unfinished message (a prefill), cut to
+        // its last complete line, so the model carries on token by token, seeing everything it wrote (2026-11-18: shown only a 700-character tail, the 35B
+        // lost its own design and wrote a second engine after the cut; a prefill ending mid-token, `ret`, is ended at once, one at a line end is continued).
+        // Prompt, partial and the reply's budget must fit the context; when they do not, the tail is shown and the rest asked for (the fallback).
+        prefill.clear();
+        if (!partial.empty()) {
+            const auto nl = partial.rfind('\n');
+            const std::string atLine = nl == std::string::npos ? std::string{} : partial.substr(0, nl + 1);
+            const auto estimate = static_cast<int>(static_cast<double>(system.size() + user.size() + carried.size() + atLine.size()) / kCharsPerToken) + a.maxTokens;
+            if (!atLine.empty() && estimate < a.engine.contextTokens) {
+                prefill = atLine;
+                convo.push_back({"assistant", prefill});
+            } else {
+                convo.push_back({"assistant", "[your reply so far is kept; it was cut off at the token limit]"});
+                convo.push_back({"user", continuationPrompt(partial)});   // resumed at a line boundary: mid-line resumes lost spaces and lost their place
+            }
         }
 
         EngineProfile turnEngine = a.engine;
         turnEngine.seed = turnSeed(a.engine.seed, a.itemId + "#" + std::to_string(a.attempt) + "#" + std::to_string(calls));
         const bool decide = decideNext;   // this turn writes down what the last one reasoned: no new reasoning
         decideNext = false;
-        if (decide) turnEngine.thinking = false;
+        if (decide || !prefill.empty()) turnEngine.thinking = false;   // a prefill continues the answer: the template closes the reasoning before it
         events::progress(spent, a.repairTurns + 1, calls == 0 ? "generating" : "editing");
         traceSent(tracePath, calls, convo, 0, turnEngine.seed);
         const fs::path livePath = attemptDir / "live.txt";
@@ -424,11 +488,29 @@ int runCanvasAttempt(const AttemptContext& a)
         // that passes its share of the budget with no edit begun is stopped too, with room left: what it reasoned is carried into the next turn.
         Runaway runaway;
         const auto drafts = canvas.files();
+        std::map<std::string, std::string> locked;   // under the narrow scope: the files that exist and are not stubs, improved by edits of a function's size
+        if (!restructure) for (const auto& [p, t] : drafts) if (!isStub(p, t)) locked[p] = t;
         const std::size_t thinkingCap = turnEngine.thinking ? static_cast<std::size_t>(a.maxTokens * kThinkingShare * kCharsPerToken) : 0;
-        const StreamGuard guard = [&](const std::string& soFar) {
+        const StreamGuard guard = [&](const std::string& streamed) {
+            // The whole reply so far: a prefill turn's stream repeats the prefill (llama.cpp); a fallback continuation is appended to the partial.
+            const std::string soFar = !prefill.empty() ? (streamed.rfind(prefill, 0) == 0 ? streamed : prefill + streamed) : partial + streamed;
             if (thinkingCap > 0 && reasoningChars > thinkingCap && soFar.find("=== ") == std::string::npos) { runaway.kind = "thinking"; return true; }
+            // The scope rules never run out (2026-11-18: after two free stops the 35B's third rewrite went through, ran past the token limit and failed
+            // to apply); a scope stop past the free aborts costs a turn instead.
+            // A FILE header over a file the scope does not yet open: stopped at the header, before thousands of tokens of rewrite are spent on it.
+            for (std::size_t at = soFar.find("=== FILE:"); at != std::string::npos; at = soFar.find("=== FILE:", at + 1)) {
+                const std::size_t eol = soFar.find('\n', at);
+                if (eol == std::string::npos) break;
+                std::string path = soFar.substr(at + 9, eol - at - 9);
+                if (const auto close = path.rfind("==="); close != std::string::npos) path.erase(close);
+                path.erase(0, path.find_first_not_of(" \t"));
+                path.erase(path.find_last_not_of(" \t\r") + 1);
+                if (auto why = scopeRefusalFor(path); !why.empty()) { runaway = {"scope", "Your reply was stopped: " + why}; return true; }
+            }
+            // The same rewrite in disguise (35B, 2026-11-18): a SEARCH of the whole file with a 600-line REPLACE, or one edit growing past a function's size.
+            if (!locked.empty()) if (runaway = detectEditOverrun(soFar, locked); runaway) return true;
             if (aborts >= freeAborts) return false;
-            runaway = detectRunaway(partial + soFar, drafts);
+            runaway = detectRunaway(soFar, drafts);
             return static_cast<bool>(runaway);
         };
         auto reply = chatCompleteMessages(turnEngine, convo, a.maxTokens, a.timeoutSec, liveSink, guard);
@@ -460,15 +542,23 @@ int runCanvasAttempt(const AttemptContext& a)
             continue;
         }
         if (reply->finishReason == "aborted") {   // cancelled while streaming: nothing is applied, the worker is told exactly what to do instead
-            ++aborts;
+            if (++aborts > freeAborts) ++spent;   // only a scope stop gets here once the free aborts are used
             partial.clear();
             verdict = runaway.instruction;
+            if (runaway.kind == "scope" || runaway.kind == "rewrite-search" || runaway.kind == "big-edit") noteScopeStop(call, verdict);
             traceVerdict(tracePath, call, "cancelled while streaming (" + runaway.kind + ") after " + std::to_string(reply->content.size()) + " characters");
             std::printf("canvas turn %d: cancelled early (%s)\n", call, runaway.kind.c_str());
             events::note("reply cancelled early: " + runaway.kind);
             continue;
         }
-        std::string text = partial.empty() ? reply->content : partial + continuationText(partial, reply->content);
+        std::string text;
+        if (!prefill.empty()) {   // the server's reply repeats the prefill (llama.cpp): what follows it is the continuation, joined at the line it was cut back to
+            const std::string& c = reply->content;
+            text = prefill + (c.rfind(prefill, 0) == 0 ? c.substr(prefill.size()) : c);
+            ++prefilled;
+        } else {
+            text = partial.empty() ? reply->content : joinContinuation(partial, reply->content);
+        }
         if (reply->finishReason == "length" && continuations < freeContinuations && (text.find("=== EDIT:") != std::string::npos || text.find("=== FILE:") != std::string::npos)) {
             ++continuations;
             partial = text;
@@ -500,7 +590,8 @@ int runCanvasAttempt(const AttemptContext& a)
                 ++readReplies;
                 ++spent;
                 verdict = (lastReadAnswer.empty() ? std::string{} : "The lines you read before:\n" + lastReadAnswer) +
-                          "Your reads are used up, so this read was not answered. Reply now with an edit (=== EDIT: ... ===) or, if the approach is wrong, the complete new file (=== FILE: ... ===).\n";
+                          (restructure ? "Your reads are used up, so this read was not answered. Reply now with an edit (=== EDIT: ... ===) or, if the approach is wrong, the complete new file (=== FILE: ... ===).\n"
+                                       : "Your reads are used up, so this read was not answered. Reply now with an edit (=== EDIT: ... ===).\n");
                 verdictIsRead = !lastReadAnswer.empty();
                 traceVerdict(tracePath, call, "read request refused: the reads are used up (a turn is spent)");
                 std::printf("canvas turn %d: read refused (reads used up), turn spent\n", call);
@@ -536,7 +627,10 @@ int runCanvasAttempt(const AttemptContext& a)
         // ---- the transaction: every part that applies is applied (one bad edit never costs the good ones beside it), then the cheap check ----
         Canvas scratch = canvas;
         std::vector<std::string> skipped;
-        std::string refusal = applyCanvasReply(scratch, parsed, allowed, a.itemId, &skipped);
+        std::string scopeRefusal;   // FILE over a file that exists and is not a stub, before the scope is widened: refused, nothing applied
+        for (const auto& [path, body] : parsed.wholeFiles)
+            if (scopeRefusal = scopeRefusalFor(path); !scopeRefusal.empty()) break;
+        std::string refusal = scopeRefusal.empty() ? applyCanvasReply(scratch, parsed, allowed, a.itemId, &skipped) : scopeRefusal;
         std::string skippedNote;
         for (const auto& s : skipped) skippedNote += "- " + s + "\n";
         if (!skippedNote.empty()) skippedNote = "These parts of your reply did not apply (the rest did):\n" + skippedNote;
@@ -616,9 +710,12 @@ int runCanvasAttempt(const AttemptContext& a)
             traceVerdict(tracePath, call, "reverted to the best revision (" + std::to_string(bestFailing) + " failing)");
             std::printf("canvas turn %d: reverted (%d failing, best %d)\n", call, failing, bestFailing);
             (void)selfCheck();   // gate.txt describes what is in out/
+            noteProgress(false, call, verdict);
         } else {
+            const bool improved = failing >= 0 && (bestFailing < 0 || failing < bestFailing);
             if (failing >= 0 && (bestFailing < 0 || failing <= bestFailing)) markBest(failing, false);
             verdict = skippedNote + "Your files were checked by running the tests and failed:\n" + layeredVerdict(lastGate, true, 1500, focus);
+            noteProgress(improved, call, verdict);
         }
     }
 
@@ -661,8 +758,8 @@ int runCanvasAttempt(const AttemptContext& a)
         m << "{\"treatment\":\"" << a.treatment << "\",\"stance\":\"" << a.stance << "\",\"concerns\":" << concernCount << ",\"engine\":\"" << a.engine.name << "\",\"tokensIn\":" << totIn << ",\"tokensOut\":" << totOut << ",\"turns\":" << calls << ",\"issueLayer\":" << (issueLayer ? "true" : "false") << ",\"issueMode\":" << issueMode
           << ",\"issueInline\":" << inlineIssues << ",\"layerShown\":" << layerShown << ",\"layerPassed\":" << layerPassed << ",\"issueReads\":" << issueReads
           << ",\"selfcheck\":" << (verified ? "true" : "false") << ",\"seconds\":" << secs
-          << ",\"canvas\":{\"commits\":" << commits << ",\"refused\":" << rejects << ",\"reads\":" << readReplies << ",\"aborted\":" << aborts << ",\"continued\":" << continuations
-          << ",\"reverted\":" << reverts << ",\"staged\":" << staged << ",\"thinkingStops\":" << thinkingStops << ",\"changedLines\":" << changedLines << ",\"fileLines\":" << fileLines << "}}";
+          << ",\"canvas\":{\"commits\":" << commits << ",\"refused\":" << rejects << ",\"reads\":" << readReplies << ",\"aborted\":" << aborts << ",\"continued\":" << continuations << ",\"prefilled\":" << prefilled
+          << ",\"reverted\":" << reverts << ",\"restructuredAt\":" << restructuredAt << ",\"staged\":" << staged << ",\"thinkingStops\":" << thinkingStops << ",\"changedLines\":" << changedLines << ",\"fileLines\":" << fileLines << "}}";
         (void)writeFile(attemptDir / "agent.json", m.str());
     }
     if (!haveFiles) {

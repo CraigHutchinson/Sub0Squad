@@ -23,6 +23,12 @@ static std::string functionText(const std::string& text, const std::string& name
     return {};
 }
 static std::vector<std::string> canvasArgs(const fs::path& d, const fake::Engine& e, int attempt, int repairTurns) { return agentArgs(d, e, attempt, repairTurns, {"--executor", "canvas"}); }
+static std::vector<std::string> canvasArgsCtx(const fs::path& d, const fake::Engine& e, int attempt, int repairTurns, int ctx)
+{
+    auto a = canvasArgs(d, e, attempt, repairTurns);
+    for (std::size_t i = 0; i + 1 < a.size(); ++i) if (a[i] == "--engine") a[i + 1] = e.profile(ctx);
+    return a;
+}
 static std::string between(const std::string& s, const std::string& from, const std::string& to)
 {
     const auto a = s.find(from);
@@ -87,9 +93,15 @@ int main()
     }
     {   // The same compile error three times running ends the attempt (catalogue row 72: run-v11's tester spent six turns an attempt on one compile error),
         // and says why. The work is still not thrown away: with no tested revision, the last draft is handed on, so the gate names its error.
+        // The first reply writes the file over the stub; the next two edit it (a FILE over the worker's own draft is refused: it is not a stub), each
+        // moving the same error down a line.
         const fs::path d = workflow("canvas-same-refusal");
         int n = 0;
-        fake::Engine engine([&](const fake::Request&, int) { ++n; return fake::Reply{std::string{"=== FILE: "} + kFile + " ===\n" + std::string(static_cast<std::size_t>(n), '\n') + "def evaluate(expr, degrees=False:\n    return 0\n=== END FILE ===\n"}; });
+        fake::Engine engine([&](const fake::Request&, int) {
+            ++n;
+            if (n == 1) return fake::Reply{std::string{"=== FILE: "} + kFile + " ===\ndef evaluate(expr, degrees=False:\n    return 0\n=== END FILE ===\n"};
+            return fake::Reply{std::string{"=== EDIT: "} + kFile + " LINES 1 ===\n\ndef evaluate(expr, degrees=False:\n=== END EDIT ===\n"};
+        });
         CHECK_EQ(runLlmAgent(canvasArgs(d, engine, 1, 5)), 0);
         CHECK_EQ(engine.requestCount(), static_cast<std::size_t>(3));                                    // not the seven calls the turns allowed (the error's line number differs each time)
         const std::string trace = slurp(attemptDir(d, 1) / "conversation.md");
@@ -210,18 +222,41 @@ int main()
         const auto rq = engine.requests();
         if (rq.size() == 2) CHECK(rq[1].last().find("repeated the line") != std::string::npos);
     }
-    {   // A cut-off EDIT is continued by appending (row 34), and the overlap the continuation repeats is trimmed (row 35).
+    {   // A cut-off reply is continued as itself (2026-11-18): its text up to the last complete line goes back as the assistant's unfinished message (a
+        // prefill), and the model carries on from there, the cut line written whole; nothing is shown as a tail, nothing asked in a user message.
         const fs::path d = workflow("canvas-cut");
         failedAttempt(d, 1, bad);
         const auto cut = fixBySymbol.find("modulo by zero") + 6;                    // in the middle of a string literal
-        const std::string first = fixBySymbol.substr(0, cut), rest = fixBySymbol.substr(cut - 14);   // the continuation starts 14 characters early
-        fake::Engine engine({{first, "length"}, {rest}});
-        CHECK_EQ(runLlmAgent(canvasArgs(d, engine, 2, 0)), 0);
+        const auto lineStart = fixBySymbol.rfind('\n', cut) + 1;
+        fake::Engine engine({{fixBySymbol.substr(0, cut), "length"}, {fixBySymbol.substr(lineStart)}});
+        CHECK_EQ(runLlmAgent(canvasArgsCtx(d, engine, 2, 0, 32768)), 0);
         CHECK_EQ(slurp(attemptDir(d, 2) / "out" / kFile), ref);                    // no duplicated text: the file is exactly the reference
         const auto rq = engine.requests();
         CHECK_EQ(rq.size(), static_cast<std::size_t>(2));
-        if (rq.size() == 2) CHECK(rq[1].last().find("Continue from exactly that point") != std::string::npos);
-        CHECK(slurp(attemptDir(d, 2) / "agent.json").find("\"continued\":1") != std::string::npos);
+        if (rq.size() == 2) {
+            CHECK(rq[1].messages.back().first == "assistant" && rq[1].last() == fixBySymbol.substr(0, lineStart));
+        }
+        CHECK(slurp(attemptDir(d, 2) / "agent.json").find("\"continued\":1,\"prefilled\":1") != std::string::npos);
+    }
+    {   // llama.cpp's reply repeats the prefill before the continuation: the repeat is taken off.
+        const fs::path d = workflow("canvas-cut-echo");
+        failedAttempt(d, 1, bad);
+        const auto cut = fixBySymbol.find("modulo by zero") + 6;
+        fake::Engine engine({{fixBySymbol.substr(0, cut), "length"}, {fixBySymbol}});
+        CHECK_EQ(runLlmAgent(canvasArgsCtx(d, engine, 2, 0, 32768)), 0);
+        CHECK_EQ(slurp(attemptDir(d, 2) / "out" / kFile), ref);
+    }
+    {   // No room for the prefill in the context: the fallback shows the tail and asks for the cut line again in full, joined at the line boundary.
+        const fs::path d = workflow("canvas-cut-line");
+        failedAttempt(d, 1, bad);
+        const auto cut = fixBySymbol.find("modulo by zero") + 6;
+        const auto lineStart = fixBySymbol.rfind('\n', cut) + 1;
+        fake::Engine engine({{fixBySymbol.substr(0, cut), "length"}, {"```\n" + fixBySymbol.substr(lineStart)}});
+        CHECK_EQ(runLlmAgent(canvasArgsCtx(d, engine, 2, 0, 1024)), 0);
+        CHECK_EQ(slurp(attemptDir(d, 2) / "out" / kFile), ref);
+        const auto rq = engine.requests();
+        if (rq.size() == 2) CHECK(rq[1].last().find("Continue from the start of that unfinished line: write it again in full") != std::string::npos);
+        CHECK(slurp(attemptDir(d, 2) / "agent.json").find("\"prefilled\":0") != std::string::npos);
     }
     {   // A first attempt starts from the workspace's stub (revision 1), not from nothing; a file written whole becomes revision 2. The snippet form works too.
         const fs::path d = workflow("canvas-first");
@@ -240,6 +275,53 @@ int main()
         fake::Engine engine2({{std::string{"=== EDIT: "} + kFile + " ===\n<<<<<<< SEARCH\n" + badLine + "\n=======\n" + fixedLine + "\n>>>>>>> REPLACE\n=== END EDIT ===\n"}});
         CHECK_EQ(runLlmAgent(canvasArgs(d2, engine2, 2, 0)), 0);
         CHECK_EQ(slurp(attemptDir(d2, 2) / "out" / kFile), ref);
+    }
+    {   // Edits first: a FILE over a file that exists and is not a stub is refused (nothing applied) until edits stop making progress; the edit that
+        // follows applies (tier 0 wrong-approach of 2026-11-18: whole rewrites on turn 0 ran past the token limit and did not compile).
+        const fs::path d = workflow("canvas-scope");
+        failedAttempt(d, 1, bad);
+        fake::Engine engine({{fileBlock(ref)}, {fixBySymbol}});
+        CHECK_EQ(runLlmAgent(canvasArgs(d, engine, 2, 1)), 0);
+        CHECK_EQ(slurp(attemptDir(d, 2) / "out" / kFile), ref);
+        const auto rq = engine.requests();
+        CHECK_EQ(rq.size(), static_cast<std::size_t>(2));
+        CHECK(!rq.empty() && rq[0].messages[0].second.find("is only a stub: FILE") != std::string::npos);
+        CHECK(!rq.empty() && rq[0].last().find("SYMBOL (as many as it takes; FILE only for a file that is new or a stub)") != std::string::npos);
+        if (rq.size() == 2) CHECK(rq[1].last().find("Your reply was stopped: FILE would replace calc/engine.py, which exists and is not a stub") != std::string::npos);
+        CHECK(slurp(attemptDir(d, 2) / "agent.json").find("\"restructuredAt\":-1") != std::string::npos);
+    }
+    {   // Escalation on repeat failure of the second kind: two replies in a row stopped for a rewrite widen the scope, and the third rewrite is accepted
+        // (35B, 2026-11-18: with stops alone, every turn of three runs was stopped).
+        const fs::path d = workflow("canvas-scope-again");
+        failedAttempt(d, 1, bad);
+        fake::Engine engine({{fileBlock(ref)}, {fileBlock(ref)}, {fileBlock(ref)}});
+        CHECK_EQ(runLlmAgent(canvasArgs(d, engine, 2, 2)), 0);
+        CHECK_EQ(slurp(attemptDir(d, 2) / "out" / kFile), ref);
+        const auto rq = engine.requests();
+        CHECK_EQ(rq.size(), static_cast<std::size_t>(3));
+        if (rq.size() == 3) {
+            CHECK(rq[1].last().find("RESTRUCTURE ALLOWED") == std::string::npos);
+            CHECK(rq[2].last().find("RESTRUCTURE ALLOWED: 2 replies in a row were stopped for growing into a rewrite") != std::string::npos);
+        }
+        CHECK(slurp(attemptDir(d, 2) / "agent.json").find("\"restructuredAt\":1") != std::string::npos);
+    }
+    {   // Escalation: two tested revisions in a row without fewer failing tests widen the scope; the worker is told, and a FILE is then accepted.
+        const fs::path d = workflow("canvas-restructure");
+        failedAttempt(d, 1, bad);
+        const auto still = [&](const std::string& note) { return std::string{"=== EDIT: "} + kFile + " LINES " + std::to_string(bugLine) + " ===\n                v = v * d  # " + note + "\n=== END EDIT ===\n"; };
+        const std::string rewritten = "# rewritten whole: a new line 1 moves every line, so this is no restatement\n" + ref;
+        fake::Engine engine({{still("still wrong")}, {still("still wrong again")}, {fileBlock(rewritten)}});
+        CHECK_EQ(runLlmAgent(canvasArgs(d, engine, 2, 2)), 0);
+        CHECK_EQ(slurp(attemptDir(d, 2) / "out" / kFile), rewritten);
+        const auto rq = engine.requests();
+        CHECK_EQ(rq.size(), static_cast<std::size_t>(3));
+        if (rq.size() == 3) {
+            CHECK(rq[1].last().find("RESTRUCTURE ALLOWED") == std::string::npos);   // one revision without progress is not yet a pattern
+            CHECK(rq[2].last().find("RESTRUCTURE ALLOWED: 2 tested revisions in a row have not reduced the failing tests") != std::string::npos);
+            CHECK(rq[2].last().find("the approach wrong, the complete new file") != std::string::npos);
+        }
+        CHECK(slurp(attemptDir(d, 2) / "agent.json").find("\"restructuredAt\":1") != std::string::npos);
+        CHECK(slurp(attemptDir(d, 2) / "conversation.md").find("scope widened: restructure allowed: 2 tested revisions in a row have not reduced the failing tests") != std::string::npos);
     }
     {   // A part on a file the item does not own is skipped and named; the valid part beside it is kept (one bad part never costs the good ones).
         const fs::path d = workflow("canvas-allow");

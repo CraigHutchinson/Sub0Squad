@@ -87,7 +87,7 @@ std::string runReplyCase(const ReplyCase& c)
     std::set<std::string> allowed(c.allowed.begin(), c.allowed.end());
     if (allowed.empty()) { for (const auto& [p, t] : c.base) allowed.insert(p); for (const auto& [p, t] : c.want) allowed.insert(p); }
     std::string text;
-    for (std::size_t i = 0; i < c.replies.size(); ++i) text = i == 0 ? c.replies[i] : text + continuationText(text, c.replies[i]);
+    for (std::size_t i = 0; i < c.replies.size(); ++i) text = i == 0 ? c.replies[i] : joinContinuation(text, c.replies[i]);
     Canvas canvas;
     for (const auto& [p, t] : c.base) canvas.addFile(p, t);
     const CanvasReply parsed = parseCanvasReply(text);

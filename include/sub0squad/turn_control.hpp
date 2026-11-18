@@ -17,7 +17,9 @@ struct RunawayLimits
     int maxRepeats = 10;           ///< the same non-trivial line this many times in a row, or the same short block of lines over and over
     int restateMinLines = 30;      ///< a whole-file block is judged once it has this many lines ...
     double restateShare = 0.9;     ///< ... and is a restatement when this share of them equal the draft's lines at the same position
+    int maxCommentRun = 25;        ///< this many comment lines in a row inside a block: reasoning written as comments (35B, 2026-11-18: 140 of 240 lines)
 };
+
 
 /// Why a reply should be cancelled: `kind` is empty when the reply is fine so far.
 struct Runaway
@@ -31,6 +33,13 @@ struct Runaway
 /// restatement. Only complete lines are judged, so a verdict never depends on where the stream happened to split.
 [[nodiscard]] Runaway detectRunaway(std::string_view replySoFar, const std::map<std::string, std::string>& drafts, const RunawayLimits& limits = {});
 
+/// Where a reply under the narrow scope (canvas: edits first) grows into a rewrite of a file that exists and is not a stub (`locked`, path to text): a
+/// SEARCH that copies most of the file (at least 10 lines and `searchShare` of them: the file replaced in disguise), or one edit body (REPLACE, SYMBOL, LINES)
+/// past `maxEditLines`. Judged on complete lines; `kind` is "rewrite-search" or "big-edit", or empty. The SEARCH rule applies to files of `minFileLines` or
+/// more: in a small file one function is most of the file, and replacing it is an edit of a function's size (35B, 2026-11-18: a 35-line seed, every turn stopped).
+[[nodiscard]] Runaway detectEditOverrun(std::string_view replySoFar, const std::map<std::string, std::string>& locked, int maxEditLines = 100,
+                                        double searchShare = 0.8, int minFileLines = 60);
+
 /// The continuation without the part that repeats the end of `partial`: the longest suffix of `partial` that is a prefix of `continuation`, when it is at
 /// least `minChars` long (row 35: a continuation that began a few tokens before the cut duplicated a string literal).
 [[nodiscard]] std::string trimOverlap(std::string_view partial, std::string_view continuation, std::size_t minChars = 8);
@@ -38,6 +47,17 @@ struct Runaway
 /// The text of a continuation reply as it should be appended: a markdown fence around it and a repeated block header at its start removed (the model was
 /// asked for "only the rest"), then the overlap with `partial` trimmed.
 [[nodiscard]] std::string continuationText(std::string_view partial, const std::string& continuationReply);
+
+/// The whole reply once a continuation is joined to the reply cut off at the token limit (`partial`, its last line unfinished or not). The worker is asked
+/// (continuationPrompt) to write the unfinished line again in full, so the join is at a line boundary; what the 35B also sends is handled: the cut line
+/// continued from the cut (a token boundary's lost space restored), a few lines before the cut written again (dropped), a stray `===` or fence (dropped), the
+/// rest as a SEARCH/REPLACE of the block's tail (spliced). A reply that is a block of its own (read requests, or the block begun again from its first line)
+/// replaces the partial: the result is the reply.
+[[nodiscard]] std::string joinContinuation(std::string_view partial, const std::string& continuationReply);
+
+/// The re-prompt for a reply cut off at the token limit: its last complete lines (about `tailChars`, whole lines), the unfinished line named, and the
+/// instruction to write that line again in full and finish the block.
+[[nodiscard]] std::string continuationPrompt(std::string_view partial, std::size_t tailChars = 700);
 
 /// Whether a reply that ended at the token limit stopped inside an EDIT block (its last `=== EDIT:` has no `=== END EDIT ===`): such a reply is continued
 /// by appending, like a cut-off file (row 34).
