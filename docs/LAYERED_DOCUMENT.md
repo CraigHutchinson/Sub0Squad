@@ -10,7 +10,7 @@ the squad's: how the canvas loop uses the layer, the switches, and the tier 0 ev
 | document | what it holds |
 |---|---|
 | [docs/LAYERED_DOCUMENT.md](https://github.com/CraigHutchinson/Sub0Canvas/blob/main/docs/LAYERED_DOCUMENT.md) | the model, block identity (how an id survives edits, rewrites, orphans, scope), edit addressing and its alternatives, the summary and the query, localisation, prompt cost, how layers are added, duplicates, history, the formats, prior art |
-| [docs/DIRECTION.md](https://github.com/CraigHutchinson/Sub0Canvas/blob/main/docs/DIRECTION.md) | the owner's direction of 2026-11-17, verbatim: sub0canvas as the squad's backbone, source adapters and the GitHub project view |
+| [docs/DIRECTION.md](https://github.com/CraigHutchinson/Sub0Canvas/blob/main/docs/DIRECTION.md) | the owner's direction of 2026-11-17, verbatim: Sub0Canvas as the squad's backbone, source adapters and the GitHub project view |
 | [docs/BACKBONE.md](https://github.com/CraigHutchinson/Sub0Canvas/blob/main/docs/BACKBONE.md) | the design written from it: state and tags, events, subscriptions as inboxes, claims, the store, adapters, the revision-aware index, scale to billions of lines, slices with checks, open questions for the owner |
 | [docs/CANVAS.md](https://github.com/CraigHutchinson/Sub0Canvas/blob/main/docs/CANVAS.md) | the library half of [CANVAS.md](CANVAS.md): the revisioned document, transactions, folded views and reads |
 | [docs/INTEGRATION.md](https://github.com/CraigHutchinson/Sub0Canvas/blob/main/docs/INTEGRATION.md) | how a library change reaches this repository: a tag there, a pull request here bumping the pin, the evidence each change needs |
@@ -127,7 +127,7 @@ Next, from this:
   verdict parses into more than 6 issues (`kAdaptiveIssues`, gate.txt's own excerpt; it was 3 until the A/B below); otherwise the gate's text is sent unchanged, with the gate's own focus, exactly as in mode 0.
   The layers are written to `layers/turn-N.json` in modes 1 and 2 either way, and READ ISSUE is answered in both.
 * **Inline detail.** Where the layer is used, the first issues are shown in full under the summary, each with its function's current code
-  (`layerInline` in sub0canvas v0.2.1: the first `SUB0SQUAD_ISSUE_INLINE` issues, default 3, within 3,000 characters, the first always; a function
+  (`layerInline` in Sub0Canvas v0.2.1: the first `SUB0SQUAD_ISSUE_INLINE` issues, default 3, within 3,000 characters, the first always; a function
   shown for an earlier issue is named, not repeated). The rest are left to `=== READ: ISSUE n ===`. `SUB0SQUAD_ISSUE_INLINE=0` is slice 1's summary
   alone. For compiler diagnostics, the compiler's own words follow unless every issue is already shown in full.
 * `agent.json` records `issueMode`, `issueInline`, `layerShown` (failing verdicts shown through the layer) and `layerPassed` (those adaptive mode left

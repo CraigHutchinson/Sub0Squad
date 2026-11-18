@@ -93,6 +93,28 @@ sub0squad archive --label NAME                         # after the run, daemon s
 * **Self-mending:** every manual fix is a missing rule: catalogue it in [INTERVENTIONS.md](INTERVENTIONS.md) with a detector, a mend and a regression fixture.
 * **Report faithfully:** a failing test is reported with its output; what was not verified is said.
 * **Stop and ask:** the final name; enabling any frontier tier; changes to Sub0Pipeline or Sub0Pub; downloads; installing software; credentials.
+* **Nothing leaves the machine:** local models only (frontier off); no uploading of code or data. This repository is public, so it never names or
+  links a private repository (the pre-push gate checks, [DEV_SETUP.md](DEV_SETUP.md)).
+* **Commit as you go** to `main` (fetch, rebase, build, run the tests first), as the owner's GitHub identity already set in the clone, with a
+  `Co-Authored-By` trailer for the agent. **Confirm with the owner before pushing**; never force-push or skip hooks. In a checkout another session
+  shares, commit only your own files and never stash, reset or switch branches (use a worktree). When the owner says "all work", include other
+  agents' uncommitted files.
+* **Clean up as you go** (standing permission, 2026-11-17): once work is merged, superseded or obsolete, delete its branches (local and remote),
+  worktrees and stale folders (old run data under `out/`) without asking, after checking that it really is merged or superseded. Retire one-off
+  handoff notes and legacy documents once integrated. "Never throw work away" protects unique, unmerged work only.
+* **CI:** never dispatch the full tier after a routine push. Verify locally (the pre-push gate runs the quick tier; `ctest` for full), then check
+  only the smoke run. Full runs are for releases, version bumps and milestones; the one exception is a change only another platform can prove
+  (a Windows Server runner's behaviour): batch such changes and dispatch once ([DEV_SETUP.md](DEV_SETUP.md)).
+* **Follow-up work** that belongs in its own session is written as a brief in [sessions/](sessions/README.md) (write, pick up, close with an
+  `## Outcome`, move to *Done*), listed there and pointed at from [BACKLOG.md](BACKLOG.md). Not left in a chat or a session card, which other
+  devices cannot open.
+* **The shared engine:** `llama-server` on port 8092 is shared by every session; never stop, restart or retune it, and never start a second server on
+  its port. Coordinate tier 0 runs with the session running them.
+* **The canvas library** is [Sub0Canvas](https://github.com/CraigHutchinson/Sub0Canvas) (that spelling in prose and URLs; its code identifiers,
+  `sub0canvas::`, `CPM_sub0canvas_SOURCE`, stay lower-case). Changes to it are made there first, tagged, and arrive here as a pull request bumping
+  the pin (its `docs/INTEGRATION.md`).
+* **This list is complete.** Everything needed to work here is in this repository; nothing depends on notes kept outside it (an assistant's local
+  memory, a chat, a session card). When the owner gives a new standing instruction, add it here in the same change.
 
 ## 7. Host safety (the dev host ran out of memory twice)
 

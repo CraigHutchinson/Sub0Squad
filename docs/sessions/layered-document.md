@@ -1,13 +1,13 @@
-# Follow-up session: the layered document, slice 2 and the sub0canvas backbone
+# Follow-up session: the layered document, slice 2 and the Sub0Canvas backbone
 
 Status: **done** (written 2026-11-17, closed 2026-11-18; see "Outcome" at the end). Strand 2 continues in Sub0Canvas, where its design waits for the owner. Backlog: "Layered document" under *Next* in [../BACKLOG.md](../BACKLOG.md). Evidence:
 [../LAYERED_DOCUMENT.md](../LAYERED_DOCUMENT.md) (the design, slice 1 as built, the tier 0 A/B and its trace); the run directories in
 `out/runs/layers-ab-2026-11-17/` (their README says what each one is).
 
-**Progress (2026-11-18):** strand 1 is done: the adaptive switch and inline detail are built (sub0canvas v0.2.1 `layerInline`;
+**Progress (2026-11-18):** strand 1 is done: the adaptive switch and inline detail are built (Sub0Canvas v0.2.1 `layerInline`;
 `canvas_agent.cpp`), measured at 5 runs per arm in four arms ("Slice 2 on tier 0" in LAYERED_DOCUMENT.md: always-on regressed fix-many, bugs-3 and
 bugs-6; adaptive at a threshold of 3 misfired on fix-many; at 6, the gate's own excerpt, nothing regressed), and the threshold is now 6. Strand 2:
-the design is written, sub0canvas `docs/BACKBONE.md`, waiting for the owner to read it.
+the design is written, Sub0Canvas `docs/BACKBONE.md`, waiting for the owner to read it.
 
 ## Goal
 
@@ -15,7 +15,7 @@ Continue the layered document from slice 1. There are two strands. Do them in or
 
 1. **Slice 2 of the issues layer**, measured on tier 0. The A/B showed where the summary helps (long, clipped verdicts) and where it costs (short ones).
    Make it pay its way everywhere.
-2. **The sub0canvas backbone and source adapters**, designed and not yet implemented. The owner calls this "a major item of work to plan and design".
+2. **The Sub0Canvas backbone and source adapters**, designed and not yet implemented. The owner calls this "a major item of work to plan and design".
 
 Do not retune or restart the llama server, and do not start a second one on its port. The session that owns it is the one that started this brief's author
 (Sub0squad windows porting); coordinate tier 0 runs with it.
@@ -35,9 +35,9 @@ Sub0Squad pins that tag in `cmake/dependencies.cmake`. Its `include/sub0squad/{o
 * `test_blocks`, whose recorded replies in `tests/data/replies` exercise the edits code.
 
 **Workflow across the two repositories:**
-1. Change sub0canvas first, run its tests, and tag it (`v0.2.x`).
+1. Change Sub0Canvas first, run its tests, and tag it (`v0.2.x`).
 2. Bump `GIT_TAG` in Sub0Squad, build, and run at least `test_blocks`, `test_canvas_agent` and the full suite.
-3. Push sub0canvas (main and the tag) before the Sub0Squad pin. A pin to a tag nobody can fetch breaks CI.
+3. Push Sub0Canvas (main and the tag) before the Sub0Squad pin. A pin to a tag nobody can fetch breaks CI.
 
 For local work, `. scripts/dev-env.sh` exports `CPM_sub0canvas_SOURCE` to the sibling checkout `../sub0canvas`.
 The cut-over import script has since been removed from Sub0Canvas.
@@ -51,13 +51,13 @@ The cut-over import script has since been removed from Sub0Canvas.
   on a shared `+`, fixed in slice 1. With both fixes, bugs-10 changed at most 21 lines in 3 runs, at 2.73 defects per turn.
 
 **The design's open parts** are all in LAYERED_DOCUMENT.md:
-* "Direction: sub0canvas as the squad's backbone": layers as inboxes, tags and state, events, subscriptions, claims, views.
+* "Direction: Sub0Canvas as the squad's backbone": layers as inboxes, tags and state, events, subscriptions, claims, views.
 * "Sources: an adapter abstraction, and the GitHub project view": document, items, events and write capabilities; source anchors resolved by the core;
   a revision-aware index replayed over git history; the GitHub mapping; slices G1 to G5.
 * "Out of scope (for now)".
 
 The viewer's schema requests (anchor columns, a proposed `fix` per item, `mergedFrom`, a `revision` on loose anchors, `layerMeta`) are listed in
-the sub0canvas repository's README and docs, and are not built yet.
+the Sub0Canvas repository's README and docs, and are not built yet.
 
 **A Windows test finding, not in this brief's scope.** `test_thrash` and `test_nearpass` fail with "daemon did not come up" in deep checkouts. The control
 socket path under `<build>/test-tmp/s0q-<tag>-xxxxxx/run/control.sock` exceeds Windows' 107-byte limit. They pass with `SUB0SQUAD_TEST_TMP` set to a short
@@ -70,14 +70,14 @@ directory. This belongs to whoever owns the Windows port.
    unchanged. This is in `canvas_agent.cpp`'s `layeredVerdict`. Keep `SUB0SQUAD_ISSUE_LAYER` (0 off, 1 always on), and add 2 for adaptive, as the
    default to measure.
 2. **Inline detail.** Show the first N issues (about 3) in full, with their function's code, under the summary; keep READ ISSUE for the rest. The
-   rendering (`layerDetail`, `layerSummary`) is in sub0canvas `doc_layers`, and the choice of N is in `canvas_agent.cpp`.
+   rendering (`layerDetail`, `layerSummary`) is in Sub0Canvas `doc_layers`, and the choice of N is in `canvas_agent.cpp`.
 3. **Measure.** Run the A/B as before, with three arms (off, on, adaptive) on bugs-3, bugs-6, bugs-10 and fix-many, at **5 runs per arm**. Use
    `validation/tiers/run_t0.sh` and `gate_t0.py`, and the archived `compare_layers.py` with its paths adjusted. Report every case, regressions included,
    and the collateral per run from `gate.md`.
 4. Write the result into LAYERED_DOCUMENT.md as "Slice 2 on tier 0".
 
 **Strand 2: the backbone design.**
-1. Write the design in sub0canvas (`docs/BACKBONE.md` or similar). It covers the mechanisms (tags and state, events, subscriptions as inboxes, claims,
+1. Write the design in Sub0Canvas (`docs/BACKBONE.md` or similar). It covers the mechanisms (tags and state, events, subscriptions as inboxes, claims,
    item links, views), the adapter interfaces and the revision-aware index, how today's squad pieces become layers and adapters, and the extension to
    `layered-doc-1`.
 2. Give ordered slices, each with a measurable check. G1 to G5 in LAYERED_DOCUMENT.md are a first cut.
@@ -87,11 +87,11 @@ directory. This belongs to whoever owns the Windows port.
 ## Done means
 
 * **Strand 1:**
-  * the adaptive switch and the inline detail are built, with unit tests in sub0canvas (`test_doc_layers`) and Sub0Squad (`test_canvas_agent`);
+  * the adaptive switch and the inline detail are built, with unit tests in Sub0Canvas (`test_doc_layers`) and Sub0Squad (`test_canvas_agent`);
   * the pin is bumped;
   * the full suite passes;
   * LAYERED_DOCUMENT.md has a "Slice 2 on tier 0" table with 5 runs per arm and every regression named.
-* **Strand 2:** a design doc in sub0canvas that the owner has read, with interfaces, the format extension, slices and checks. No implementation.
+* **Strand 2:** a design doc in Sub0Canvas that the owner has read, with interfaces, the format extension, slices and checks. No implementation.
 
 ## Environment and constraints
 

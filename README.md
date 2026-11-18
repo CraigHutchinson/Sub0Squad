@@ -109,6 +109,7 @@ test suite; [docs/BLOCK_PROVING_GROUNDS.md](docs/BLOCK_PROVING_GROUNDS.md) lists
 | Document | What it holds |
 |---|---|
 | [RESUME.md](docs/RESUME.md) | The hand-off for the next session on a new machine: state, evidence, priority order, start commands |
+| [AGENTS.md](AGENTS.md) | Start here to continue the work: where the standing rules, the state, the briefs and the build instructions are |
 | [STATUS.md](docs/STATUS.md) | Where the project is, what is proven and by which test, open questions for the owner, standing rules, host safety |
 | [EXPERIMENTS.md](docs/EXPERIMENTS.md) | The proving sandbox: method, host and engine, tools, campaigns, results on the real model, the experiment queue |
 | [BACKLOG.md](docs/BACKLOG.md) | Work understood but not done: now, next, later |

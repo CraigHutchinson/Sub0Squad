@@ -62,7 +62,7 @@ if(WIN32)
     target_link_libraries(sub0squad_platform PUBLIC stdc++exp)
   endif()
 endif()
-# The canvas tooling is the sub0canvas library (cmake/dependencies.cmake); the domain layer's forwarding headers (outline, edits, canvas, doc_layers) name it.
+# The canvas tooling is the Sub0Canvas library (cmake/dependencies.cmake); the domain layer's forwarding headers (outline, edits, canvas, doc_layers) name it.
 target_link_libraries(sub0squad_domain PUBLIC sub0canvas::sub0canvas)
 # The daemon's job graph and typed events are the Sub0 libraries; only the orchestration layer uses them.
 target_link_libraries(sub0squad_orchestration PUBLIC Sub0Pipeline::Sub0Pipeline Sub0Pipeline::Priority Sub0Pub::Sub0Pub)
