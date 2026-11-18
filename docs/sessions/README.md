@@ -43,6 +43,8 @@ machine (frontier off), no commits without the owner's go-ahead, ask before chan
 
 ## Open
 
+- [Portal access and a Node.js viewer](portal-access.md) — receive a local summary viewer, then verify private remote access from a second device.
+
 | Brief | Task | Written |
 |---|---|---|
 | [engine-registry-integration.md](engine-registry-integration.md) | Run the squad on Sub0LlmEngine and Sub0LlmModelRegistry instead of its own `llama-server` line | 2026-11-16 |

@@ -300,8 +300,7 @@ every role. Needs expectation QA, the routed CONCERN channel and the habit score
 - "Copy as prompt" on the briefing; node detail with card, last prompt and gate output side by side; engine and memory gauges; cached tokens as a figure;
   quotas and the frontier switch as governance requests.
 - A canvas pane: claims, presence, notes ([CANVAS.md](CANVAS.md) slices 1 to 4).
-- Remote viewing (proposed, not agreed; loopback-only by design): an opt-in, read-only flag with a token, or a tunnel. Needs the owner (STOP AND ASK). Today:
-  `ssh -L 8780:127.0.0.1:8780 USER@HOST`.
+- [Portal access and a Node.js viewer](sessions/portal-access.md) — prototype a limited viewer on loopback first. Prefer Tailscale Serve for private remote access. Evaluate authenticated ngrok for a time-limited external demo. Real data and remote activation require owner agreement.
 
 **Platform and CI**
 - The platform library ([PLATFORM.md](PLATFORM.md)): slices 0 to 4 built 2026-11-16 (the system-header check; one process launcher; process identity

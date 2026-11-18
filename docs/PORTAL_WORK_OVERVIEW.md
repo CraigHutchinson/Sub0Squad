@@ -66,6 +66,8 @@ On Windows, the HTTP and Edge receiving check used two archived homes with the s
 
 ## Backlog and receiving order
 
+The [portal access brief](sessions/portal-access.md) proposes a separate Node.js viewer for the approved summary, starting locally and then receiving it through Tailscale Serve from a second device. The existing local dashboard continues to own workflow detail and operator actions.
+
 | Slice | Delivery | Receiving check |
 | --- | --- | --- |
 | **Overview and selector** | Register two homes and a small staged-work list. Render activity and backlog, then open existing workflow detail by composite key. Use a polling read path first. | Both homes can have a `w-000001`. Show one live, one staged, and one terminal archived execution. Going offline preserves the last verified status, and selection survives refresh. |
