@@ -114,6 +114,9 @@ int main(int argc, char** argv)
             std::string ok = file;
             for (int i = 0; i < 4; ++i) ok += "namespace {\nint f" + std::to_string(i) + "(int a) {\n    return a + " + std::to_string(i) + ";\n}\n}\n";
             CHECK(!detectRunaway(ok, {}));
+            // Nor an edit of a head the file holds: SEARCH and REPLACE repeat it (a rolled-back FILE, then an EDIT of its enum: 35B, 2026-11-18).
+            const std::string head = "enum class TokType {\n    Number,\n    Plus,\n};\n";
+            CHECK(!detectRunaway(file + head + "int f(int a) {\n    return a;\n}\n=== EDIT: t.cpp ===\n<<<<<<< SEARCH\n" + head + "=======\nenum class TokType {\n", {}));
         }
         CHECK(cutOffInsideEdit("=== EDIT: a.cpp LINES 3 ===\nint x"));
         CHECK(!cutOffInsideEdit("=== EDIT: a.cpp LINES 3 ===\nint x;\n=== END EDIT ===\n"));

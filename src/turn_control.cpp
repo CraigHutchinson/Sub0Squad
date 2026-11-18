@@ -107,12 +107,15 @@ Runaway detectRunaway(std::string_view reply, const std::map<std::string, std::s
             while (start >= k && lines[start - 1] == lines[start - 1 + k]) --start;
             return loop("the same " + std::to_string(k) + " lines " + std::to_string((lines.size() - start) / k) + " times over", start + k);   // its first copy is kept
         }
-        // The same definition head a third time inside one FILE block (at the left margin, opening a body; `namespace`/`extern` blocks may recur).
+        // The same definition head a third time inside one FILE block (at the left margin, opening a body; `namespace`/`extern` blocks may recur). Only
+        // inside a FILE: an edit's SEARCH and REPLACE repeat the head they change by design (35B, 2026-11-18: after a rollback, the kept FILE, then an
+        // EDIT of `enum class TokType {` in SEARCH and REPLACE, was called a loop at 303 characters).
         std::map<std::string, std::vector<std::size_t>> heads;   // head line -> the line numbers it was written at
+        bool inFile = false;
         for (std::size_t i = 0; i < lines.size(); ++i) {
             const std::string& l = lines[i];
-            if (startsWith(l, "=== FILE:")) { heads.clear(); continue; }
-            if (startsWith(l, "=== ")) continue;
+            if (startsWith(l, "=== ")) { heads.clear(); inFile = startsWith(l, "=== FILE:"); continue; }
+            if (!inFile) continue;
             const std::string r = l.substr(0, l.find_last_not_of(" \t\r") + 1);
             if (r.size() < 8 || std::isspace(static_cast<unsigned char>(r[0])) || startsWith(r, "namespace") || startsWith(r, "extern") || startsWith(r, "}")) continue;
             const bool opens = r.back() == '{' || startsWith(r, "TEST(") || startsWith(r, "def ") || startsWith(r, "class ") || startsWith(r, "struct ");
