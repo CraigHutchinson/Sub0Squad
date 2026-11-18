@@ -386,7 +386,7 @@ function drawDrawer(){
   if(sel.type=='file'){
     if(!fileView){return}
     const wf=fileView.wf,raw='/api/file?wf='+encodeURIComponent(wf)+'&p='+encodeURIComponent(fileView.p),isSite=fileView.p.startsWith('project/')&&/\.html?$/.test(fileView.p);
-    a=`<h2 style="word-break:break-all">${esc(fileView.p)}</h2><div class="mute"><a href="${raw}" target="_blank" rel="noopener">raw</a>${isSite?` · <a href="${siteBase()}/site/${encodeURIComponent(wf)}/${esc(fileView.p.replace(/^project\//,''))}" target="_blank" rel="noopener">open as a page ↗</a>`:''}${followable(fileView.p)?` · <label><input type="checkbox" ${fileView.follow?'checked':''} onchange="setFollow(this.checked)"> follow live</label>`:''}</div><pre class="viewer">${esc(fileView.text)}</pre>`;}
+    a=`<h2 style="word-break:break-all">${esc(fileView.p)}</h2><div class="mute"><a href="${raw}" target="_blank" rel="noopener">raw</a>${isSite?` · <a href="${siteBase()}/site/${encodeURIComponent(wf)}/${esc(fileView.p.replace(/^project\//,''))}" target="_blank" rel="noopener">open as a page ↗</a>`:''}${followable(fileView.p)?` · <label><input type="checkbox" ${fileView.follow?'checked':''} onchange="setFollow(this.checked)"> follow live</label>`:''}</div><pre class="viewer"></pre>`;}
   else if(sel.type=='tile'){const s=L.system||{};const t=sysTiles().find(x=>x.k==sel.key);const m={cpu:['CPU busy','%'],mem:['Memory used','%'],swapMiB:['Swap used','MiB'],load:['Load average',''],gpu:['GPU busy','%'],vramMiB:['GPU VRAM','MiB'],gttMiB:['GPU GTT','MiB']}[sel.key]||[sel.key,''];
     a=`<h2>${m[0]}</h2><div class="mute">now ${t?t.v:''}</div>`;b=chart(s[sel.key],m[1],'',null);}
   else if(sel.type=='engine'){const e=((L.engines)||[]).find(x=>x.base===sel.key);const m=e&&e.model||{};const pr=Object.values(profiles()).filter(x=>x.base===sel.key);const bd=badgeOf(m.file||m.alias?m:null,null);
@@ -412,9 +412,11 @@ function drawDrawer(){
       c=`<b>Artifacts</b> <span class="mute">${mine.length} files</span><div class="fl" style="padding-left:0">${mine.map(f=>`<div>${fl(f.p,f.p.replace('items/'+i.id+'/',''))} <span class="mute">${fmt(f.s)} B</span></div>`).join('')||'<span class="mute">none yet</span>'}</div>`
         +`<b>Jobs</b><table><tbody>${j.map(x=>`<tr><td>${esc(x.id)}<br><span class="mute">${fl('@jobs/'+x.id+'/run-'+(x.run||1)+'/stdout.log','out')} ${fl('@jobs/'+x.id+'/run-'+(x.run||1)+'/stderr.log','err')} ${fl('@jobs/'+x.id+'/run-'+(x.run||1)+'/exit.json','exit')}</span></td><td>${esc(x.role)} #${x.attempt}</td><td>${esc(x.state)}${x.note&&!['succeeded','running'].includes(x.state)?`<br><span class="mute">${esc(x.note)}</span>`:''}</td><td>${Math.round(x.elapsedSec||0)} s</td></tr>`).join('')||'<tr><td class="mute">none</td></tr>'}</tbody></table>`
         +`<b>Decisions</b><table><tbody>${decs.map(x=>`<tr><td><b>${esc(x.action)}</b> #${esc(x.inputs.attempt)}<br><span class="mute">${esc((x.reasons||[]).slice(-1)[0]||'')}</span></td></tr>`).join('')||'<tr><td class="mute">none</td></tr>'}</tbody></table>`;}}
-  const vw0=document.querySelector('pre.viewer'),atEnd=!vw0||vw0.scrollHeight-vw0.scrollTop-vw0.clientHeight<40;
-  setInner($('dA'),a);setInner($('dB'),b);setInner($('dC'),c);
-  const vw=document.querySelector('pre.viewer');if(vw&&sel&&sel.type=='file'&&fileView&&fileView.follow&&atEnd)vw.scrollTop=vw.scrollHeight;
+  // the file text goes into its viewer in place: the viewer is rebuilt only when the header above it changes, so a refresh keeps the reader's place;
+  // a followed view that was at the end moves with the stream, any other view keeps its scrollTop
+  const dA=$('dA'),vw0=dA.__html==null?null:dA.querySelector('pre.viewer'),top0=vw0?vw0.scrollTop:0,atEnd=!vw0||vw0.scrollHeight-vw0.scrollTop-vw0.clientHeight<8;
+  setInner(dA,a);setInner($('dB'),b);setInner($('dC'),c);
+  const vw=dA.querySelector('pre.viewer');if(vw&&sel.type=='file'&&fileView){setText(vw,fileView.text);vw.scrollTop=fileView.follow&&atEnd?vw.scrollHeight:top0}
 }
 // ================= canvas viewer =================
 // The shared document an item's worker edits (the canvas and fork executors). Each attempt keeps `canvas.json` (each file's revision count and the

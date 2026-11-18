@@ -17,12 +17,14 @@ function check(ok, what) { if (!ok) { ++failed; console.error('CHECK failed: ' +
 const all = [];
 function element(tag) {
   const e = {
-    tag, attrs: {}, children: [], parent: null, innerHTML: '', textContent: '', style: {}, dataset: {}, scrollTop: 0, scrollHeight: 0, value: '', listeners: {},
+    tag, attrs: {}, children: [], parent: null, _html: '', textContent: '', style: {}, dataset: {}, scrollTop: 0, scrollHeight: 0, value: '', listeners: {},
     classList: {
       set: new Set(),
       add(c) { this.set.add(c); }, remove(c) { this.set.delete(c); }, contains(c) { return this.set.has(c); },
       toggle(c, on) { const want = on === undefined ? !this.set.has(c) : !!on; if (want) this.set.add(c); else this.set.delete(c); return want; },
     },
+    get innerHTML() { return this._html; },
+    set innerHTML(v) { this._html = v; this.found = {}; },   // new markup replaces the children: the parts looked up before are rebuilt too
     getAttribute(k) { return k in this.attrs ? this.attrs[k] : null; },
     setAttribute(k, v) { this.attrs[k] = String(v); },
     removeAttribute(k) { delete this.attrs[k]; },
@@ -81,7 +83,7 @@ sandbox.getSelection = () => ({ isCollapsed: true, toString: () => '' });
 vm.createContext(sandbox);
 
 // The script, plus one line that hands its own functions to this test (its top-level `const`s are not properties of the global object).
-const source = fs.readFileSync(scriptPath, 'utf8') + '\n;globalThis.__page = { render, openDrawer, tickState, tickLive, loadPkg, loadPlan, setView, tickCanvas };\n';
+const source = fs.readFileSync(scriptPath, 'utf8') + '\n;globalThis.__page = { render, openDrawer, tickState, tickLive, loadPkg, loadPlan, setView, tickCanvas, openFile, loadFile, setFollow };\n';
 try {
   vm.runInContext(source, sandbox, { filename: 'portal.js' });
 } catch (err) {
@@ -165,6 +167,35 @@ const shown = () => all.map((e) => e.innerHTML + '\n' + e.textContent).join('\n'
   check(byId.get('cv-note').textContent.includes('revision 2 of src/main.cpp, by harness: lines 3–3 changed'), 'the note says what the shown revision changed');
   sandbox.__page.setView('overview');
   check(byId.get('v-overview').style.display === '' && byId.get('v-canvas').style.display === 'none', 'the overview tab brings the overview back');
+
+  // The file viewer: a refresh that changes the text keeps the place of a reader who is up the transcript, and a followed view that is at the end
+  // moves with the stream.
+  const transcript = dir + '/conversation.md';
+  fileAnswers[transcript] = 'first\n';
+  const flush = async () => { for (let i = 0; i < 10; ++i) await new Promise((resolve) => setImmediate(resolve)); };
+  try {
+    await sandbox.__page.openFile(transcript);
+    await flush();
+    sandbox.__page.setFollow(false);
+    await flush();
+    let viewer = byId.get('dA').querySelector('pre.viewer');
+    viewer.scrollHeight = 1000; viewer.clientHeight = 400; viewer.scrollTop = 100;   // the reader is up the transcript
+    fileAnswers[transcript] = 'first\nsecond\n';
+    await sandbox.__page.loadFile();
+    viewer = byId.get('dA').querySelector('pre.viewer');
+    check(viewer.textContent === 'first\nsecond\n', 'the viewer shows the refreshed transcript');
+    check(viewer.scrollTop === 100, 'a refresh keeps the place of a reader who is up the transcript (scrollTop ' + viewer.scrollTop + ')');
+    fileAnswers[transcript] = 'first\nsecond\nthird\n';
+    sandbox.__page.setFollow(true);   // the follow box is checked, and the text is new: the header and its viewer are rebuilt once
+    await flush();
+    viewer = byId.get('dA').querySelector('pre.viewer');
+    viewer.scrollHeight = 1000; viewer.clientHeight = 400; viewer.scrollTop = 600;   // at the end
+    fileAnswers[transcript] = 'first\nsecond\nthird\nfourth\n';
+    await sandbox.__page.loadFile();
+    viewer = byId.get('dA').querySelector('pre.viewer');
+    check(viewer.textContent === 'first\nsecond\nthird\nfourth\n', 'the followed viewer shows the new text');
+    check(viewer.scrollTop === 1000, 'a followed viewer at the end moves to the end (scrollTop ' + viewer.scrollTop + ')');
+  } catch (err) { check(false, 'the file viewer threw: ' + (err && err.stack ? err.stack : err)); }
 
   // An empty state renders the invitation, not an exception.
   answers['/api/state'] = '{"workflows":{"asOf":1,"source":"daemon","workflows":[]},"jobs":{"jobs":[]}}';
