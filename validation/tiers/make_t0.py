@@ -178,6 +178,20 @@ CASES = {
         exercises="starting files that do not compile (a syntax error)",
         calc=sub(CALC, "        const double x = a[0];\n", "        const double x = a[0]\n"),
         context="src/calc.cpp is a complete calculator engine, but it does not compile. Fix it with the smallest edit."),
+    # T1 (2026-11-18, the 35B, output limit 6000): Parser::check_eol() defined out of the class and called, never declared. The errors name the
+    # definition and the call, both right as written; the fix is a declaration in the class, at neither line. The worker read folded bodies for five turns.
+    "undeclared-member": dict(
+        exercises="a compile error whose fix is away from the lines it names (a member defined and called, never declared in its class)",
+        calc=sub(sub(CALC, "        skip();\n        if (pos_ != s_.size()) fail(std::string(\"unexpected '\") + s_[pos_] + \"'\");\n", "        checkEnd();\n"),
+                 "    std::size_t pos_ = 0;\n};\n",
+                 "    std::size_t pos_ = 0;\n};\n\nvoid Parser::checkEnd()\n{\n    skip();\n    if (pos_ != s_.size()) fail(std::string(\"unexpected '\") + s_[pos_] + \"'\");\n}\n"),
+        context="src/calc.cpp is a complete calculator engine, but it does not compile. Fix it with the smallest edit."),
+    "undeclared-many": dict(
+        exercises="one cause, a long error list: a member moved out of its class without its declaration (every call site errs)",
+        calc=sub(sub(CALC, "    bool eat(char c) { skip(); if (pos_ < s_.size() && s_[pos_] == c) { ++pos_; return true; } return false; }\n", ""),
+                 "    std::size_t pos_ = 0;\n};\n",
+                 "    std::size_t pos_ = 0;\n};\n\nbool Parser::eat(char c)\n{\n    skip();\n    if (pos_ < s_.size() && s_[pos_] == c) { ++pos_; return true; }\n    return false;\n}\n"),
+        context="src/calc.cpp is a complete calculator engine, but it does not compile. Fix it with the smallest edit."),
     "compile-warning": dict(
         exercises="a warning that the build treats as an error",
         calc=sub(CALC, "        const char* start = s_.c_str() + pos_;\n", "        const char* start = s_.c_str() + pos_;\n        const std::size_t left = s_.size() - pos_;\n"),
@@ -316,6 +330,7 @@ REQUIRES = {
     "fix-many": ["fix-op", "fix-boundary", "fix-missing-check"],
     "fix-two-bugs": ["fix-op", "fix-boundary", "fix-missing-check"],
     "compile-and-logic": ["compile-typo", "fix-op"],
+    "undeclared-many": ["undeclared-member"],
     "merge-conflict": ["fix-op"], "two-files": ["fix-op"],
     "edit-mix": ["bugs-10", "fix-distant", "repeat-trig", "fix-many", "fix-two-bugs"],
     "build-mix": ["compile-and-logic", "compile-warning", "duplicate", "repeat-rename"],
