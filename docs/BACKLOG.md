@@ -114,6 +114,18 @@ The queue, with hypotheses, arms, measures and commands, is [EXPERIMENTS.md](EXP
   It needs the prompt, the partial and the reply's budget to fit the context, and falls back to the tail prompt when they do not (`prefilled` against `continued`
   in agent.json says how often). Compaction keeps it on the prefill path: fold the canvas view of a file the reply is replacing whole (FILE over a stub, or after a
   restructure), drop the issue and stance sections on a continuation turn, and size the reply budget to what is left. Measure first: how often the fallback is taken.
+- Loops (owner, 2026-11-18; built in one reply, multi-turn left for real evidence). Code repeats itself by design, so there is no repetition penalty, DRY
+  sampler or chunk hash on it: Gemini CLI's loop service turns its content check off inside code blocks for that reason, and keeps tool-call repeats and
+  an LLM check for the rest. Within one reply a loop is caught after the fact (`detectRunaway`: verbatim whole lines only, at counts hand-written code does not
+  reach: one line 10 times, a short cycle 5 times, a block of 7 to 80 lines 3 times, the same definition head a third time in one FILE), then rolled back to
+  where the loop began (its first copy kept) and continued after an interception that names what repeated, says what is written once is done, and asks for a
+  different angle. A second loop in a row starts afresh, unrolled (Gemini recovers once with feedback, then stops). Open: loops ACROSS turns (the same edit
+  re-sent, the same SEARCH failing, A→B→A edits; OpenHands flags four identical action/observation pairs or three identical errors). Today's partial cover
+  is the no-progress escalation (2 tested revisions without progress allow a restructure) and the restate guard. Deep-dive once a real run shows it: compare
+  each transaction with the last few (the same edit bodies, the same canvas hash after applying), then roll the conversation back to before the repeat and
+  intercept, as within a reply. Also when a case shows it (owner, 2026-11-18): an escalation ladder past the interception and retry, a penalty added
+  dynamically but only over the scope of the loop (its repeated lines or block, e.g. a logit bias or DRY limited to those tokens), never globally: in normal
+  turns the model is free to make its own judgement.
 - New leaves, none built yet (evidence: `out/runs/t0-101e19c/gate.md` and `out/runs/wa-scope-v1..v4-partial`):
   - Continuation seams on a long FILE with recorded replies (model-free replay of cut-off replies through `joinContinuation` and the line-boundary resume: lost
     spaces, stray fences, SEARCH/REPLACE of the tail, file restarts). Parent: write-engine.

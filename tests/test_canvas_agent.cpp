@@ -220,7 +220,40 @@ int main()
         CHECK_EQ(runLlmAgent(canvasArgs(d, engine, 2, 0)), 0);
         CHECK(engine.abortedAfter(0) >= 0);
         const auto rq = engine.requests();
-        if (rq.size() == 2) CHECK(rq[1].last().find("repeated the line") != std::string::npos);
+        if (rq.size() == 2) CHECK(rq[1].last().find("got stuck in a loop (the line") != std::string::npos && rq[1].last().find("different angle") != std::string::npos);
+        if (rq.size() == 2) CHECK(rq[1].last().find("What is written once is done") != std::string::npos);
+        if (rq.size() == 2) CHECK(rq[0].presencePenalty == 0 && rq[1].presencePenalty == 0);   // no repetition penalty: in code, repetition is often right
+    }
+    // A loop is caught after the fact and rolled back (2026-11-18): the reply up to where the loop began, its first copy included, goes back as the
+    // assistant's message with the interception after it, and the reply that follows is joined to it. A second loop in a row is not rolled back.
+    const auto refLines = lines(ref);
+    std::string head = std::string{"=== FILE: "} + kFile + " ===\n", tail;
+    for (std::size_t i = 0; i < refLines.size(); ++i) (i + 10 < refLines.size() ? head : tail) += refLines[i] + "\n";
+    {
+        const fs::path d = workflow("canvas-loop-rollback");
+        fake::Engine engine({{head + tail + tail + tail}, {"=== END FILE ===\n"}});
+        CHECK_EQ(runLlmAgent(canvasArgs(d, engine, 1, 1)), 0);
+        CHECK_EQ(slurp(attemptDir(d, 1) / "out" / kFile), ref);
+        const auto rq = engine.requests();
+        CHECK_EQ(rq.size(), static_cast<std::size_t>(2));
+        if (rq.size() == 2) {
+            CHECK_EQ(rq[1].messages.size(), static_cast<std::size_t>(4));
+            if (rq[1].messages.size() == 4) CHECK(rq[1].messages[2].first == "assistant" && rq[1].messages[2].second == head + tail);
+            CHECK(rq[1].last().find("got stuck in a loop (the same 10 lines 3 times over)") != std::string::npos);
+            CHECK(rq[1].last().find("rolled back to where the loop began") != std::string::npos);
+        }
+    }
+    {
+        const fs::path d = workflow("canvas-loop-twice");
+        fake::Engine engine({{head + tail + tail + tail}, {tail + tail + tail}, {fileBlock(ref)}});
+        CHECK_EQ(runLlmAgent(canvasArgs(d, engine, 1, 1)), 0);
+        CHECK_EQ(slurp(attemptDir(d, 1) / "out" / kFile), ref);
+        const auto rq = engine.requests();
+        CHECK_EQ(rq.size(), static_cast<std::size_t>(3));
+        if (rq.size() == 3) {
+            CHECK_EQ(rq[2].messages.size(), static_cast<std::size_t>(2));   // nothing kept: started afresh
+            CHECK(rq[2].last().find("second loop in a row") != std::string::npos);
+        }
     }
     {   // A cut-off reply is continued as itself (2026-11-18): its text up to the last complete line goes back as the assistant's unfinished message (a
         // prefill), and the model carries on from there, the cut line written whole; nothing is shown as a tail, nothing asked in a user message.

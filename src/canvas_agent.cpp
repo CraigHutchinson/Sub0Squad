@@ -404,6 +404,9 @@ int runCanvasAttempt(const AttemptContext& a)
     bool verdictIsRead = false;           // the verdict is a read answer (set where it is written, cleared once a message carried it)
     std::string carriedReasoning;         // the end of reasoning that ran out before an edit, shown with the next turn
     bool decideNext = false;              // the next turn writes down what was reasoned, with thinking off
+    std::string loopKept;                 // a loop stop: the reply up to where the loop began (Runaway::keep), set by the stream guard
+    std::string interception;             // the next turn resumes `partial` after a loop: the reply so far in full, then this instruction
+    int loopStreak = 0;                   // loop stops in a row: the first is rolled back and continued, a second starts afresh
     int thinkingStops = 0;
     // Staged revisions: a transaction that does not compile is still KEPT (as revisions with its diagnostics), never discarded; it is fixed by the next
     // edits. The out/ directory holds only revisions that compile, and the gate runs only on those.
@@ -453,7 +456,12 @@ int runCanvasAttempt(const AttemptContext& a)
         // lost its own design and wrote a second engine after the cut; a prefill ending mid-token, `ret`, is ended at once, one at a line end is continued).
         // Prompt, partial and the reply's budget must fit the context; when they do not, the tail is shown and the rest asked for (the fallback).
         prefill.clear();
-        if (!partial.empty()) {
+        if (!partial.empty() && !interception.empty()) {   // after a loop: the reply rolled back to where the loop began, shown whole, then the interception
+            convo.push_back({"assistant", partial});
+            convo.push_back({"user", interception + "\nYour reply so far is above, rolled back to where the loop began; it is kept. Continue it from its end: "
+                                                    "only what is still missing, nothing already written, no header, no fence, and finish it."});
+            interception.clear();
+        } else if (!partial.empty()) {
             const auto nl = partial.rfind('\n');
             const std::string atLine = nl == std::string::npos ? std::string{} : partial.substr(0, nl + 1);
             const auto estimate = static_cast<int>(static_cast<double>(system.size() + user.size() + carried.size() + atLine.size()) / kCharsPerToken) + a.maxTokens;
@@ -509,8 +517,9 @@ int runCanvasAttempt(const AttemptContext& a)
             }
             // The same rewrite in disguise (35B, 2026-11-18): a SEARCH of the whole file with a 600-line REPLACE, or one edit growing past a function's size.
             if (!locked.empty()) if (runaway = detectEditOverrun(soFar, locked); runaway) return true;
-            if (aborts >= freeAborts) return false;
             runaway = detectRunaway(soFar, drafts);
+            if (runaway && aborts >= freeAborts && runaway.kind != "repeat") runaway = {};   // a loop is always stopped (past the free aborts it costs a turn)
+            if (runaway.kind == "repeat") loopKept = soFar.substr(0, std::min(runaway.keep, soFar.size()));
             return static_cast<bool>(runaway);
         };
         auto reply = chatCompleteMessages(turnEngine, convo, a.maxTokens, a.timeoutSec, liveSink, guard);
@@ -542,15 +551,29 @@ int runCanvasAttempt(const AttemptContext& a)
             continue;
         }
         if (reply->finishReason == "aborted") {   // cancelled while streaming: nothing is applied, the worker is told exactly what to do instead
-            if (++aborts > freeAborts) ++spent;   // only a scope stop gets here once the free aborts are used
+            if (++aborts > freeAborts) ++spent;   // only a scope stop or a loop gets here once the free aborts are used
+            loopStreak = runaway.kind == "repeat" ? loopStreak + 1 : 0;
             partial.clear();
             verdict = runaway.instruction;
+            // A loop is caught after the fact and rolled back, not thrown away (owner, 2026-11-18): what came before it (its first copy included) is kept
+            // when it holds a block, and the next turn continues it with the interception. No repetition penalty: in code, repetition is often right.
+            // The second loop in a row is not rolled back: the kept text led straight back into it (Gemini CLI's loop service likewise recovers once
+            // with feedback, then stops).
+            if (loopStreak == 1 && loopKept.find("=== ") != std::string::npos) {
+                partial = loopKept;
+                interception = verdict;
+                verdict.clear();
+            } else if (loopStreak > 1) {
+                verdict += "\nThis is the second loop in a row, so the reply is not kept this time: start it afresh, built a different way.";
+            }
+            loopKept.clear();
             if (runaway.kind == "scope" || runaway.kind == "rewrite-search" || runaway.kind == "big-edit") noteScopeStop(call, verdict);
             traceVerdict(tracePath, call, "cancelled while streaming (" + runaway.kind + ") after " + std::to_string(reply->content.size()) + " characters");
             std::printf("canvas turn %d: cancelled early (%s)\n", call, runaway.kind.c_str());
             events::note("reply cancelled early: " + runaway.kind);
             continue;
         }
+        loopStreak = 0;
         std::string text;
         if (!prefill.empty()) {   // the server's reply repeats the prefill (llama.cpp): what follows it is the continuation, joined at the line it was cut back to
             const std::string& c = reply->content;

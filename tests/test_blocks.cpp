@@ -101,6 +101,20 @@ int main(int argc, char** argv)
             CHECK_EQ(detectRunaway(ramble, {}).kind, std::string("comment-run"));
             CHECK(!detectRunaway(code, {}));
         }
+        // Loops (the 35B's write-tests reply: the same 8 tests, 32 lines, 18 times): a long cycle three times over, or a definition a third time in one file.
+        {
+            std::string cycle, file = "=== FILE: t.cpp ===\n";
+            for (int i = 0; i < 8; ++i) cycle += "TEST(error_" + std::to_string(i) + ") {\n    CHECK_THROWS(ev(\"" + std::to_string(i) + "/0\"));\n}\n\n";
+            CHECK_EQ(detectRunaway(file + cycle + cycle + cycle, {}).kind, std::string("repeat"));
+            CHECK(detectRunaway(file + cycle + cycle, {}).instruction.empty());   // twice is not yet a loop
+            const std::string again = "TEST(error_ln_of_negative) {\n    CHECK_THROWS(ev(\"ln(-1)\"));\n}\n";
+            const Runaway third = detectRunaway(file + again + cycle + again + "TEST(x) {\n}\n" + again, {});
+            CHECK(third.kind == "repeat" && third.instruction.find("written a third time") != std::string::npos && third.instruction.find("different angle") != std::string::npos);
+            // Not loops: `namespace {` and closing braces recur; distinct functions with similar bodies.
+            std::string ok = file;
+            for (int i = 0; i < 4; ++i) ok += "namespace {\nint f" + std::to_string(i) + "(int a) {\n    return a + " + std::to_string(i) + ";\n}\n}\n";
+            CHECK(!detectRunaway(ok, {}));
+        }
         CHECK(cutOffInsideEdit("=== EDIT: a.cpp LINES 3 ===\nint x"));
         CHECK(!cutOffInsideEdit("=== EDIT: a.cpp LINES 3 ===\nint x;\n=== END EDIT ===\n"));
         CHECK(!cutOffInsideEdit("=== FILE: a.cpp ===\nint x"));

@@ -39,6 +39,7 @@ struct Request
     bool stream = false;
     long idSlot = -1;      ///< the `id_slot` the request pinned itself to (-1: none, the server chooses)
     int thinking = -1;     ///< `chat_template_kwargs.enable_thinking`: 1, 0, or -1 when not sent
+    double presencePenalty = 0;   ///< `presence_penalty` as sent
     /// The content of the last message (the newest user text).
     [[nodiscard]] const std::string& last() const { static const std::string none; return messages.empty() ? none : messages.back().second; }
     /// Every message's content, joined: what the model would have in its window.
@@ -157,6 +158,7 @@ private:
             if (auto st = doc["stream"].get_bool(); !st.error()) r.stream = st.value();
             if (auto sl = doc["id_slot"].get_int64(); !sl.error()) r.idSlot = sl.value();
             if (auto th = doc["chat_template_kwargs"]["enable_thinking"].get_bool(); !th.error()) r.thinking = th.value() ? 1 : 0;
+            if (auto pp = doc["presence_penalty"].get_double(); !pp.error()) r.presencePenalty = pp.value();
         } catch (const simdjson::simdjson_error&) {}
         Reply reply;
         std::size_t index = 0;

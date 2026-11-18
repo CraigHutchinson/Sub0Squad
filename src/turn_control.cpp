@@ -72,23 +72,54 @@ Runaway detectRunaway(std::string_view reply, const std::map<std::string, std::s
         }
     }
 
-    // 2. The same line again and again, or the same short block of lines.
+    // 2. A loop: the same line again and again, the same block of lines over and over (up to 80 lines: the 35B's write-tests reply cycled through the same
+    //    8 tests, 32 lines, 18 times in 1 653 lines), or the same definition written a third time in one whole-file block. Only verbatim repeats of whole
+    //    lines count, at counts no hand-written code reaches: code repeats itself by design (similar cases, boilerplate, closing braces), so this is no
+    //    repetition penalty or chunk hash (Gemini CLI turns its content check off inside code blocks for that reason). The worker is told what repeated,
+    //    that what is written once is done, and to come at it from a different angle; the agent rolls the reply back to where the loop began.
     if (lim.maxRepeats > 0 && !lines.empty()) {
+        const auto looped = [](const std::string& what) {
+            return "Your reply was stopped: it got stuck in a loop (" + what + "), writing out again what it had already written. What is written once is done. "
+                   "Step back and come at it from a different angle: work out what is still missing, write each part once, and finish the transaction.";
+        };
+        // The reply up to the start of line `n` (complete lines are judged, so line n starts after the n-th newline): what a rollback keeps.
+        const auto upToLine = [&](std::size_t n) {
+            std::size_t at = 0;
+            for (std::size_t i = 0; i < n; ++i) { const auto nl = reply.find('\n', at); if (nl == std::string_view::npos) return reply.size(); at = nl + 1; }
+            return at;
+        };
+        const auto loop = [&](const std::string& what, std::size_t keepLines) { return Runaway{"repeat", looped(what), upToLine(keepLines)}; };
         const std::string last = trimmed(lines.back());
         if (last.size() >= 8) {
             int run = 0;
             for (auto it = lines.rbegin(); it != lines.rend() && trimmed(*it) == last; ++it) ++run;
-            if (run >= lim.maxRepeats)
-                return {"repeat", "Your reply was stopped: it repeated the line `" + last.substr(0, 80) + "` " + std::to_string(run) + " times. Reply again without repeating yourself: only the edit that is needed."};
+            if (run >= lim.maxRepeats) return loop("the line `" + last.substr(0, 80) + "` " + std::to_string(run) + " times", lines.size() - static_cast<std::size_t>(run) + 1);
         }
-        for (std::size_t k = 2; k <= 6; ++k) {   // a cycle of k lines, repeated
-            const std::size_t need = k * static_cast<std::size_t>(std::max(4, lim.maxRepeats / 2));
+        for (std::size_t k = 2; k <= 80; ++k) {   // a cycle of k lines: short cycles must repeat several times, long ones three times
+            const std::size_t times = k <= 6 ? static_cast<std::size_t>(std::max(4, lim.maxRepeats / 2)) : 3, need = k * times;
             if (lines.size() < need) break;
-            bool cycle = true, substantial = false;
+            bool cycle = true;
+            int substantial = 0;
             for (std::size_t i = 0; i < need - k && cycle; ++i) cycle = lines[lines.size() - 1 - i] == lines[lines.size() - 1 - i - k];
-            for (std::size_t i = 0; i < k; ++i) if (trimmed(lines[lines.size() - 1 - i]).size() >= 8) substantial = true;
-            if (cycle && substantial)
-                return {"repeat", "Your reply was stopped: it repeated the same " + std::to_string(k) + " lines over and over. Reply again without repeating yourself: only the edit that is needed."};
+            for (std::size_t i = 0; i < k; ++i) if (trimmed(lines[lines.size() - 1 - i]).size() >= 8) ++substantial;
+            if (!cycle || substantial < (k <= 6 ? 1 : 3)) continue;
+            std::size_t start = lines.size() - need;   // the cycle may have begun before the window: walk back while the lines still repeat
+            while (start >= k && lines[start - 1] == lines[start - 1 + k]) --start;
+            return loop("the same " + std::to_string(k) + " lines " + std::to_string((lines.size() - start) / k) + " times over", start + k);   // its first copy is kept
+        }
+        // The same definition head a third time inside one FILE block (at the left margin, opening a body; `namespace`/`extern` blocks may recur).
+        std::map<std::string, std::vector<std::size_t>> heads;   // head line -> the line numbers it was written at
+        for (std::size_t i = 0; i < lines.size(); ++i) {
+            const std::string& l = lines[i];
+            if (startsWith(l, "=== FILE:")) { heads.clear(); continue; }
+            if (startsWith(l, "=== ")) continue;
+            const std::string r = l.substr(0, l.find_last_not_of(" \t\r") + 1);
+            if (r.size() < 8 || std::isspace(static_cast<unsigned char>(r[0])) || startsWith(r, "namespace") || startsWith(r, "extern") || startsWith(r, "}")) continue;
+            const bool opens = r.back() == '{' || startsWith(r, "TEST(") || startsWith(r, "def ") || startsWith(r, "class ") || startsWith(r, "struct ");
+            if (!opens) continue;
+            auto& at = heads[r];
+            at.push_back(i);
+            if (at.size() >= 3) return loop("`" + r.substr(0, 80) + "` written a third time", at[1]);   // kept: everything before its first repeat
         }
     }
 

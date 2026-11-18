@@ -24,8 +24,11 @@ struct RunawayLimits
 /// Why a reply should be cancelled: `kind` is empty when the reply is fine so far.
 struct Runaway
 {
-    std::string kind;              ///< "" | "long-search" | "repeat" | "restate" | "view-echo"
+    std::string kind;              ///< "" | "long-search" | "repeat" | "restate" | "view-echo" | "comment-run" | "rewrite-search" | "big-edit"
     std::string instruction;       ///< what the worker is told in the re-prompt
+    /// A loop ("repeat"): how much of the reply is worth keeping, in characters: everything before the loop began, its first copy included (0: nothing).
+    /// The agent rolls the reply back to it and asks for the rest with the interception, instead of throwing the reply away.
+    std::size_t keep = 0;
     [[nodiscard]] explicit operator bool() const { return !kind.empty(); }
 };
 
