@@ -135,6 +135,17 @@ The `--t1-source` option freezes the replay's CLI and the original calculator he
 
 **Matched visibility control.** On the same build and seed, the folded arm `20261118T214305Z-115d167b648a` remained 7/22 failing after five turns. The visible arm `20261118T213931Z-393de05aa8ba` received the unmodified contents of `Parser::peek` in the initial view and failed after changing power parsing. The gate reported an undeclared parser function. The intervention changes only visibility via `--t1-visible Parser::peek`. This comparison establishes that showing the source in the initial request did not resolve this seed's failure. It leaves both arms outside T1 promotion evidence.
 
+**Whole-project first attempts with two output limits (2026-11-18).** The campaign at `out/runs/t1-first-attempt/20261118T221614Z-d4d06afa` used the frozen calculator plan and the archived T1 canvas worker command with explicit seeds and prompt caching disabled. Each seed started in a fresh directory. It ran worker attempt 1 and the official C++ gate directly, so the failure policy could not start a second worker attempt. These are forced diagnostics outside admission. The manifest records the executable and plan hashes.
+
+| Seed | Output tokens allowed | Opening reply | Final blocker |
+| --- | ---: | --- | --- |
+| 15101 | 3,000 | Cut off and continued | CLI missed standard-library declarations for input and exceptions |
+| 15102 | 3,000 | Cut off and continued | Parser called a private method. CLI also redefined its result type and entry function |
+| 15103 | 3,000 | Cut off and continued | CLI redeclared the screen border variable |
+| 15101 | 6,000 | Finished without a cutoff | Parser defined and called `check_eol()` without declaring it |
+
+All four opening prompts listed all 22 failures from the starter stubs. All four generated drafts hit compilation errors before the behavior tests ran, so this campaign cannot tell whether the old delimiter or power defects recur. The 6,000-token arm isolated a compile blocker that can occur without truncation. The next targeted test can isolate whether the worker can repair a single reported compile error without rewriting unrelated code.
+
 ## 3. Modes
 
 All three judge the run directories, as `gate_t0.py` does today: a run counts when its `case_key`, build and engine match; stale runs are listed, not counted.
