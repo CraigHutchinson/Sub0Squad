@@ -118,6 +118,19 @@ int main(int argc, char** argv)
             const std::string head = "enum class TokType {\n    Number,\n    Plus,\n};\n";
             CHECK(!detectRunaway(file + head + "int f(int a) {\n    return a;\n}\n=== EDIT: t.cpp ===\n<<<<<<< SEARCH\n" + head + "=======\nenum class TokType {\n", {}));
         }
+        // A FILE cut part-way is made whole from the previous revision: back to its last complete definition, then the functions it had not reached.
+        {
+            const std::string prev = "#include <x>\n\nint a() {\n    return 1;\n}\n\nint b() {\n    return 2;\n}\n\nint c() {\n    return 3;\n}\n";
+            const std::string cut = "#include <x>\nenum class T { A, B };\n\nint a() {\n    return 10;   // \"}\" in a comment\n}\n\nint b() {\n    // I will rethink this\n    // I will rethink this\n";
+            CHECK_EQ(completeCutFile(cut, prev, false),
+                     std::string("#include <x>\nenum class T { A, B };\n\nint a() {\n    return 10;   // \"}\" in a comment\n}\n\nint b() {\n    return 2;\n}\n\nint c() {\n    return 3;\n}\n"));
+            const std::string py = "class E:\n    def a(self):\n        return 1\n\n    def b(self):\n        return 2\n\n    def c(self):\n        return 3\n";
+            CHECK_EQ(completeCutFile("class E:\n    def a(self):\n        return 10\n\n    def b(self):\n        # rethink\n", py, true),
+                     std::string("class E:\n    def a(self):\n        return 10\n\n\n    def b(self):\n        return 2\n\n    def c(self):\n        return 3\n"));
+        }
+        // An EDIT of another part of the file after a cut FILE is a block of its own, not the FILE's tail (its SEARCH does not match the cut's last lines).
+        CHECK_EQ(joinContinuation("=== FILE: a.cpp ===\nint a() {\n    return 1;\n}\nint b() {\n", "=== EDIT: a.cpp ===\n<<<<<<< SEARCH\nint a() {\n=======\nint a(int) {\n>>>>>>> REPLACE\n=== END EDIT ===\n"),
+                 std::string("=== FILE: a.cpp ===\nint a() {\n    return 1;\n}\nint b() {\n=== END FILE ===\n=== EDIT: a.cpp ===\n<<<<<<< SEARCH\nint a() {\n=======\nint a(int) {\n>>>>>>> REPLACE\n=== END EDIT ===\n"));
         CHECK(cutOffInsideEdit("=== EDIT: a.cpp LINES 3 ===\nint x"));
         CHECK(!cutOffInsideEdit("=== EDIT: a.cpp LINES 3 ===\nint x;\n=== END EDIT ===\n"));
         CHECK(!cutOffInsideEdit("=== FILE: a.cpp ===\nint x"));

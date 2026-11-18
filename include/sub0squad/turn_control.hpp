@@ -62,6 +62,11 @@ struct Runaway
 /// instruction to write that line again in full and finish the block.
 [[nodiscard]] std::string continuationPrompt(std::string_view partial, std::size_t tailChars = 700);
 
+/// The body of a FILE block cut off part-way (`cut`: a loop rolled back, the worker then moving on to other blocks) made whole from the file's previous
+/// revision, so no code on either side is lost (owner, 2026-11-18): the cut text back to its last complete definition, then the functions of `previous`
+/// after the last one it reached (by name), in their order. `python` selects indentation instead of braces.
+[[nodiscard]] std::string completeCutFile(std::string_view cut, const std::string& previous, bool python);
+
 /// Whether a reply that ended at the token limit stopped inside an EDIT block (its last `=== EDIT:` has no `=== END EDIT ===`): such a reply is continued
 /// by appending, like a cut-off file (row 34).
 [[nodiscard]] bool cutOffInsideEdit(std::string_view reply);

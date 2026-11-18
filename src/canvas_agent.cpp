@@ -269,6 +269,30 @@ int runCanvasAttempt(const AttemptContext& a)
         if (text.find("not implemented") != std::string::npos) return true;
         return harness && harness->scaffoldFile && !text.empty() && text == harness->scaffoldFile(path);
     };
+    // After a loop's rollback the worker may move on to other blocks instead of continuing the kept one (35B, 2026-11-18: an EDIT of the file's enum, the
+    // step its looping comments had been circling). The kept FILE is not thrown away: it is closed, made whole from the file's current revision (its
+    // unreached functions appended), and the new blocks follow it. Empty when the kept text is not an open FILE or the reply continues it.
+    const auto keptFileMadeWhole = [&](const std::string& kept, const std::string& next) -> std::string {
+        std::size_t h = kept.rfind("\n=== FILE:");
+        h = h == std::string::npos ? (kept.rfind("=== FILE:", 0) == 0 ? 0 : std::string::npos) : h + 1;
+        if (h == std::string::npos || kept.find("=== END FILE", h) != std::string::npos) return {};
+        const auto eol = kept.find('\n', h);
+        if (eol == std::string::npos) return {};
+        const std::string header = kept.substr(h, eol - h);
+        std::istringstream in(next);
+        std::string first;
+        while (std::getline(in, first) && (first.find_first_not_of(" \t\r") == std::string::npos || first.rfind("```", 0) == 0)) {}
+        // a continuation (its close included), or the file begun again
+        if (first.rfind("=== ", 0) != 0 || first.rfind("=== END", 0) == 0 || first.substr(0, first.find_last_not_of(" \t\r") + 1) == header) return {};
+        std::string path = header.substr(9);
+        if (const auto close = path.rfind("==="); close != std::string::npos) path.erase(close);
+        path.erase(0, path.find_first_not_of(" \t"));
+        path.erase(path.find_last_not_of(" \t\r") + 1);
+        std::size_t b = eol + 1;
+        if (kept.compare(b, 3, "```") == 0) b = kept.find('\n', b) == std::string::npos ? kept.size() : kept.find('\n', b) + 1;
+        const std::string body = kept.substr(b), previous = canvas.has(path) ? canvas.text(path) : std::string{};
+        return kept.substr(0, h) + header + "\n" + completeCutFile(body, previous, isPythonPath(path)) + "=== END FILE ===\n" + next;
+    };
     // After a tested revision: a revision with fewer failing tests than the best so far is progress; anything else counts towards the escalation.
     const auto scopeRefusalFor = [&](const std::string& path) -> std::string {   // why a FILE over `path` is refused now ("" when it is allowed)
         if (restructure || !canvas.has(path) || isStub(path, canvas.text(path))) return {};
@@ -407,6 +431,7 @@ int runCanvasAttempt(const AttemptContext& a)
     std::string loopKept;                 // a loop stop: the reply up to where the loop began (Runaway::keep), set by the stream guard
     std::string interception;             // the next turn resumes `partial` after a loop: the reply so far in full, then this instruction
     int loopStreak = 0;                   // loop stops in a row: the first is rolled back and continued, a second starts afresh
+    bool rolledBack = false;              // `partial` is a loop's rollback: a reply that moves on to other blocks keeps it, made whole (completeCutFile)
     int thinkingStops = 0;
     // Staged revisions: a transaction that does not compile is still KEPT (as revisions with its diagnostics), never discarded; it is fixed by the next
     // edits. The out/ directory holds only revisions that compile, and the gate runs only on those.
@@ -517,7 +542,8 @@ int runCanvasAttempt(const AttemptContext& a)
             }
             // The same rewrite in disguise (35B, 2026-11-18): a SEARCH of the whole file with a 600-line REPLACE, or one edit growing past a function's size.
             if (!locked.empty()) if (runaway = detectEditOverrun(soFar, locked); runaway) return true;
-            runaway = detectRunaway(soFar, drafts);
+            // After a rollback the kept text was judged when it was written: it is not a restatement now (its head may be the draft's, as written).
+            runaway = detectRunaway(soFar, rolledBack ? std::map<std::string, std::string>{} : drafts);
             if (runaway && aborts >= freeAborts && runaway.kind != "repeat") runaway = {};   // a loop is always stopped (past the free aborts it costs a turn)
             if (runaway.kind == "repeat") loopKept = soFar.substr(0, std::min(runaway.keep, soFar.size()));
             return static_cast<bool>(runaway);
@@ -561,6 +587,7 @@ int runCanvasAttempt(const AttemptContext& a)
             // with feedback, then stops).
             if (loopStreak == 1 && loopKept.find("=== ") != std::string::npos) {
                 partial = loopKept;
+                rolledBack = true;
                 interception = verdict;
                 verdict.clear();
             } else if (loopStreak > 1) {
@@ -579,9 +606,12 @@ int runCanvasAttempt(const AttemptContext& a)
             const std::string& c = reply->content;
             text = prefill + (c.rfind(prefill, 0) == 0 ? c.substr(prefill.size()) : c);
             ++prefilled;
+        } else if (const std::string whole = rolledBack ? keptFileMadeWhole(partial, reply->content) : std::string{}; !whole.empty()) {
+            text = whole;
         } else {
             text = partial.empty() ? reply->content : joinContinuation(partial, reply->content);
         }
+        rolledBack = false;
         if (reply->finishReason == "length" && continuations < freeContinuations && (text.find("=== EDIT:") != std::string::npos || text.find("=== FILE:") != std::string::npos)) {
             ++continuations;
             partial = text;

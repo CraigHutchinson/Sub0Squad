@@ -1,4 +1,5 @@
 #include "sub0squad/turn_control.hpp"
+#include "sub0squad/outline.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -312,7 +313,19 @@ std::string joinContinuation(std::string_view partialView, const std::string& re
             if (t == openHeader && !openFirst.empty() && next < c.size() && rtrimmed(c[next]) == openFirst && ltrimmed(openFirst).size() >= 4) return reply;
             // A different block that is not a SEARCH of the tail (T0 write-engine, 2026-11-18: a FILE cut at `if (val < 0`, continued by a SYMBOL edit of
             // evaluate, which was glued onto the cut line): the open block ends at its last complete line, and the new block follows it, whole.
-            if (t != openHeader && !openHeader.empty() && !(next < c.size() && startsWith(c[next], "<<<<<<< SEARCH"))) {
+            // A SEARCH counts as a continuation only when it matches the open block's last lines (35B, 2026-11-18: after a loop rollback, an EDIT of the
+            // file's enum was glued, header dropped, onto the cut FILE).
+            const auto searchesTail = [&] {
+                if (!(next < c.size() && startsWith(c[next], "<<<<<<< SEARCH"))) return false;
+                std::vector<std::string> search;
+                for (std::size_t i = next + 1; i < c.size() && !startsWith(c[i], "======="); ++i) search.push_back(ltrimmed(rtrimmed(c[i])));
+                auto tail = completeLines(partial);
+                if (const auto nl = partial.rfind('\n'); nl + 1 < partial.size()) tail.push_back(partial.substr(nl == std::string::npos ? 0 : nl + 1));
+                if (search.empty() || search.size() > tail.size()) return false;
+                for (std::size_t k = 0; k < search.size(); ++k) if (ltrimmed(rtrimmed(tail[tail.size() - search.size() + k])) != search[k]) return false;
+                return true;
+            };
+            if (t != openHeader && !openHeader.empty() && !searchesTail()) {
                 const auto nl = partial.rfind('\n');
                 std::string closed = nl == std::string::npos ? std::string{} : partial.substr(0, nl + 1);
                 closed += startsWith(openHeader, "=== FILE:") ? "=== END FILE ===\n" : "=== END EDIT ===\n";
@@ -401,6 +414,58 @@ std::string continuationPrompt(std::string_view partialView, std::size_t tailCha
     else
         p += "Continue with the line that follows them, then the rest";
     return p + " of the block, and finish it. Only the remaining lines: no header, no fence, nothing already written, no explanation.";
+}
+
+std::string completeCutFile(std::string_view cutView, const std::string& previous, bool python)
+{
+    const auto lines = completeLines(cutView);
+    // 1. Back to the end of its last complete top-level definition: braces back at depth 0 on a closing line, or a declaration or directive at depth 0
+    //    (C-like); before the last definition at the left margin, which may be unfinished (Python).
+    std::size_t keepLines = 0;
+    if (python) {
+        keepLines = lines.size();
+        for (std::size_t i = lines.size(); i-- > 0;) {
+            const std::string l = trimmed(lines[i]);
+            if (startsWith(l, "def ") || startsWith(l, "async def ") || startsWith(l, "class ")) { keepLines = i; break; }
+        }
+        while (keepLines > 0 && startsWith(trimmed(lines[keepLines - 1]), "@")) --keepLines;
+    } else {
+        int depth = 0;
+        for (std::size_t i = 0; i < lines.size(); ++i) {
+            const int before = depth;
+            char quote = 0;
+            for (std::size_t k = 0; k < lines[i].size(); ++k) {   // braces in strings, characters and line comments do not count
+                const char ch = lines[i][k];
+                if (quote) { if (ch == '\\') ++k; else if (ch == quote) quote = 0; continue; }
+                if (ch == '"' || ch == '\'') quote = ch;
+                else if (ch == '/' && k + 1 < lines[i].size() && lines[i][k + 1] == '/') break;
+                else if (ch == '{') ++depth;
+                else if (ch == '}') --depth;
+            }
+            const std::string t = trimmed(lines[i]);
+            if (depth == 0 && ((before > 0 && !t.empty()) || (before == 0 && (t.ends_with(";") || startsWith(t, "#"))))) keepLines = i + 1;
+        }
+    }
+    std::string out;
+    for (std::size_t i = 0; i < keepLines; ++i) out += lines[i] + "\n";
+    // 2. The functions of the previous revision after the last one the cut text reached (by name), in their order: the cut ended inside the same scope, so
+    //    a class's remaining methods (Python) land in the class. C-like: top-level ones only (the cut is back at depth 0).
+    std::vector<std::string> have;
+    for (const auto& r : foldRegions(out, python, true)) have.push_back(r.name);
+    const auto prev = completeLines(previous);
+    const auto regions = foldRegions(previous, python, true);
+    std::size_t from = 0;
+    for (std::size_t i = 0; i < regions.size(); ++i) if (std::find(have.begin(), have.end(), regions[i].name) != have.end()) from = i + 1;
+    for (std::size_t i = from; i < regions.size(); ++i) {
+        const auto& r = regions[i];
+        if (r.name.empty() || r.first < 1 || static_cast<std::size_t>(r.bodyTo) > prev.size()) continue;
+        const std::string& sig = prev[static_cast<std::size_t>(r.first) - 1];
+        if (sig.empty() || (!python && std::isspace(static_cast<unsigned char>(sig[0]))) || std::find(have.begin(), have.end(), r.name) != have.end()) continue;
+        out += "\n";
+        for (int i = r.first; i <= r.bodyTo; ++i) out += prev[static_cast<std::size_t>(i) - 1] + "\n";
+        have.push_back(r.name);
+    }
+    return out;
 }
 
 bool cutOffInsideEdit(std::string_view reply)

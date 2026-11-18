@@ -255,6 +255,24 @@ int main()
             CHECK(rq[2].last().find("second loop in a row") != std::string::npos);
         }
     }
+    {   // The retry moves on to another block instead of continuing the kept FILE (35B, 2026-11-18): the kept FILE is closed and made whole from the
+        // current revision (the functions it had not reached), not thrown away, and the new block applies after it.
+        const fs::path d = workflow("canvas-loop-moveon");
+        failedAttempt(d, 1, bad + "# not implemented: the marker makes this draft a stub, so a FILE may replace it\n");
+        const std::string termHead = term.substr(0, term.find('\n') + 1);
+        const auto termAt = ref.find(termHead);
+        CHECK(termAt != std::string::npos);
+        std::string cycle;
+        for (int i = 0; i < 5; ++i) cycle += "        # step back: the divisor\n        # is checked first\n        # then the modulo\n        # then the result\n";
+        fake::Engine engine({{std::string{"=== FILE: "} + kFile + " ===\n" + ref.substr(0, termAt) + termHead + cycle}, {fixBySymbol}});
+        CHECK_EQ(runLlmAgent(canvasArgs(d, engine, 2, 1)), 0);
+        const std::string out = slurp(attemptDir(d, 2) / "out" / kFile);
+        CHECK(out.rfind(ref.substr(0, termAt), 0) == 0);                               // the kept part, as written
+        CHECK(out.find(term) != std::string::npos && out.find("step back") == std::string::npos);
+        const auto defs = [](const std::string& s) { std::size_t n = 0; for (auto at = s.find("def "); at != std::string::npos; at = s.find("def ", at + 1)) ++n; return n; };
+        CHECK_EQ(defs(out), defs(ref));                                                // every function, once: the unreached ones from the draft
+        CHECK(slurp(attemptDir(d, 2) / "agent.json").find("\"aborted\":1") != std::string::npos);
+    }
     {   // A cut-off reply is continued as itself (2026-11-18): its text up to the last complete line goes back as the assistant's unfinished message (a
         // prefill), and the model carries on from there, the cut line written whole; nothing is shown as a tail, nothing asked in a user message.
         const fs::path d = workflow("canvas-cut");
