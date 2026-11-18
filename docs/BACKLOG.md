@@ -113,7 +113,10 @@ The queue, with hypotheses, arms, measures and commands, is [EXPERIMENTS.md](EXP
   validation/tiers/lib.sh), so http://127.0.0.1:8780/ shows only the run in flight, drops between runs, and nothing shows the whole gate: cases × runs
   with result, attempts, turns and tokens (today `out/runs/t0/summary.md`), the run in flight, and the tree (T0_LAYERS.md) coloured by result. One way:
   a portal started once by `run_t0.sh` / `run_tier.sh` on the tier's output folder (summary.md and gate.json as its data, each run's home linked to
-  open its live view), outliving the per-run homes; a run's own portal then binds port 0 so the two never collide.
+  open its live view), outliving the per-run homes; a run's own portal then binds port 0 so the two never collide. It is one case of a wider portal
+  need (owner, 2026-11-18): several projects worked at once or one after another, all in one view. Design them together: one portal over many homes
+  or workflows (a list of what ran and what is running, each opening its own live view), with a tier gate as one kind of grouping (cases × runs)
+  beside a group of projects; the workflow selector already noted for the portal (today `?wf=` in the URL) is the same seam.
 - Context compaction for continuations (owner, 2026-11-18). A cut-off reply is now continued as itself (the canvas sends its text, cut to the last complete
   line, back as the assistant's unfinished message: a prefill, measured on the 35B to continue cleanly at a line or word boundary and to stop at once mid-token).
   It needs the prompt, the partial and the reply's budget to fit the context, and falls back to the tail prompt when they do not (`prefilled` against `continued`
