@@ -71,7 +71,8 @@ fi
 
 log="$(mktemp)"
 trap 'rm -f "$log"' EXIT
-if [ ! -f "$builddir/CMakeCache.txt" ]; then
+# No cache, or a cache whose generate step failed (no build.ninja): configure again.
+if [ ! -f "$builddir/CMakeCache.txt" ] || [ ! -f "$builddir/build.ninja" ]; then
     echo "pre-push: configuring $builddir..."
     if ! "${configure[@]}" >"$log" 2>&1; then            # redirected to a file, so the exit status is cmake's own
         tail -n 40 "$log"
