@@ -161,6 +161,8 @@ The queue, with hypotheses, arms, measures and commands, is [EXPERIMENTS.md](EXP
   - Harness, not a case: a READ of lines already answered in this attempt is the multi-turn loop of the Loops entry (only the latest answer stays in
     view, so the worker reads again). Built (2026-11-18): what was read stays open in the view (it joins the view's focus); where the window has no room
     (ctx 6144) it is answered again from the file as it stands, above a view folded further; a repeat on an unchanged revision is named as one.
+    Open (owner, 2026-11-18, just noted): should the repeated-read guard have a forced override, a way for the worker to insist it needs those lines
+    again (e.g. a `FORCE` on the READ, answered without the note)? Today a repeat is still answered and only counts against the read allowance.
 - Fold markers that carry a status (owner, 2026-11-18; A/B, to iterate): `... (16 lines folded: 37-52; term)` could also say what the worker knows of it,
   e.g. `unchanged since you read it (turn 2)`, `changed since you read it`, `not read`, `stub` / `no content` (a body that only raises or returns a
   neutral value). Measured as an arm against today's markers on fix-folded and the T1 plan: reads per attempt, repeated reads, turns, pass rate. The
