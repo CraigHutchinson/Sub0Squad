@@ -57,6 +57,8 @@ std::string canvasSystemBlock(const std::string& persona, const std::string& bri
     std::string s = kCanvasSyntax;
     if (stance == "specialist") s += "(A CONCERN block, described below, may come before the transaction.)\n";
     if (!brief.empty()) s += brief + "\n";
+    if (persona == "tester") s += "Derive each assertion from the stated contract. Use documented invalid inputs when testing exceptions. "
+                                  "For behavior the contract leaves open, inspect the relevant implementation before choosing an expectation.\n";
     return s + stanceText(stance, persona, WorkerShape::canvas);
 }
 
@@ -427,7 +429,7 @@ int runCanvasAttempt(const AttemptContext& a)
     // Plan and act are separate by default. The experiment switch still permits a direct control and the options prompt.
     const auto thinkPlanMode = [] {
         const char* value = std::getenv("SUB0SQUAD_THINKPLAN");
-        return std::string_view{value && *value ? value : "steps"};
+        return std::string_view{value && *value ? value : "read-handoff"};
     }();
     const bool compareOptions = thinkPlanMode == "options";
     const bool handoffRead = thinkPlanMode == "read-handoff";
@@ -459,8 +461,11 @@ int runCanvasAttempt(const AttemptContext& a)
         traceVerdict(tracePath, -1, "the starting files were checked before the first turn: " + (rc == 0 ? std::string{"the item's tests pass"} : lastGate));
         if (rc == 0) verified = haveFiles = true;
         else {
-            if (const int f = failingTests(lastGate); f >= 0) markBest(f, true);
+            const auto [failed, total] = harnessutil::gateTestCounts(lastGate);
+            if (failed >= 0) markBest(failed, true);
             verdict += "\nThe tests were run on them as they stand and failed:\n" + layeredVerdict(lastGate, true, 1500, focus);
+            if (a.item->persona == "developer" && total >= 8 && failed >= total - total / 4)
+                widen("the starting implementation fails at least three quarters of the owner tests", -1, verdict);
         }
     }
     std::string lastReadAnswer;           // the latest read answered, kept in view when a read past the allowance is refused
@@ -491,13 +496,13 @@ int runCanvasAttempt(const AttemptContext& a)
         // left after a minimal view of every file. Clipped like a gate output, the worker never saw the lines it read and asked again until its turns ran
         // out (tier 1 of 2026-11-17: attempts 2 and 4 only ever read, and committed nothing).
         const bool editAfterRead = handoffRead && verdictIsRead;
-        const std::string repairEvidence = editAfterRead && !verdictBeforeRead.empty()
-            ? "\nRepair evidence from before the read:\n" + verdictBeforeRead + "\n" : std::string{};
         const long availTokens = static_cast<long>(a.engine.contextTokens) - a.maxTokens - 300;
-        const long windowChars = static_cast<long>(static_cast<double>(availTokens) * 3.2) - static_cast<long>(system.size() + a.card.size() + a.guidance.size() + repairEvidence.size()) - 1500;
+        const long windowChars = static_cast<long>(static_cast<double>(availTokens) * 3.2) - static_cast<long>(system.size() + a.card.size() + a.guidance.size()) - 1500;
         const std::size_t verdictCap = verdictIsRead
             ? static_cast<std::size_t>(std::max(2400L, windowChars - 800L * static_cast<long>(std::max<std::size_t>(1, canvas.paths().size()))))
             : 2400;
+        const std::string repairEvidence = editAfterRead && !verdictBeforeRead.empty() && verdict.size() + verdictBeforeRead.size() + 40 <= verdictCap
+            ? "\nRepair evidence from before the read:\n" + verdictBeforeRead + "\n" : std::string{};
         std::string state;
         if (canvas.paths().empty()) state = "No file exists yet. Write every file whole: === FILE: <path> === ... === END FILE ===\n";
         else {
@@ -510,7 +515,7 @@ int runCanvasAttempt(const AttemptContext& a)
                 }
                 return s;
             };
-            const long availChars = windowChars - static_cast<long>(std::min(verdict.size(), verdictCap));
+            const long availChars = windowChars - static_cast<long>(std::min(verdict.size(), verdictCap) + repairEvidence.size());
             state = viewWith(availChars);
             // A short window has no room to keep what was read open (T0 at ctx 6144: every body folded again, so the worker reads the same lines again). The
             // regions read in this attempt that the view folded are answered again from the files as they now stand and shown above the view, which folds
@@ -539,10 +544,11 @@ int runCanvasAttempt(const AttemptContext& a)
                 if (const std::string& t = canvas.text(path); cutOff(path, t)) {
                     const auto n = std::to_string(std::count(t.begin(), t.end(), '\n') + (t.empty() || t.back() == '\n' ? 0 : 1));
                     state += "(" + path + " is cut off: it ends at line " + n + " inside a block that is never closed. Finish it by appending only what is "
-                             "missing after its last line: === EDIT: " + path + " AFTER " + n + " === then the rest of the code, then === END EDIT ===)\n";
+                             "missing after its last line: === EDIT: " + path + " AFTER " + n + " === then the rest of the code, then === END EDIT ===. "
+                             "Preserve the completed prefix. Finish the open scopes and implement the public entry point in the namespace declared by the header.)\n";
                 }
         }
-        const std::string user = a.card + (a.guidance.empty() ? std::string{} : "\n" + a.guidance + "\n") + (verdict.empty() ? std::string{} : "\n" + clip(verdict, verdictCap) + "\n") + "\n" + repairEvidence + readCarried + state +
+        const std::string user = a.card + (a.guidance.empty() ? std::string{} : "\n" + a.guidance + "\n") + repairEvidence + (verdict.empty() ? std::string{} : "\n" + clip(verdict, verdictCap) + "\n") + "\n" + readCarried + state +
                                  (canvas.paths().empty() ? "" : "Reply with the transaction that fixes EVERYTHING listed above (every failing test, every error, one edit each), its form picked once by the rules above: " +
                                                                     std::string{restructure ? "a few functions wrong, edit just them; the approach wrong, the complete new file (in steps when it is long).\n"
                                                                                             : "a few lines wrong, SEARCH/REPLACE; a function wrong or missing, SYMBOL (as many as it takes; FILE only for a file that is new or a stub).\n"} +
@@ -603,6 +609,9 @@ int runCanvasAttempt(const AttemptContext& a)
         if (planStep) {
             convo.front().content += "\nOn a plan turn, follow the plan-only instruction instead of the transaction format.";
             if (compareOptions) convo.back().content += "\n" + std::string{kThinkOptionsNote};
+            if (!restructure && bestFailing == 1 && a.item->persona == "developer")
+                convo.back().content += "\nFollow the single failing input through the current code. Identify the first incorrect value or state "
+                                        "and the affected callers. Check that the proposed repair preserves a nearby passing case.\n";
             convo.back().content += kPlanStepNote;
         } else if (turnEngine.thinking && thinkPlanMode == "1") {
             convo.back().content += "\n" + std::string{kThinkPlanNote};
@@ -918,14 +927,18 @@ int runCanvasAttempt(const AttemptContext& a)
         events::note(rc == 0 ? "self-check passed" : "self-check failed");
         std::printf("canvas turn %d: committed, self-check %s\n", call, rc == 0 ? "passed" : "failed");
         if (rc == 0) { verified = true; break; }
-        // Never lose a better revision: a commit that makes more tests fail than the best one so far is undone, and the worker is told.
-        const int failing = failingTests(lastGate);
-        if (failing >= 0 && bestFailing >= 0 && failing > bestFailing) {
+        // Keep the best measured revision when more tests fail or a crashing program cannot report results.
+        const auto [failing, total] = harnessutil::gateTestCounts(lastGate);
+        const bool crashed = lastGate.starts_with("GATE FAIL: the test program ") && lastGate.find(" crashed ") != std::string::npos;
+        if (bestFailing >= 0 && (failing > bestFailing || crashed)) {
             const std::string broke = layeredVerdict(lastGate, true, 1200, focus);   // what the worse revision broke, before it is undone
             const std::string undone = restoreBest();   // the worse revisions are not lost: they stay in the history, and the worker is told where
             ++reverts;
             (void)writeOut();
-            verdict = skippedNote + "Your transaction made it worse (" + std::to_string(failing) + " tests failing, " + std::to_string(bestFailing) + " before), so the files below are back at the better revision (yours stays in the history as " + undone + "). What your change broke:\n" + broke;
+            const std::string regression = crashed ? "Your transaction crashed the test program before it reported results"
+                : "Your transaction made it worse (" + std::to_string(failing) + " tests failing, " + std::to_string(bestFailing) + " before)";
+            verdict = skippedNote + regression + ", so the files below are back at the better revision (yours stays in the history as " + undone +
+                      "). What your change broke:\n" + broke;
             traceVerdict(tracePath, call, "reverted to the best revision (" + std::to_string(bestFailing) + " failing)");
             std::printf("canvas turn %d: reverted (%d failing, best %d)\n", call, failing, bestFailing);
             (void)selfCheck();   // gate.txt describes what is in out/
@@ -934,6 +947,11 @@ int runCanvasAttempt(const AttemptContext& a)
             const bool improved = failing >= 0 && (bestFailing < 0 || failing < bestFailing);
             if (failing >= 0 && (bestFailing < 0 || failing <= bestFailing)) markBest(failing, false);
             verdict = skippedNote + "Your files were checked by running the tests and failed:\n" + layeredVerdict(lastGate, true, 1500, focus);
+            if (restructure && improved && total >= 8 && failing == 1) {
+                restructure = false;
+                verdict += "\nThe implementation passes every other test. Preserve that revision and edit only the failing behavior.\n";
+                traceVerdict(tracePath, call, "rewrite scope closed after the implementation reached one failing test");
+            }
             noteProgress(improved, call, verdict);
         }
     }

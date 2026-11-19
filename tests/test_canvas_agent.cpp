@@ -513,7 +513,7 @@ int main()
             }
             CHECK(slurp(attemptDir(d, 2) / "conversation.md").find("plan written") != std::string::npos);
         }
-        setPlan("read-handoff");
+        setPlan("");
         const fs::path d = workflow("canvas-thinkplan-read-handoff");
         failedAttempt(d, 1, bad);
         const std::string read = std::string{"=== READ: "} + kFile + " SYMBOL term ===\n";

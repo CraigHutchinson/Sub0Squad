@@ -55,7 +55,7 @@ The next bounded comparison should keep the failing assertion and revision visib
 
 ### Read-to-edit experiment
 
-Set SUB0SQUAD_THINKPLAN=read-handoff to carry the current plan and the pre-read verdict into the next edit turn. The source read stays in the prompt and the act request runs with hidden thinking off. The existing steps mode remains the control.
+The default canvas workflow carries the current plan and the pre-read verdict into the edit turn after a read. The source read stays in the prompt and the act request runs with hidden thinking off. Set SUB0SQUAD_THINKPLAN=steps to replay the earlier workflow. The read-handoff value explicitly selects the default.
 
 A Windows replay on build ad6fd25 used the same archived arithmetic candidate, scripted visible plan and native symbol read in each arm. The model wrote every candidate edit. Both seeds ran with a 1,600-token reply limit and up to two tested edits in one worker attempt. The comparison excludes the two scripted calls from the model-call counts.
 
@@ -66,7 +66,13 @@ A Windows replay on build ad6fd25 used the same archived arithmetic candidate, s
 
 All three accepted candidates passed the 12-expression matrix. The failed control created a parser call cycle that could return to the same input cursor without consuming a character. The original diagnostics and compiled candidates are retained under out/runs/t0-read-handoff-ad6fd25. This replay measures the handoff after a read has been made.
 
-In the unscripted seed 2407 run, both arms produced identical model requests, made two calls, and passed on the first tested edit. Neither requested a read, so this pair exercised the ordinary plan and edit path. Keep the experiment opt-in until a model-authored read cohort confirms the controlled gain. Unscripted evidence is under out/runs/t0-read-handoff-natural-ad6fd25.
+In the unscripted seed 2407 run, both arms produced identical model requests, made two calls, and passed on the first tested edit. Neither requested a read, so this pair exercised the ordinary plan and edit path. That run exercised the ordinary plan and edit path before the read handoff was promoted. Unscripted evidence is under out/runs/t0-read-handoff-natural-ad6fd25.
+
+### T0 failure fixes
+
+A developing item whose seeded implementation fails at least three quarters of at least eight owner tests can restructure immediately. When a candidate reduces the failures to one, narrow the scope back to edits and ask the worker to trace the single failing input and preserve a nearby passing case. If a candidate crashes before reporting a verdict, keep the best tested revision and show the worker the crash from the rejected candidate. These rules keep the repair on the best available canvas revision.
+
+The tester prompt asks for contract-backed expectations and directs the worker to inspect existing implementation for behavior the contract leaves open. The cut-off file prompt directs the worker to preserve the completed prefix, finish the open scopes, and match the public entry point to its header. The T0 fixtures, owner tests and token ceilings stay fixed for the matched failure replays.
 
 ## Token cost gate
 
