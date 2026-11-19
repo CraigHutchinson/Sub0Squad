@@ -349,6 +349,22 @@ The two plans that named a SYMBOL edit were handed to the real canvas agent on t
 
 The initial replies differed and both hit the edit cap. After that, the first two replays had byte-identical requests and replies through the final gate, which failed at -2^2. A third replay kept the dry-run conclusion on retries. Its first request was byte-identical to the second replay. It produced different repairs, staged three compile failures, and still failed the same precedence check. Repeating the correct conclusion did not make the parser put unary minus in the right place. The next experiment needs a check tied to the candidate's actual parser structure and gate feedback. These three replays are one case and one seed, with run data in the act-replay and act-replay-retained folders.
 
+#### On-demand trace retrieval in the C++ repair
+
+A second spike started from the same compiling candidate with seven of eight arithmetic tests passing. The native canvas handled READ: ISSUE 1, then the loopback experiment proxy appended a bounded record of the failing and passing witnesses to the trace arm's read response. The local Qwen model produced all edits and the ordinary compiler/test gate judged them. Seeds 1911, 2407 and 3203 used the same pinned executable and 1,600-token reply limit, with rotated arm order.
+
+| First reply | Gate acceptance | Trace delivered | Elapsed seconds by seed |
+|---|---:|---:|---|
+| Gate only | 2/3 | 0 | 24.62, 39.84, 24.76 |
+| Worker prompted to read the issue | 2/3 | 0 | 64.22, 51.86, 30.66 |
+| Same read, with trace available | 1/3 | 2 | 76.32, 55.12, 30.49 |
+
+On seed 2407 the worker included a read marker and an edit in one reply. The harness processed the edit and both arms passed without a read response. On the two delivered trace reads, the gate still reported -2^2 as 4. In a controlled replay on seeds 1911 and 2407, the proxy supplied the same read-only reply first to ensure both arms got the native issue response. The model handled the edit turns. The recorded first act requests matched after removing the bounded trace detail. Both arms passed 1/2. The trace arm used one more model call on each seed and took 39.93 and 45.71 seconds against 21.54 and 24.85 for issue detail alone. Every accepted edit across both experiments passed all 12 independent input checks.
+
+The local evidence lookup fixture uses the emitted canvas layer dump and recorded frames to resolve the failure from its issue and find failing and passing executions from a block. It retains recursive occurrences. After an accepted edit changed line 88, the fixture still returned the statement that was at line 88 of the recorded revision. This verifies the data join in the spike. The live delivery used a proxy, and historical navigation was verified by the fixture. The result does not establish repair benefit on this candidate. A useful next receiving case is a runtime failure whose assertion and initial view leave the relevant source ambiguous. Test targeted evidence there before adding it to the default repair path.
+
+Artifacts are under out/runs/t0-trace-on-demand-20261119 and out/runs/t0-trace-controlled-read-20261119.
+
 ## How the blocks are used
 
 * **Before a change** to a prompt, a view, a reply format, a gate or the policy: run the blocks it touches, keep the result as the baseline.

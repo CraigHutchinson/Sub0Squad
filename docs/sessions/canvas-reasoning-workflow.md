@@ -31,7 +31,7 @@ Use a plan reply containing the cause, chosen edit and brief alternatives with t
 
 ## Runtime evidence on the canvas
 
-The C++ trace spike recorded failing and passing stack traces, a cursor watch and a 12-input matrix on the archived arithmetic candidate. Evidence stays in out/runs/t0-trace-spike-20261119. The Sub0Canvas runtime evidence brief (docs/sessions/canvas-runtime-evidence.md in that repository) places the first receiving slice here. Start with a trace reference on the failing issue and retrieve a bounded detail on request. Preserve the source revision that ran even after the canvas changes. The gate remains the initial view.
+The C++ trace spike recorded failing and passing stack traces, a cursor watch and a 12-input matrix on the archived arithmetic candidate. Evidence stays in out/runs/t0-trace-spike-20261119. The Sub0Canvas runtime evidence brief (docs/sessions/canvas-runtime-evidence.md in that repository) places the first receiving slice here. Start with a trace reference on the failing issue and retrieve a bounded detail on request. Preserve the source revision that ran even after the canvas changes. The gate remains the initial view. The [on-demand C++ replay](../BLOCK_PROVING_GROUNDS.md#on-demand-trace-retrieval-in-the-c-repair) verified retrieval and revision binding in the spike. It found no acceptance gain from adding trace detail to this arithmetic candidate.
 
 ## Asynchronous scratch checks
 
