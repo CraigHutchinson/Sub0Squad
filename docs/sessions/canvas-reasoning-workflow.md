@@ -53,6 +53,21 @@ The compact replay showed that the source and assertion can support a passing pa
 
 The next bounded comparison should keep the failing assertion and revision visible through a source read, carry the current plan into one edit turn, and issue a single instruction for that turn. Show the implicated callers and callees in a compact window. Keep the one-line runtime observation available through the issue, with the full stack and values retrievable when asked. Measure whether each requested region arrived, whether the reply became an applicable edit, which owner assertions changed, and how many calls went to re-reading or re-planning. Use the archived post-read sequence as the control.
 
+### Read-to-edit experiment
+
+Set SUB0SQUAD_THINKPLAN=read-handoff to carry the current plan and the pre-read verdict into the next edit turn. The source read stays in the prompt and the act request runs with hidden thinking off. The existing steps mode remains the control.
+
+A Windows replay on build ad6fd25 used the same archived arithmetic candidate, scripted visible plan and native symbol read in each arm. The model wrote every candidate edit. Both seeds ran with a 1,600-token reply limit and up to two tested edits in one worker attempt. The comparison excludes the two scripted calls from the model-call counts.
+
+| Seed | Steps | Read handoff |
+| --- | --- | --- |
+| 1911 | First-edit pass, 4 model calls, 76.5 s | First-edit pass, 1 model call, 24.5 s |
+| 2407 | Test program crashed on the second edit, 4 model calls, 79.1 s | First-edit pass, 1 model call, 25.0 s |
+
+All three accepted candidates passed the 12-expression matrix. The failed control created a parser call cycle that could return to the same input cursor without consuming a character. The original diagnostics and compiled candidates are retained under out/runs/t0-read-handoff-ad6fd25. This replay measures the handoff after a read has been made.
+
+In the unscripted seed 2407 run, both arms produced identical model requests, made two calls, and passed on the first tested edit. Neither requested a read, so this pair exercised the ordinary plan and edit path. Keep the experiment opt-in until a model-authored read cohort confirms the controlled gain. Unscripted evidence is under out/runs/t0-read-handoff-natural-ad6fd25.
+
 ## Extra turns when a repair is making progress
 
 Keep first-pass acceptance as a KPI. Compare the fixed N-turn gate with a separate experiment that declares a hard N+1 limit before the run. At the end of N, grant one additional tested edit on the same canvas when recent owner checks show a meaningful improvement and the worker can name the next local edit and its check. Record ordinary passes, extension grants, extension passes and denied requests. Keep the best tested revision and the total model-call count, including calls that produced no candidate.
