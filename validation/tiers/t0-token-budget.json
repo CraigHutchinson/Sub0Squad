@@ -12,12 +12,17 @@
     "contextTokens": 16384,
     "maxReplyTokens": 3000,
     "cache": false,
-    "thinking": false,
-    "headroomPercent": 25
+    "thinking": false
   },
-  "minimumHeadroom": {
-    "tokensIn": 2048,
-    "tokensOut": 256
+  "headroom": {
+    "warning": {
+      "percent": 25,
+      "minimum": { "tokensIn": 2048, "tokensOut": 256 }
+    },
+    "hard": {
+      "percent": 50,
+      "minimum": { "tokensIn": 4096, "tokensOut": 512 }
+    }
   },
   "fallback": {
     "tokensIn": 39208,

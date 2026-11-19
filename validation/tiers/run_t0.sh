@@ -56,7 +56,11 @@ for c in $cases; do
       "$exe" down >/dev/null 2>&1
       exit 5
     fi
-    state=$(wait_workflow "$exe" 3600)
+    if ! state=$(python -B -I "$repo/validation/tiers/gate_t0.py" "$(winpath "$repo")" --engine "${engine%%=*}" --exe "$(winpath "$exe")" --wait-run "$(winpath "$home")"); then
+      echo "run_t0: workflow monitoring failed at $home" >&2
+      "$exe" down >/dev/null 2>&1
+      exit 5
+    fi
     "$exe" down >/dev/null 2>&1
     items="$home/state/workflows/w-000001/items/app"
     row=$(python -I - "$(winpath "$items")" <<'EOF'

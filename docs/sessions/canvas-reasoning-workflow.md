@@ -72,11 +72,16 @@ In the unscripted seed 2407 run, both arms produced identical model requests, ma
 
 The T0 workload KPIs are PP (reported prompt tokens) and TG (reported generated tokens), summed across calls and attempts. The report identifies requests with missing usage. Keep model, tokenizer and cache settings fixed when comparing counts. The qwen35 calibration has caching disabled. System-dependent prefill or time-to-first-token measurements remain in the per-run JSON diagnostics. The token gate uses counts alone.
 
-The qwen35 policy is frozen in [t0-token-budget.json](../../validation/tiers/t0-token-budget.json). It uses the highest observed costs among the 69 in-budget behavior passes on Windows build 7ec8209, separately for each case and metric. Add 25% rounded up, with at least 2,048 extra prompt tokens and 256 extra generated tokens. Cases or fixture revisions without a matching passing baseline use the provisional suite ceiling of 49,010 prompt tokens and 8,044 generated tokens. The suite maxima include observed lower bounds from three runs with interrupted usage. Recalibrate explicitly when changing the model profile or when a wider passing cohort is available.
+The qwen35 policy is frozen in [t0-token-budget.json](../../validation/tiers/t0-token-budget.json). It uses the highest observed costs among the 69 in-budget behavior passes on Windows build 7ec8209, separately for each case and metric. The warning threshold adds 25%, with minimum allowances of 2,048 PP and 256 TG tokens. The hard ceiling adds 50%, with minimum allowances of 4,096 PP and 512 TG tokens. Both percentages round up. Cases without a matching passing baseline use provisional suite limits. The suite maxima include observed lower bounds from three runs with interrupted usage. Recalibrate explicitly when changing the model profile or when a wider passing cohort is available.
 
-The gate fails when either observed total exceeds its cap. A run within both observed caps with missing usage is incomplete. Behavior and pass ordinals stay visible separately. This check judges the recorded run after it ends. It does not interrupt a live model request. The T1 runner uses the resulting T0 admission verdict, and its single-run report exposes the same cost KPIs without applying the T0 case cap to T1 workloads.
+| Threshold | Fallback PP | Fallback TG | Effect |
+| --- | ---: | ---: | --- |
+| Warning | 49,010 | 8,044 | Report the overrun and continue the run |
+| Hard ceiling | 58,812 | 9,653 | Fail the cost gate and cancel a live T0 workflow |
 
-The 78-run backtest found nine runs over the ceilings, all among the original in-budget behavior failures, plus three behavior passes with incomplete token usage. Evidence is in out/runs/t0-token-budget-backtest-7ec8209. Run the focused checks with python -B -m unittest discover -s validation/tiers -p test_gate_t0.py.
+The runner polls completed-call usage across attempts once a second and saves a cost-stop record when the observed total exceeds either hard cap. A request can already be in flight at cancellation. The existing per-reply and wall-clock limits still bound that gap. Missing usage beneath the hard limit leaves the cost verdict incomplete. Behavior and pass ordinals remain separate. T1 admission uses the T0 verdict, and the T1 single-run report exposes PP and TG without applying the T0 case limits.
+
+The revised 78-run backtest found seven hard cost failures, one warning with complete usage, and four runs with incomplete usage. One of the incomplete runs also crossed the warning threshold. The native Windows replay with a scripted engine verified early cancellation. Evidence is in out/runs/t0-token-budget-backtest-7ec8209 and out/runs/t0-token-hard-stop-native. Run the focused checks with python -B -m unittest discover -s validation/tiers -p test_gate_t0.py.
 
 ## Extra turns when a repair is making progress
 

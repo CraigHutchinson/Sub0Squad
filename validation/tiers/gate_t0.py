@@ -9,11 +9,11 @@ It judges the run directories themselves (out/runs/t0/<case>/run-N, written by r
   * the engine is the one the attempts used (agent.json);
   * a run counts only if its plan is the case as make_t0.py defines it NOW (a run of an older definition is stale: listed, not counted);
   * a pass is an accepted item that a MODEL built (report.md "built by"), never the frontier stub or the mock;
-  * configured token ceilings apply per run. Missing usage cannot certify that a run met the ceiling.
+  * configured token ceilings apply per run. The warning threshold is advisory. A hard overrun fails; missing usage cannot certify the hard limit.
 Writes out/runs/t0/gate.json and gate.md. Exit 0: PASS; 1: FAIL (a counted run failed); 2: INCOMPLETE (a case has fewer than --min-runs counted runs).
 --set smoke judges only the smoke set (make_t0.py SMOKE) and writes smoke.json and smoke.md instead: a quick check while iterating, never the gate.
 """
-import argparse, hashlib, json, os, pathlib, re, subprocess, sys
+import argparse, hashlib, json, os, pathlib, re, subprocess, sys, time
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))   # the sibling modules, also under python -I
 import quality_t0  # noqa: E402
@@ -108,26 +108,105 @@ def attempt_cost(attempt, agent):
     }
 
 
+def load_cost_policy(engine):
+    policy = json.loads(pathlib.Path(__file__).with_name("t0-token-budget.json").read_text(encoding="utf-8"))
+    return policy if policy["engine"] == engine else None
+
+
 def cost_limits(policy, name, key):
     case = policy["cases"].get(name)
     calibrated = case is not None and case["key"] == key
     baseline = case if calibrated else policy["fallback"]
-    percent = policy["calibration"]["headroomPercent"]
-    limits = {metric: baseline[metric] + max((baseline[metric] * percent + 99) // 100, floor)
-              for metric, floor in policy["minimumHeadroom"].items()}
+    limits = {}
+    for level, headroom in policy["headroom"].items():
+        percent = headroom["percent"]
+        limits[level] = {metric: baseline[metric] + max((baseline[metric] * percent + 99) // 100, floor)
+                         for metric, floor in headroom["minimum"].items()}
     return limits, "case" if calibrated else "suite fallback"
 
 
+def overrun(run, caps):
+    return ", ".join(f"{metric} {run[metric]} > {cap}" for metric, cap in caps.items() if run[metric] > cap)
+
+
 def judge_cost(run, limits):
-    exceeded = [metric for metric, cap in limits.items() if run[metric] > cap]
-    if exceeded:
-        detail = ", ".join(f"{metric} {run[metric]} > {limits[metric]}" for metric in exceeded)
-        return "FAIL", f"token ceiling exceeded ({detail})"
+    stopped = run.get("costStop")
+    if stopped:
+        return "FAIL", stopped["reason"]
+    hard = overrun(run, limits["hard"])
+    if hard:
+        return "FAIL", f"hard token ceiling exceeded ({hard})"
+    soft = overrun(run, limits["warning"])
+    warning = f"soft token threshold exceeded ({soft})" if soft else ""
     if not run["turns"]:
         return "INCOMPLETE", "no measured model calls"
     if run["missingUsageCalls"]:
-        return "INCOMPLETE", f"token usage missing for {run['missingUsageCalls']} model call(s)"
-    return "PASS", ""
+        return "INCOMPLETE", "; ".join(filter(None, (warning, f"token usage missing for {run['missingUsageCalls']} model call(s)")))
+    return ("WARN", warning) if warning else ("PASS", "")
+
+
+def measure_cost(attempts):
+    engines = set()
+    cost = dict(turns=0, tokensIn=0, tokensOut=0, prefillSeconds=0.0, prefillTimedCalls=0, missingUsageCalls=0)
+    for attempt in attempts:
+        try:
+            agent = json.loads((attempt / "agent.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            agent = {}
+        if engine := agent.get("engine"):
+            engines.add(engine)
+        for metric, value in attempt_cost(attempt, agent).items():
+            cost[metric] += value
+    cost["prefillSeconds"] = round(cost["prefillSeconds"], 1) if cost["prefillTimedCalls"] else None
+    return ",".join(sorted(engines)), cost
+
+
+TERMINAL_STATES = {"succeeded", "failed", "cancelled"}
+
+
+def wait_run(exe, run, engine, policy, timeout=3600):
+    workflow = run / "state/workflows/w-000001"
+    limits = {}
+    if policy:
+        plan = json.loads((workflow / "plan.json").read_text(encoding="utf-8"))
+        limits, _ = cost_limits(policy, plan["project"].removeprefix("t0-"), case_key(plan))
+    env = dict(os.environ, SUB0SQUAD_HOME=str(run))
+
+    def command(action, *args):
+        return subprocess.check_output([str(exe.resolve()), "project", action, "w-000001", *args],
+                                       text=True, env=env, timeout=35)
+
+    def state():
+        return json.loads(command("status", "--json"))["workflows"][0]["state"]
+
+    deadline = time.monotonic() + timeout
+    warned = False
+    while (current := state()) not in TERMINAL_STATES:
+        if limits:
+            _, cost = measure_cost((workflow / "items/app").glob("attempt-[0-9]*"))
+            hard = limits["hard"]
+            if exceeded := overrun(cost, hard):
+                mark = {"engine": engine, "reason": f"live hard token ceiling exceeded ({exceeded})",
+                        "hardCaps": hard, "tokensIn": cost["tokensIn"], "tokensOut": cost["tokensOut"]}
+                pending = run / "cost-stop.json.tmp"
+                pending.write_text(json.dumps(mark, indent=2) + "\n", encoding="utf-8")
+                pending.replace(run / "cost-stop.json")
+                try:
+                    command("cancel")
+                except subprocess.CalledProcessError:
+                    finished = state()
+                    if finished in TERMINAL_STATES:
+                        return finished
+                    raise
+                return "cancelled"
+            if not warned and (exceeded := overrun(cost, limits["warning"])):
+                print(f"{run.parent.name}/{run.name}: soft token threshold exceeded ({exceeded})", file=sys.stderr)
+                warned = True
+        if time.monotonic() >= deadline:
+            command("cancel")
+            return "cancelled"
+        time.sleep(1)
+    return current
 
 
 def judge_run(run, plan, ref_dir):
@@ -140,18 +219,16 @@ def judge_run(run, plan, ref_dir):
     item = wf / "items/app"
     attempts = sorted(item.glob("attempt-[0-9]*"), key=lambda attempt: int(attempt.name.split("-")[1]))
     info["attempts"] = len(attempts)
-    engines = set()
-    cost = dict(turns=0, tokensIn=0, tokensOut=0, prefillSeconds=0.0, prefillTimedCalls=0, missingUsageCalls=0)
-    for a in attempts:
-        try:
-            j = json.loads((a / "agent.json").read_text())
-        except (OSError, ValueError):
-            j = {}
-        engines.add(j.get("engine", ""))
-        for metric, value in attempt_cost(a, j).items():
-            cost[metric] += value
-    cost["prefillSeconds"] = round(cost["prefillSeconds"], 1) if cost["prefillTimedCalls"] else None
-    info.update(engine=",".join(sorted(e for e in engines if e)), **cost)
+    engine, cost = measure_cost(attempts)
+    try:
+        stopped = json.loads((run / "cost-stop.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        stopped = None
+    if stopped:
+        engine = engine or stopped["engine"]
+        for metric in ("tokensIn", "tokensOut"):
+            cost[metric] = max(cost[metric], stopped[metric])
+    info.update(engine=engine, costStop=stopped, **cost)
     report = (wf / "report.md").read_text(encoding="utf-8", errors="replace") if (wf / "report.md").exists() else ""
     info["builtByModel"] = "| app | model |" in report
     info["accepted"] = (item / "accepted").exists()
@@ -195,9 +272,17 @@ def main():
     build_source.add_argument("--build")
     build_source.add_argument("--exe", type=pathlib.Path)
     ap.add_argument("--json", action="store_true"); ap.add_argument("--set", default="all")
-    ap.add_argument("--report-run", type=pathlib.Path, help="report one saved canvas workflow using its recorded plan")
+    run_mode = ap.add_mutually_exclusive_group()
+    run_mode.add_argument("--report-run", type=pathlib.Path, help="report one saved canvas workflow using its recorded plan")
+    run_mode.add_argument("--wait-run", type=pathlib.Path, help="watch a live T0 run and cancel it at the hard ceiling")
     a = ap.parse_args()
     repo = pathlib.Path(a.repo).resolve()
+    cost_policy = load_cost_policy(a.engine)
+    if a.wait_run is not None:
+        if a.exe is None:
+            ap.error("--wait-run requires --exe")
+        print(wait_run(a.exe, a.wait_run.resolve(), a.engine, cost_policy))
+        return 0
     sys.argv = ["make_t0.py", str(repo)]
     import make_t0
     if a.report_run is not None:
@@ -213,9 +298,6 @@ def main():
             ap.error(f"could not read the build version from {exe}")
         build = version[1].split("+", 1)[0]
     out = pathlib.Path(os.environ.get("T0_OUT", repo / "out/runs/t0"))
-    cost_policy = json.loads((pathlib.Path(__file__).parent / "t0-token-budget.json").read_text(encoding="utf-8"))
-    if cost_policy["engine"] != a.engine:
-        cost_policy = None
     cases, verdict = {}, "PASS"
     smoke = a.set != "all"   # a named set (make_t0.SETS): a quick check, never the gate
     for name in (make_t0.SETS[a.set] if smoke else make_t0.GATE):
@@ -227,6 +309,7 @@ def main():
         limits, limit_source = cost_limits(cost_policy, name, key) if cost_policy else ({}, "unconfigured engine")
         for run in counted:
             run["costState"], run["costReason"] = judge_cost(run, limits) if limits else ("UNCONFIGURED", "")
+        cost_warnings = sum(r["costState"] == "WARN" for r in counted)
         cost_failures = sum(r["costState"] == "FAIL" for r in counted)
         cost_incomplete = sum(r["costState"] == "INCOMPLETE" for r in counted)
         state = "FAIL" if passed < len(counted) or cost_failures else "INCOMPLETE" if len(counted) < a.min_runs or cost_incomplete else "PASS"
@@ -239,9 +322,9 @@ def main():
                        "secondCandidatePass": sum(r["passed"] and r["passingCandidate"] == 2 for r in counted),
                        "editResults": {r["run"]: {field: r[field] for field in ("candidateEdits", "passingCandidate", "testedEdits", "passingEdit", "acceptedAttempt", "attemptLimit", "repairTurns")} for r in counted},
                        "passedWithoutEditKpi": sum(r["passed"] and r["passingEdit"] is None for r in counted),
-                       "costLimits": limits, "costLimitSource": limit_source, "costFailures": cost_failures, "costIncomplete": cost_incomplete,
+                       "costLimits": limits, "costLimitSource": limit_source, "costWarnings": cost_warnings, "costFailures": cost_failures, "costIncomplete": cost_incomplete,
                        "costResults": {r["run"]: {field: r[field] for field in ("tokensIn", "tokensOut", "prefillSeconds", "prefillTimedCalls",
-                                                                              "missingUsageCalls", "costState", "costReason")} for r in counted},
+                                                                              "missingUsageCalls", "costState", "costReason", "costStop")} for r in counted},
                        "failures": [{"run": r["run"], "testedEdits": r["testedEdits"], "lastGate": r.get("lastGate", []),
                                      "costReason": r["costReason"],
                                      "gateEditVerdicts": r["gateEditVerdicts"], "candidateEditVerdicts": r["candidateEditVerdicts"]}
@@ -258,7 +341,7 @@ def main():
     gate = {"schema": "t0-gate-1", "set": a.set, "verdict": verdict, "build": build, "engine": a.engine, "minRuns": a.min_runs, "cases": cases}
     totals = {field: sum(case[field] for case in cases.values())
               for field in ("runs", "passed", "outsideAttemptBudget", "firstCandidatePass", "secondCandidatePass", "firstPass", "secondPass", "passedWithoutEditKpi",
-                            "turns", "tokensIn", "tokensOut", "missingUsageCalls", "costFailures", "costIncomplete")}
+                            "turns", "tokensIn", "tokensOut", "missingUsageCalls", "costWarnings", "costFailures", "costIncomplete")}
     gate["costCalibration"] = cost_policy["calibration"] if cost_policy else None
     gate["totals"] = totals
 
@@ -282,16 +365,17 @@ def main():
           "Each pass column counts exact ordinals. Candidate checks include compiler failures. Behavior checks count edits that reached the item test gate. A gate pass without a recorded behavior ordinal is shown separately.", "",
           f"Observed PP (prompt tokens): {totals['tokensIn']:,}. TG (generated tokens): {totals['tokensOut']:,}. "
           f"Usage missing on {totals['missingUsageCalls']} of {totals['turns']} model calls. "
-          f"Cost failures: {totals['costFailures']}. Incomplete cost evidence: {totals['costIncomplete']}.", "",
-          ("PP and TG ceilings use the frozen calibration." if cost_policy else "Token ceilings are unconfigured for this engine.")
+          f"Cost warnings: {totals['costWarnings']}. Hard cost failures: {totals['costFailures']}. Incomplete cost evidence: {totals['costIncomplete']}.", "",
+          ("PP and TG warning and hard thresholds use the frozen calibration." if cost_policy else "Token ceilings are unconfigured for this engine.")
           + " Per-run timing is available in the JSON diagnostics.", "",
-          "| case | state | passed | candidate first pass | candidate second pass | behavior first pass | behavior second pass | pass without ordinal | first attempt | calls | PP tokens | TG tokens | missing usage calls | PP / TG cap per run | quality per run | not counted |",
+          "| case | state | passed | candidate first pass | candidate second pass | behavior first pass | behavior second pass | pass without ordinal | first attempt | calls | PP tokens | TG tokens | missing usage calls | PP / TG warning and hard caps per run | quality per run | not counted |",
           "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
     for n, c in cases.items():
         qual = "; ".join(f"{run}: " + " / ".join(quality_t0.summary(q) for q in files.values()) for run, files in c["quality"].items() if files)
         turns = f"{c['turns']}" + (f" ({c['defectsPerTurn']} defects/turn)" if c.get("defectsPerTurn") else "")
         cap = c["costLimits"]
-        budget = f"{cap['tokensIn']:,} / {cap['tokensOut']:,} ({c['costLimitSource']})" if cap else "unconfigured"
+        budget = "; ".join(f"{level} {amounts['tokensIn']:,} / {amounts['tokensOut']:,}" for level, amounts in cap.items())
+        budget = f"{budget} ({c['costLimitSource']})" if budget else "unconfigured"
         md.append(f"| {n} | {c['state']} | {c['passed']}/{c['runs']} | {c['firstCandidatePass']}/{c['runs']} | {c['secondCandidatePass']}/{c['runs']} | "
                   f"{c['firstPass']}/{c['runs']} | {c['secondPass']}/{c['runs']} | "
                   f"{c['passedWithoutEditKpi']} | {c['firstAttempt']}/{c['runs']} | {turns} | {c['tokensIn']:,} | {c['tokensOut']:,} | "
@@ -302,6 +386,12 @@ def main():
             md.append(f"{'  ' * level}- {node['case']} · {node['state']}{note}")
             add_tree(node["requires"], level + 1)
 
+    md.extend(["", "## Cost warnings", ""])
+    for name, case in cases.items():
+        for run, cost in case["costResults"].items():
+            if cost["costState"] == "WARN":
+                path = f"{name}/{run}"
+                md.append(f"- [{path}]({path}/): {cost['costReason']}")
     md.extend(["", "## Failed runs", ""])
     for name, case in cases.items():
         for failure in case["failures"]:
