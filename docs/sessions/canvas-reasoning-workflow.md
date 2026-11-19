@@ -68,6 +68,16 @@ All three accepted candidates passed the 12-expression matrix. The failed contro
 
 In the unscripted seed 2407 run, both arms produced identical model requests, made two calls, and passed on the first tested edit. Neither requested a read, so this pair exercised the ordinary plan and edit path. Keep the experiment opt-in until a model-authored read cohort confirms the controlled gain. Unscripted evidence is under out/runs/t0-read-handoff-natural-ad6fd25.
 
+## Token cost gate
+
+The T0 report records total prompt tokens, generated tokens and prefill time across calls and attempts. When the backend omits prefill timing, the conversation trace may report time to first token instead. The report includes timing coverage and identifies interrupted or failed requests with missing usage. Timing is a KPI. The hard checks use token counts so they do not depend on the speed of the machine.
+
+The qwen35 policy is frozen in [t0-token-budget.json](../../validation/tiers/t0-token-budget.json). It uses the highest observed costs among the 69 in-budget behavior passes on Windows build 7ec8209, separately for each case and metric. Add 25% rounded up, with at least 2,048 extra prompt tokens and 256 extra generated tokens. Cases or fixture revisions without a matching passing baseline use the provisional suite ceiling of 49,010 prompt tokens and 8,044 generated tokens. The suite maxima include observed lower bounds from three runs with interrupted usage. Recalibrate explicitly when changing the model profile or when a wider passing cohort is available.
+
+The gate fails when either observed total exceeds its cap. A run within both observed caps with missing usage is incomplete. Behavior and pass ordinals stay visible separately. This check judges the recorded run after it ends. It does not interrupt a live model request. The T1 runner uses the resulting T0 admission verdict, and its single-run report exposes the same cost KPIs without applying the T0 case cap to T1 workloads.
+
+The 78-run backtest found nine runs over the ceilings, all among the original in-budget behavior failures, plus three behavior passes with incomplete token usage. Evidence is in out/runs/t0-token-budget-backtest-7ec8209. Run the focused checks with python -B -m unittest discover -s validation/tiers -p test_gate_t0.py.
+
 ## Extra turns when a repair is making progress
 
 Keep first-pass acceptance as a KPI. Compare the fixed N-turn gate with a separate experiment that declares a hard N+1 limit before the run. At the end of N, grant one additional tested edit on the same canvas when recent owner checks show a meaningful improvement and the worker can name the next local edit and its check. Record ordinary passes, extension grants, extension passes and denied requests. Keep the best tested revision and the total model-call count, including calls that produced no candidate.

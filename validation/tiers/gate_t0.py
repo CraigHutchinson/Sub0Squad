@@ -8,7 +8,8 @@ It judges the run directories themselves (out/runs/t0/<case>/run-N, written by r
   * the build is the one the run's daemon recorded (state/run-info.json), checked against --build or --exe (default: out/build/mingw/sub0squad.exe);
   * the engine is the one the attempts used (agent.json);
   * a run counts only if its plan is the case as make_t0.py defines it NOW (a run of an older definition is stale: listed, not counted);
-  * a pass is an accepted item that a MODEL built (report.md "built by"), never the frontier stub or the mock.
+  * a pass is an accepted item that a MODEL built (report.md "built by"), never the frontier stub or the mock;
+  * configured token ceilings apply per run. Missing usage cannot certify that a run met the ceiling.
 Writes out/runs/t0/gate.json and gate.md. Exit 0: PASS; 1: FAIL (a counted run failed); 2: INCOMPLETE (a case has fewer than --min-runs counted runs).
 --set smoke judges only the smoke set (make_t0.py SMOKE) and writes smoke.json and smoke.md instead: a quick check while iterating, never the gate.
 """
@@ -82,6 +83,53 @@ def run_budget(run):
     return None, None
 
 
+REPLY_USAGE = re.compile(
+    r"^### Reply, turn \d+ \([^\n]*\): (\d+) prompt tokens, (\d+) completion tokens, [^\n]*",
+    re.MULTILINE,
+)
+PROMPT_TIME = re.compile(r", (\d+\.\d+) s prompt")
+SENT_TURN = re.compile(r"^## Turn \d+ ", re.MULTILINE)
+TRACE_BODY = re.compile(r"^(`{3,})$\n.*?^\1(?:\n|\Z)", re.MULTILINE | re.DOTALL)
+
+
+def attempt_cost(attempt, agent):
+    trace = attempt / "conversation.md"
+    text = TRACE_BODY.sub("", trace.read_text(encoding="utf-8", errors="replace")) if trace.is_file() else ""
+    replies = list(REPLY_USAGE.finditer(text))
+    calls = max(agent.get("turns", 0), len(SENT_TURN.findall(text)), len(replies))
+    timed = [float(time[1]) for reply in replies if (time := PROMPT_TIME.search(reply[0]))]
+    return {
+        "turns": calls,
+        "tokensIn": round(max(agent.get("tokensIn", 0), sum(int(r[1]) for r in replies))),
+        "tokensOut": round(max(agent.get("tokensOut", 0), sum(int(r[2]) for r in replies))),
+        "prefillSeconds": sum(timed),
+        "prefillTimedCalls": len(timed),
+        "missingUsageCalls": calls - sum(int(r[1]) > 0 and int(r[2]) > 0 for r in replies),
+    }
+
+
+def cost_limits(policy, name, key):
+    case = policy["cases"].get(name)
+    calibrated = case is not None and case["key"] == key
+    baseline = case if calibrated else policy["fallback"]
+    percent = policy["calibration"]["headroomPercent"]
+    limits = {metric: baseline[metric] + max((baseline[metric] * percent + 99) // 100, floor)
+              for metric, floor in policy["minimumHeadroom"].items()}
+    return limits, "case" if calibrated else "suite fallback"
+
+
+def judge_cost(run, limits):
+    exceeded = [metric for metric, cap in limits.items() if run[metric] > cap]
+    if exceeded:
+        detail = ", ".join(f"{metric} {run[metric]} > {limits[metric]}" for metric in exceeded)
+        return "FAIL", f"token ceiling exceeded ({detail})"
+    if not run["turns"]:
+        return "INCOMPLETE", "no measured model calls"
+    if run["missingUsageCalls"]:
+        return "INCOMPLETE", f"token usage missing for {run['missingUsageCalls']} model call(s)"
+    return "PASS", ""
+
+
 def judge_run(run, plan, ref_dir):
     info = {"run": run.name}
     try: info["build"] = json.loads((run / "state/run-info.json").read_text())["build"]
@@ -92,13 +140,18 @@ def judge_run(run, plan, ref_dir):
     item = wf / "items/app"
     attempts = sorted(item.glob("attempt-[0-9]*"), key=lambda attempt: int(attempt.name.split("-")[1]))
     info["attempts"] = len(attempts)
-    engines, turns, tokens = set(), 0, 0
+    engines = set()
+    cost = dict(turns=0, tokensIn=0, tokensOut=0, prefillSeconds=0.0, prefillTimedCalls=0, missingUsageCalls=0)
     for a in attempts:
         try:
             j = json.loads((a / "agent.json").read_text())
-            engines.add(j.get("engine", "")); turns += j.get("turns", 0); tokens += j.get("tokensOut", 0)
-        except Exception: pass
-    info.update(engine=",".join(sorted(e for e in engines if e)), turns=turns, tokensOut=round(tokens))
+        except (OSError, ValueError):
+            j = {}
+        engines.add(j.get("engine", ""))
+        for metric, value in attempt_cost(a, j).items():
+            cost[metric] += value
+    cost["prefillSeconds"] = round(cost["prefillSeconds"], 1) if cost["prefillTimedCalls"] else None
+    info.update(engine=",".join(sorted(e for e in engines if e)), **cost)
     report = (wf / "report.md").read_text(encoding="utf-8", errors="replace") if (wf / "report.md").exists() else ""
     info["builtByModel"] = "| app | model |" in report
     info["accepted"] = (item / "accepted").exists()
@@ -160,6 +213,9 @@ def main():
             ap.error(f"could not read the build version from {exe}")
         build = version[1].split("+", 1)[0]
     out = pathlib.Path(os.environ.get("T0_OUT", repo / "out/runs/t0"))
+    cost_policy = json.loads((pathlib.Path(__file__).parent / "t0-token-budget.json").read_text(encoding="utf-8"))
+    if cost_policy["engine"] != a.engine:
+        cost_policy = None
     cases, verdict = {}, "PASS"
     smoke = a.set != "all"   # a named set (make_t0.SETS): a quick check, never the gate
     for name in (make_t0.SETS[a.set] if smoke else make_t0.GATE):
@@ -168,7 +224,12 @@ def main():
         runs = [judge_run(r, plan, make_t0.REF) for r in sorted((out / name).glob("run-*"))]
         counted = [r for r in runs if r["key"] == key and r["build"].split("+")[0] == build and r["engine"] == a.engine]
         passed = sum(r["passed"] for r in counted)
-        state = "FAIL" if passed < len(counted) else "INCOMPLETE" if len(counted) < a.min_runs else "PASS"
+        limits, limit_source = cost_limits(cost_policy, name, key) if cost_policy else ({}, "unconfigured engine")
+        for run in counted:
+            run["costState"], run["costReason"] = judge_cost(run, limits) if limits else ("UNCONFIGURED", "")
+        cost_failures = sum(r["costState"] == "FAIL" for r in counted)
+        cost_incomplete = sum(r["costState"] == "INCOMPLETE" for r in counted)
+        state = "FAIL" if passed < len(counted) or cost_failures else "INCOMPLETE" if len(counted) < a.min_runs or cost_incomplete else "PASS"
         if state == "FAIL" or (state == "INCOMPLETE" and verdict == "PASS"): verdict = state
         cases[name] = {"state": state, "runs": len(counted), "passed": passed,
                        "outsideAttemptBudget": sum(r["outsideAttemptBudget"] for r in counted), "firstAttempt": sum(r["firstAttempt"] for r in counted),
@@ -178,10 +239,18 @@ def main():
                        "secondCandidatePass": sum(r["passed"] and r["passingCandidate"] == 2 for r in counted),
                        "editResults": {r["run"]: {field: r[field] for field in ("candidateEdits", "passingCandidate", "testedEdits", "passingEdit", "acceptedAttempt", "attemptLimit", "repairTurns")} for r in counted},
                        "passedWithoutEditKpi": sum(r["passed"] and r["passingEdit"] is None for r in counted),
+                       "costLimits": limits, "costLimitSource": limit_source, "costFailures": cost_failures, "costIncomplete": cost_incomplete,
+                       "costResults": {r["run"]: {field: r[field] for field in ("tokensIn", "tokensOut", "prefillSeconds", "prefillTimedCalls",
+                                                                              "missingUsageCalls", "costState", "costReason")} for r in counted},
                        "failures": [{"run": r["run"], "testedEdits": r["testedEdits"], "lastGate": r.get("lastGate", []),
+                                     "costReason": r["costReason"],
                                      "gateEditVerdicts": r["gateEditVerdicts"], "candidateEditVerdicts": r["candidateEditVerdicts"]}
-                                    for r in counted if not r["passed"]],
-                       "turns": sum(r["turns"] for r in counted), "tokensOut": sum(r["tokensOut"] for r in counted),
+                                    for r in counted if not r["passed"] or r["costState"] in ("FAIL", "INCOMPLETE")],
+                       "turns": sum(r["turns"] for r in counted),
+                       "tokensIn": sum(r["tokensIn"] for r in counted), "tokensOut": sum(r["tokensOut"] for r in counted),
+                       "prefillSeconds": round(sum(r["prefillSeconds"] or 0 for r in counted), 1),
+                       "prefillTimedCalls": sum(r["prefillTimedCalls"] for r in counted),
+                       "missingUsageCalls": sum(r["missingUsageCalls"] for r in counted),
                        "notCounted": [f"{r['run']} ({'stale case' if r['key'] != key else 'other build' if r['build'].split('+')[0] != build else 'unfinished' if not r['engine'] else 'other engine'})" for r in runs if r not in counted],
                        "quality": {r["run"]: r["quality"] for r in counted},
                        # Scaling: defects fixed per turn over the passing runs (1.0 is one defect a turn; a case of n defects done in one turn is n).
@@ -190,7 +259,10 @@ def main():
                        "exercises": make_t0.CASES[name]["exercises"]}
     gate = {"schema": "t0-gate-1", "set": a.set, "verdict": verdict, "build": build, "engine": a.engine, "minRuns": a.min_runs, "cases": cases}
     totals = {field: sum(case[field] for case in cases.values())
-              for field in ("runs", "passed", "outsideAttemptBudget", "firstCandidatePass", "secondCandidatePass", "firstPass", "secondPass", "passedWithoutEditKpi")}
+              for field in ("runs", "passed", "outsideAttemptBudget", "firstCandidatePass", "secondCandidatePass", "firstPass", "secondPass", "passedWithoutEditKpi",
+                            "turns", "tokensIn", "tokensOut", "prefillTimedCalls", "missingUsageCalls", "costFailures", "costIncomplete")}
+    totals["prefillSeconds"] = round(sum(case["prefillSeconds"] for case in cases.values()), 1)
+    gate["costCalibration"] = cost_policy["calibration"] if cost_policy else None
     gate["totals"] = totals
 
     def tree_node(name):
@@ -208,17 +280,26 @@ def main():
     pending.replace(out / f"{stem}.json")
     md = [f"# Tier 0 {a.set}: {verdict} (the {a.set} set only; not the gate)" if smoke else f"# Tier 0 gate: {verdict}", "", f"Build `{build}`, engine `{a.engine}`, at least {a.min_runs} counted runs per case, every one passed by a model within its recorded worker attempt limit "
           "with nothing left unfinished (quality_t0.py: a stub or conflict marker left behind fails the run; the other quality measures are reported).", "",
-          f"Accepted within budget {totals['passed']}/{totals['runs']} runs. Accepted above budget {totals['outsideAttemptBudget']}. Candidate first pass {totals['firstCandidatePass']}, second pass {totals['secondCandidatePass']}. "
+          f"Behavior accepted within turn budget {totals['passed']}/{totals['runs']} runs. Accepted above budget {totals['outsideAttemptBudget']}. Candidate first pass {totals['firstCandidatePass']}, second pass {totals['secondCandidatePass']}. "
           f"Behavior first pass {totals['firstPass']}, second pass {totals['secondPass']}.", "",
           "Each pass column counts exact ordinals. Candidate checks include compiler failures. Behavior checks count edits that reached the item test gate. A gate pass without a recorded behavior ordinal is shown separately.", "",
-          "| case | state | passed | candidate first pass | candidate second pass | behavior first pass | behavior second pass | pass without ordinal | first attempt | calls | out tokens | quality per run | not counted |",
-          "|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
+          f"Observed {totals['tokensIn']:,} prompt tokens and {totals['tokensOut']:,} generated tokens. "
+          f"Prefill / first-token time recorded: {totals['prefillSeconds']:.1f} s across {totals['prefillTimedCalls']} of {totals['turns']} calls. "
+          f"Cost failures: {totals['costFailures']}. Incomplete cost evidence: {totals['costIncomplete']}.", "",
+          ("Token ceilings are based on the frozen calibration. Prefill time is an observed KPI and can use first-token timing when backend timing is unavailable."
+           if cost_policy else "Token ceilings are unconfigured for this engine."), "",
+          "| case | state | passed | candidate first pass | candidate second pass | behavior first pass | behavior second pass | pass without ordinal | first attempt | calls | prompt tokens | generated tokens | prefill / first-token s | prompt / generation cap per run | quality per run | not counted |",
+          "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
     for n, c in cases.items():
         qual = "; ".join(f"{run}: " + " / ".join(quality_t0.summary(q) for q in files.values()) for run, files in c["quality"].items() if files)
         turns = f"{c['turns']}" + (f" ({c['defectsPerTurn']} defects/turn)" if c.get("defectsPerTurn") else "")
+        cap = c["costLimits"]
+        budget = f"{cap['tokensIn']:,} / {cap['tokensOut']:,} ({c['costLimitSource']})" if cap else "unconfigured"
+        prefill = f"{c['prefillSeconds']:.1f} ({c['prefillTimedCalls']}/{c['turns']} calls)" if c["prefillTimedCalls"] else "unreported"
         md.append(f"| {n} | {c['state']} | {c['passed']}/{c['runs']} | {c['firstCandidatePass']}/{c['runs']} | {c['secondCandidatePass']}/{c['runs']} | "
                   f"{c['firstPass']}/{c['runs']} | {c['secondPass']}/{c['runs']} | "
-                  f"{c['passedWithoutEditKpi']} | {c['firstAttempt']}/{c['runs']} | {turns} | {c['tokensOut']} | {qual} | {', '.join(c['notCounted'])} |")
+                  f"{c['passedWithoutEditKpi']} | {c['firstAttempt']}/{c['runs']} | {turns} | {c['tokensIn']:,} | {c['tokensOut']:,} | "
+                  f"{prefill} | {budget} | {qual} | {', '.join(c['notCounted'])} |")
     def add_tree(nodes, level=0):
         for node in nodes:
             note = " · blocked by " + ", ".join(node["blockedBy"]) if node["blockedBy"] else ""
@@ -229,7 +310,7 @@ def main():
     for name, case in cases.items():
         for failure in case["failures"]:
             path = f"{name}/{failure['run']}"
-            reason = " ".join(failure["lastGate"]) or "no recorded gate verdict"
+            reason = " / ".join(filter(None, (" ".join(failure["lastGate"]), failure["costReason"]))) or "no recorded gate verdict"
             md.append(f"- [{path}]({path}/): {reason} ({failure['testedEdits']} tested edits)")
     md.extend(["", "## Case tree", ""])
     add_tree(gate["tree"])

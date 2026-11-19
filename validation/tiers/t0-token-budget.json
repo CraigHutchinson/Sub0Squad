@@ -1,0 +1,196 @@
+{
+  "engine": "qwen35",
+  "calibration": {
+    "build": "0.0.0-229-g7ec8209",
+    "seeds": [
+      5101,
+      5102,
+      5103
+    ],
+    "passingRuns": 69,
+    "partialUsageRuns": 3,
+    "contextTokens": 16384,
+    "maxReplyTokens": 3000,
+    "cache": false,
+    "thinking": false,
+    "headroomPercent": 25
+  },
+  "minimumHeadroom": {
+    "tokensIn": 2048,
+    "tokensOut": 256
+  },
+  "fallback": {
+    "tokensIn": 39208,
+    "tokensOut": 6435
+  },
+  "cases": {
+    "fix-op": {
+      "key": "b35f8198dff31c6f64534f5448f10402027a88c6b49d68697b6f2be51416c7f4",
+      "passingRuns": 3,
+      "partialUsageRuns": 0,
+      "tokensIn": 10438,
+      "tokensOut": 248
+    },
+    "fix-boundary": {
+      "key": "f404d03b60840c8478598825f2997bce43e0919503245a5a1b175ad9e110f15f",
+      "passingRuns": 3,
+      "partialUsageRuns": 0,
+      "tokensIn": 10457,
+      "tokensOut": 269
+    },
+    "fix-distant": {
+      "key": "08a2cf400f874b2f71d6e21eec2e3ca2dfb489cab6601d05ac3965f9fbc3fc44",
+      "passingRuns": 3,
+      "partialUsageRuns": 0,
+      "tokensIn": 10949,
+      "tokensOut": 1512
+    },
+    "fix-missing-check": {
+      "key": "2db62b0bdaac54fc3df9d0a9594b72e92ec5099cbae4760e9a973018ef0a82d2",
+      "passingRuns": 3,
+      "partialUsageRuns": 0,
+      "tokensIn": 10454,
+      "tokensOut": 283
+    },
+    "fix-two-bugs": {
+      "key": "10fc0f1f8ba0e53f5526de2ff7aef6b2917c916f60dfeddf3ca245b4775edde7",
+      "passingRuns": 3,
+      "partialUsageRuns": 0,
+      "tokensIn": 15489,
+      "tokensOut": 498
+    },
+    "compile-typo": {
+      "key": "d339170b310845a5f7e2d41263809ca1dd1f2ee4f290867972d3c8e341851d59",
+      "passingRuns": 3,
+      "partialUsageRuns": 0,
+      "tokensIn": 10504,
+      "tokensOut": 248
+    },
+    "undeclared-member": {
+      "key": "99434cc684a5010fdeab32df2bc22c37576853a1803acb389d1af44cb6997975",
+      "passingRuns": 3,
+      "partialUsageRuns": 0,
+      "tokensIn": 10970,
+      "tokensOut": 950
+    },
+    "undeclared-many": {
+      "key": "aa38e57ed011ae77565925fc3e183f4ad0e90a78f0790c44d59b0db0f402a40a",
+      "passingRuns": 3,
+      "partialUsageRuns": 0,
+      "tokensIn": 21585,
+      "tokensOut": 532
+    },
+    "compile-warning": {
+      "key": "efa6146345e3f11100de121495143fcd4b1fda533943b8af6cbc5c47e53a1738",
+      "passingRuns": 3,
+      "partialUsageRuns": 0,
+      "tokensIn": 10563,
+      "tokensOut": 257
+    },
+    "write-function": {
+      "key": "6219ec45e9b5ada1d797ad74e99a1ba8deb8dd682d948dbf9a5f6e267ed21e8b",
+      "passingRuns": 3,
+      "partialUsageRuns": 0,
+      "tokensIn": 9430,
+      "tokensOut": 1375
+    },
+    "write-feature": {
+      "key": "da9e2c7c7f06e97945f30a9612cfa03555c199c7f6945d8bd9cc9f5ac5681555",
+      "passingRuns": 2,
+      "partialUsageRuns": 0,
+      "tokensIn": 21778,
+      "tokensOut": 1336
+    },
+    "write-file": {
+      "key": "a2e0c3e4a77838e45ee90f0beaef641bef8dcf3a9a54d32426fa43178e0a1248",
+      "passingRuns": 3,
+      "partialUsageRuns": 1,
+      "tokensIn": 21775,
+      "tokensOut": 2453
+    },
+    "write-tests": {
+      "key": "c8aa59db6d20f93bd4c7e12b0211ddb1a9397c1742eaeea79ae6b4edccdd2869",
+      "passingRuns": 2,
+      "partialUsageRuns": 0,
+      "tokensIn": 5767,
+      "tokensOut": 1756
+    },
+    "fix-many": {
+      "key": "bacc2f9b1c0f79b05ca7d419a16ca2326753db79797d524c99326959df9b1f53",
+      "passingRuns": 3,
+      "partialUsageRuns": 0,
+      "tokensIn": 10967,
+      "tokensOut": 893
+    },
+    "half-written": {
+      "key": "89467e3b4f756c1da19f695963061c20367bbd551146e087c8c861ea9ea4092a",
+      "passingRuns": 2,
+      "partialUsageRuns": 2,
+      "tokensIn": 39208,
+      "tokensOut": 6435
+    },
+    "merge-conflict": {
+      "key": "90eb961ab95c07de7a3afbdbc2a8a9f3f040d82a3e63febb2420b15b6d5a2079",
+      "passingRuns": 3,
+      "partialUsageRuns": 0,
+      "tokensIn": 11039,
+      "tokensOut": 657
+    },
+    "duplicate": {
+      "key": "033941925d0a634fbb7e6a8f3130f7af092136e11ecfcaf461aa06ce9df40d1d",
+      "passingRuns": 3,
+      "partialUsageRuns": 0,
+      "tokensIn": 16018,
+      "tokensOut": 947
+    },
+    "compile-and-logic": {
+      "key": "ad0272faaf265fddec920b744f12031c8205941329dc45d7612597a6341cb6fd",
+      "passingRuns": 3,
+      "partialUsageRuns": 0,
+      "tokensIn": 21135,
+      "tokensOut": 813
+    },
+    "bugs-3": {
+      "key": "df52810f280cfd737b91191abb0fbc6055189b6ae60bbeb31ea8801119aee588",
+      "passingRuns": 3,
+      "partialUsageRuns": 0,
+      "tokensIn": 10678,
+      "tokensOut": 526
+    },
+    "bugs-6": {
+      "key": "905cf8095d62fbe55819cf09da1a8ffc8fcfd552f3856163c3eda0c41d8fba18",
+      "passingRuns": 3,
+      "partialUsageRuns": 0,
+      "tokensIn": 21475,
+      "tokensOut": 1605
+    },
+    "bugs-10": {
+      "key": "ba1e6c8c4b3f86d5580ea697dd5140894a23750411649601bcb341a7e91f516c",
+      "passingRuns": 3,
+      "partialUsageRuns": 0,
+      "tokensIn": 23386,
+      "tokensOut": 2187
+    },
+    "repeat-trig": {
+      "key": "43bb2c6a2c5aa2ee4e3c59761a8d6d2bc1810bcafa2000911848664d042238ef",
+      "passingRuns": 3,
+      "partialUsageRuns": 0,
+      "tokensIn": 11199,
+      "tokensOut": 791
+    },
+    "repeat-rename": {
+      "key": "182513b4bb4e21d52420f98d2669ef35e19c41c200a9f22f094d6b8bb7da966c",
+      "passingRuns": 3,
+      "partialUsageRuns": 0,
+      "tokensIn": 21617,
+      "tokensOut": 1548
+    },
+    "two-files": {
+      "key": "0e7f121c365cb450b251ee2ec4a8756d6393e579c5e3bfe48b495f72799c27c5",
+      "passingRuns": 3,
+      "partialUsageRuns": 0,
+      "tokensIn": 13125,
+      "tokensOut": 344
+    }
+  }
+}
