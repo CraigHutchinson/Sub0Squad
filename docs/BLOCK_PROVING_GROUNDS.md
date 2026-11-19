@@ -351,7 +351,7 @@ The initial replies differed and both hit the edit cap. After that, the first tw
 
 #### On-demand trace retrieval in the C++ repair
 
-A second spike started from the same compiling candidate with seven of eight arithmetic tests passing. The native canvas handled READ: ISSUE 1, then the loopback experiment proxy appended a bounded record of the failing and passing witnesses to the trace arm's read response. The local Qwen model produced all edits and the ordinary compiler/test gate judged them. Seeds 1911, 2407 and 3203 used the same pinned executable and 1,600-token reply limit, with rotated arm order.
+A second spike started from the same compiling candidate with seven of eight arithmetic tests passing. The native canvas handled READ: ISSUE 1, then the loopback experiment proxy appended a bounded record of the failing and passing witnesses to the trace arm's read response. The local Qwen model produced all edits and the ordinary compiler/test gate judged them. Thinking was disabled in every recorded request in the on-demand, controlled-read and multi-turn trace replays. Seeds 1911, 2407 and 3203 used the same pinned executable and 1,600-token reply limit, with rotated arm order.
 
 | First reply | Gate acceptance | Trace delivered | Elapsed seconds by seed |
 |---|---:|---:|---|
