@@ -2,10 +2,10 @@
 """The tier 0 validation gate: every tier 0 case must pass on the proving engine, on THIS build, in every one of at least N runs, before tier 1 and
 above are run (docs/BLOCK_PROVING_GROUNDS.md, "Model tiers and the tier 0 gate").
 
-    python validation/tiers/gate_t0.py <repo> --engine qwen35 [--build VERSION] [--min-runs 3] [--set smoke] [--json]
+    python validation/tiers/gate_t0.py <repo> --engine qwen35 [--build VERSION | --exe PATH] [--min-runs 3] [--set smoke] [--json]
 
 It judges the run directories themselves (out/runs/t0/<case>/run-N, written by run_t0.sh), never a summary that could drift:
-  * the build is the one the run's daemon recorded (state/run-info.json); by default the build of out/build/mingw/sub0squad.exe;
+  * the build is the one the run's daemon recorded (state/run-info.json), checked against --build or --exe (default: out/build/mingw/sub0squad.exe);
   * the engine is the one the attempts used (agent.json);
   * a run counts only if its plan is the case as make_t0.py defines it NOW (a run of an older definition is stale: listed, not counted);
   * a pass is an accepted item that a MODEL built (report.md "built by"), never the frontier stub or the mock.
@@ -65,13 +65,22 @@ def judge_run(run, plan, ref_dir):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("repo"); ap.add_argument("--engine", required=True); ap.add_argument("--build"); ap.add_argument("--min-runs", type=int, default=3)
+    ap.add_argument("repo"); ap.add_argument("--engine", required=True); ap.add_argument("--min-runs", type=int, default=3)
+    build_source = ap.add_mutually_exclusive_group()
+    build_source.add_argument("--build")
+    build_source.add_argument("--exe", type=pathlib.Path)
     ap.add_argument("--json", action="store_true"); ap.add_argument("--set", default="all")
     a = ap.parse_args()
     repo = pathlib.Path(a.repo).resolve()
     sys.argv = ["make_t0.py", str(repo)]
     import make_t0
-    build = a.build or subprocess.run([str(repo / "out/build/mingw/sub0squad.exe"), "--version"], capture_output=True, text=True).stdout.split()[1]
+    exe = a.exe or repo / "out/build/mingw/sub0squad.exe"
+    build = a.build
+    if build is None:
+        version = subprocess.check_output([str(exe.resolve()), "--version"], text=True).split()
+        if len(version) < 2:
+            ap.error(f"could not read the build version from {exe}")
+        build = version[1].split("+", 1)[0]
     out = pathlib.Path(os.environ.get("T0_OUT", repo / "out/runs/t0"))
     cases, verdict = {}, "PASS"
     smoke = a.set != "all"   # a named set (make_t0.SETS): a quick check, never the gate

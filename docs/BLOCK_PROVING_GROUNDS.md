@@ -282,10 +282,21 @@ attempt's turns were reasoning cut off and thrown away. **With room** (`out/runs
 about 14,700 characters): **the 35B writes the whole code inside its reasoning** (the carried tails end mid-way through `evaluate` and
 `parsePostfix`), so the thinking is mostly a full draft that is thrown away, its last 3,000 characters carried, and the code written again.
 
-**Open, for the owner** (where thinking goes next): (a) the thinking prompt asks for the cause and the plan, not the code (the code is written in the
-reply); (b) the harness salvages a code draft from stopped reasoning as the start of the reply (a prefill) instead of carrying 3,000 characters of it;
-(c) thinking only on turns after a failing verdict, so a plain first write is not slowed; (d) the reply budget for thinking turns. The note stays an
-experiment (`SUB0SQUAD_FIXSITE`) until it is measured with thinking on and off together.
+### Think, plan and act (2026-11-19)
+
+The saved Windows runs used qwen35, the compile feedback note, a 7,000-token reply budget and three runs per case. The earlier control used the same note and budget. Counts are from the run summaries.
+
+| Prompt | half-written | replace-function | undeclared-member |
+|---|---:|---:|---:|
+| Earlier control | 2/3 | 0/3 | |
+| Cause and plan in the thinking prompt | 2/3 | 0/3 | |
+| Plan reply followed by a direct act turn | 2/3 | 0/3 | 3/3 |
+
+The two new arms used the dev build recorded as 0.0.0-220-ga4bfb99-dirty. The original gate used the release executable's version and excluded those runs. The runner now supplies the executable it used to the gate. The summaries are under out/runs/t0-thinkplan-1 and out/runs/t0-thinkplan-steps.
+
+In the separate-plan arm, three attempt traces recorded a completed plan. The first replace-function trace hit the thinking cap on three turns. It reviewed existing functions and weighed competing continuation and edit instructions. The options prompt asks for the root cause, three approaches with their risks, and a choice. Its fake-engine test exercises the plan handoff and the thinking-off act turn. The live experiment and the next design slices are in [the reasoning workflow brief](sessions/canvas-reasoning-workflow.md).
+
+Other open experiments include using interrupted reasoning as a reply prefill when it contains a usable draft, enabling thinking only after a failing verdict, and varying the thinking budget. The compile note remains experimental.
 
 ## How the blocks are used
 

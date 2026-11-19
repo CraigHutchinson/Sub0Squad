@@ -1,0 +1,38 @@
+# Follow-up session for the canvas reasoning workflow
+
+Status is open as of 2026-11-19. Evidence is in [Think, plan and act](../BLOCK_PROVING_GROUNDS.md#think-plan-and-act-2026-11-19).
+
+A worker should reach a concrete plan, carry decisions forward when an edit fails, and test an alternative against the current canvas before choosing to commit it. The Tier 0 replace-function case is the first consumer.
+
+## Bounded options and sampling
+
+Compare SUB0SQUAD_THINKPLAN=options with steps on the same pinned executable, model artifact, fixture seeds, SUB0SQUAD_FIXSITE=1 and max-tokens=7000. Include half-written, replace-function and undeclared-member. Count completed plans, applied transactions, accepted runs, reasoning stops, tokens and wall time. Measure thinking separately from total completion tokens. Compare presence=0 against presence=1.5 in its own paired arm, holding the other precise-coding settings fixed.
+
+Sub0LlmEngine owns model and backend guidance in docs/MODEL_BEHAVIOR.md. Squad already sends enable_thinking per request. Start with the embedded template. Evaluate a custom harness template if the embedded template cannot express a required phase or tool exchange.
+
+For an owner-coordinated run from Git Bash, use the same fresh build for both arms. The output prefix must be unused.
+
+```bash
+eng='qwen35=http://127.0.0.1:8092/v1,model=qwen35,ctx=16384,slots=4,thinking=1'
+export T0_EXE="$PWD/out/build/mingw-dev/sub0squad.exe"
+export SUB0SQUAD_FIXSITE=1
+export T0_DO_ARGS='--max-tokens 7000'
+for arm in steps options; do
+    T0_OUT="out/runs/t0-options-compare-$arm" SUB0SQUAD_THINKPLAN="$arm" \
+        bash validation/tiers/run_t0.sh . "$eng" 3 half-written replace-function undeclared-member
+done
+```
+
+## Compact repair context
+
+Use a plan reply containing the cause, chosen edit and brief alternatives with trade-offs. An act turn receives the chosen edit. On failure, give the next decision turn the prior choice, its verdict and alternatives that still apply. Keep the record bounded and tied to the canvas revision. The full reasoning remains in the local trace. Test a completed plan followed by a rejected edit and a successful alternative. Test stopped thinking before a plan exists separately, using the existing carried tail as the control. Measure acceptance, prompt size and repeated work before enabling historical raw reasoning via preserve_thinking.
+
+## Asynchronous scratch checks
+
+Start with one speculative candidate in a Tier 0 work item. Apply a normal transaction to an isolated canvas snapshot and enqueue the existing compile/test gate. Return a candidate ID and base revision immediately. A later turn can ask for status and get queued, running, passed, failed or stale with bounded diagnostics. Promotion requires explicit selection, a passed check and a matching base revision. Run ordinary acceptance checks on promotion. Bound concurrent checks, cancel with the attempt and discard scratch artifacts when the attempt ends.
+
+The worker sees the candidate, evidence and promoted edit as distinct steps. Deliver feedback at a tool or turn boundary and measure overlap with independent generation. Feedback injected into generation already underway would need a different inference mechanism. Prototype the exchange with thinking off and on using the same checks. Add a Sub0Canvas API only if the worker exposes a product-neutral requirement the current snapshot and transaction APIs cannot meet.
+
+## Receiving gates
+
+Prove revision isolation, stale result rejection, cancellation and selection with deterministic fixtures and a real compiler on replace-function. Then compare acceptance, time to accepted edit, repeated reasoning and concurrent checking on the shared engine during an owner-coordinated run. Tier 1 waits for the full Tier 0 gate.

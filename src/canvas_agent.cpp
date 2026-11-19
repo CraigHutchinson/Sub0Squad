@@ -77,6 +77,11 @@ constexpr std::string_view kThinkPlanNote =
     "Before you answer, think about the problem, not the code: what is wrong or missing and why, its root cause, and the plan (which "
     "functions or lines change, in what order, and what each change does). Keep the reasoning short and do not write the code in it: "
     "the code goes in your reply, written once.";
+/// The "options" prompt gives a thinking turn a bounded sequence for choosing an approach.
+constexpr std::string_view kThinkOptionsNote =
+    "Before you answer, think in three short steps and then stop: (1) the root cause, in one or two sentences; (2) three different options for "
+    "acting on it, one line each with its main risk; (3) the strongest of them, and why, in one sentence. Skip the line-by-line review "
+    "and leave the code for the act turn.";
 /// The plan turn of "steps": the reply is the plan, the transaction comes next turn.
 constexpr std::string_view kPlanStepNote =
     "\nThis turn, reply with your plan only, no edits and no code, at most 150 words: === PLAN === then the plan, then === END PLAN ===. "
@@ -419,7 +424,8 @@ int runCanvasAttempt(const AttemptContext& a)
     // EXPERIMENT (SUB0SQUAD_FIXSITE=1, the A/B of 2026-11-18): a compile verdict says the cause may be away from the lines the errors name. T0
     // undeclared-member/-many (T1's check_eol): the 35B edited the definition and the call the errors named, never the declaration the class lacked.
     // EXPERIMENT SUB0SQUAD_THINKPLAN: "1" asks a thinking turn to reason about the cause and the plan, not the code; "steps" also splits it into a
-    // plan turn and an act turn. Unset: neither.
+    // plan turn and an act turn; "options" is "steps" with the thinking shaped as cause, three options, the strongest.
+    // Unset: neither.
     const std::string thinkPlanMode = [] { const char* v = std::getenv("SUB0SQUAD_THINKPLAN"); return std::string{v ? v : ""}; }();
     bool planStep = false;      // this turn asks for the plan only
     std::string carriedPlan;    // the plan the last turn wrote, for this turn to carry out
@@ -588,13 +594,19 @@ int runCanvasAttempt(const AttemptContext& a)
         // ended, was cut, and the code was written again from its last 3000 characters.
         // "steps" (owner, 2026-11-19: think, plan, act): the thinking turn replies with its plan only (no turn used); the next turn, thinking off,
         // writes the transaction from that plan.
-        planStep = turnEngine.thinking && thinkPlanMode == "steps" && partial.empty();
-        if (turnEngine.thinking && !thinkPlanMode.empty())
-            for (auto it = convo.rbegin(); it != convo.rend(); ++it)
+        // "options": the plan turn of "steps", its thinking shaped as cause, three options, the strongest.
+        const bool compareOptions = thinkPlanMode == "options";
+        planStep = turnEngine.thinking && (thinkPlanMode == "steps" || compareOptions) && partial.empty();
+        if (turnEngine.thinking && !thinkPlanMode.empty()) {
+            for (auto it = convo.rbegin(); it != convo.rend(); ++it) {
                 if (it->role == "user") {
-                    it->content += "\n" + std::string{kThinkPlanNote} + (planStep ? std::string{kPlanStepNote} : std::string{});
+                    it->content += '\n';
+                    it->content += compareOptions && planStep ? kThinkOptionsNote : kThinkPlanNote;
+                    if (planStep) it->content += kPlanStepNote;
                     break;
                 }
+            }
+        }
         events::progress(spent, a.repairTurns + 1, calls == 0 ? "generating" : "editing");
         traceSent(tracePath, calls, convo, 0, turnEngine.seed);
         const fs::path livePath = attemptDir / "live.txt";

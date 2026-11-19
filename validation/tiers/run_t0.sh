@@ -67,4 +67,4 @@ EOF
   done
 done
 name=gate; [ -n "$setname" ] && name=$setname
-python -I "$repo/validation/tiers/gate_t0.py" "$(winpath "$repo")" --engine "${engine%%=*}" "${set_args[@]}" >/dev/null; echo "tier 0 $name: see $T0_DIR/$name.md (exit $?)"
+python -I "$repo/validation/tiers/gate_t0.py" "$(winpath "$repo")" --engine "${engine%%=*}" --exe "$(winpath "$exe")" "${set_args[@]}" >/dev/null; echo "tier 0 $name: see $T0_DIR/$name.md (exit $?)"

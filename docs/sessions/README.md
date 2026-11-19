@@ -43,6 +43,8 @@ machine (frontier off), no commits without the owner's go-ahead, ask before chan
 
 ## Open
 
+- [Canvas reasoning workflow](canvas-reasoning-workflow.md) — measure structured thinking and design feedback from scratch checks.
+
 - [Portal access and a Node.js viewer](portal-access.md) — receive a local summary viewer, then verify private remote access from a second device.
 
 | Brief | Task | Written |
