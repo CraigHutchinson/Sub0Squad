@@ -70,7 +70,7 @@ In the unscripted seed 2407 run, both arms produced identical model requests, ma
 
 ## Token cost gate
 
-The T0 report records total prompt tokens, generated tokens and prefill time across calls and attempts. When the backend omits prefill timing, the conversation trace may report time to first token instead. The report includes timing coverage and identifies interrupted or failed requests with missing usage. Timing is a KPI. The hard checks use token counts so they do not depend on the speed of the machine.
+The T0 workload KPIs are PP (reported prompt tokens) and TG (reported generated tokens), summed across calls and attempts. The report identifies requests with missing usage. Keep model, tokenizer and cache settings fixed when comparing counts. The qwen35 calibration has caching disabled. System-dependent prefill or time-to-first-token measurements remain in the per-run JSON diagnostics. The token gate uses counts alone.
 
 The qwen35 policy is frozen in [t0-token-budget.json](../../validation/tiers/t0-token-budget.json). It uses the highest observed costs among the 69 in-budget behavior passes on Windows build 7ec8209, separately for each case and metric. Add 25% rounded up, with at least 2,048 extra prompt tokens and 256 extra generated tokens. Cases or fixture revisions without a matching passing baseline use the provisional suite ceiling of 49,010 prompt tokens and 8,044 generated tokens. The suite maxima include observed lower bounds from three runs with interrupted usage. Recalibrate explicitly when changing the model profile or when a wider passing cohort is available.
 

@@ -248,8 +248,6 @@ def main():
                                     for r in counted if not r["passed"] or r["costState"] in ("FAIL", "INCOMPLETE")],
                        "turns": sum(r["turns"] for r in counted),
                        "tokensIn": sum(r["tokensIn"] for r in counted), "tokensOut": sum(r["tokensOut"] for r in counted),
-                       "prefillSeconds": round(sum(r["prefillSeconds"] or 0 for r in counted), 1),
-                       "prefillTimedCalls": sum(r["prefillTimedCalls"] for r in counted),
                        "missingUsageCalls": sum(r["missingUsageCalls"] for r in counted),
                        "notCounted": [f"{r['run']} ({'stale case' if r['key'] != key else 'other build' if r['build'].split('+')[0] != build else 'unfinished' if not r['engine'] else 'other engine'})" for r in runs if r not in counted],
                        "quality": {r["run"]: r["quality"] for r in counted},
@@ -260,8 +258,7 @@ def main():
     gate = {"schema": "t0-gate-1", "set": a.set, "verdict": verdict, "build": build, "engine": a.engine, "minRuns": a.min_runs, "cases": cases}
     totals = {field: sum(case[field] for case in cases.values())
               for field in ("runs", "passed", "outsideAttemptBudget", "firstCandidatePass", "secondCandidatePass", "firstPass", "secondPass", "passedWithoutEditKpi",
-                            "turns", "tokensIn", "tokensOut", "prefillTimedCalls", "missingUsageCalls", "costFailures", "costIncomplete")}
-    totals["prefillSeconds"] = round(sum(case["prefillSeconds"] for case in cases.values()), 1)
+                            "turns", "tokensIn", "tokensOut", "missingUsageCalls", "costFailures", "costIncomplete")}
     gate["costCalibration"] = cost_policy["calibration"] if cost_policy else None
     gate["totals"] = totals
 
@@ -283,23 +280,22 @@ def main():
           f"Behavior accepted within turn budget {totals['passed']}/{totals['runs']} runs. Accepted above budget {totals['outsideAttemptBudget']}. Candidate first pass {totals['firstCandidatePass']}, second pass {totals['secondCandidatePass']}. "
           f"Behavior first pass {totals['firstPass']}, second pass {totals['secondPass']}.", "",
           "Each pass column counts exact ordinals. Candidate checks include compiler failures. Behavior checks count edits that reached the item test gate. A gate pass without a recorded behavior ordinal is shown separately.", "",
-          f"Observed {totals['tokensIn']:,} prompt tokens and {totals['tokensOut']:,} generated tokens. "
-          f"Prefill / first-token time recorded: {totals['prefillSeconds']:.1f} s across {totals['prefillTimedCalls']} of {totals['turns']} calls. "
+          f"Observed PP (prompt tokens): {totals['tokensIn']:,}. TG (generated tokens): {totals['tokensOut']:,}. "
+          f"Usage missing on {totals['missingUsageCalls']} of {totals['turns']} model calls. "
           f"Cost failures: {totals['costFailures']}. Incomplete cost evidence: {totals['costIncomplete']}.", "",
-          ("Token ceilings are based on the frozen calibration. Prefill time is an observed KPI and can use first-token timing when backend timing is unavailable."
-           if cost_policy else "Token ceilings are unconfigured for this engine."), "",
-          "| case | state | passed | candidate first pass | candidate second pass | behavior first pass | behavior second pass | pass without ordinal | first attempt | calls | prompt tokens | generated tokens | prefill / first-token s | prompt / generation cap per run | quality per run | not counted |",
+          ("PP and TG ceilings use the frozen calibration." if cost_policy else "Token ceilings are unconfigured for this engine.")
+          + " Per-run timing is available in the JSON diagnostics.", "",
+          "| case | state | passed | candidate first pass | candidate second pass | behavior first pass | behavior second pass | pass without ordinal | first attempt | calls | PP tokens | TG tokens | missing usage calls | PP / TG cap per run | quality per run | not counted |",
           "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
     for n, c in cases.items():
         qual = "; ".join(f"{run}: " + " / ".join(quality_t0.summary(q) for q in files.values()) for run, files in c["quality"].items() if files)
         turns = f"{c['turns']}" + (f" ({c['defectsPerTurn']} defects/turn)" if c.get("defectsPerTurn") else "")
         cap = c["costLimits"]
         budget = f"{cap['tokensIn']:,} / {cap['tokensOut']:,} ({c['costLimitSource']})" if cap else "unconfigured"
-        prefill = f"{c['prefillSeconds']:.1f} ({c['prefillTimedCalls']}/{c['turns']} calls)" if c["prefillTimedCalls"] else "unreported"
         md.append(f"| {n} | {c['state']} | {c['passed']}/{c['runs']} | {c['firstCandidatePass']}/{c['runs']} | {c['secondCandidatePass']}/{c['runs']} | "
                   f"{c['firstPass']}/{c['runs']} | {c['secondPass']}/{c['runs']} | "
                   f"{c['passedWithoutEditKpi']} | {c['firstAttempt']}/{c['runs']} | {turns} | {c['tokensIn']:,} | {c['tokensOut']:,} | "
-                  f"{prefill} | {budget} | {qual} | {', '.join(c['notCounted'])} |")
+                  f"{c['missingUsageCalls']} | {budget} | {qual} | {', '.join(c['notCounted'])} |")
     def add_tree(nodes, level=0):
         for node in nodes:
             note = " · blocked by " + ", ".join(node["blockedBy"]) if node["blockedBy"] else ""

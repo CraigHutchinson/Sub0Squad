@@ -30,6 +30,7 @@ class TokenGateTest(unittest.TestCase):
         cap = {"tokensIn": 100, "tokensOut": 20}
         run = dict(cap, turns=1, missingUsageCalls=0)
         self.assertEqual(judge_cost(run, cap)[0], "PASS")
+        self.assertEqual(judge_cost(dict(run, prefillSeconds=600, prefillTimedCalls=1), cap)[0], "PASS")
         self.assertEqual(judge_cost(dict(run, missingUsageCalls=1), cap)[0], "INCOMPLETE")
         for metric in cap:
             self.assertEqual(judge_cost(dict(run, missingUsageCalls=1, **{metric: cap[metric] + 1}), cap)[0], "FAIL")
