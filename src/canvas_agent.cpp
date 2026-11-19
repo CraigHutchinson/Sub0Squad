@@ -72,6 +72,15 @@ namespace {
 constexpr double kThinkingShare = 0.6;               ///< share of a turn's token budget thinking may use before it is stopped and carried over
 constexpr double kCharsPerToken = 3.5;               ///< characters per token, to judge streamed reasoning without a tokenizer
 constexpr int kTokensPerLine = 12;                    ///< tokens per line of code (about 40 characters), to tell the worker its reply limit in lines
+/// What a thinking turn is asked to reason about (experiment SUB0SQUAD_THINKPLAN): the cause and the plan, never the code itself.
+constexpr std::string_view kThinkPlanNote =
+    "Before you answer, think about the problem, not the code: what is wrong or missing and why, its root cause, and the plan (which "
+    "functions or lines change, in what order, and what each change does). Keep the reasoning short and do not write the code in it: "
+    "the code goes in your reply, written once.";
+/// The plan turn of "steps": the reply is the plan, the transaction comes next turn.
+constexpr std::string_view kPlanStepNote =
+    "\nThis turn, reply with your plan only, no edits and no code, at most 150 words: === PLAN === then the plan, then === END PLAN ===. "
+    "You write the transaction in the next turn.";
 constexpr std::size_t kCarriedReasoningChars = 3000; ///< how much of stopped reasoning comes back with the next turn (its end, where it was heading)
 
 /// The last `n` characters of `s`, starting at a line boundary when one is near.
@@ -409,6 +418,12 @@ int runCanvasAttempt(const AttemptContext& a)
 
     // EXPERIMENT (SUB0SQUAD_FIXSITE=1, the A/B of 2026-11-18): a compile verdict says the cause may be away from the lines the errors name. T0
     // undeclared-member/-many (T1's check_eol): the 35B edited the definition and the call the errors named, never the declaration the class lacked.
+    // EXPERIMENT SUB0SQUAD_THINKPLAN: "1" asks a thinking turn to reason about the cause and the plan, not the code; "steps" also splits it into a
+    // plan turn and an act turn. Unset: neither.
+    const std::string thinkPlanMode = [] { const char* v = std::getenv("SUB0SQUAD_THINKPLAN"); return std::string{v ? v : ""}; }();
+    bool planStep = false;      // this turn asks for the plan only
+    std::string carriedPlan;    // the plan the last turn wrote, for this turn to carry out
+    int plans = 0;
     const bool fixSite = [] { const char* v = std::getenv("SUB0SQUAD_FIXSITE"); return v && std::string_view{v} == "1"; }();
     // The owner's wording (2026-11-18): every error reviewed, the root cause addressed directly, the how left to the worker.
     const std::string causeNote = "Review all of these errors together before you edit: several may come from one root cause, and an error is reported "
@@ -536,7 +551,10 @@ int runCanvasAttempt(const AttemptContext& a)
               "\n[end of reasoning]\nDo not start the reasoning over. Write the transaction it was leading to now.\n";
         carriedReasoning.clear();
         carriedLoop.clear();
-        std::vector<ChatMessage> convo = {{"system", system}, {"user", user + carried}};
+        const std::string planned = carriedPlan.empty() ? std::string{}
+            : "\nYour plan from the last turn:\n" + carriedPlan + "\nCarry it out now: reply with the transaction it describes (the forms above), written once.\n";
+        carriedPlan.clear();
+        std::vector<ChatMessage> convo = {{"system", system}, {"user", user + carried + planned}};
         // A reply cut off at the token limit is continued as itself: its text so far goes back as the assistant's own unfinished message (a prefill), cut to
         // its last complete line, so the model carries on token by token, seeing everything it wrote (2026-11-18: shown only a 700-character tail, the 35B
         // lost its own design and wrote a second engine after the cut; a prefill ending mid-token, `ret`, is ended at once, one at a line end is continued).
@@ -565,6 +583,18 @@ int runCanvasAttempt(const AttemptContext& a)
         const bool decide = decideNext;   // this turn writes down what the last one reasoned: no new reasoning
         decideNext = false;
         if (decide || !prefill.empty()) turnEngine.thinking = false;   // a prefill continues the answer: the template closes the reasoning before it
+        // EXPERIMENT (SUB0SQUAD_THINKPLAN=1, owner 2026-11-19): a thinking turn reasons about the cause and the plan, and writes the code only in its reply.
+        // The 35B drafted the whole file in its reasoning (T0 think-room: every stop at the cap, the carried tails mid-function), so the thinking never
+        // ended, was cut, and the code was written again from its last 3000 characters.
+        // "steps" (owner, 2026-11-19: think, plan, act): the thinking turn replies with its plan only (no turn used); the next turn, thinking off,
+        // writes the transaction from that plan.
+        planStep = turnEngine.thinking && thinkPlanMode == "steps" && partial.empty();
+        if (turnEngine.thinking && !thinkPlanMode.empty())
+            for (auto it = convo.rbegin(); it != convo.rend(); ++it)
+                if (it->role == "user") {
+                    it->content += "\n" + std::string{kThinkPlanNote} + (planStep ? std::string{kPlanStepNote} : std::string{});
+                    break;
+                }
         events::progress(spent, a.repairTurns + 1, calls == 0 ? "generating" : "editing");
         traceSent(tracePath, calls, convo, 0, turnEngine.seed);
         const fs::path livePath = attemptDir / "live.txt";
@@ -692,6 +722,24 @@ int runCanvasAttempt(const AttemptContext& a)
             text = partial.empty() ? reply->content : joinContinuation(partial, reply->content);
         }
         rolledBack = false;
+        // The plan turn's reply: the plan is carried into the act turn (thinking off), and the verdict it answered stands. A reply that went straight to
+        // edits is taken as the transaction.
+        if (planStep && text.find("=== EDIT") == std::string::npos && text.find("=== FILE") == std::string::npos) {
+            std::string plan = text;
+            if (const auto b = plan.find("=== PLAN"); b != std::string::npos) {
+                plan.erase(0, plan.find('\n', b) == std::string::npos ? plan.size() : plan.find('\n', b) + 1);
+                if (const auto e = plan.find("=== END PLAN"); e != std::string::npos) plan.erase(e);
+            }
+            plan.erase(0, plan.find_first_not_of(" \t\r\n"));
+            if (!plan.empty() && plans < 2 * (a.repairTurns + 2)) {
+                ++plans;
+                carriedPlan = clip(plan, 2000);
+                decideNext = true;
+                traceVerdict(tracePath, call, "plan written (" + std::to_string(plan.size()) + " characters): carried into the next turn, which runs with thinking off; no turn used");
+                std::printf("canvas turn %d: plan written\n", call);
+                continue;
+            }
+        }
         if (reply->finishReason == "length" && continuations < freeContinuations && (text.find("=== EDIT:") != std::string::npos || text.find("=== FILE:") != std::string::npos)) {
             ++continuations;
             partial = text;

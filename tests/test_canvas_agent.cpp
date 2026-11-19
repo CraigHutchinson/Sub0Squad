@@ -478,6 +478,35 @@ int main()
         }
         CHECK(engine.abortedAfter(0) >= 0);
     }
+    {   // Think, plan, act (SUB0SQUAD_THINKPLAN=steps): a thinking turn is asked for the plan only; its plan is carried into the next turn, which runs
+        // with thinking off and writes the transaction. The plan turn uses no turn of the budget.
+        const auto setPlan = [](const char* v) {
+#ifdef _WIN32
+            _putenv_s("SUB0SQUAD_THINKPLAN", v);
+#else
+            setenv("SUB0SQUAD_THINKPLAN", v, 1);
+#endif
+        };
+        setPlan("steps");
+        const fs::path d = workflow("canvas-thinkplan-steps");
+        failedAttempt(d, 1, bad);
+        fake::Engine engine({{"=== PLAN ===\nThe modulo branch divides: replace it with math.fmod.\n=== END PLAN ===\n", "stop", "the cause is the modulo branch"}, {fixByLine}});
+        std::vector<std::string> args = canvasArgs(d, engine, 2, 0);
+        for (std::size_t i = 0; i + 1 < args.size(); ++i) if (args[i] == "--engine") args[i + 1] += ",thinking=1";
+        CHECK_EQ(runLlmAgent(args), 0);
+        setPlan("");
+        CHECK_EQ(slurp(attemptDir(d, 2) / "out" / kFile), ref);
+        const auto rq = engine.requests();
+        CHECK_EQ(rq.size(), static_cast<std::size_t>(2));
+        if (rq.size() == 2) {
+            CHECK(rq[0].thinking == 1 && rq[0].last().find("reply with your plan only") != std::string::npos && rq[0].last().find("do not write the code in it") != std::string::npos);
+            const std::string& m = rq[1].last();
+            CHECK(m.find("Your plan from the last turn:\nThe modulo branch divides: replace it with math.fmod.") != std::string::npos);
+            CHECK(m.find("reply with your plan only") == std::string::npos);
+            CHECK(rq[1].thinking == 0);
+        }
+        CHECK(slurp(attemptDir(d, 2) / "conversation.md").find("plan written") != std::string::npos);
+    }
     {   // A failing test named by the gate opens its definition in the folded view of a test file (tier 0 write-tests: no line number to focus on).
         std::string tests = "#include \"helpers/check.hpp\"\n";
         for (int k = 0; k < 20; ++k) {
