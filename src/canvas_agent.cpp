@@ -430,7 +430,8 @@ int runCanvasAttempt(const AttemptContext& a)
         return std::string_view{value && *value ? value : "steps"};
     }();
     const bool compareOptions = thinkPlanMode == "options";
-    const bool separatePlan = thinkPlanMode == "steps" || compareOptions;
+    const bool handoffRead = thinkPlanMode == "read-handoff";
+    const bool separatePlan = thinkPlanMode == "steps" || compareOptions || handoffRead;
     std::string carriedPlan;    // the plan the last turn wrote, for this turn to carry out
     int plans = 0;
     const bool fixSite = [] { const char* v = std::getenv("SUB0SQUAD_FIXSITE"); return v && std::string_view{v} == "1"; }();
@@ -470,6 +471,7 @@ int runCanvasAttempt(const AttemptContext& a)
     std::vector<ReadRequest> readKept;    // the line and symbol reads of this attempt, answered again when the view cannot keep them open
     std::string readCarried;              // this turn's re-answered reads (empty when the view holds them all)
     std::map<std::string, std::pair<int, int>> readBefore;   // "path LINES a-b" | "path SYMBOL name" -> (turn, revision of the file then)
+    std::string verdictBeforeRead;
     bool verdictIsRead = false;           // the verdict is a read answer (set where it is written, cleared once a message carried it)
     std::string carriedReasoning;         // the end of reasoning that ran out before an edit, shown with the next turn
     std::string carriedLoop;              // ... and what repeated, when the reasoning was stopped in a loop (rolled back to where it began)
@@ -488,8 +490,11 @@ int runCanvasAttempt(const AttemptContext& a)
         // A verdict is clipped to 2,400 characters (a gate's output, a refusal), but a READ answer is what the worker asked to see: it gets the window
         // left after a minimal view of every file. Clipped like a gate output, the worker never saw the lines it read and asked again until its turns ran
         // out (tier 1 of 2026-11-17: attempts 2 and 4 only ever read, and committed nothing).
+        const bool editAfterRead = handoffRead && verdictIsRead;
+        const std::string repairEvidence = editAfterRead && !verdictBeforeRead.empty()
+            ? "\nRepair evidence from before the read:\n" + verdictBeforeRead + "\n" : std::string{};
         const long availTokens = static_cast<long>(a.engine.contextTokens) - a.maxTokens - 300;
-        const long windowChars = static_cast<long>(static_cast<double>(availTokens) * 3.2) - static_cast<long>(system.size() + a.card.size() + a.guidance.size()) - 1500;
+        const long windowChars = static_cast<long>(static_cast<double>(availTokens) * 3.2) - static_cast<long>(system.size() + a.card.size() + a.guidance.size() + repairEvidence.size()) - 1500;
         const std::size_t verdictCap = verdictIsRead
             ? static_cast<std::size_t>(std::max(2400L, windowChars - 800L * static_cast<long>(std::max<std::size_t>(1, canvas.paths().size()))))
             : 2400;
@@ -537,7 +542,7 @@ int runCanvasAttempt(const AttemptContext& a)
                              "missing after its last line: === EDIT: " + path + " AFTER " + n + " === then the rest of the code, then === END EDIT ===)\n";
                 }
         }
-        const std::string user = a.card + (a.guidance.empty() ? std::string{} : "\n" + a.guidance + "\n") + (verdict.empty() ? std::string{} : "\n" + clip(verdict, verdictCap) + "\n") + "\n" + readCarried + state +
+        const std::string user = a.card + (a.guidance.empty() ? std::string{} : "\n" + a.guidance + "\n") + (verdict.empty() ? std::string{} : "\n" + clip(verdict, verdictCap) + "\n") + "\n" + repairEvidence + readCarried + state +
                                  (canvas.paths().empty() ? "" : "Reply with the transaction that fixes EVERYTHING listed above (every failing test, every error, one edit each), its form picked once by the rules above: " +
                                                                     std::string{restructure ? "a few functions wrong, edit just them; the approach wrong, the complete new file (in steps when it is long).\n"
                                                                                             : "a few lines wrong, SEARCH/REPLACE; a function wrong or missing, SYMBOL (as many as it takes; FILE only for a file that is new or a stub).\n"} +
@@ -560,9 +565,11 @@ int runCanvasAttempt(const AttemptContext& a)
               "\n[end of reasoning]\nDo not start the reasoning over. Write the transaction it was leading to now.\n";
         carriedReasoning.clear();
         carriedLoop.clear();
-        const std::string planned = carriedPlan.empty() ? std::string{}
-            : "\nYour plan from the last turn:\n" + carriedPlan + "\nCarry it out now: reply with the transaction it describes (the forms above), written once.\n";
+        std::string planForTurn = std::move(carriedPlan);
         carriedPlan.clear();
+        const std::string planned = planForTurn.empty() ? std::string{}
+            : (editAfterRead ? "\nYour current plan:\n" : "\nYour plan from the last turn:\n") + planForTurn +
+              "\nCarry it out now: reply with the transaction it describes (the forms above), written once.\n";
         std::vector<ChatMessage> convo = {{"system", system}, {"user", user + carried + planned}};
         // A reply cut off at the token limit is continued as itself: its text so far goes back as the assistant's own unfinished message (a prefill), cut to
         // its last complete line, so the model carries on token by token, seeing everything it wrote (2026-11-18: shown only a 700-character tail, the 35B
@@ -589,7 +596,7 @@ int runCanvasAttempt(const AttemptContext& a)
 
         EngineProfile turnEngine = a.engine;
         turnEngine.seed = turnSeed(a.engine.seed, a.itemId + "#" + std::to_string(a.attempt) + "#" + std::to_string(calls));
-        const bool decide = decideNext;   // this turn writes down what the last one reasoned: no new reasoning
+        const bool decide = decideNext || editAfterRead;   // write the edit after reasoning or an experimental read handoff
         decideNext = false;
         if (decide || !prefill.empty()) turnEngine.thinking = false;   // a prefill continues the answer: the template closes the reasoning before it
         const bool planStep = separatePlan && !decide && partial.empty() && plans < 2 * (a.repairTurns + 2);
@@ -781,6 +788,7 @@ int runCanvasAttempt(const AttemptContext& a)
                           (restructure ? "Your reads are used up, so this read was not answered. Reply now with an edit (=== EDIT: ... ===) or, if the approach is wrong, the complete new file (=== FILE: ... ===).\n"
                                        : "Your reads are used up, so this read was not answered. Reply now with an edit (=== EDIT: ... ===).\n");
                 verdictIsRead = !lastReadAnswer.empty();
+                if (handoffRead) carriedPlan = std::move(planForTurn);
                 traceVerdict(tracePath, call, "read request refused: the reads are used up (a turn is spent)");
                 std::printf("canvas turn %d: read refused (reads used up), turn spent\n", call);
                 continue;
@@ -816,6 +824,10 @@ int runCanvasAttempt(const AttemptContext& a)
                 }
                 ++readReplies;
                 lastReadAnswer = answer;
+                if (handoffRead) {
+                    if (!editAfterRead) verdictBeforeRead = clip(verdict, 1200);
+                    carriedPlan = std::move(planForTurn);
+                }
                 verdict = "The lines you asked to read:\n" + answer + (readReplies >= freeReads ? "You have used your reads: your next reply MUST be an edit (=== EDIT: ... ===) or a file, not another read.\n" : "Now reply with your edit.\n");
                 verdictIsRead = true;
                 traceVerdict(tracePath, call, "read request: " + std::to_string(parsed.reads.size() + issueAsks.size()) + " region(s) or issue(s) shown, no turn used");

@@ -513,6 +513,25 @@ int main()
             }
             CHECK(slurp(attemptDir(d, 2) / "conversation.md").find("plan written") != std::string::npos);
         }
+        setPlan("read-handoff");
+        const fs::path d = workflow("canvas-thinkplan-read-handoff");
+        failedAttempt(d, 1, bad);
+        const std::string read = std::string{"=== READ: "} + kFile + " SYMBOL term ===\n";
+        fake::Engine engine({{"=== PLAN ===\nInspect term and repair the modulo branch.\n=== END PLAN ===\n"}, {read}, {fixByLine}});
+        CHECK_EQ(runLlmAgent(canvasArgs(d, engine, 2, 0)), 0);
+        setPlan("");
+        CHECK_EQ(slurp(attemptDir(d, 2) / "out" / kFile), ref);
+        const auto requests = engine.requests();
+        CHECK_EQ(requests.size(), 3u);
+        if (requests.size() == 3) {
+            const std::string& act = requests[2].last();
+            CHECK(act.find("The lines you asked to read:") != std::string::npos);
+            CHECK(act.find("v = v / d") != std::string::npos);
+            CHECK(act.find("Your current plan:\nInspect term and repair the modulo branch.") != std::string::npos);
+            CHECK(act.find("Repair evidence from before the read:") != std::string::npos);
+            CHECK(act.find("reply with your plan only") == std::string::npos);
+            CHECK(requests[2].thinking == 0);
+        }
     }
     {   // A failing test named by the gate opens its definition in the folded view of a test file (tier 0 write-tests: no line number to focus on).
         std::string tests = "#include \"helpers/check.hpp\"\n";
