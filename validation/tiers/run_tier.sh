@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Run a model tier above tier 0, only on a build whose tier 0 gate passed on the same engine (docs/BLOCK_PROVING_GROUNDS.md, "Model tiers and the tier 0 gate").
-#   validation/tiers/run_tier.sh <repo> <tier: 1|2> <engine spec> [--force "why"]
+#   validation/tiers/run_tier.sh <repo> <tier: 1|2> <engine spec> [--force "why"] (TIER_WAIT_SECONDS optionally waits, writes the run report and stops its daemon)
 #     tier 1: one worker builds the whole calculator on the canvas (validation/tiers/t1-plan.json, process "single": no division, no forked sections)
 #     tier 2: the same plan with forked sections (executor fork, sections allowed): the skeleton, parallel sections, the harness's assembly
 # Without a passing gate the tier is refused (exit 3) and says why: a tier above a failing tier 0 measures the failure tier 0 already shows. --force runs it
@@ -9,18 +9,19 @@ set -u
 repo=$(cd "$1" && pwd); tier=$2; engine=$3; shift 3
 force=""; [ "${1:-}" = "--force" ] && force=${2:?"--force needs a reason"}
 . "$repo/validation/tiers/lib.sh"
-exe="$repo/out/build/mingw/sub0squad.exe"
+exe="${T0_EXE:-$repo/out/build/mingw/sub0squad.exe}"
+gate_dir="${T0_OUT:-$repo/out/runs/t0}"
 name=${engine%%=*}
 case "$tier" in
   1) process=single; executor=canvas ;;
   2) process=forked; executor=fork ;;
   *) echo "tier $tier is not defined (1: single worker, 2: forked sections)"; exit 2 ;;
 esac
-T0_OUT="$(winpath "$repo/out/runs/t0")" python -I "$repo/validation/tiers/gate_t0.py" "$(winpath "$repo")" --engine "$name" >/dev/null; gate=$?
+T0_OUT="$(winpath "$gate_dir")" python -I "$repo/validation/tiers/gate_t0.py" "$(winpath "$repo")" --engine "$name" --exe "$(winpath "$exe")" >/dev/null; gate=$?
 case "$gate" in 0) verdict=PASS ;; 1) verdict=FAIL ;; 2) verdict=INCOMPLETE ;; *) verdict="UNREADABLE (gate exit $gate)" ;; esac
 if [ "$gate" -ne 0 ]; then
   if [ -z "$force" ]; then
-    echo "tier $tier refused: the tier 0 gate is $verdict for this build on engine '$name' (out/runs/t0/gate.md)."
+    echo "tier $tier refused: the tier 0 gate is $verdict for this build on engine '$name' ($gate_dir/gate.md)."
     echo "Run tier 0 first: validation/tiers/run_t0.sh $repo '$engine' 3   (or pass --force \"why\" to run tier $tier anyway)"
     exit 3
   fi
@@ -29,6 +30,19 @@ fi
 stamp=$(date +%Y%m%d-%H%M%S)
 home="$repo/out/runs/t$tier/$name-$stamp"; mkdir -p "$home"
 [ -n "$force" ] && printf 'forced past a %s tier 0 gate: %s\n' "$verdict" "$force" >"$home/forced.txt"
-cp "$repo/out/runs/t0/gate.json" "$home/t0-gate.json" 2>/dev/null
-start_squad "$exe" "$home" "$engine" "$executor" "$process" "$repo/validation/tiers/t1-plan.json" "tier $tier proving run"
+cp "$gate_dir/gate.json" "$home/t0-gate.json" 2>/dev/null
+if ! start_squad "$exe" "$home" "$engine" "$executor" "$process" "$repo/validation/tiers/t1-plan.json" "tier $tier proving run"; then
+  echo "tier $tier workflow startup failed at $home" >&2
+  "$exe" down >/dev/null 2>&1
+  exit 5
+fi
 echo "tier $tier running in $home (gate: $verdict${force:+, forced}); watch: SUB0SQUAD_HOME='$SUB0SQUAD_HOME' $exe project status w-000001"
+if [ -n "${TIER_WAIT_SECONDS:-}" ]; then
+  state=$(wait_workflow "$exe" "$TIER_WAIT_SECONDS")
+  "$exe" down >/dev/null 2>&1
+  python -I "$repo/validation/tiers/gate_t0.py" "$(winpath "$repo")" --engine "$name" --report-run "$(winpath "$home")" >"$home/gate-result.json"
+  result=$?
+  echo "tier $tier state=$state; report: $home/gate-result.json (exit $result)"
+  if [ "$state" != succeeded ]; then exit 1; fi
+  exit "$result"
+fi

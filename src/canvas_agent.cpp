@@ -82,9 +82,10 @@ constexpr std::string_view kThinkOptionsNote =
     "Before you answer, think in three short steps and then stop: (1) the root cause, in one or two sentences; (2) three different options for "
     "acting on it, one line each with its main risk; (3) the strongest of them, and why, in one sentence. Skip the line-by-line review "
     "and leave the code for the act turn.";
-/// The plan turn of "steps": the reply is the plan, the transaction comes next turn.
+/// The plan turn asks for a short decision before the act turn writes the transaction.
 constexpr std::string_view kPlanStepNote =
-    "\nThis turn, reply with your plan only, no edits and no code, at most 150 words: === PLAN === then the plan, then === END PLAN ===. "
+    "\nThink about the root cause, the smallest viable edit and the check it should satisfy. "
+    "This turn, reply with your plan only, no edits and no code, at most 150 words: === PLAN === then the plan, then === END PLAN ===. "
     "You write the transaction in the next turn.";
 constexpr std::size_t kCarriedReasoningChars = 3000; ///< how much of stopped reasoning comes back with the next turn (its end, where it was heading)
 
@@ -423,11 +424,13 @@ int runCanvasAttempt(const AttemptContext& a)
 
     // EXPERIMENT (SUB0SQUAD_FIXSITE=1, the A/B of 2026-11-18): a compile verdict says the cause may be away from the lines the errors name. T0
     // undeclared-member/-many (T1's check_eol): the 35B edited the definition and the call the errors named, never the declaration the class lacked.
-    // EXPERIMENT SUB0SQUAD_THINKPLAN: "1" asks a thinking turn to reason about the cause and the plan, not the code; "steps" also splits it into a
-    // plan turn and an act turn; "options" is "steps" with the thinking shaped as cause, three options, the strongest.
-    // Unset: neither.
-    const std::string thinkPlanMode = [] { const char* v = std::getenv("SUB0SQUAD_THINKPLAN"); return std::string{v ? v : ""}; }();
-    bool planStep = false;      // this turn asks for the plan only
+    // Plan and act are separate by default. The experiment switch still permits a direct control and the options prompt.
+    const auto thinkPlanMode = [] {
+        const char* value = std::getenv("SUB0SQUAD_THINKPLAN");
+        return std::string_view{value && *value ? value : "steps"};
+    }();
+    const bool compareOptions = thinkPlanMode == "options";
+    const bool separatePlan = thinkPlanMode == "steps" || compareOptions;
     std::string carriedPlan;    // the plan the last turn wrote, for this turn to carry out
     int plans = 0;
     const bool fixSite = [] { const char* v = std::getenv("SUB0SQUAD_FIXSITE"); return v && std::string_view{v} == "1"; }();
@@ -589,23 +592,13 @@ int runCanvasAttempt(const AttemptContext& a)
         const bool decide = decideNext;   // this turn writes down what the last one reasoned: no new reasoning
         decideNext = false;
         if (decide || !prefill.empty()) turnEngine.thinking = false;   // a prefill continues the answer: the template closes the reasoning before it
-        // EXPERIMENT (SUB0SQUAD_THINKPLAN=1, owner 2026-11-19): a thinking turn reasons about the cause and the plan, and writes the code only in its reply.
-        // The 35B drafted the whole file in its reasoning (T0 think-room: every stop at the cap, the carried tails mid-function), so the thinking never
-        // ended, was cut, and the code was written again from its last 3000 characters.
-        // "steps" (owner, 2026-11-19: think, plan, act): the thinking turn replies with its plan only (no turn used); the next turn, thinking off,
-        // writes the transaction from that plan.
-        // "options": the plan turn of "steps", its thinking shaped as cause, three options, the strongest.
-        const bool compareOptions = thinkPlanMode == "options";
-        planStep = turnEngine.thinking && (thinkPlanMode == "steps" || compareOptions) && partial.empty();
-        if (turnEngine.thinking && !thinkPlanMode.empty()) {
-            for (auto it = convo.rbegin(); it != convo.rend(); ++it) {
-                if (it->role == "user") {
-                    it->content += '\n';
-                    it->content += compareOptions && planStep ? kThinkOptionsNote : kThinkPlanNote;
-                    if (planStep) it->content += kPlanStepNote;
-                    break;
-                }
-            }
+        const bool planStep = separatePlan && !decide && partial.empty() && plans < 2 * (a.repairTurns + 2);
+        if (planStep) {
+            convo.front().content += "\nOn a plan turn, follow the plan-only instruction instead of the transaction format.";
+            if (compareOptions) convo.back().content += "\n" + std::string{kThinkOptionsNote};
+            convo.back().content += kPlanStepNote;
+        } else if (turnEngine.thinking && thinkPlanMode == "1") {
+            convo.back().content += "\n" + std::string{kThinkPlanNote};
         }
         events::progress(spent, a.repairTurns + 1, calls == 0 ? "generating" : "editing");
         traceSent(tracePath, calls, convo, 0, turnEngine.seed);
@@ -736,20 +729,22 @@ int runCanvasAttempt(const AttemptContext& a)
         rolledBack = false;
         // The plan turn's reply: the plan is carried into the act turn (thinking off), and the verdict it answered stands. A reply that went straight to
         // edits is taken as the transaction.
-        if (planStep && text.find("=== EDIT") == std::string::npos && text.find("=== FILE") == std::string::npos) {
-            std::string plan = text;
-            if (const auto b = plan.find("=== PLAN"); b != std::string::npos) {
-                plan.erase(0, plan.find('\n', b) == std::string::npos ? plan.size() : plan.find('\n', b) + 1);
-                if (const auto e = plan.find("=== END PLAN"); e != std::string::npos) plan.erase(e);
-            }
-            plan.erase(0, plan.find_first_not_of(" \t\r\n"));
-            if (!plan.empty() && plans < 2 * (a.repairTurns + 2)) {
-                ++plans;
-                carriedPlan = clip(plan, 2000);
-                decideNext = true;
-                traceVerdict(tracePath, call, "plan written (" + std::to_string(plan.size()) + " characters): carried into the next turn, which runs with thinking off; no turn used");
-                std::printf("canvas turn %d: plan written\n", call);
-                continue;
+        if (planStep && text.find("=== EDIT") == std::string::npos && text.find("=== FILE") == std::string::npos
+                     && text.find("=== READ") == std::string::npos) {
+            const auto open = text.find("=== PLAN ===");
+            const auto first = open == std::string::npos ? std::string::npos : text.find('\n', open);
+            const auto end = first == std::string::npos ? std::string::npos : text.find("=== END PLAN ===", first + 1);
+            if (end != std::string::npos) {
+                std::string plan = text.substr(first + 1, end - first - 1);
+                plan.erase(0, plan.find_first_not_of(" \t\r\n"));
+                if (!plan.empty()) {
+                    ++plans;
+                    carriedPlan = clip(plan, 2000);
+                    decideNext = true;
+                    traceVerdict(tracePath, call, "plan written (" + std::to_string(plan.size()) + " characters): carried into the next turn, which runs with thinking off; no turn used");
+                    std::printf("canvas turn %d: plan written\n", call);
+                    continue;
+                }
             }
         }
         if (reply->finishReason == "length" && continuations < freeContinuations && (text.find("=== EDIT:") != std::string::npos || text.find("=== FILE:") != std::string::npos)) {

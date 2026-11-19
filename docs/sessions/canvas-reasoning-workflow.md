@@ -4,6 +4,12 @@ Status is open as of 2026-11-19. The initial live screen and request replay are 
 
 A worker should reach a concrete plan, carry decisions forward when an edit fails, and test an alternative against the current canvas before choosing to commit it. The Tier 0 replace-function case is the first consumer.
 
+## Default workflow and gate reporting
+
+Canvas defaults to an explicit think, plan and act sequence. The engine profile controls hidden thinking. A visible plan carries the decision into the act turn, which runs with thinking off. A valid transaction or read provided directly can still be used. An incomplete plan does not masquerade as an edit. Use SUB0SQUAD_THINKPLAN=off for a direct control. The options arm remains experimental.
+
+T0 reports first- and second-tested-edit passes as separate KPIs. Reads, plans, rejected edits and starting checks do not advance the tested-edit ordinal. Gate acceptance is still bounded by the configured edit-and-test turn budget. The report indexes failing runs and keeps their original gate and conversation files. The T1 runner can use the exact same executable and T0 evidence directory, and its waiting mode records the single workflow's tested-edit ordinal.
+
 ## Bounded options and sampling
 
 Compare SUB0SQUAD_THINKPLAN=options with steps on the same pinned executable, model artifact, fixture seeds, SUB0SQUAD_FIXSITE=1 and max-tokens=7000. Include half-written, replace-function and undeclared-member. Count completed plans, applied transactions, accepted runs, reasoning stops, tokens and wall time. Measure thinking separately from total completion tokens. Compare presence=0 against presence=1.5 in its own paired arm, holding the other precise-coding settings fixed.

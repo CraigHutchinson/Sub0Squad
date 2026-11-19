@@ -4,6 +4,7 @@
 # @smoke runs the smoke set (make_t0.py SMOKE: one fast case per kind of edit) and judges it with gate_t0.py --set smoke: smoke.md, never the gate.
 # Each run: its own home out/runs/t0/<case>/run-N, the "t0" process (lib.sh: single, no ladder past the local attempts), the canvas executor, the
 # case's plan (make_t0.py), T0_ATTEMPTS local attempts (default 1: a run stops at its first failed attempt); then `down`.
+# T0_SEED_START: optional base seed, incremented by run number so each case replays the same three seeds.
 # T0_DO_ARGS: more `do` options for every run (e.g. "--max-tokens 7000": a reply budget with room to think; the thinking cap is 60 % of it).
 # out/runs/t0/summary.md gains one row per run as it ends (a progress log; the gate judges the run directories, not this table).
 set -u
@@ -46,7 +47,15 @@ for c in $cases; do
   for r in $(seq "${START:-1}" $(( ${START:-1} + repeats - 1 ))); do
     home="$T0_DIR/$c/run-$r"
     if ! mkdir "$home"; then echo "run_t0: existing evidence at $home" >&2; exit 4; fi
-    start_squad "$exe" "$home" "$engine" canvas t0 "$T0_DIR/$c/plan.json" "tier zero spike: $c" --max-local "${T0_ATTEMPTS:-1}" ${T0_DO_ARGS:-}
+    run_engine="$engine"
+    if [ -n "${T0_SEED_START:-}" ]; then
+      run_engine="$engine,seed=$((T0_SEED_START + r - 1))"
+    fi
+    if ! start_squad "$exe" "$home" "$run_engine" canvas t0 "$T0_DIR/$c/plan.json" "tier zero spike: $c" --max-local "${T0_ATTEMPTS:-1}" ${T0_DO_ARGS:-}; then
+      echo "run_t0: workflow startup failed at $home" >&2
+      "$exe" down >/dev/null 2>&1
+      exit 5
+    fi
     state=$(wait_workflow "$exe" 3600)
     "$exe" down >/dev/null 2>&1
     items="$home/state/workflows/w-000001/items/app"

@@ -12,7 +12,7 @@ It judges the run directories themselves (out/runs/t0/<case>/run-N, written by r
 Writes out/runs/t0/gate.json and gate.md. Exit 0: PASS; 1: FAIL (a counted run failed); 2: INCOMPLETE (a case has fewer than --min-runs counted runs).
 --set smoke judges only the smoke set (make_t0.py SMOKE) and writes smoke.json and smoke.md instead: a quick check while iterating, never the gate.
 """
-import argparse, hashlib, json, os, pathlib, subprocess, sys
+import argparse, hashlib, json, os, pathlib, re, subprocess, sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))   # the sibling modules, also under python -I
 import quality_t0  # noqa: E402
@@ -27,6 +27,24 @@ def case_key(plan):
     return hashlib.sha256(json.dumps(core, sort_keys=True).encode()).hexdigest()
 
 
+# Each committed candidate has a verdict. Starting files, rechecks after a rollback,
+# plans, reads and guards do not contribute a tested edit to this KPI.
+TESTED_EDIT = re.compile(
+    r"^### Verdict, turn \d+ \([^\n]*\)\n\n`{3,}\n"
+    r"(committed(?:; GATE FAIL:[^\n]*| \(revision log in canvas\.json\); self-check passed:[^\n]*))",
+    re.MULTILINE,
+)
+
+
+def tested_edit_verdicts(attempts):
+    verdicts = []
+    for attempt in attempts:
+        trace = attempt / "conversation.md"
+        if trace.is_file():
+            verdicts.extend(TESTED_EDIT.findall(trace.read_text(encoding="utf-8", errors="replace")))
+    return verdicts
+
+
 def judge_run(run, plan, ref_dir):
     info = {"run": run.name}
     try: info["build"] = json.loads((run / "state/run-info.json").read_text())["build"]
@@ -35,7 +53,7 @@ def judge_run(run, plan, ref_dir):
     try: info["key"] = case_key(json.loads((wf / "plan.json").read_text()))
     except Exception: info["key"] = ""
     item = wf / "items/app"
-    attempts = sorted(item.glob("attempt-*"))
+    attempts = sorted(item.glob("attempt-[0-9]*"), key=lambda attempt: int(attempt.name.split("-")[1]))
     info["attempts"] = len(attempts)
     engines, turns, tokens = set(), 0, 0
     for a in attempts:
@@ -61,6 +79,16 @@ def judge_run(run, plan, ref_dir):
     info["leftovers"] = sum(q.get("leftovers", 0) for q in info["quality"].values())
     info["passed"] = info["accepted"] and info["builtByModel"] and info["leftovers"] == 0
     info["firstAttempt"] = info["passed"] and info["attempts"] == 1
+    checks = tested_edit_verdicts(attempts)
+    info["testedEdits"] = len(checks)
+    info["gateEditVerdicts"] = checks
+    info["passingEdit"] = next((i for i, check in enumerate(checks, 1) if "self-check passed:" in check), None) if info["passed"] else None
+    if not info["passed"]:
+        for attempt in reversed(attempts):
+            gate = attempt / "gate.txt"
+            if gate.is_file():
+                info["lastGate"] = gate.read_text(encoding="utf-8", errors="replace").splitlines()[:1]
+                break
     return info
 
 
@@ -71,10 +99,16 @@ def main():
     build_source.add_argument("--build")
     build_source.add_argument("--exe", type=pathlib.Path)
     ap.add_argument("--json", action="store_true"); ap.add_argument("--set", default="all")
+    ap.add_argument("--report-run", type=pathlib.Path, help="report one saved canvas workflow using its recorded plan")
     a = ap.parse_args()
     repo = pathlib.Path(a.repo).resolve()
     sys.argv = ["make_t0.py", str(repo)]
     import make_t0
+    if a.report_run is not None:
+        plan_path = a.report_run / "state/workflows/w-000001/plan.json"
+        report = judge_run(a.report_run, json.loads(plan_path.read_text(encoding="utf-8")), make_t0.REF)
+        print(json.dumps(report, indent=2))
+        return 0 if report["passed"] and report["engine"] == a.engine else 1
     exe = a.exe or repo / "out/build/mingw/sub0squad.exe"
     build = a.build
     if build is None:
@@ -94,6 +128,12 @@ def main():
         state = "FAIL" if passed < len(counted) else "INCOMPLETE" if len(counted) < a.min_runs else "PASS"
         if state == "FAIL" or (state == "INCOMPLETE" and verdict == "PASS"): verdict = state
         cases[name] = {"state": state, "runs": len(counted), "passed": passed, "firstAttempt": sum(r["firstAttempt"] for r in counted),
+                       "firstPass": sum(r["passingEdit"] == 1 for r in counted),
+                       "secondPass": sum(r["passingEdit"] == 2 for r in counted),
+                       "passedWithoutEditKpi": sum(r["passed"] and r["passingEdit"] is None for r in counted),
+                       "failures": [{"run": r["run"], "testedEdits": r["testedEdits"], "lastGate": r.get("lastGate", []),
+                                     "gateEditVerdicts": r["gateEditVerdicts"]}
+                                    for r in counted if not r["passed"]],
                        "turns": sum(r["turns"] for r in counted), "tokensOut": sum(r["tokensOut"] for r in counted),
                        "notCounted": [f"{r['run']} ({'stale case' if r['key'] != key else 'other build' if r['build'].split('+')[0] != build else 'unfinished' if not r['engine'] else 'other engine'})" for r in runs if r not in counted],
                        "quality": {r["run"]: r["quality"] for r in counted},
@@ -117,18 +157,26 @@ def main():
     pending.replace(out / f"{stem}.json")
     md = [f"# Tier 0 {a.set}: {verdict} (the {a.set} set only; not the gate)" if smoke else f"# Tier 0 gate: {verdict}", "", f"Build `{build}`, engine `{a.engine}`, at least {a.min_runs} counted runs per case, every one passed by a model "
           "with nothing left unfinished (quality_t0.py: a stub or conflict marker left behind fails the run; the other quality measures are reported).", "",
-          "| case | state | passed | first attempt | turns | out tokens | quality per run (changed/ideal lines, then what deserves a look) | not counted |",
-          "|---|---|---|---|---|---|---|---|"]
+          "First and second pass are exact tested-edit ordinals. Reads, plans, initial checks and guard stops do not count. A gate pass with no edit ordinal is shown separately.", "",
+          "| case | state | passed | first pass | second pass | pass without ordinal | first attempt | calls | out tokens | quality per run | not counted |",
+          "|---|---|---|---|---|---|---|---|---|---|---|"]
     for n, c in cases.items():
         qual = "; ".join(f"{run}: " + " / ".join(quality_t0.summary(q) for q in files.values()) for run, files in c["quality"].items() if files)
         turns = f"{c['turns']}" + (f" ({c['defectsPerTurn']} defects/turn)" if c.get("defectsPerTurn") else "")
-        md.append(f"| {n} | {c['state']} | {c['passed']}/{c['runs']} | {c['firstAttempt']}/{c['runs']} | {turns} | {c['tokensOut']} | {qual} | {', '.join(c['notCounted'])} |")
+        md.append(f"| {n} | {c['state']} | {c['passed']}/{c['runs']} | {c['firstPass']}/{c['runs']} | {c['secondPass']}/{c['runs']} | "
+                  f"{c['passedWithoutEditKpi']} | {c['firstAttempt']}/{c['runs']} | {turns} | {c['tokensOut']} | {qual} | {', '.join(c['notCounted'])} |")
     def add_tree(nodes, level=0):
         for node in nodes:
             note = " · blocked by " + ", ".join(node["blockedBy"]) if node["blockedBy"] else ""
             md.append(f"{'  ' * level}- {node['case']} · {node['state']}{note}")
             add_tree(node["requires"], level + 1)
 
+    md.extend(["", "## Failed runs", ""])
+    for name, case in cases.items():
+        for failure in case["failures"]:
+            path = f"{name}/{failure['run']}"
+            reason = " ".join(failure["lastGate"]) or "no recorded gate verdict"
+            md.append(f"- [{path}]({path}/): {reason} ({failure['testedEdits']} tested edits)")
     md.extend(["", "## Case tree", ""])
     add_tree(gate["tree"])
     (out / f"{stem}.md").write_text("\n".join(md) + "\n")

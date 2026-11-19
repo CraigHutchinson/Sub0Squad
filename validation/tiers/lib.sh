@@ -23,9 +23,9 @@ start_squad() {   # <exe> <home> <engine spec> <executor> <process> <plan.json> 
   shift 7
   mkdir -p "$home"
   export SUB0SQUAD_HOME=$(winpath "$home")
-  "$exe" up --frontier off >/dev/null 2>&1
+  "$exe" up --frontier off >/dev/null 2>&1 || return 1
   add_process "$exe" "$process" || return 2
-  (cd "$home" && "$exe" do "$task" --agent llm --engine "$engine" --executor "$executor" --process "$process" "$@" >/dev/null 2>&1)
+  (cd "$home" && "$exe" do "$task" --agent llm --engine "$engine" --executor "$executor" --process "$process" "$@" >/dev/null 2>&1) || return 1
   sleep 2
   "$exe" project plan w-000001 --file "$(winpath "$plan")" >/dev/null 2>&1
 }
