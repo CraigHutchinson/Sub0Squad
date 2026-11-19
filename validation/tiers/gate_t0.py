@@ -19,10 +19,11 @@ import quality_t0  # noqa: E402
 
 
 def case_key(plan):
-    """What makes two plans the same case: the seeded files, the owner's tests, the item's files, persona and gate."""
+    """What makes two plans the same case: seeded files, owner tests, item scope, card contract and gate."""
     it = plan["items"][0]
     core = {"scaffold": sorted((f["path"], f["content"]) for f in plan.get("scaffold", [])), "given": sorted((f["path"], f["content"]) for f in plan.get("given", [])),
-            "files": it["files"], "persona": it.get("persona"), "tests": it["gate"]["tests"], "minTests": it["gate"]["minTests"], "context": it["card"]["context"]}
+            "files": it["files"], "persona": it.get("persona"), "tests": it["gate"]["tests"], "minTests": it["gate"]["minTests"],
+            "context": it["card"]["context"], "contract": it["card"].get("contract", "")}
     return hashlib.sha256(json.dumps(core, sort_keys=True).encode()).hexdigest()
 
 

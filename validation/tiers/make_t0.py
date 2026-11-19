@@ -49,6 +49,15 @@ TRIG_TESTS = TEST_HEAD + (
 EVAL_TESTS = ref("tests/eval.test.cpp")
 ARITH_TESTS = TEST_HEAD + "".join(l + "\n" for l in EVAL_TESTS.splitlines() if re.match(
     r"TEST\((addition_and_subtraction|multiplication_and_division|precedence|power_is_right_associative|unary_minus_binds_looser_than_power|modulo|decimals|division_by_zero_throws)\)", l))
+ARITH_CONTRACT = (
+    "ENGINE: Implement double calc::evaluate(const std::string& expr, bool degrees = false), "
+    "declared in include/calc/calc.hpp and defined in src/calc.cpp. "
+    "Handle arithmetic expressions with whitespace, decimal and scientific notation, parentheses, "
+    "unary + and -, and binary + - * / % ^. Multiplication, division and remainder bind tighter than "
+    "addition and subtraction. Power is right associative and binds tighter than unary minus, so -2^2 is -4. "
+    "Division or remainder by zero and malformed expressions raise std::runtime_error. "
+    "Keep the degrees argument for interface compatibility. It has no effect on arithmetic expressions."
+)
 GIVEN_TEXT = {"tests/fact.test.cpp": FACT_TESTS, "tests/trig.test.cpp": TRIG_TESTS, "tests/arith.test.cpp": ARITH_TESTS}
 
 # Curveballs: a naive engine whose approach cannot meet the spec (the right reply is a rewrite), and a parser skeleton with every method still a stub.
@@ -264,8 +273,8 @@ CASES = {
         context="src/calc.cpp is a calculator engine with four functions missing: factorial, toRad, fromRad and call (it does not build). Add them."),
     "replace-function": dict(
         exercises="base of a rewrite, R3: one function whose approach is wrong, redesigned at a modest size (arithmetic only: scope rules and escalation)",
-        calc=NAIVE, only_given=["tests/arith.test.cpp"], diagnostic=True,
-        context="src/calc.cpp is a calculator engine. Most of the provided tests fail."),
+        calc=NAIVE, only_given=["tests/arith.test.cpp"], contract=ARITH_CONTRACT, diagnostic=True,
+        context="src/calc.cpp is an arithmetic evaluator. Repair it for the arithmetic contract below."),
     # ---- scaling: more independent defects (each a prefix of the next); the gate reports defects fixed per turn ----
     **{f"bugs-{n}": dict(
         exercises=f"scaling: {n} independent defects, each breaking a different test (defects fixed per turn)",
@@ -369,7 +378,7 @@ def plan_for(name):
     tests = c.get("tests", given)
     base = json.loads((ROOT / "validation/tiers/t1-plan.json").read_text(encoding="utf-8"))
     item = base["items"][0]
-    contract = item["card"]["contract"]
+    contract = c.get("contract", item["card"]["contract"])
     if files == ["src/calc.cpp"]: contract = contract.split("\nAPP:")[0]
     item.update({"id": "app", "title": f"Tier 0 {name}", "goal": "Make every provided test pass" if c.get("persona") != "tester" else "Write passing tests",
                  "complexity": 1, "files": files, "persona": c.get("persona", "developer")})

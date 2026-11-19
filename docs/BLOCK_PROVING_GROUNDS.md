@@ -298,6 +298,57 @@ In the separate-plan arm, three attempt traces recorded a completed plan. The fi
 
 Other open experiments include using interrupted reasoning as a reply prefill when it contains a usable draft, enabling thinking only after a failing verdict, and varying the thinking budget. The compile note remains experimental.
 
+### Matched Windows screen and request replay (2026-11-19)
+
+One run per case and arm, with seed 1911, qwen35 (Qwen3.6-35B-A3B APEX I-Compact), context target 16,384, the compile note, and 7,000 reply tokens. Both arms used the same 104a804 native executable. The evidence prefix is out/runs/t0-reasoning-20261119-121522. The archived plan beside each run preserves the original contract.
+
+| Case | Steps outcome / seconds | Options outcome / seconds | Thinking stops, steps / options | Completed plans, steps / options |
+|---|---|---|---:|---:|
+| replace-function | Failed, 4/8 tests still failing / 470 | Failed, 5/8 still failing / 356 | 3 / 3 | 1 / 0 |
+| undeclared-member | Passed / 78 | Passed / 105 | 0 / 1 | 0 / 0 |
+| half-written | Failed, 5/16 still failing / 600 | Failed to compile / 449 | 3 / 4 | 2 / 0 |
+
+Both arms passed one of three cases. The shorter options failures left worse artifacts. The traces recorded 119,239 reasoning bytes for steps and 117,612 for options. Five cancelled replace-function calls in each arm returned no completion usage. The 14 tokens shown for options cover its final empty file block, so totals from the runner cannot establish token savings here. In the steps replace-function trace, only about seven seconds separated the two edited replies from their compiler or gate verdicts. That bounds the directly observed opportunity for overlapping those two checks on this case.
+
+Both replace-function arms tried to implement the inherited scientific contract, including trig, in an arithmetic diagnostic. The scope guard stopped the oversized edits twice in each arm. The fixture now has an arithmetic contract and the same seeded file and eight tests. Tier 0's case identity includes the contract, so a historical run cannot qualify against a different one. All 32 plans were compared offline. Only this case changed. See [intervention 82](INTERVENTIONS.md#what-the-table-says).
+
+The first options plan request from the original replace-function trace was replayed with a 768-token limit and the recorded request seed. These are single requests, with the cache disabled and all other sampling values held fixed. A complete plan has both plan markers.
+
+| Request | Total tokens | Seconds | Complete plan |
+|---|---:|---:|---|
+| Thinking on, no backend budget | 768 | 19.03 | No, length limit before visible content |
+| Thinking on, backend thinking budget 160 | 311 | 9.61 | Yes |
+| Same budget and presence penalty 1.5 | 325 | 10.19 | No, missing closing marker |
+| Thinking off, same prompt and sampling | 241 | 8.45 | Yes, two proposed options overlapped |
+
+Only the bounded-thinking response gave three distinct approaches and a complete block. The direct response used fewer tokens and also produced a plan. This replay verifies that the running Windows backend honours thinking_budget_tokens without a template change. One plan completion says nothing about whether the act turn passes the gate. Requests and responses are in the evidence prefix's request-probes folder.
+
+#### Corrected arithmetic fixture
+
+The options rerun on the corrected contract kept seed 1911, the same 104a804 executable and the same 7,000-token budget. It improved from the starting five failures to one failure in eight tests, in six turns and 398 seconds. The uncorrected options run left all five starting failures. The new artifact compiled, but the gate still failed because -2^2 evaluated to 4 instead of -4. The generated parser applied its unary minus before exponentiation. The run still used three interrupted thinking turns, and two replies hit the edit guard before restructure was allowed. The correction improved the artifact on this seed, with higher elapsed time and no acceptance.
+
+A second request-only replay used the corrected first-turn prompt, thinking off and otherwise identical sampling. Each arm added one instruction to the preceding arm. All three returned both plan markers.
+
+| Added instruction | Total tokens | Seconds | Plan behavior |
+|---|---:|---:|---|
+| None | 280 | 9.66 | Proposed a whole-file rewrite and described unary precedence incorrectly |
+| Name the permitted edit form and first target | 221 | 8.81 | Proposed a SYMBOL edit for evaluate, with ambiguous unary precedence |
+| Also dry-run the two precedence examples | 328 | 9.45 | Proposed SYMBOL and correctly grouped -(2^2) and 2^(3^2) |
+
+The visible plans had 160, 132 and 186 words respectively against the 150-word instruction. These probes cover plan quality and contract checking. See the arithmetic-options and scope-probes run directories.
+
+#### Act replay and compact retention
+
+The two plans that named a SYMBOL edit were handed to the real canvas agent on the corrected fixture. Both used the same binary, sampling, seed and compile/test gate. The loopback proxy injected the plan into the first act request only, matching the current one-use handoff. All generated edits were checked by the normal harness.
+
+| Carried material | Act turns | Replay seconds | Gate |
+|---|---:|---:|---|
+| First act receives the edit-form plan | 4 | 134.04 | 7/8 |
+| First act also receives the correct precedence dry-run | 4 | 149.08 | 7/8 |
+| Correct dry-run also retained on repair turns | 6 | 200.20 | 7/8 |
+
+The initial replies differed and both hit the edit cap. After that, the first two replays had byte-identical requests and replies through the final gate, which failed at -2^2. A third replay kept the dry-run conclusion on retries. Its first request was byte-identical to the second replay. It produced different repairs, staged three compile failures, and still failed the same precedence check. Repeating the correct conclusion did not make the parser put unary minus in the right place. The next experiment needs a check tied to the candidate's actual parser structure and gate feedback. These three replays are one case and one seed, with run data in the act-replay and act-replay-retained folders.
+
 ## How the blocks are used
 
 * **Before a change** to a prompt, a view, a reply format, a gate or the policy: run the blocks it touches, keep the result as the baseline.
