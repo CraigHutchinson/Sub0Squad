@@ -177,6 +177,9 @@ int main()
             CHECK(rq[1].last().find("Now reply with your edit") != std::string::npos);
             CHECK(between(rq[2].last(), "The lines you asked to read", "=== CANVAS:").find("v = v / d") != std::string::npos);   // SYMBOL term shows the body
             CHECK(rq[2].last().find("MUST be an edit") < rq[2].last().find("The lines you asked to read"));
+            CHECK(rq[2].messages[0].second.find("The read allowance is used up.") != std::string::npos);
+            CHECK(rq[2].messages[0].second.find("=== READ: <path>") == std::string::npos);
+            CHECK(rq[2].last().find("(folded regions hide their lines:") == std::string::npos);
             CHECK_EQ(rq[3].messages.size(), static_cast<std::size_t>(2));
             CHECK(rq[3].last().find("this read was not answered") < rq[3].last().find("The lines you read before"));
             CHECK(between(rq[3].last(), "The lines you read before", "=== CANVAS:").find("v = v / d") != std::string::npos);   // the last answer stays in view
@@ -197,6 +200,37 @@ int main()
         if (rq.size() == 2) {
             const std::string answer = between(rq[1].last(), "The lines you asked to read", "=== CANVAS:");
             CHECK(answer.size() > 2400 && answer.find(" 150| " + line150) != std::string::npos && answer.find("(truncated)") == std::string::npos);
+        }
+        CHECK(slurp(attemptDir(d, 2) / "out" / kFile).find(fixedLine) != std::string::npos);
+    }
+    // Both compact labels read the same exact hidden range from the current prompt.
+    for (const std::string mode : {"compact", "compact-count"}) {
+#ifdef _WIN32
+        _putenv_s("SUB0SQUAD_FOLDS", mode.c_str());
+#else
+        setenv("SUB0SQUAD_FOLDS", mode.c_str(), 1);
+#endif
+        const std::string tag = "canvas-fold-" + mode;
+        const fs::path d = workflow(tag.c_str());
+        const std::string helper = "def hidden_helper():\n    x = 'fold_marker_target'\n    y = x.upper()\n    return y\n\n";
+        std::string padding;
+        for (int i = 0; i < 230; ++i) padding += "# Enough padding to fold the first body.\n";
+        failedAttempt(d, 1, helper + bad + padding);
+        fake::Engine engine({{"READ B99999"}, {"READ B1"}, {fixBySymbol}});
+        CHECK_EQ(runLlmAgent(canvasArgs(d, engine, 2, 0)), 0);
+#ifdef _WIN32
+        _putenv_s("SUB0SQUAD_FOLDS", "");
+#else
+        unsetenv("SUB0SQUAD_FOLDS");
+#endif
+        const auto requests = engine.requests();
+        CHECK_EQ(requests.size(), 3u);
+        if (requests.size() == 3) {
+            const std::string marker = mode == "compact" ? "... B1 ..." : "...(B1@3lines)...";
+            CHECK(requests[0].last().find("def hidden_helper():\n      " + marker) != std::string::npos);
+            CHECK(requests[0].last().find("fold_marker_target") == std::string::npos);
+            CHECK(requests[1].last().find("read marker B99999 is absent from the current canvas view") != std::string::npos);
+            CHECK(between(requests[2].last(), "The lines you asked to read", "=== CANVAS:").find("fold_marker_target") != std::string::npos);
         }
         CHECK(slurp(attemptDir(d, 2) / "out" / kFile).find(fixedLine) != std::string::npos);
     }

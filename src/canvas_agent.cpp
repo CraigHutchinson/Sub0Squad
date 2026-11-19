@@ -18,9 +18,11 @@
 #include "sub0squad/turn_control.hpp"
 
 #include <algorithm>
+#include <charconv>
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>
+#include <regex>
 #include <set>
 #include <sstream>
 
@@ -28,9 +30,15 @@ namespace sub0squad::agent {
 
 namespace fs = std::filesystem;
 
-const char* const kCanvasSyntax =
-    "You edit a shared document. Each turn you are shown the files as they now stand, with line numbers (`N| text`; the numbers are not part of the file) and long function bodies "
-    "FOLDED to `... (N lines folded: a-b; name)`. Reply with one TRANSACTION and nothing else (no explanations, no markdown fences). The forms:\n"
+constexpr std::string_view kFoldDescription = "FOLDED to `... (N lines folded: a-b; name)`.";
+constexpr std::string_view kReadInstruction =
+    "To change a folded function you have not seen, read it first: reply with ONLY read requests, `=== READ: <path> SYMBOL name ===` or "
+    "`=== READ: <path> LINES a-b ===` (all you need in one reply; at most two replies may be reads, then you must edit).";
+constexpr std::string_view kFoldFooter = "(folded regions hide their lines:";
+
+const std::string kCanvasSyntax =
+    std::string{"You edit a shared document. Each turn you are shown the files as they now stand, with line numbers (`N| text`; the numbers are not part of the file) and long function bodies "} +
+    std::string{kFoldDescription} + " Reply with one TRANSACTION and nothing else (no explanations, no markdown fences). The forms:\n"
     "=== EDIT: <path> SYMBOL <function name> ===\n<the whole function, from its signature to its last line>\n=== END EDIT ===\n"
     "=== EDIT: <path> ===\n<<<<<<< SEARCH\n<a few lines copied exactly from the file, without the line numbers>\n=======\n<what replaces them>\n>>>>>>> REPLACE\n=== END EDIT ===\n"
     "=== FILE: <path> ===\n<the complete new file>\n=== END FILE ===\n"
@@ -40,10 +48,8 @@ const char* const kCanvasSyntax =
     "2. A whole function is wrong or missing: SYMBOL. It replaces the function of that name, or adds it when there is none. A file that exists is improved "
     "this way, not replaced, even when its approach is wrong: a new design goes in function by function. FILE over it is allowed only once the harness says so.\n"
     "3. A few lines are wrong: SEARCH/REPLACE. The SEARCH part is at most about 15 lines and must occur once in the file (indentation need not match exactly); "
-    "the REPLACE part may be empty to delete them.\n"
-    "To change a folded function you have not seen, read it first: reply with ONLY read requests, `=== READ: <path> SYMBOL name ===` or "
-    "`=== READ: <path> LINES a-b ===` (all you need in one reply; at most two replies may be reads, then you must edit).\n"
-    "When several things are wrong (several failing tests, several errors), fix ALL of them in one reply, one edit for each: a reply that fixes one of "
+    "the REPLACE part may be empty to delete them.\n" +
+    std::string{kReadInstruction} + "\nWhen several things are wrong (several failing tests, several errors), fix ALL of them in one reply, one edit for each: a reply that fixes one of "
     "several costs a turn per defect. Each edit applies on its own: one that cannot apply is named and the others are kept. A worked example. "
     "The view shows\n"
     "  41|     if (d == 0) return 0;\n"
@@ -71,6 +77,43 @@ long long turnSeed(long long base, const std::string& label)
 }
 
 namespace {
+// Each marker resolves to the exact hidden lines in the view sent on this turn.
+std::string compactFolds(const std::string& view, const std::string& path, bool showCount, std::vector<ReadRequest>& folds)
+{
+    static const std::regex marker(R"(^      \.\.\. \(([0-9]+) lines folded: ([0-9]+)-([0-9]+)(; .*)?\)$)");
+    std::istringstream lines(view);
+    std::string result;
+    for (std::string line; std::getline(lines, line);) {
+        if (std::smatch match; std::regex_match(line, match, marker)) {
+            folds.push_back({path, std::stoi(match[2]), std::stoi(match[3]), {}});
+            const std::string id = "B" + std::to_string(folds.size());
+            result += showCount ? "      ...(" + id + "@" + match[1].str() + "lines)...\n" : "      ... " + id + " ...\n";
+        } else {
+            result += line + "\n";
+        }
+    }
+    return result;
+}
+
+void addFoldReads(const std::string& text, const std::vector<ReadRequest>& folds, CanvasReply& parsed)
+{
+    if (parsed.hasEdits() || !parsed.error.empty() || !parsed.reads.empty()) return;
+    std::istringstream lines(text);
+    std::vector<ReadRequest> reads;
+    for (std::string verb, marker; lines >> verb;) {
+        if (verb != "READ" || !(lines >> marker) || !marker.starts_with('B')) return;
+        std::size_t id = 0;
+        const char* const end = marker.data() + marker.size();
+        const auto [ptr, ec] = std::from_chars(marker.data() + 1, end, id);
+        if (ec != std::errc{} || ptr != end || id == 0 || id > folds.size()) {
+            parsed.error = "read marker " + marker + " is absent from the current canvas view";
+            return;
+        }
+        reads.push_back(folds[id - 1]);
+    }
+    parsed.reads = std::move(reads);
+}
+
 constexpr double kThinkingShare = 0.6;               ///< share of a turn's token budget thinking may use before it is stopped and carried over
 constexpr double kCharsPerToken = 3.5;               ///< characters per token, to judge streamed reasoning without a tokenizer
 constexpr int kTokensPerLine = 12;                    ///< tokens per line of code (about 40 characters), to tell the worker its reply limit in lines
@@ -433,6 +476,10 @@ int runCanvasAttempt(const AttemptContext& a)
     }();
     const bool compareOptions = thinkPlanMode == "options";
     const bool handoffRead = thinkPlanMode == "read-handoff";
+    const char* const foldValue = std::getenv("SUB0SQUAD_FOLDS");
+    const std::string_view foldMode = foldValue ? foldValue : "";
+    const bool countedFoldMarkers = foldMode == "compact-count";
+    const bool compactFoldMarkers = countedFoldMarkers || foldMode == "compact";
     const bool separatePlan = thinkPlanMode == "steps" || compareOptions || handoffRead;
     std::string carriedPlan;    // the plan the last turn wrote, for this turn to carry out
     int plans = 0;
@@ -496,8 +543,18 @@ int runCanvasAttempt(const AttemptContext& a)
         // left after a minimal view of every file. Clipped like a gate output, the worker never saw the lines it read and asked again until its turns ran
         // out (tier 1 of 2026-11-17: attempts 2 and 4 only ever read, and committed nothing).
         const bool editAfterRead = handoffRead && verdictIsRead;
+        const bool readsAvailable = readReplies < freeReads;
+        std::string turnSystem = system;
+        if (compactFoldMarkers)
+            turnSystem.replace(turnSystem.find(kFoldDescription), kFoldDescription.size(),
+                               countedFoldMarkers ? "FOLDED to `...(B5@5lines)...`, meaning five source lines are hidden at marker B5."
+                                                  : "FOLDED to `... B5 ...`, meaning the body is hidden in this view.");
+        if (!readsAvailable || compactFoldMarkers)
+            turnSystem.replace(turnSystem.find(kReadInstruction), kReadInstruction.size(), readsAvailable
+                ? "To see a hidden body, reply `READ B5` on its own line, using its marker from this view. Request multiple bodies in one reply. You have two read replies per attempt."
+                : "The read allowance is used up. Work from the source shown and reply with an edit transaction.");
         const long availTokens = static_cast<long>(a.engine.contextTokens) - a.maxTokens - 300;
-        const long windowChars = static_cast<long>(static_cast<double>(availTokens) * 3.2) - static_cast<long>(system.size() + a.card.size() + a.guidance.size()) - 1500;
+        const long windowChars = static_cast<long>(static_cast<double>(availTokens) * 3.2) - static_cast<long>(turnSystem.size() + a.card.size() + a.guidance.size()) - 1500;
         const std::size_t verdictCap = verdictIsRead
             ? static_cast<std::size_t>(std::max(2400L, windowChars - 800L * static_cast<long>(std::max<std::size_t>(1, canvas.paths().size()))))
             : 2400;
@@ -508,15 +565,21 @@ int runCanvasAttempt(const AttemptContext& a)
         else if (headCompiles && !restructure && bestFailing == 1 && failingTests(lastGate) == 1 && verdict.find("GATE FAIL: 1 of ") == std::string::npos)
             repairEvidence = "\nThe current tested revision still has this failing assertion:\n" + clip(lastGate, 1100) + "\n";
         if (verdict.size() + repairEvidence.size() > verdictCap) repairEvidence.clear();
+        std::vector<ReadRequest> visibleFolds;
         std::string state;
         if (canvas.paths().empty()) state = "No file exists yet. Write every file whole: === FILE: <path> === ... === END FILE ===\n";
         else {
             const auto viewWith = [&](long availChars) {
                 const std::size_t perFile = static_cast<std::size_t>(std::clamp(availChars / std::max<long>(1, static_cast<long>(canvas.paths().size())), 800L, 9000L));
+                visibleFolds.clear();
                 std::string s;
                 for (const auto& path : canvas.paths()) {
                     const std::string& text = canvas.text(path);
-                    s += "=== CANVAS: " + path + " (revision " + std::to_string(canvas.revision(path)) + ", " + std::to_string(std::count(text.begin(), text.end(), '\n')) + " lines) ===\n" + draftView(path, text, focus + "\n" + readFocus, perFile) + "=== END CANVAS ===\n";
+                    std::string view = draftView(path, text, focus + "\n" + readFocus, perFile);
+                    if (!readsAvailable || compactFoldMarkers)
+                        if (const auto footer = view.find("\n" + std::string{kFoldFooter}); footer != std::string::npos) view.erase(footer + 1);
+                    if (compactFoldMarkers) view = compactFolds(view, path, countedFoldMarkers, visibleFolds);
+                    s += "=== CANVAS: " + path + " (revision " + std::to_string(canvas.revision(path)) + ", " + std::to_string(std::count(text.begin(), text.end(), '\n')) + " lines) ===\n" + view + "=== END CANVAS ===\n";
                 }
                 return s;
             };
@@ -580,8 +643,9 @@ int runCanvasAttempt(const AttemptContext& a)
         carriedPlan.clear();
         const std::string planned = planForTurn.empty() ? std::string{}
             : (editAfterRead ? "\nYour current plan:\n" : "\nYour plan from the last turn:\n") + planForTurn +
-              "\nCarry it out now: reply with the transaction it describes (the forms above), written once.\n";
-        std::vector<ChatMessage> convo = {{"system", system}, {"user", user + carried + planned}};
+              (readsAvailable ? "\nCarry it out now: reply with the transaction it describes (the forms above), written once.\n"
+                              : "\nApply the plan using the source already shown. Reply with the edit transaction now.\n");
+        std::vector<ChatMessage> convo = {{"system", turnSystem}, {"user", user + carried + planned}};
         // A reply cut off at the token limit is continued as itself: its text so far goes back as the assistant's own unfinished message (a prefill), cut to
         // its last complete line, so the model carries on token by token, seeing everything it wrote (2026-11-18: shown only a 700-character tail, the 35B
         // lost its own design and wrote a second engine after the cut; a prefill ending mid-token, `ret`, is ended at once, one at a line end is continued).
@@ -595,7 +659,7 @@ int runCanvasAttempt(const AttemptContext& a)
         } else if (!partial.empty()) {
             const auto nl = partial.rfind('\n');
             const std::string atLine = nl == std::string::npos ? std::string{} : partial.substr(0, nl + 1);
-            const auto estimate = static_cast<int>(static_cast<double>(system.size() + user.size() + carried.size() + atLine.size()) / kCharsPerToken) + a.maxTokens;
+            const auto estimate = static_cast<int>(static_cast<double>(turnSystem.size() + user.size() + carried.size() + atLine.size()) / kCharsPerToken) + a.maxTokens;
             if (!atLine.empty() && estimate < a.engine.contextTokens) {
                 prefill = atLine;
                 convo.push_back({"assistant", prefill});
@@ -754,7 +818,7 @@ int runCanvasAttempt(const AttemptContext& a)
         // The plan turn's reply: the plan is carried into the act turn (thinking off), and the verdict it answered stands. A reply that went straight to
         // edits is taken as the transaction.
         if (planStep && text.find("=== EDIT") == std::string::npos && text.find("=== FILE") == std::string::npos
-                     && text.find("=== READ") == std::string::npos) {
+                     && text.find("=== READ") == std::string::npos && !(compactFoldMarkers && text.starts_with("READ B"))) {
             const auto open = text.find("=== PLAN ===");
             const auto first = open == std::string::npos ? std::string::npos : text.find('\n', open);
             const auto end = first == std::string::npos ? std::string::npos : text.find("=== END PLAN ===", first + 1);
@@ -801,7 +865,8 @@ int runCanvasAttempt(const AttemptContext& a)
             }
         }
 
-        const CanvasReply parsed = parseCanvasReply(text);
+        CanvasReply parsed = parseCanvasReply(text);
+        if (compactFoldMarkers) addFoldReads(text, visibleFolds, parsed);
         const std::vector<int> issueAsks = issueLayer ? parseIssueReads(text) : std::vector<int>{};
         if (parsed.error.empty() && !parsed.hasEdits()) {
             const bool asksToRead = !parsed.reads.empty() || !issueAsks.empty();

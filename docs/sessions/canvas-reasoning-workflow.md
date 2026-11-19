@@ -88,6 +88,16 @@ The nine original failure seeds replayed on build f560796. Three passed the beha
 
 The matched replay, per-run conversations, and staged candidates are under out/runs/t0-failure-replays-f560796. This is a failure cohort. The full 78-run result and T1 admission require a separate full tier run.
 
+Build 5640103 replayed three remaining failures and one passing control. The fix-boundary control passed on its first candidate and behavior check. Skeleton seed 5102 improved from 11 to 15 passing owner checks. Wrong-approach seed 5103 moved from a compile failure to 15 passing checks. Both still failed unary-minus precedence. Skeleton seed 5101 passed 14 of 16 and missed right associativity as well as unary-minus precedence. Both bounded plans and repeated reads appear in the trace. All four runs stayed below their token warnings and reported complete usage. The follow-up evidence is under out/runs/t0-failure-followup-5640103.
+
+### Folded source syntax experiment
+
+The standard view shows the numbered signature, then a marker such as `... (17 lines folded: 45-61; power)`. The worker can expand it with `=== READ: src/calc.cpp SYMBOL power ===` or `=== READ: src/calc.cpp LINES 45-61 ===`. The code under a fold still exists in the current revision.
+
+SUB0SQUAD_FOLDS=compact shows `... B5 ...` under the same signature. SUB0SQUAD_FOLDS=compact-count shows `...(B5@5lines)...` and gives the hidden line count. In either variant, the worker sends `READ B5` on its own line, or several such lines in one reply. Each label resolves to the exact hidden range in the current prompt. Labels can change when the view reflows. The same read allowance, edit protocol, owner checks and token ceilings apply in all three arms. When the allowance is exhausted, the harness replaces the read instructions with the next available action.
+
+Compare paired seeds on behavior and candidate pass ordinals, PP and TG, number of read requests answered or refused, and whether the first edit after a read used the expanded source. Check marker copies in edits and unknown labels in replies. Use a numbered trace to tell a read-selection error from a bad repair made with adequate source.
+
 ## Token cost gate
 
 The T0 workload KPIs are PP (reported prompt tokens) and TG (reported generated tokens), summed across calls and attempts. The report identifies requests with missing usage. Keep model, tokenizer and cache settings fixed when comparing counts. The qwen35 calibration has caching disabled. System-dependent prefill or time-to-first-token measurements remain in the per-run JSON diagnostics. The token gate uses counts alone.
