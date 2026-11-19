@@ -27,22 +27,44 @@ def case_key(plan):
     return hashlib.sha256(json.dumps(core, sort_keys=True).encode()).hexdigest()
 
 
-# Each committed candidate has a verdict. Starting files, rechecks after a rollback,
-# plans, reads and guards do not contribute a tested edit to this KPI.
-TESTED_EDIT = re.compile(
+# One verdict per applied edit that reached the compiler or behavior gate.
+# Rechecks of starting files and rollbacks do not correspond to a new edit.
+CANDIDATE_CHECK = re.compile(
     r"^### Verdict, turn \d+ \([^\n]*\)\n\n`{3,}\n"
-    r"(committed(?:; GATE FAIL:[^\n]*| \(revision log in canvas\.json\); self-check passed:[^\n]*))",
+    r"(staged \(does not compile yet\):[^\n]*|stopped: the same compile error three times running[^\n]*"
+    r"|committed(?:; missing [^\n]*|; GATE FAIL:[^\n]*| \(revision log in canvas\.json\); self-check passed:[^\n]*))",
     re.MULTILINE,
 )
 
 
-def tested_edit_verdicts(attempts):
-    verdicts = []
+def candidate_checks(attempts):
     for attempt in attempts:
         trace = attempt / "conversation.md"
         if trace.is_file():
-            verdicts.extend(TESTED_EDIT.findall(trace.read_text(encoding="utf-8", errors="replace")))
-    return verdicts
+            text = trace.read_text(encoding="utf-8", errors="replace")
+            yield from ((attempt.name, verdict) for verdict in CANDIDATE_CHECK.findall(text))
+
+
+def passed_self_check(verdict):
+    return verdict.startswith("committed (revision log in canvas.json); self-check passed:")
+
+
+def behavior_check(verdict):
+    return verdict.startswith("committed; GATE FAIL:") or passed_self_check(verdict)
+
+
+def edit_kpis(attempts, accepted_attempt):
+    candidates = list(candidate_checks(attempts))
+    behavior = [(attempt, verdict) for attempt, verdict in candidates if behavior_check(verdict)]
+
+    def pass_ordinal(checks):
+        return next((i for i, (attempt, verdict) in enumerate(checks, 1)
+                     if attempt == accepted_attempt and passed_self_check(verdict)), None)
+
+    return dict(candidateEdits=len(candidates), passingCandidate=pass_ordinal(candidates),
+                candidateEditVerdicts=[verdict for _, verdict in candidates],
+                testedEdits=len(behavior), passingEdit=pass_ordinal(behavior),
+                gateEditVerdicts=[verdict for _, verdict in behavior])
 
 
 def judge_run(run, plan, ref_dir):
@@ -79,10 +101,12 @@ def judge_run(run, plan, ref_dir):
     info["leftovers"] = sum(q.get("leftovers", 0) for q in info["quality"].values())
     info["passed"] = info["accepted"] and info["builtByModel"] and info["leftovers"] == 0
     info["firstAttempt"] = info["passed"] and info["attempts"] == 1
-    checks = tested_edit_verdicts(attempts)
-    info["testedEdits"] = len(checks)
-    info["gateEditVerdicts"] = checks
-    info["passingEdit"] = next((i for i, check in enumerate(checks, 1) if "self-check passed:" in check), None) if info["passed"] else None
+    accepted_attempt = ""
+    if info["passed"]:
+        match = re.search(r"^\| app \| model \| (\d+) \|", report, re.MULTILINE)
+        if match:
+            accepted_attempt = "attempt-" + match[1]
+    info.update(edit_kpis(attempts, accepted_attempt))
     if not info["passed"]:
         for attempt in reversed(attempts):
             gate = attempt / "gate.txt"
@@ -130,9 +154,12 @@ def main():
         cases[name] = {"state": state, "runs": len(counted), "passed": passed, "firstAttempt": sum(r["firstAttempt"] for r in counted),
                        "firstPass": sum(r["passingEdit"] == 1 for r in counted),
                        "secondPass": sum(r["passingEdit"] == 2 for r in counted),
+                       "firstCandidatePass": sum(r["passingCandidate"] == 1 for r in counted),
+                       "secondCandidatePass": sum(r["passingCandidate"] == 2 for r in counted),
+                       "editResults": {r["run"]: {field: r[field] for field in ("candidateEdits", "passingCandidate", "testedEdits", "passingEdit")} for r in counted},
                        "passedWithoutEditKpi": sum(r["passed"] and r["passingEdit"] is None for r in counted),
                        "failures": [{"run": r["run"], "testedEdits": r["testedEdits"], "lastGate": r.get("lastGate", []),
-                                     "gateEditVerdicts": r["gateEditVerdicts"]}
+                                     "gateEditVerdicts": r["gateEditVerdicts"], "candidateEditVerdicts": r["candidateEditVerdicts"]}
                                     for r in counted if not r["passed"]],
                        "turns": sum(r["turns"] for r in counted), "tokensOut": sum(r["tokensOut"] for r in counted),
                        "notCounted": [f"{r['run']} ({'stale case' if r['key'] != key else 'other build' if r['build'].split('+')[0] != build else 'unfinished' if not r['engine'] else 'other engine'})" for r in runs if r not in counted],
@@ -142,6 +169,10 @@ def main():
                                          if make_t0.CASES[name].get("defects") and passed else None,
                        "exercises": make_t0.CASES[name]["exercises"]}
     gate = {"schema": "t0-gate-1", "set": a.set, "verdict": verdict, "build": build, "engine": a.engine, "minRuns": a.min_runs, "cases": cases}
+    totals = {field: sum(case[field] for case in cases.values())
+              for field in ("runs", "passed", "firstCandidatePass", "secondCandidatePass", "firstPass", "secondPass", "passedWithoutEditKpi")}
+    gate["totals"] = totals
+
     def tree_node(name):
         evidence = cases.get(name)
         children = [tree_node(child) for child in make_t0.REQUIRES.get(name, ())]
@@ -157,13 +188,16 @@ def main():
     pending.replace(out / f"{stem}.json")
     md = [f"# Tier 0 {a.set}: {verdict} (the {a.set} set only; not the gate)" if smoke else f"# Tier 0 gate: {verdict}", "", f"Build `{build}`, engine `{a.engine}`, at least {a.min_runs} counted runs per case, every one passed by a model "
           "with nothing left unfinished (quality_t0.py: a stub or conflict marker left behind fails the run; the other quality measures are reported).", "",
-          "First and second pass are exact tested-edit ordinals. Reads, plans, initial checks and guard stops do not count. A gate pass with no edit ordinal is shown separately.", "",
-          "| case | state | passed | first pass | second pass | pass without ordinal | first attempt | calls | out tokens | quality per run | not counted |",
-          "|---|---|---|---|---|---|---|---|---|---|---|"]
+          f"Accepted {totals['passed']}/{totals['runs']} runs. Candidate first pass {totals['firstCandidatePass']}, second pass {totals['secondCandidatePass']}. "
+          f"Behavior first pass {totals['firstPass']}, second pass {totals['secondPass']}.", "",
+          "Each pass column counts exact ordinals. Candidate checks include compiler failures. Behavior checks count edits that reached the item test gate. A gate pass without a recorded behavior ordinal is shown separately.", "",
+          "| case | state | passed | candidate first pass | candidate second pass | behavior first pass | behavior second pass | pass without ordinal | first attempt | calls | out tokens | quality per run | not counted |",
+          "|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
     for n, c in cases.items():
         qual = "; ".join(f"{run}: " + " / ".join(quality_t0.summary(q) for q in files.values()) for run, files in c["quality"].items() if files)
         turns = f"{c['turns']}" + (f" ({c['defectsPerTurn']} defects/turn)" if c.get("defectsPerTurn") else "")
-        md.append(f"| {n} | {c['state']} | {c['passed']}/{c['runs']} | {c['firstPass']}/{c['runs']} | {c['secondPass']}/{c['runs']} | "
+        md.append(f"| {n} | {c['state']} | {c['passed']}/{c['runs']} | {c['firstCandidatePass']}/{c['runs']} | {c['secondCandidatePass']}/{c['runs']} | "
+                  f"{c['firstPass']}/{c['runs']} | {c['secondPass']}/{c['runs']} | "
                   f"{c['passedWithoutEditKpi']} | {c['firstAttempt']}/{c['runs']} | {turns} | {c['tokensOut']} | {qual} | {', '.join(c['notCounted'])} |")
     def add_tree(nodes, level=0):
         for node in nodes:
