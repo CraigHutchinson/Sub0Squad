@@ -247,6 +247,46 @@ the hint arm's transcripts, which never showed the hint, gave it away. Check an 
 replace-function; then wrong-approach and skeleton again; then a fresh full gate on that build, then tier 1. Also, the gate should report a failing
 composite as blocked by a failing requirement (`gate_t0.py` does not read `REQUIRES` yet), not as a failure of its own.
 
+### Thinking (2026-11-18/19): the T1 check_eol failure, and reasoning as the missing piece
+
+**The T1 failure** (`t1-first-attempt/.../15101-limit6000`): turn 0 wrote the whole file, defining and calling `Parser::check_eol()` without
+declaring it in the class. The verdict was two short errors, naming the definition (line 71) and the call (line 254); the class (36 to 59) was on
+screen. The worker spent five turns only reading folded bodies unrelated to the error, until the reads ran out. **Thinking was off for every turn of
+every T0 and T1 run so far:** `EngineProfile::thinking` defaults to false and no tier passes `thinking=1`; the ladder's `thinkFirst` retry was the only
+rung that turned it on, and the t0 process turns that off.
+
+**Two cases reproduce it** (`make_t0.py`): **undeclared-member** (T1's shape: `Parser::checkEnd()` defined out of the class and called, never
+declared; the fix is a declaration at neither line the errors name) and **undeclared-many** (`eat()` moved out of the class: one cause, 16 errors).
+Both seeds fail to compile, and a one-line declaration passes every test (`check_t0.sh`). Without thinking the 35B edited the lines the errors name
+(rewrote the definition in place, deleted it, invented an overload of `eat`), not the class.
+
+**The A/B** (35B, 5 runs a case an arm, one attempt, dev build; `out/runs/t0-fixsite-<arm>`). The note (`SUB0SQUAD_FIXSITE=1`, the owner's
+wording, every compile verdict): "Review all of these errors together before you edit: several may come from one root cause, and an error is reported
+where the compiler noticed it, which is not always where the cause is. Address the root cause directly; how is yours to decide."
+
+| arm | undeclared-member | undeclared-many | turns |
+|---|---|---|---|
+| control | 1/5 | 5/5 | 1 to 15 |
+| note | 2/5 | 4/5 | 1 to 11 |
+| **note + thinking** | **5/5** | **5/5** | **2 to 3** (47 to 101 s a run) |
+
+Nine of the ten thinking runs took the same path: thinking reached its cap, the harness stopped it with no edit begun and carried the reasoning's end
+into a turn with thinking off ("write the transaction it was leading to"), which wrote the declaration in 105 to 325 tokens. **A forced thinking stop
+is built and works:** the cap is `kThinkingShare` (60 %) of the reply budget; `kCarriedReasoningChars` (3000) of its end are carried; thinking loops
+are caught by the same repeat rules as replies.
+
+**The sweep over the earlier failures, thinking on** (`out/runs/t0-think-sweep`, 3 runs each, `--max-tokens 3000`): **0/15** (half-written,
+write-engine, replace-function, skeleton, wrong-approach). Every thinking turn hit the cap (about 1,800 tokens) and none ended on its own: half of each
+attempt's turns were reasoning cut off and thrown away. **With room** (`out/runs/t0-think-room`, `T0_DO_ARGS="--max-tokens 7000"`, a cap of about
+4,200 tokens): **half-written 2/3**, replace-function 0/3 (each failure 1 or 2 of 8 tests). Thinking still never ended on its own (every stop at
+about 14,700 characters): **the 35B writes the whole code inside its reasoning** (the carried tails end mid-way through `evaluate` and
+`parsePostfix`), so the thinking is mostly a full draft that is thrown away, its last 3,000 characters carried, and the code written again.
+
+**Open, for the owner** (where thinking goes next): (a) the thinking prompt asks for the cause and the plan, not the code (the code is written in the
+reply); (b) the harness salvages a code draft from stopped reasoning as the start of the reply (a prefill) instead of carrying 3,000 characters of it;
+(c) thinking only on turns after a failing verdict, so a plain first write is not slowed; (d) the reply budget for thinking turns. The note stays an
+experiment (`SUB0SQUAD_FIXSITE`) until it is measured with thinking on and off together.
+
 ## How the blocks are used
 
 * **Before a change** to a prompt, a view, a reply format, a gate or the policy: run the blocks it touches, keep the result as the baseline.
