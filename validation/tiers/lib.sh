@@ -11,7 +11,8 @@ add_process() {   # <exe> <single|forked>
     # t0: the single process with the ladder's later rungs off (owner, 2026-11-18): tier 0 tests a targeted step, so a run stops at its attempts
     # (run_t0.sh: --max-local, default 1) instead of grinding through card rewrites and strategies into a long failure.
     t0) "$1" process add t0 --set build.leaf.allow.decompose=false --set build.leaf.allow.sections=false --set build.leaf.allow.rearchitect=false \
-          --set build.leaf.allow.thinkFirst=false --set build.leaf.allow.escalate=false --set build.leaf.allow.strategies=false --describe "tier 0: one worker, one item, no ladder past the local attempts" ;;
+          --set build.leaf.allow.thinkFirst=false --set build.leaf.allow.escalate=false --set build.leaf.allow.strategies=false \
+          --set build.leaf.allow.nearPassRepair=false --describe "tier 0: one worker, one item, no ladder past the local attempts" ;;
     *) echo "unknown process '$2'" >&2; return 2 ;;
   esac >/dev/null 2>&1
 }

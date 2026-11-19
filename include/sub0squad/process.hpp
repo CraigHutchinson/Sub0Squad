@@ -62,6 +62,7 @@ struct LeafParams
     /// When the ladder is spent the manager applies its strategies (`think`, then `engine` with a fallback engine) before failing the item. Off for a
     /// process that measures one step (tier 0: a run ends at its own attempts, not in a long failure through every strategy).
     bool allowStrategies = true;
+    bool allowNearPassRepair = true;             ///< a near pass can open a new worker attempt beyond the local attempt budget
     int agentWallLlmSeconds = 10800;             ///< a local model-driven attempt
     int agentWallOtherSeconds = 120;             ///< a mock or stub attempt
     int gateWallSeconds = 120;

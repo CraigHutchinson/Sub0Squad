@@ -815,6 +815,7 @@ bool advanceItems(const WorkflowRecord& wf, const std::vector<ItemView>& views, 
             const LeafParams& leaf = itemsStageOf(wf).leaf;
             ctx.allowDecompose = leaf.allowDecompose; ctx.allowSections = leaf.allowSections; ctx.allowReviseTests = leaf.allowReviseTests;
             ctx.allowRearchitect = leaf.allowRearchitect; ctx.allowEscalate = leaf.allowEscalate; ctx.allowThinkFirst = leaf.allowThinkFirst;
+            if (!leaf.allowNearPassRepair) ctx.maxNearPassRepairs = 0;
             if (const Harness* hs = findHarness(plan.harness)) ctx.divideBySections = hs->divideBySections;
             for (const auto& dd : wf.decisions) if (dd.item == v.item->id && dd.action == "sections") ctx.sectionsTried = true;
             // What the failing attempt WAS (row 73): the latest agent job of this item. A rung that would run the same executor again is skipped.

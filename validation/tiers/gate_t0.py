@@ -67,6 +67,21 @@ def edit_kpis(attempts, accepted_attempt):
                 gateEditVerdicts=[verdict for _, verdict in behavior])
 
 
+def run_budget(run):
+    for journal in sorted((run / "state/journal").glob("journal-*.ndjson")):
+        for line in journal.read_text(encoding="utf-8", errors="replace").splitlines():
+            if "workflowSubmitted" not in line:
+                continue
+            try:
+                event = json.loads(line)
+                if event["type"] == "workflowSubmitted" and event["d"]["id"] == "w-000001":
+                    spec = event["d"]["spec"]
+                    return spec.get("maxLocalAttempts"), spec.get("repairTurns")
+            except (KeyError, json.JSONDecodeError):
+                continue
+    return None, None
+
+
 def judge_run(run, plan, ref_dir):
     info = {"run": run.name}
     try: info["build"] = json.loads((run / "state/run-info.json").read_text())["build"]
@@ -99,14 +114,18 @@ def judge_run(run, plan, ref_dir):
             info["quality"][path] = quality_t0.judge(seeds.get(path, ""), final.read_text(encoding="utf-8", errors="replace"),
                                                      ref.read_text(encoding="utf-8") if ref.exists() else None, given if path.startswith("tests/") else ())
     info["leftovers"] = sum(q.get("leftovers", 0) for q in info["quality"].values())
-    info["passed"] = info["accepted"] and info["builtByModel"] and info["leftovers"] == 0
+    info["workflowPassed"] = info["accepted"] and info["builtByModel"] and info["leftovers"] == 0
+    attempt_match = re.search(r"^\| app \| model \| (\d+) \|", report, re.MULTILINE)
+    accepted_attempt = int(attempt_match[1]) if attempt_match and info["workflowPassed"] else None
+    attempt_limit, repair_turns = run_budget(run)
+    outside_budget = accepted_attempt is not None and attempt_limit is not None and accepted_attempt > attempt_limit
+    info.update(acceptedAttempt=accepted_attempt, attemptLimit=attempt_limit, repairTurns=repair_turns, outsideAttemptBudget=outside_budget)
+    info["passed"] = info["workflowPassed"] and not outside_budget
     info["firstAttempt"] = info["passed"] and info["attempts"] == 1
-    accepted_attempt = ""
-    if info["passed"]:
-        match = re.search(r"^\| app \| model \| (\d+) \|", report, re.MULTILINE)
-        if match:
-            accepted_attempt = "attempt-" + match[1]
-    info.update(edit_kpis(attempts, accepted_attempt))
+    info.update(edit_kpis(attempts, f"attempt-{accepted_attempt}"))
+    if outside_budget:
+        info["lastGate"] = [f"accepted on worker attempt {accepted_attempt}, above configured limit {attempt_limit}"]
+        return info
     if not info["passed"]:
         for attempt in reversed(attempts):
             gate = attempt / "gate.txt"
@@ -151,12 +170,13 @@ def main():
         passed = sum(r["passed"] for r in counted)
         state = "FAIL" if passed < len(counted) else "INCOMPLETE" if len(counted) < a.min_runs else "PASS"
         if state == "FAIL" or (state == "INCOMPLETE" and verdict == "PASS"): verdict = state
-        cases[name] = {"state": state, "runs": len(counted), "passed": passed, "firstAttempt": sum(r["firstAttempt"] for r in counted),
-                       "firstPass": sum(r["passingEdit"] == 1 for r in counted),
-                       "secondPass": sum(r["passingEdit"] == 2 for r in counted),
-                       "firstCandidatePass": sum(r["passingCandidate"] == 1 for r in counted),
-                       "secondCandidatePass": sum(r["passingCandidate"] == 2 for r in counted),
-                       "editResults": {r["run"]: {field: r[field] for field in ("candidateEdits", "passingCandidate", "testedEdits", "passingEdit")} for r in counted},
+        cases[name] = {"state": state, "runs": len(counted), "passed": passed,
+                       "outsideAttemptBudget": sum(r["outsideAttemptBudget"] for r in counted), "firstAttempt": sum(r["firstAttempt"] for r in counted),
+                       "firstPass": sum(r["passed"] and r["passingEdit"] == 1 for r in counted),
+                       "secondPass": sum(r["passed"] and r["passingEdit"] == 2 for r in counted),
+                       "firstCandidatePass": sum(r["passed"] and r["passingCandidate"] == 1 for r in counted),
+                       "secondCandidatePass": sum(r["passed"] and r["passingCandidate"] == 2 for r in counted),
+                       "editResults": {r["run"]: {field: r[field] for field in ("candidateEdits", "passingCandidate", "testedEdits", "passingEdit", "acceptedAttempt", "attemptLimit", "repairTurns")} for r in counted},
                        "passedWithoutEditKpi": sum(r["passed"] and r["passingEdit"] is None for r in counted),
                        "failures": [{"run": r["run"], "testedEdits": r["testedEdits"], "lastGate": r.get("lastGate", []),
                                      "gateEditVerdicts": r["gateEditVerdicts"], "candidateEditVerdicts": r["candidateEditVerdicts"]}
@@ -170,7 +190,7 @@ def main():
                        "exercises": make_t0.CASES[name]["exercises"]}
     gate = {"schema": "t0-gate-1", "set": a.set, "verdict": verdict, "build": build, "engine": a.engine, "minRuns": a.min_runs, "cases": cases}
     totals = {field: sum(case[field] for case in cases.values())
-              for field in ("runs", "passed", "firstCandidatePass", "secondCandidatePass", "firstPass", "secondPass", "passedWithoutEditKpi")}
+              for field in ("runs", "passed", "outsideAttemptBudget", "firstCandidatePass", "secondCandidatePass", "firstPass", "secondPass", "passedWithoutEditKpi")}
     gate["totals"] = totals
 
     def tree_node(name):
@@ -186,9 +206,9 @@ def main():
     pending = out / f"{stem}.json.tmp"
     pending.write_text(json.dumps(gate, indent=1), encoding="utf-8")
     pending.replace(out / f"{stem}.json")
-    md = [f"# Tier 0 {a.set}: {verdict} (the {a.set} set only; not the gate)" if smoke else f"# Tier 0 gate: {verdict}", "", f"Build `{build}`, engine `{a.engine}`, at least {a.min_runs} counted runs per case, every one passed by a model "
+    md = [f"# Tier 0 {a.set}: {verdict} (the {a.set} set only; not the gate)" if smoke else f"# Tier 0 gate: {verdict}", "", f"Build `{build}`, engine `{a.engine}`, at least {a.min_runs} counted runs per case, every one passed by a model within its recorded worker attempt limit "
           "with nothing left unfinished (quality_t0.py: a stub or conflict marker left behind fails the run; the other quality measures are reported).", "",
-          f"Accepted {totals['passed']}/{totals['runs']} runs. Candidate first pass {totals['firstCandidatePass']}, second pass {totals['secondCandidatePass']}. "
+          f"Accepted within budget {totals['passed']}/{totals['runs']} runs. Accepted above budget {totals['outsideAttemptBudget']}. Candidate first pass {totals['firstCandidatePass']}, second pass {totals['secondCandidatePass']}. "
           f"Behavior first pass {totals['firstPass']}, second pass {totals['secondPass']}.", "",
           "Each pass column counts exact ordinals. Candidate checks include compiler failures. Behavior checks count edits that reached the item test gate. A gate pass without a recorded behavior ordinal is shown separately.", "",
           "| case | state | passed | candidate first pass | candidate second pass | behavior first pass | behavior second pass | pass without ordinal | first attempt | calls | out tokens | quality per run | not counted |",

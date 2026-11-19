@@ -316,6 +316,25 @@ int main()
             CHECK_EQ(count(s, "retry"), 2);
             CHECK_EQ(count(s, "decompose") + count(s, "escalate") + count(s, "fail"), 0);
         }
+        {
+            Process process = standardProcess();
+            CHECK(process.set("build.leaf.allow.nearPassRepair", "false").has_value());
+            CHECK(process.set("build.leaf.allow.rearchitect", "false").has_value());
+            CHECK(process.set("build.leaf.allow.strategies", "false").has_value());
+            Sim s = startSim(1, FrontierMode::off, false, process);
+            s.feed("workflowPlanned", wfbody::planned("w-000001", onePlan()));
+            const auto next = [&] { return advance(*s.wfs.find("w-000001"), s.jobs, s.settings, s.policy); };
+            const auto agents = s.run(next());
+            CHECK_EQ(agents.size(), 1u);
+            s.finishJob(agents.at(0), JobState::succeeded);
+            const auto gates = s.run(next());
+            CHECK_EQ(gates.size(), 1u);
+            s.finishJob(gates.at(0), JobState::failed, "{\"code\":3}");
+            CHECK(s.run(next()).empty());   // record the exhausted attempt
+            CHECK(s.run(next()).empty());   // finish the workflow
+            CHECK(s.wfs.find("w-000001")->state == WorkflowState::failed);
+            CHECK_EQ(count(s, "retry"), 0);
+        }
         {   // gate exit 7 (a near pass on the same files as the attempt before: stuck) on an item graded by a tester's tests: the manager's `think`
             // strategy is applied FIRST, as a recorded strategy decision; the tests are not sent back and the card is not rewritten
             SCENARIO("stuck-near-pass-thinks-first");

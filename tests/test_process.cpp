@@ -76,7 +76,7 @@ int main()
         const Process& s = standardProcess();
         const std::string json = s.toJson();
         const auto paths = s.parameterPaths();
-        CHECK_EQ(paths.size(), static_cast<std::size_t>(9 + 21 + 9));   // a job stage: entry, exit and 7 of the job (its args are a list: edit the file); the items stage: entry, exit, 15 of the leaf (its list of disabled mends is edited in the file), 1 of the ascent
+        CHECK_EQ(paths.size(), static_cast<std::size_t>(9 + 22 + 9));  // two job stages and one items stage
         for (const auto& path : paths) CHECK(contains(json, ("\"" + path.substr(path.rfind('.') + 1) + "\":").c_str()));
         CHECK(paths.front() == "plan.entry" && paths.back() == "integrate.job.accept");
         CHECK(contains(json, "\"schema\":\"process-1\"") && contains(json, "\"executor\":{\"developer\":\"session\",\"tester\":\"session\"}"));
