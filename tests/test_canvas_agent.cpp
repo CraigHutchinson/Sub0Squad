@@ -127,6 +127,21 @@ int main()
             CHECK(rq[1].last().find("failed") != std::string::npos && rq[1].last().find("modulo") != std::string::npos);
         }
     }
+    {   // Refusing a no-op must keep the measured behavior failure visible.
+        const fs::path d = workflow("canvas-near-pass-after-refusal");
+        failedAttempt(d, 1, bad);
+        const std::string wrong = std::string{"=== EDIT: "} + kFile + " LINES " + std::to_string(bugLine) + " ===\n                v = v * d\n=== END EDIT ===\n";
+        fake::Engine engine({{wrong}, {wrong}, {fixByLine}});
+        CHECK_EQ(runLlmAgent(canvasArgs(d, engine, 2, 1)), 0);
+        CHECK_EQ(slurp(attemptDir(d, 2) / "out" / kFile), ref);
+        const auto requests = engine.requests();
+        CHECK_EQ(requests.size(), 3u);
+        if (requests.size() == 3) {
+            const std::string& message = requests[2].last();
+            CHECK(message.find("The current tested revision still has this failing assertion:") != std::string::npos);
+            CHECK(message.find("test_modulo") != std::string::npos);
+        }
+    }
     {   // A commit that makes MORE tests fail is undone (revert as a new revision) and the worker is told; the fix then applies to the restored text.
         const fs::path d = workflow("canvas-revert");
         failedAttempt(d, 1, bad);
@@ -161,9 +176,9 @@ int main()
             CHECK(outline.find("v = v / d") == std::string::npos);              // bodies are folded: the whole file is never returned to a read
             CHECK(rq[1].last().find("Now reply with your edit") != std::string::npos);
             CHECK(between(rq[2].last(), "The lines you asked to read", "=== CANVAS:").find("v = v / d") != std::string::npos);   // SYMBOL term shows the body
-            CHECK(rq[2].last().find("MUST be an edit") != std::string::npos);
+            CHECK(rq[2].last().find("MUST be an edit") < rq[2].last().find("The lines you asked to read"));
             CHECK_EQ(rq[3].messages.size(), static_cast<std::size_t>(2));
-            CHECK(rq[3].last().find("this read was not answered") != std::string::npos);
+            CHECK(rq[3].last().find("this read was not answered") < rq[3].last().find("The lines you read before"));
             CHECK(between(rq[3].last(), "The lines you read before", "=== CANVAS:").find("v = v / d") != std::string::npos);   // the last answer stays in view
         }
         CHECK(slurp(attemptDir(d, 2) / "agent.json").find("\"reads\":3") != std::string::npos);
@@ -531,6 +546,21 @@ int main()
             CHECK(act.find("Repair evidence from before the read:") != std::string::npos);
             CHECK(act.find("reply with your plan only") == std::string::npos);
             CHECK(requests[2].thinking == 0);
+        }
+    }
+    {   // A length-limited plan can still use its first tested edit.
+        const fs::path d = workflow("canvas-bounded-plan");
+        failedAttempt(d, 1, bad);
+        fake::Engine engine({{"=== PLAN ===\nInspection incomplete", "length"}, {fixByLine}});
+        CHECK_EQ(runLlmAgent(canvasArgs(d, engine, 2, 0)), 0);
+        CHECK_EQ(slurp(attemptDir(d, 2) / "out" / kFile), ref);
+        const auto requests = engine.requests();
+        CHECK_EQ(requests.size(), 2u);
+        if (requests.size() == 2) {
+            CHECK_EQ(requests[0].maxTokens, 640L);
+            CHECK(requests[1].maxTokens > requests[0].maxTokens);
+            CHECK(requests[1].last().find("The plan ran out of room") != std::string::npos);
+            CHECK(requests[1].last().find("Inspection incomplete") != std::string::npos);
         }
     }
     {   // A failing test named by the gate opens its definition in the folded view of a test file (tier 0 write-tests: no line number to focus on).

@@ -501,8 +501,13 @@ int runCanvasAttempt(const AttemptContext& a)
         const std::size_t verdictCap = verdictIsRead
             ? static_cast<std::size_t>(std::max(2400L, windowChars - 800L * static_cast<long>(std::max<std::size_t>(1, canvas.paths().size()))))
             : 2400;
-        const std::string repairEvidence = editAfterRead && !verdictBeforeRead.empty() && verdict.size() + verdictBeforeRead.size() + 40 <= verdictCap
-            ? "\nRepair evidence from before the read:\n" + verdictBeforeRead + "\n" : std::string{};
+        // A transaction refusal replaces the last message, but the measured near pass still describes this canvas.
+        std::string repairEvidence;
+        if (editAfterRead && !verdictBeforeRead.empty())
+            repairEvidence = "\nRepair evidence from before the read:\n" + verdictBeforeRead + "\n";
+        else if (headCompiles && !restructure && bestFailing == 1 && failingTests(lastGate) == 1 && verdict.find("GATE FAIL: 1 of ") == std::string::npos)
+            repairEvidence = "\nThe current tested revision still has this failing assertion:\n" + clip(lastGate, 1100) + "\n";
+        if (verdict.size() + repairEvidence.size() > verdictCap) repairEvidence.clear();
         std::string state;
         if (canvas.paths().empty()) state = "No file exists yet. Write every file whole: === FILE: <path> === ... === END FILE ===\n";
         else {
@@ -613,6 +618,8 @@ int runCanvasAttempt(const AttemptContext& a)
                 convo.back().content += "\nFollow the single failing input through the current code. Identify the first incorrect value or state "
                                         "and the affected callers. Check that the proposed repair preserves a nearby passing case.\n";
             convo.back().content += kPlanStepNote;
+            if (handoffRead && !turnEngine.thinking)
+                convo.back().content += "\nKeep the plan brief. Name the first action and the check it should satisfy.\n";
         } else if (turnEngine.thinking && thinkPlanMode == "1") {
             convo.back().content += "\n" + std::string{kThinkPlanNote};
         }
@@ -668,7 +675,8 @@ int runCanvasAttempt(const AttemptContext& a)
             if (runaway.kind == "repeat") loopKept = soFar.substr(0, std::min(runaway.keep, soFar.size()));
             return static_cast<bool>(runaway);
         };
-        auto reply = chatCompleteMessages(turnEngine, convo, a.maxTokens, a.timeoutSec, liveSink, guard);
+        const int replyTokens = planStep && handoffRead && !turnEngine.thinking ? std::min(a.maxTokens, 640) : a.maxTokens;
+        auto reply = chatCompleteMessages(turnEngine, convo, replyTokens, a.timeoutSec, liveSink, guard);
         { std::error_code lec; fs::remove(livePath, lec); }
         const int call = calls++;
         if (!reply) {
@@ -762,6 +770,14 @@ int runCanvasAttempt(const AttemptContext& a)
                     continue;
                 }
             }
+            if (replyTokens < a.maxTokens && reply->finishReason == "length") {
+                ++plans;
+                decideNext = true;
+                if (first != std::string::npos) carriedPlan = clip(text.substr(first + 1), 1600);
+                verdict += "\nThe plan ran out of room. Use the current evidence and write the smallest applicable transaction now.";
+                traceVerdict(tracePath, call, "bounded plan cut off; continuing to the edit without spending an edit turn");
+                continue;
+            }
         }
         if (reply->finishReason == "length" && continuations < freeContinuations && (text.find("=== EDIT:") != std::string::npos || text.find("=== FILE:") != std::string::npos)) {
             ++continuations;
@@ -793,9 +809,9 @@ int runCanvasAttempt(const AttemptContext& a)
                 // Past the allowance a read is refused, not answered: answered, it let a worker read until its turns ran out. What it read last stays in view.
                 ++readReplies;
                 ++spent;
-                verdict = (lastReadAnswer.empty() ? std::string{} : "The lines you read before:\n" + lastReadAnswer) +
-                          (restructure ? "Your reads are used up, so this read was not answered. Reply now with an edit (=== EDIT: ... ===) or, if the approach is wrong, the complete new file (=== FILE: ... ===).\n"
-                                       : "Your reads are used up, so this read was not answered. Reply now with an edit (=== EDIT: ... ===).\n");
+                verdict = restructure ? "Your reads are used up, so this read was not answered. Reply now with an edit (=== EDIT: ... ===) or, if the approach is wrong, the complete new file (=== FILE: ... ===).\n"
+                                      : "Your reads are used up, so this read was not answered. Reply now with an edit (=== EDIT: ... ===).\n";
+                if (!lastReadAnswer.empty()) verdict += "The lines you read before:\n" + lastReadAnswer;
                 verdictIsRead = !lastReadAnswer.empty();
                 if (handoffRead) carriedPlan = std::move(planForTurn);
                 traceVerdict(tracePath, call, "read request refused: the reads are used up (a turn is spent)");
@@ -837,7 +853,9 @@ int runCanvasAttempt(const AttemptContext& a)
                     if (!editAfterRead) verdictBeforeRead = clip(verdict, 1200);
                     carriedPlan = std::move(planForTurn);
                 }
-                verdict = "The lines you asked to read:\n" + answer + (readReplies >= freeReads ? "You have used your reads: your next reply MUST be an edit (=== EDIT: ... ===) or a file, not another read.\n" : "Now reply with your edit.\n");
+                verdict = readReplies >= freeReads ? "You have used your reads: your next reply MUST be an edit (=== EDIT: ... ===) or a file, not another read.\n"
+                                                   : "Now reply with your edit.\n";
+                verdict += "The lines you asked to read:\n" + answer;
                 verdictIsRead = true;
                 traceVerdict(tracePath, call, "read request: " + std::to_string(parsed.reads.size() + issueAsks.size()) + " region(s) or issue(s) shown, no turn used");
                 std::printf("canvas turn %d: read answered (%zu region(s))\n", call, parsed.reads.size() + issueAsks.size());

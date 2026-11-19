@@ -66,13 +66,27 @@ A Windows replay on build ad6fd25 used the same archived arithmetic candidate, s
 
 All three accepted candidates passed the 12-expression matrix. The failed control created a parser call cycle that could return to the same input cursor without consuming a character. The original diagnostics and compiled candidates are retained under out/runs/t0-read-handoff-ad6fd25. This replay measures the handoff after a read has been made.
 
-In the unscripted seed 2407 run, both arms produced identical model requests, made two calls, and passed on the first tested edit. Neither requested a read, so this pair exercised the ordinary plan and edit path. That run exercised the ordinary plan and edit path before the read handoff was promoted. Unscripted evidence is under out/runs/t0-read-handoff-natural-ad6fd25.
+In the unscripted seed 2407 run, both arms produced identical model requests, made two calls, and passed on the first tested edit. Neither requested a read, so this pair exercised the ordinary plan and edit path. Unscripted evidence is under out/runs/t0-read-handoff-natural-ad6fd25.
 
 ### T0 failure fixes
 
 A developing item whose seeded implementation fails at least three quarters of at least eight owner tests can restructure immediately. When a candidate reduces the failures to one, narrow the scope back to edits and ask the worker to trace the single failing input and preserve a nearby passing case. If a candidate crashes before reporting a verdict, keep the best tested revision and show the worker the crash from the rejected candidate. These rules keep the repair on the best available canvas revision.
 
 The tester prompt asks for contract-backed expectations and directs the worker to inspect existing implementation for behavior the contract leaves open. The cut-off file prompt directs the worker to preserve the completed prefix, finish the open scopes, and match the public entry point to its header. The T0 fixtures, owner tests and token ceilings stay fixed for the matched failure replays.
+
+A refused transaction keeps the current revision's sole failing assertion in view when space permits. The default workflow caps visible plans at 640 tokens when hidden thinking is off, with the existing lower caller limit still taking precedence. A clipped plan hands its available text to the act turn without consuming a tested edit. The act turn uses the normal reply limit. Read verdicts place the next action above the source so a long read cannot hide the read-limit instruction.
+
+The nine original failure seeds replayed on build f560796. Three passed the behavior gate within budget, all on their first behavior check. Two passed on their first candidate, and half-written passed on its second candidate after a compile failure. The two first-candidate passes had complete usage below the warnings. The half-written run reported 43,479 PP and 5,651 TG, with usage missing for three canceled calls.
+
+| Case | Seeds | Replay outcome |
+| --- | --- | --- |
+| write-feature | 5101 | Passed, 21,415 PP and 1,468 TG |
+| write-tests | 5102 | Passed, 5,782 PP and 850 TG |
+| half-written | 5103 | Passed, cost evidence incomplete |
+| wrong-approach | 5101, 5102, 5103 | Hard PP stop before a behavior check, hard TG stop at 15/16, then compile failure on the third seed |
+| skeleton | 5101, 5102, 5103 | 15/16, 11/16, 15/16. Seeds 5101 and 5103 missed unary-minus precedence, while seed 5102 failed five function calls |
+
+The matched replay, per-run conversations, and staged candidates are under out/runs/t0-failure-replays-f560796. This is a failure cohort. The full 78-run result and T1 admission require a separate full tier run.
 
 ## Token cost gate
 
