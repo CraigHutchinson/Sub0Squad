@@ -118,6 +118,7 @@ static void runWorkflow(const std::string& exe, const char* executor, const char
         CHECK(!fs::exists(dir / "items" / "test-engine" / "attempt-1" / "fork.json"));
     } else {
         CHECK(fs::exists(dev / "canvas.json") && !fs::exists(dev / "fork.json"));
+        CHECK(slurp(dev / "conversation.md").find("FOLDED to `...(B5@5lines)...`") != std::string::npos);
         CHECK(slurp(dev / "canvas.json").find("\"calc/engine.py\":2") != std::string::npos);            // the stub is revision 1; written whole once: revision 2
     }
     CHECK_GE(engine.requestCount(), static_cast<std::size_t>(4));
@@ -127,7 +128,9 @@ int main(int, char** argv)
 {
     sub0squad::registerBuiltinHarnesses();   // the registry starts empty: this program is its own composition root
     const std::string exe = argv[1];
+    sub0squad::platform::setEnvironment("SUB0SQUAD_FOLDS", "compact-count");
     runWorkflow(exe, "canvas", "exec-canvas");
+    sub0squad::platform::unsetEnvironment("SUB0SQUAD_FOLDS");
     runWorkflow(exe, "fork", "exec-fork");
     return finish();
 }
