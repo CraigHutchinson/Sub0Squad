@@ -163,6 +163,22 @@ def measure_cost(attempts):
     return ",".join(sorted(engines)), cost
 
 
+def cost_mode(out):
+    marker = out / "cost-mode.txt"
+    mode = marker.read_text(encoding="utf-8").strip() if marker.is_file() else "enforce"
+    if mode not in {"enforce", "measure"}:
+        raise ValueError(f"unknown T0 token policy mode: {mode}")
+    return mode
+
+
+def case_state(passed, counted, expected, cost_failures, cost_incomplete, mode):
+    if passed < counted or (mode == "enforce" and cost_failures):
+        return "FAIL"
+    if counted < expected or (mode == "enforce" and cost_incomplete):
+        return "INCOMPLETE"
+    return "PASS"
+
+
 TERMINAL_STATES = {"succeeded", "failed", "cancelled"}
 
 
@@ -289,7 +305,9 @@ def main():
     if a.wait_run is not None:
         if a.exe is None:
             ap.error("--wait-run requires --exe")
-        print(wait_run(a.exe, a.wait_run.resolve(), a.engine, cost_policy))
+        run = a.wait_run.resolve()
+        mode = cost_mode(run.parent.parent)
+        print(wait_run(a.exe, run, a.engine, cost_policy if mode == "enforce" else None))
         return 0
     sys.argv = ["make_t0.py", str(repo)]
     import make_t0
@@ -306,6 +324,7 @@ def main():
             ap.error(f"could not read the build version from {exe}")
         build = version[1].split("+", 1)[0]
     out = pathlib.Path(os.environ.get("T0_OUT", repo / "out/runs/t0"))
+    mode = cost_mode(out)
     cases, verdict = {}, "PASS"
     smoke = a.set != "all"   # a named set (make_t0.SETS): a quick check, never the gate
     for name in (make_t0.SETS[a.set] if smoke else make_t0.GATE):
@@ -320,7 +339,7 @@ def main():
         cost_warnings = sum(r["costState"] == "WARN" for r in counted)
         cost_failures = sum(r["costState"] == "FAIL" for r in counted)
         cost_incomplete = sum(r["costState"] == "INCOMPLETE" for r in counted)
-        state = "FAIL" if passed < len(counted) or cost_failures else "INCOMPLETE" if len(counted) < a.min_runs or cost_incomplete else "PASS"
+        state = case_state(passed, len(counted), a.min_runs, cost_failures, cost_incomplete, mode)
         if state == "FAIL" or (state == "INCOMPLETE" and verdict == "PASS"): verdict = state
         cases[name] = {"state": state, "runs": len(counted), "passed": passed,
                        "outsideAttemptBudget": sum(r["outsideAttemptBudget"] for r in counted), "firstAttempt": sum(r["firstAttempt"] for r in counted),
@@ -347,7 +366,7 @@ def main():
                        "defectsPerTurn": round(make_t0.CASES[name]["defects"] * passed / max(1, sum(r["turns"] for r in counted if r["passed"])), 2)
                                          if make_t0.CASES[name].get("defects") and passed else None,
                        "exercises": make_t0.CASES[name]["exercises"]}
-    gate = {"schema": "t0-gate-1", "set": a.set, "verdict": verdict, "build": build, "engine": a.engine, "minRuns": a.min_runs, "cases": cases}
+    gate = {"schema": "t0-gate-1", "set": a.set, "verdict": verdict, "build": build, "engine": a.engine, "minRuns": a.min_runs, "costMode": mode, "cases": cases}
     totals = {field: sum(case[field] for case in cases.values())
               for field in ("runs", "passed", "outsideAttemptBudget", "firstCandidatePass", "secondCandidatePass", "firstPass", "secondPass", "passedWithoutEditKpi",
                             "turns", "tokensIn", "tokensOut", "cachedPromptTokensObserved", "missingUsageCalls", "costWarnings", "costFailures", "costIncomplete")}
@@ -368,6 +387,8 @@ def main():
     gate["tree"] = [tree_node(name) for name in make_t0.TOPS]
     out.mkdir(parents=True, exist_ok=True)
     stem = a.set if smoke else "gate"
+    if mode == "measure":
+        stem += "-measure"
     pending = out / f"{stem}.json.tmp"
     pending.write_text(json.dumps(gate, indent=1), encoding="utf-8")
     pending.replace(out / f"{stem}.json")
@@ -384,6 +405,10 @@ def main():
           + " Per-run timing is available in the JSON diagnostics.", "",
           "| case | state | passed | candidate first pass | candidate second pass | behavior first pass | behavior second pass | pass without ordinal | first attempt | calls | PP tokens | TG tokens | missing usage calls | PP / TG warning and hard caps per run | quality per run | not counted |",
           "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
+    if mode == "measure":
+        md[0] = f"# Tier 0 behavior measurement: {verdict}"
+        md[2:2] = ["Token limits were observed without enforcement. This report does not admit Tier 1.", ""]
+        md = [line.replace("Hard cost failures:", "Hard ceiling overruns:") for line in md]
     for n, c in cases.items():
         qual = "; ".join(f"{run}: " + " / ".join(quality_t0.summary(q) for q in files.values()) for run, files in c["quality"].items() if files)
         turns = f"{c['turns']}" + (f" ({c['defectsPerTurn']} defects/turn)" if c.get("defectsPerTurn") else "")

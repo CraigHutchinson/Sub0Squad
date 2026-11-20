@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from gate_t0 import attempt_cost, cost_limits, judge_cost, judge_run, wait_run
+from gate_t0 import attempt_cost, case_state, cost_limits, cost_mode, judge_cost, judge_run, wait_run
 
 
 class TokenGateTest(unittest.TestCase):
@@ -63,6 +63,24 @@ class TokenGateTest(unittest.TestCase):
         self.assertEqual(cost_limits(policy, "fix-op", "changed"), (
             {"warning": {"tokensIn": 49010, "tokensOut": 8044},
              "hard": {"tokensIn": 88218, "tokensOut": 14479}}, "suite fallback"))
+
+    def test_measurement_does_not_change_behavior_gate_or_cancel_for_cost(self):
+        self.assertEqual(case_state(3, 3, 3, 1, 1, "measure"), "PASS")
+        self.assertEqual(case_state(2, 3, 3, 1, 1, "measure"), "FAIL")
+        self.assertEqual(case_state(2, 2, 3, 1, 1, "measure"), "INCOMPLETE")
+        self.assertEqual(case_state(3, 3, 3, 1, 1, "enforce"), "FAIL")
+        with tempfile.TemporaryDirectory() as directory:
+            out = pathlib.Path(directory)
+            self.assertEqual(cost_mode(out), "enforce")
+            (out / "cost-mode.txt").write_text("measure\n", encoding="utf-8")
+            self.assertEqual(cost_mode(out), "measure")
+            test_run = out / "scenario/run-1"
+            with patch("gate_t0.subprocess.check_output", side_effect=[
+                '{"workflows":[{"state":"running"}]}', '{"workflows":[{"state":"succeeded"}]}',
+            ]) as command, patch("gate_t0.time.sleep"), patch("gate_t0.measure_cost") as measure_cost:
+                self.assertEqual(wait_run(out / "sub0squad", test_run, "qwen35", None), "succeeded")
+            measure_cost.assert_not_called()
+            self.assertEqual([call.args[0][2] for call in command.call_args_list], ["status", "status"])
 
     def test_live_watch_waits_at_warning_and_cancels_above_hard_limit(self):
         policy = json.loads(pathlib.Path(__file__).with_name("t0-token-budget.json").read_text(encoding="utf-8"))

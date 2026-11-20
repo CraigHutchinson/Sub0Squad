@@ -4,6 +4,7 @@
 # @smoke runs the smoke set (make_t0.py SMOKE: one fast case per kind of edit) and judges it with gate_t0.py --set smoke: smoke.md, never the gate.
 # Each run: its own home out/runs/t0/<case>/run-N, the "t0" process (lib.sh: single, no ladder past the local attempts), the canvas executor, the
 # case's plan (make_t0.py), T0_ATTEMPTS local attempts (default 1: a run stops at its first failed attempt); then `down`.
+# T0_COST_MODE=measure records cap crossings without stopping or voting on behavior. Use a new T0_OUT.
 # SUB0SQUAD_EDIT_ADDRESS: visible-range selects request-bound numbered edits; unset for the control. Use separate T0_OUT roots.
 # T0_SEED_START: optional base seed, incremented by run number so each case replays the same three seeds.
 # T0_DO_ARGS: more `do` options for every run (e.g. "--max-tokens 7000": a reply budget with room to think; the thinking cap is 60 % of it).
@@ -41,7 +42,17 @@ setname=""
 case "${1:-}" in @*) setname=${1#@}; shift; set -- $(python -I "$repo/validation/tiers/make_t0.py" "$repo" --list "$setname" | awk '{print $1}'); set_args=(--set "$setname" --min-runs 1);; esac
 cases=${*:-$(python -I "$repo/validation/tiers/make_t0.py" "$repo" --list | awk '{print $1}')}
 export T0_OUT=$(winpath "$T0_DIR")
+cost_mode=${T0_COST_MODE:-enforce}
+case "$cost_mode" in enforce|measure) ;; *) echo "run_t0: invalid T0_COST_MODE: $cost_mode" >&2; exit 4 ;; esac
+if [ -f "$T0_DIR/cost-mode.txt" ]; then
+    if [ "$(cat "$T0_DIR/cost-mode.txt")" != "$cost_mode" ]; then
+        echo "run_t0: token policy mode differs; use a separate T0_OUT" >&2; exit 4
+    fi
+elif [ "$cost_mode" = measure ] && [ -f "$T0_DIR/summary.md" ]; then
+    echo "run_t0: measurement requires a fresh T0_OUT" >&2; exit 4
+fi
 python -I "$repo/validation/tiers/make_t0.py" "$repo" $cases >/dev/null || exit $?
+printf '%s\n' "$cost_mode" >"$T0_DIR/cost-mode.txt"
 edit_address=search-default
 [ "${SUB0SQUAD_EDIT_ADDRESS:-}" != visible-range ] || edit_address=visible-range
 if [ -f "$T0_DIR/edit-address.txt" ] && [ "$(cat "$T0_DIR/edit-address.txt")" != "$edit_address" ]; then
@@ -87,6 +98,7 @@ EOF
   done
 done
 name=gate; [ -n "$setname" ] && name=$setname
+[ "$cost_mode" != measure ] || name="$name-measure"
 python -I "$repo/validation/tiers/gate_t0.py" "$(winpath "$repo")" --engine "${engine%%=*}" --exe "$(winpath "$exe")" "${set_args[@]}" >/dev/null
 gate_status=$?
 echo "tier 0 $name: see $T0_DIR/$name.md (exit $gate_status)"

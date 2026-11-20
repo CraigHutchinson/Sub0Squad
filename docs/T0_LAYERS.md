@@ -313,6 +313,28 @@ plans consumed an extra 119 and 536 TG. The most useful next comparison isolates
 planning guidance recovers the cost on small edits. Candidate promotion still requires larger held-out edits and the complete matched T0 sweep.
 Evidence is under out/runs/t0-visible-range-receiving-20261120.
 
+
+#### Token measurement sweep
+
+Set T0_COST_MODE=measure with a fresh T0_OUT to observe token cost while running the frozen fixtures under the existing worker turn and timeout limits.
+Token ceilings become diagnostic comparisons. The gate-measure.json and gate-measure.md files report behavior without admitting Tier 1. Keep the
+original policy with the evidence. Do not combine enforced and measured runs in the same output directory.
+
+The capped sweep on fd4d8eb was stopped after 31 terminal trials. Twenty-seven passed behavior within budget and four hit the hard TG ceiling. Another
+in-flight trial was manually cancelled and excluded. Twenty-six passed on their first candidate and one on its second. All 27 passed their first behavior check.
+
+| Stopped trial | TG observed / ceiling | What happened before cancellation |
+| --- | ---: | --- |
+| undeclared-member, seed 5102 | 2,399 / 2,138 | A 56-token edit left an out-of-line definition inside the class. The next plan reply used 1,744 TG. |
+| undeclared-member, seed 5103 | 3,429 / 2,138 | The edit duplicated the class declaration and the next plan hit the 3,000-token reply limit. |
+| undeclared-many, seed 5102 | 1,832 / 1,556 | Two short edits failed compilation. Three planning replies used 1,672 TG. |
+| write-feature, seed 5101 | 3,352 / 3,006 | The first edit omitted a helper. A broad follow-up rewrite broke scope and still failed to compile. |
+
+A cancelled run does not show whether the worker would eventually repair the code. Calibrate by case and engine profile using complete usage from trials
+that pass behavior within the allowed turns. Preserve failed and missing-usage traces separately. Inspect expensive passing runs for recurring protocol
+waste and compare proposed thresholds against completed passes and failed or runaway runs. Retain the prior ceiling or fallback when no admissible cost
+sample exists.
+
 ## 3. Modes
 
 All three judge the run directories, as `gate_t0.py` does today: a run counts when its `case_key`, build and engine match; stale runs are listed, not counted.
