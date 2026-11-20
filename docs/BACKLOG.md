@@ -308,7 +308,7 @@ every role. Needs expectation QA, the routed CONCERN channel and the habit score
 - [Portal access and a Node.js viewer](sessions/portal-access.md) — prototype a limited viewer on loopback first. Prefer Tailscale Serve for private remote access. Evaluate authenticated ngrok for a time-limited external demo. Real data and remote activation require owner agreement.
 
 **Platform and CI**
-- The platform library ([PLATFORM.md](PLATFORM.md)): slices 0 to 4 built 2026-11-16 (the system-header check; one process launcher; process identity
+- The platform library ([PLATFORM.md](PLATFORM.md), moved to Sub0Platform on 2026-11-19): slices 0 to 4 built 2026-11-16 (the system-header check; one process launcher; process identity
   and host facts, `ProcessId` out of the public headers; files, with one copy of the read and write helpers; sockets and the instance lock), each with
   Windows backends. Slice 5 (the daemon's and the shim's wait loops, the log follower, the pidfd watch) is done, and the program runs natively.
 - `std::format`/`std::print` and `contains`/`starts_with` ([DECISIONS.md](DECISIONS.md) 25): piloted 2026-11-16 on `replay.cpp` and `sandbox.cpp` (the

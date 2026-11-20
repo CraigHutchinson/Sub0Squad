@@ -38,7 +38,7 @@ which does not read them; converting those to CPM is a separate change.
 
 ## Checkouts
 
-`Sub0Pipeline Sub0Pub Sub0Log Sub0ECS Sub0Math Sub0MemPage Sub0TieredCache Sub0HexGrid Sub0Physics` are cloned next to this
+`Sub0Pipeline Sub0Pub Sub0Log Sub0ECS Sub0Math Sub0MemPage Sub0TieredCache Sub0HexGrid Sub0Physics Sub0Platform` are cloned next to this
 project; update with `git -C <dir> pull`.
 
 ## CPM source cache
@@ -79,7 +79,6 @@ when each runs; `ctest --preset quick` there means "everything not labelled `ful
 | Area | What it covers | Smoke | Full adds |
 |---|---|---|---|
 | `structure` | layering, link proofs, test reporting, the binary's selftest | layering, test_reporting, dependency_selftest, link_presentation | the other link proofs |
-| `platform` | the platform library: processes, files, sockets, waits, host facts | test_platform_process, test_platform_file | proc, host, net, wait |
 | `kernel` | durable jobs: job spec, journal, job store, shim, idle, guards, archive | test_job_spec, test_journal | job_store, shim, idle, host_guard, archive, adapter, m0_graph_growth (POSIX) |
 | `workflow` | plans, the policy ladder, workflow stages, processes, predicates, stances, clarify | test_policy, test_workflow, test_plan | workflow_stages, workflow_mends, process, predicate, stance, clarify |
 | `harness` | the project harnesses and their gates: diagnostics, edits, real builds | test_diagnostics (test_edits is in Sub0Canvas) | platforms, project |

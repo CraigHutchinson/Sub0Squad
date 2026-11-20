@@ -3,8 +3,8 @@
 Status: in progress (2026-11-17). **Sub0Platform** (owner, 2026-11-17) is public at
 https://github.com/CraigHutchinson/Sub0Platform, tagged v0.1.0: the Python package (`env`, `paths`, `dirs`, `proc`,
 `fs`, `lock`), shared conformance vectors, CI green on Windows and Linux. **Sub0LlmEngine and Sub0LlmModelRegistry
-depend on it** (2026-11-17; both CI green on Windows and Linux, the registry's CI new). The C++ library has not moved
-yet. Tracking: [Sub0Platform#1](https://github.com/CraigHutchinson/Sub0Platform/issues/1), with one migration issue per
+depend on it** (2026-11-17; both CI green on Windows and Linux, the registry's CI new). The C++ library moved to Sub0Platform on 2026-11-19 (pinned at 5feccdf in Sub0Squad, which deleted its copy);
+Sub0Log's Windows quoting is not in it yet. Tracking: [Sub0Platform#1](https://github.com/CraigHutchinson/Sub0Platform/issues/1), with one migration issue per
 consumer (listed under Steps). Evidence: a review
 of the CraigHutchinson and Kismotech repositories (2026-11-16, Haiku agent, main claims re-checked against the local
 checkouts); Sub0Squad [../PLATFORM.md](../PLATFORM.md); Sub0LlmEngine `sub0llmengine/platform.py`.
@@ -97,7 +97,8 @@ Not filed: Sub0Pipeline (stop-and-ask project), Kismotech (licence first).
    default). Engine and registry depend on the package; keep a vendored fallback only if "standard library only"
    must hold for them.
 3. C++: lift Sub0Squad layer 0 with its tests into the library once the other session's platform work in Sub0Squad
-   has landed; Sub0Squad consumes it through CPM; add Sub0Log's quoting with its tests.
+   has landed; Sub0Squad consumes it through CPM; add Sub0Log's quoting with its tests. **Sub0Squad done 2026-11-19:** its layer 0 is removed and it consumes Sub0Platform
+   through CPM; Sub0Log's quoting is still to come.
 4. C++ consumers, one at a time with their CI green: Sub0TieredCache (`file`, `dirs`; its HTTP client stays and uses
    `net`), Sub0Llm (`mapping`, `topology`), Sub0ECS and Sub0Math (`topology`).
 5. Shell twins: NestNinja.pro `local-ci` and install hooks become one Python entry point; Sub0Pub install scripts one

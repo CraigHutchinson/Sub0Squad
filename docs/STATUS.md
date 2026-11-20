@@ -29,12 +29,12 @@ Resuming on a new machine: [RESUME.md](RESUME.md) has the priority order and the
 | Stances and the CONCERN channel: the exact baseline wording, the parser, recording, acknowledgement | test_stance, test_agent |
 | `sub0squad wizard` from recorded keystrokes | test_wizard |
 | The portal page; the archive; the model-free block proofs; the scenario fixtures | test_portal, test_portal_page (needs node), test_archive, test_blocks, test_scenarios |
-| Layering: includes go downward and no layer calls upward (one library per layer); only the platform library uses the operating system (with a shrinking list of files not yet moved) | layering, link_platform ... link_presentation |
-| The platform library's process launcher: exit codes, signals, capture, timeouts, group kill, no leaked descriptors | test_platform_process |
-| The platform library's process identity and host facts: `/proc` parsers on fixed text, this process, a child's tree, memory, processor time, disk | test_platform_proc, test_platform_host |
-| The platform library's files: binary whole-file reads and writes, atomic replace, owner-only appends with sync and truncate, descriptor I/O | test_platform_file |
-| The platform library's sockets and instance lock: loopback round trip, read and accept deadlines, end of stream, two listeners, a held port, the local socket and its peer, a lock a second taker cannot get | test_platform_net |
-| The platform library's waits and the shim's process pieces: a timeout, a wake from another thread, socket readiness and hang-up, a child's exit with its status, a stop request to this process and to a child, piped stdout and stderr, the event pipe, a replaced environment | test_platform_wait |
+| Layering: includes go downward and no layer calls upward (one library per layer); only Sub0Platform uses the operating system (no file of this repository does) | layering, link_kernel ... link_presentation |
+| The platform library's process launcher: exit codes, signals, capture, timeouts, group kill, no leaked descriptors | Sub0Platform: test_platform_process |
+| The platform library's process identity and host facts: `/proc` parsers on fixed text, this process, a child's tree, memory, processor time, disk | Sub0Platform: test_platform_proc, test_platform_host |
+| The platform library's files: binary whole-file reads and writes, atomic replace, owner-only appends with sync and truncate, descriptor I/O | Sub0Platform: test_platform_file |
+| The platform library's sockets and instance lock: loopback round trip, read and accept deadlines, end of stream, two listeners, a held port, the local socket and its peer, a lock a second taker cannot get | Sub0Platform: test_platform_net |
+| The platform library's waits and the shim's process pieces: a timeout, a wake from another thread, socket readiness and hang-up, a child's exit with its status, a stop request to this process and to a child, piped stdout and stderr, the event pipe, a replaced environment | Sub0Platform: test_platform_wait |
 
 ## 2. On the real model
 
@@ -52,7 +52,7 @@ ulimit -u $(( $(ps -u $USER -L --no-headers | wc -l) + 400 )); ctest --test-dir 
 ```
 
 Tests are in two tiers by ctest label ([DEV_SETUP.md](DEV_SETUP.md) "Test tiers", `cmake/TestTiers.cmake`): `ctest -L smoke` is a few fast
-tests from every area (structure, platform, kernel, workflow, harness, agents, portal, e2e) for every change and the smoke CI job; the full
+tests from every area (structure, kernel, workflow, harness, agents, portal, e2e) for every change and the smoke CI job; the full
 suite runs at milestones, releases, a `ci:full` pull request and the weekly CI run.
 The full suite is about 50 tests and 6 to 12 minutes sequentially. clang 21 is the reference compiler; GCC 15 builds too (two flow-based GCC
 diagnostics are warnings, not errors: `CMakeLists.txt`). The program runs on Linux and natively on Windows (MinGW-w64): the platform layer has Windows backends, and the daemon, shims, jobs, workflows and the

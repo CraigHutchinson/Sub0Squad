@@ -1,5 +1,10 @@
 # Platform: one library for everything the operating system does
 
+**Moved (2026-11-19).** The platform layer is Sub0Platform, a separate library (its `cpp/` directory, pinned in
+`cmake/dependencies.cmake`). Sub0Squad includes its `sub0platform/<module>.hpp` headers (`error`, `process`, `proc`, `host`, `file`,
+`net`, `ipc`, `wait`); its `platform` layer, its copies of those sources and its tests are deleted here. The record below describes the
+layer as built in this repository, under its old `platform_*` names.
+
 Status: 2026-11-16. Owner direction: good platform abstractions, first of all to keep a good shape to the code; a native Windows build is the second
 reason, not the first. **Built:** the `platform` layer (layer 0, `cmake/Layers.cmake`, with its `link_platform` proof), the system-header check (slice 0)
 and `platform_process` with its test (slice 1). The launchers of `harness_common`, `host_guard`, `wizard`, `replay`, `first_use` and `supervisor` run on it;
@@ -47,8 +52,9 @@ it; slice 5 emptied the list. It stays as the mechanism: a file that starts usin
 
 ## 3. Shape
 
-* **Its own layer.** `platform` is layer 0, below the kernel. Every layer may use it and it uses nothing else of ours, which its `link_platform` proof checks
-  at link time (`docs/COMPONENTS.md`). Interfaces are in `include/sub0squad/platform_*.hpp`. Each stem has up to three sources (the layer files are flat):
+* **Its own library.** Sub0Platform is the layer below the kernel. Every Squad layer may use it, and it uses nothing else of ours, which its own
+  `layering` test checks (`docs/COMPONENTS.md`). Interfaces are `sub0platform/<module>.hpp`. Each module has up to three sources (the layer files
+  are flat, now in Sub0Platform's `cpp/src`):
   `src/platform_<m>.cpp` for what every system shares (the pure parsers, whole-file reads and writes), and one backend, `src/platform_<m>_posix.cpp` or
   `src/platform_<m>_win32.cpp`, which CMake picks by `SUB0SQUAD_OS`. The layering check counts a backend as its stem. `src/platform_win32_util.hpp`
   (UTF-8 and UTF-16, the system's error text, a closing `HANDLE`) is private to the Windows backends. Strings cross the interface as UTF-8; paths are
