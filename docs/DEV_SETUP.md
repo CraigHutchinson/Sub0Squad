@@ -182,6 +182,68 @@ Use --limit to bound returned events. T0 and campaign cursors retain omitted fai
 a frozen token ceiling as a token-overrun event and checks calibrated fixtures for retry warnings. These diagnostics appear in failure-only polls without triggering an early wake. Tier 1 and 2
 require an enforced T0 report. A measurement-only cohort cannot satisfy their normal admission check.
 
+
+### Isolated T0 and T1 operator session
+
+Use Git Bash from the checkout (cd /d/Craig/GitHub/Sub0Squad on the Windows proving host). Let the existing T0 runner finish before starting a second T0 in the same checkout. The repository-wide T0 lock protects
+the active runner even when each cohort has a different output directory. Leave the externally managed llama-server alone. The Windows build needs
+MinGW-w64, CMake, Ninja, and Python on PATH.
+
+Start with a built and tested binary on the desired commit. When the host is free:
+
+~~~bash
+cmake --preset default
+cmake --build out/build/default --parallel 2
+ctest --preset quick
+~~~
+
+Open a unique session and pin the binary. The example selects the simple workflow and the visible-range A/B candidate:
+
+~~~bash
+set -o pipefail
+mkdir -p "$PWD/out/runs"
+session=$(mktemp -d "$PWD/out/runs/operator-$(date +%Y%m%d-%H%M%S)-XXXXXX")
+cp out/build/default/sub0squad.exe "$session/sub0squad.exe"
+export T0_EXE="$session/sub0squad.exe"
+export T0_OUT="$session/t0"
+export T0_PROCESS_PROFILE=simple
+export SUB0SQUAD_EDIT_ADDRESS=visible-range
+export T0_SEED_START=5101 T0_ATTEMPTS=1
+export T0_DO_ARGS='--max-tokens 3000 --repair-turns 2'
+engine='qwen35=http://127.0.0.1:8092/v1,model=qwen35,ctx=131072,slots=4,thinking=0,cache=0'
+git rev-parse HEAD > "$session/commit.txt"
+"$T0_EXE" --version > "$session/build.txt"
+printf '%s\n' "$engine" > "$session/engine.txt"
+echo "$session"
+T0_COST_MODE=enforce bash validation/tiers/run_t0.sh . "$engine" 3 2>&1 | tee "$session/t0.log"
+~~~
+
+For measurement only, start with another fresh session and replace enforce with measure. That writes gate-measure.json and gate-measure.md, which are
+separate from admission evidence. To run the previous workflow use T0_PROCESS_PROFILE=legacy and another session. To compare edit syntax against the
+default, use another session and unset SUB0SQUAD_EDIT_ADDRESS. Each T0 output root freezes its token policy and labels its workflow and edit address mode.
+
+Watch from a second Git Bash terminal using the session directory printed above:
+
+~~~bash
+python -B validation/tiers/watch_run.py "$session/t0"
+python -B validation/tiers/watch_run.py "$session/t0" --after CURSOR --wait 30 --wake failure
+python -B validation/tiers/watch_run.py "$session/t0" --details CASE/run-N
+~~~
+
+After an enforced T0 pass, run T1 with the same session binary and engine spec. T1 verifies the T0 evidence first and creates a fresh directory for its own
+workflow. A measurement report never admits Tier 1. For a separate terminal, set session to the printed absolute path first.
+
+~~~bash
+set -o pipefail
+export T0_EXE="$session/sub0squad.exe"
+export T0_OUT="$session/t0"
+engine=$(cat "$session/engine.txt")
+TIER_OUT="$session/t1" TIER_WAIT_SECONDS=1800 \
+  bash validation/tiers/run_tier.sh . 1 "$engine" 2>&1 | tee "$session/t1.log"
+~~~
+
+T0 reports under the session's t0 directory. T1 writes t1/gate-result.json when the wait ends. A nonzero runner exit stays visible because pipefail is set.
+
 ### The engine on a Windows host
 
 The model runs natively on Windows (CUDA), not in WSL: [Sub0LlmEngine](https://github.com/CraigHutchinson/Sub0LlmEngine), a sibling checkout, holds the

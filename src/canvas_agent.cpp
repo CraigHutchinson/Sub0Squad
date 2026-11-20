@@ -373,7 +373,12 @@ int runCanvasAttempt(const AttemptContext& a)
     int prefilled = 0;                    // continuations sent as a prefill (the rest fell back to the tail prompt)
     int spent = 0;                        // turns used of repairTurns + 1
     int readReplies = 0, rejects = 0, aborts = 0, continuations = 0, calls = 0, commits = 0, reverts = 0, concernCount = 0, concernOnly = 0;
-    const int freeRejects = 3, freeAborts = 2, freeReads = 2, freeContinuations = 3;
+    const char* const simpleProfile = std::getenv("SUB0SQUAD_T0_SIMPLE");
+    const bool simpleT0 = simpleProfile && std::string_view{simpleProfile} == "1";
+    const int freeRejects = simpleT0 ? 0 : 3;
+    const int freeAborts = simpleT0 ? 0 : 2;
+    const int freeReads = 2;
+    const int freeContinuations = simpleT0 ? 1 : 3;
     bool verified = false, haveFiles = false, stagnated = false;
     int bestFailing = -1;                 // fewest failing tests of any committed revision, and where it was
     std::map<std::string, int> bestRevision;
@@ -588,6 +593,7 @@ int runCanvasAttempt(const AttemptContext& a)
     bool verdictIsRead = false;           // the verdict is a read answer (set where it is written, cleared once a message carried it)
     std::string carriedReasoning;         // the end of reasoning that ran out before an edit, shown with the next turn
     std::string carriedLoop;              // ... and what repeated, when the reasoning was stopped in a loop (rolled back to where it began)
+    bool evidenceNeedsPlan = true;     // the initial plan or a new checked failure in the simple workflow
     bool decideNext = false;              // the next turn writes down what was reasoned, with thinking off
     std::string loopKept;                 // a loop stop: the reply up to where the loop began (Runaway::keep), set by the stream guard
     std::string interception;             // the next turn resumes `partial` after a loop: the reply so far in full, then this instruction
@@ -606,7 +612,9 @@ int runCanvasAttempt(const AttemptContext& a)
         // out (tier 1 of 2026-11-17: attempts 2 and 4 only ever read, and committed nothing).
         const bool editAfterRead = handoffRead && verdictIsRead;
         const bool readsAvailable = readReplies < freeReads;
-        const bool planStep = separatePlan && !decideNext && !editAfterRead && partial.empty() && plans < 2 * (a.repairTurns + 2);
+        const bool planStep = separatePlan && !decideNext && !editAfterRead && partial.empty()
+                              && (!simpleT0 || evidenceNeedsPlan) && plans < 2 * (a.repairTurns + 2);
+        if (planStep) evidenceNeedsPlan = false;
         VisibleLines shownLines;
         if (partial.empty()) issuedLines.clear();
         std::string turnSystem = system;
@@ -699,7 +707,7 @@ int runCanvasAttempt(const AttemptContext& a)
             issuedLines = std::move(shownLines);
         }
         const std::string user = a.card + (a.guidance.empty() ? std::string{} : "\n" + a.guidance + "\n") + repairEvidence + (verdict.empty() ? std::string{} : "\n" + clip(verdict, verdictCap) + "\n") + "\n" + readCarried + state +
-                                 (canvas.paths().empty() || (visibleRanges && planStep) ? "" : "Reply with the transaction that fixes EVERYTHING listed above (every failing test, every error, one edit each), its form picked once by the rules above: " +
+                                 (canvas.paths().empty() || ((simpleT0 || visibleRanges) && planStep) ? "" : "Reply with the transaction that fixes EVERYTHING listed above (every failing test, every error, one edit each), its form picked once by the rules above: " +
                                                                     std::string{restructure ? "a few functions wrong, edit just them; the approach wrong, the complete new file (in steps when it is long).\n"
                                                                                             : visibleRanges ? "a few visible lines wrong, LINES; a function wrong or missing, SYMBOL.\n"
                                                                                             : "a few lines wrong, SEARCH/REPLACE; a function wrong or missing, SYMBOL (as many as it takes; FILE only for a file that is new or a stub).\n"} +
@@ -913,7 +921,7 @@ int runCanvasAttempt(const AttemptContext& a)
                     ++plans;
                     carriedPlan = std::move(plan);
                     decideNext = true;
-                    traceVerdict(tracePath, call, "plan written (" + std::to_string(plan.size()) + " characters): carried into the next turn, which runs with thinking off; no turn used");
+                    traceVerdict(tracePath, call, "plan written (" + std::to_string(carriedPlan.size()) + " characters): carried into the next turn, which runs with thinking off; no turn used");
                     std::printf("canvas turn %d: plan written\n", call);
                     continue;
                 }
@@ -1062,6 +1070,7 @@ int runCanvasAttempt(const AttemptContext& a)
             const std::string badVerdict = layeredVerdict(bad, false, 1200, focus);
             const std::string key = errorKey(bad);
             sameStaged = key == lastStagedKey ? sameStaged + 1 : 1;
+            evidenceNeedsPlan = sameStaged == 1;
             lastStagedKey = key;
             lastRefusal = "kept but does not compile: " + bad;
             if (sameStaged >= 3) {
@@ -1092,7 +1101,9 @@ int runCanvasAttempt(const AttemptContext& a)
             continue;
         }
         if (!harness || !harness->gate) break;
+        const auto priorBehaviorKey = simpleT0 ? errorKey(lastGate) : std::string{};
         const int rc = selfCheck();
+        evidenceNeedsPlan = rc != 0 && (priorBehaviorKey != errorKey(lastGate));
         traceVerdict(tracePath, call, rc == 0 ? "committed (revision log in canvas.json); self-check passed: the item's tests pass" : "committed; " + lastGate);
         events::note(rc == 0 ? "self-check passed" : "self-check failed");
         std::printf("canvas turn %d: committed, self-check %s\n", call, rc == 0 ? "passed" : "failed");

@@ -106,6 +106,40 @@ int main()
         }
         CHECK_EQ(slurp(attemptDir(d, 2) / "out" / kFile), helper + ref + padding);
     }
+    {   // Simple T0 replans after new compiler evidence, while a refused transaction goes straight back to act.
+        const auto setSimple = [](const char* value) {
+#ifdef _WIN32
+            _putenv_s("SUB0SQUAD_T0_SIMPLE", value);
+#else
+            setenv("SUB0SQUAD_T0_SIMPLE", value, 1);
+#endif
+        };
+        setSimple("1");
+        const std::string plan = "=== PLAN ===\nRepair the failing modulo case, then run its checks.\n=== END PLAN ===";
+        const std::string badAddress = std::string{"=== EDIT: "} + kFile + " LINES 99999 ===\n# invalid\n=== END EDIT ===";
+        const std::string malformed = std::string{"=== EDIT: "} + kFile + " LINES " + std::to_string(bugLine) +
+                                      " ===\n                v = math.fmod(v, d\n=== END EDIT ===";
+        for (const bool compileFailure : {false, true}) {
+            const fs::path d = workflow(compileFailure ? "canvas-simple-replan" : "canvas-simple-refused-act");
+            failedAttempt(d, 1, bad);
+            std::vector<fake::Reply> replies{{plan}, {compileFailure ? malformed : badAddress}};
+            if (compileFailure) replies.push_back({plan});
+            replies.push_back({fixByLine});
+            fake::Engine engine(replies);
+            CHECK_EQ(runLlmAgent(canvasArgs(d, engine, 2, 1)), 0);
+            CHECK_EQ(slurp(attemptDir(d, 2) / "out" / kFile), ref);
+            const auto requests = engine.requests();
+            CHECK_EQ(requests.size(), compileFailure ? 4u : 3u);
+            if (requests.size() >= 3) {
+                constexpr std::string_view planOnly = "On a plan turn, follow the plan-only instruction";
+                CHECK(requests[0].messages[0].second.find(planOnly) != std::string::npos);
+                CHECK(requests[1].messages[0].second.find(planOnly) == std::string::npos);
+                CHECK((requests[2].messages[0].second.find(planOnly) != std::string::npos) == compileFailure);
+            }
+            CHECK(slurp(attemptDir(d, 2) / "conversation.md").find("plan written (0 characters)") == std::string::npos);
+        }
+        setSimple("");
+    }
     {   // An edit that does not parse is KEPT as a staged revision, not thrown away: the errors come back in the numbering of that revision (no repair turn
         // used), the tests do not run on it, and the next edit fixes it in place.
         const fs::path d = workflow("canvas-precheck");

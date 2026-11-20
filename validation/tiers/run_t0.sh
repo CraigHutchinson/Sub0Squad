@@ -4,6 +4,7 @@
 # @smoke runs the smoke set (make_t0.py SMOKE: one fast case per kind of edit) and judges it with gate_t0.py --set smoke: smoke.md, never the gate.
 # Each run: its own home out/runs/t0/<case>/run-N, the "t0" process (lib.sh: single, no ladder past the local attempts), the canvas executor, the
 # case's plan (make_t0.py), T0_ATTEMPTS local attempts (default 1: a run stops at its first failed attempt); then `down`.
+# T0_PROCESS_PROFILE=legacy replays the previous broader worker policy. Default: simple think-plan-act.
 # T0_COST_MODE=measure records cap crossings without stopping or voting on behavior. Use a new T0_OUT.
 # SUB0SQUAD_EDIT_ADDRESS: visible-range selects request-bound numbered edits; unset for the control. Use separate T0_OUT roots.
 # T0_SEED_START: optional base seed, incremented by run number so each case replays the same three seeds.
@@ -42,6 +43,23 @@ setname=""
 case "${1:-}" in @*) setname=${1#@}; shift; set -- $(python -I "$repo/validation/tiers/make_t0.py" "$repo" --list "$setname" | awk '{print $1}'); set_args=(--set "$setname" --min-runs 1);; esac
 cases=${*:-$(python -I "$repo/validation/tiers/make_t0.py" "$repo" --list | awk '{print $1}')}
 export T0_OUT=$(winpath "$T0_DIR")
+profile=${T0_PROCESS_PROFILE:-simple}
+case "$profile" in
+    simple)
+        export SUB0SQUAD_T0_SIMPLE=1 SUB0SQUAD_ISSUE_LAYER=0 SUB0SQUAD_FIXSITE=0 SUB0SQUAD_THINKPLAN=read-handoff
+        unset SUB0SQUAD_FOLDS
+        ;;
+    legacy) unset SUB0SQUAD_T0_SIMPLE ;;
+    *) echo "run_t0: invalid T0_PROCESS_PROFILE: $profile" >&2; exit 4 ;;
+esac
+if [ -f "$T0_DIR/workflow-profile.txt" ]; then
+    if [ "$(cat "$T0_DIR/workflow-profile.txt")" != "$profile" ]; then
+        echo "run_t0: workflow profile differs; use a separate T0_OUT" >&2; exit 4
+    fi
+elif [ "$profile" = simple ] && [ -f "$T0_DIR/summary.md" ]; then
+    echo "run_t0: existing unlabelled trials use the legacy profile; use a separate T0_OUT" >&2; exit 4
+fi
+export T0_PROCESS_PROFILE=$profile
 cost_mode=${T0_COST_MODE:-enforce}
 case "$cost_mode" in enforce|measure) ;; *) echo "run_t0: invalid T0_COST_MODE: $cost_mode" >&2; exit 4 ;; esac
 if [ -f "$T0_DIR/cost-mode.txt" ]; then
@@ -53,6 +71,7 @@ elif [ "$cost_mode" = measure ] && [ -f "$T0_DIR/summary.md" ]; then
 fi
 python -I "$repo/validation/tiers/make_t0.py" "$repo" $cases >/dev/null || exit $?
 printf '%s\n' "$cost_mode" >"$T0_DIR/cost-mode.txt"
+printf '%s\n' "$profile" >"$T0_DIR/workflow-profile.txt"
 edit_address=search-default
 [ "${SUB0SQUAD_EDIT_ADDRESS:-}" != visible-range ] || edit_address=visible-range
 if [ -f "$T0_DIR/edit-address.txt" ] && [ "$(cat "$T0_DIR/edit-address.txt")" != "$edit_address" ]; then
@@ -63,7 +82,7 @@ printf '%s\n' "$edit_address" >"$T0_DIR/edit-address.txt"
 if [ ! -f "$T0_DIR/token-policy.json" ]; then
     policy="$repo/validation/tiers/t0-token-budget.json"
     profile="$repo/validation/tiers/t0-token-budget.visible-range.json"
-    if [ "$edit_address" = visible-range ] && [ "${engine%%=*}" = qwen35 ] && [ -f "$profile" ]; then
+    if [ "$profile" = legacy ] && [ "$edit_address" = visible-range ] && [ "${engine%%=*}" = qwen35 ] && [ -f "$profile" ]; then
         case ",$engine," in *,ctx=131072,*) policy=$profile ;; esac
     fi
     cp -- "$policy" "$T0_DIR/token-policy.json" || exit 5

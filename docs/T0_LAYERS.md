@@ -349,6 +349,21 @@ class. An additional occurrence of a class, another class, or extra calls and ca
 because a repair eventually passed. Require evidence of a legitimate alternative trajectory. The registry starts without exceptions. Uncalibrated fixtures retain
 raw counts. The warnings never vote on acceptance and can later support a rate once the coverage and diagnostic attribution are established.
 
+
+#### Simple Tier 0 workflow
+
+The named simple profile uses the supplied fixture plan and one Canvas worker. It disables extra planner strategies, rearchitecture, decomposition, forked
+sections, test-revision escalation, mechanical mends, issue-layer prompting, and alternate fold wording. The owner checks and final integration checks remain.
+The think-plan-act cycle gives an initial plan, permits source reads, and replans when an independent compiler or test check changes the evidence. A refused
+format or address goes directly back to act. A failed precheck or refusal consumes an edit slot, and one continuation is allowed for a truncated transaction.
+The legacy profile remains available through T0_PROCESS_PROFILE=legacy. A run records workflow-profile.txt and requires a fresh output directory to change
+profiles. An unlabelled existing run is treated as legacy.
+
+Use watch_run.py OUT_DIR --details CASE/run-N to compare daemon jobs with the requested and observed stages inside the worker. For example, the legacy
+write-feature seed 5101 submitted one worker job and one final gate job. Its 14 model calls alternated plan or replan with act. Four acts staged compiler
+failures, two reached an interface failure, and one transaction was refused. The artifact separates each phase's PP and TG and identifies the first issue.
+The full measurement on fd4d8eb stays a legacy cohort. Its cost calibration does not establish the simple profile's budget.
+
 ## 3. Modes
 
 All three judge the run directories, as `gate_t0.py` does today: a run counts when its `case_key`, build and engine match; stale runs are listed, not counted.

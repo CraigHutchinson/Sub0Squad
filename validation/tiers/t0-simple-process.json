@@ -1,0 +1,52 @@
+{
+  "schema": "process-1",
+  "name": "t0",
+  "version": 1,
+  "description": "Tier 0 uses a supplied plan, one bounded Canvas worker and independent owner checks.",
+  "stages": [
+    {
+      "name": "build",
+      "kind": "items",
+      "entry": "plan.present",
+      "exit": "items.all(accepted)",
+      "leaf": {
+        "executor": {
+          "developer": "canvas",
+          "tester": "canvas"
+        },
+        "allow": {
+          "decompose": false,
+          "sections": false,
+          "reviseTests": false,
+          "rearchitect": false,
+          "escalate": false,
+          "thinkFirst": false,
+          "strategies": false,
+          "nearPassRepair": false
+        },
+        "mends": {
+          "enabled": false
+        }
+      }
+    },
+    {
+      "name": "integrate",
+      "kind": "job",
+      "entry": "stage.build.done && !requests.openBlocking",
+      "exit": "job(integrator).succeeded",
+      "job": {
+        "step": "integrator",
+        "label": "integration",
+        "tool": "harness:integrate",
+        "args": [
+          "--workflow-dir",
+          "${sandbox}"
+        ],
+        "tier": "stub",
+        "wallSeconds": 300,
+        "retries": 0,
+        "accept": ""
+      }
+    }
+  ]
+}

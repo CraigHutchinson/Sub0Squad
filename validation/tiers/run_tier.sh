@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Run a model tier above tier 0, only on a build whose tier 0 gate passed on the same engine (docs/BLOCK_PROVING_GROUNDS.md, "Model tiers and the tier 0 gate").
-#   validation/tiers/run_tier.sh <repo> <tier: 1|2> <engine spec> [--force "why"] (TIER_WAIT_SECONDS optionally waits, writes the run report and stops its daemon)
+#   validation/tiers/run_tier.sh <repo> <tier: 1|2> <engine spec> [--force "why"]
+# TIER_WAIT_SECONDS waits, writes the run report and stops its daemon. TIER_OUT selects a fresh run directory.
 #     tier 1: one worker builds the whole calculator on the canvas (validation/tiers/t1-plan.json, process "single": no division, no forked sections)
 #     tier 2: the same plan with forked sections (executor fork, sections allowed): the skeleton, parallel sections, the harness's assembly
 # Without a passing gate the tier is refused (exit 3) and says why: a tier above a failing tier 0 measures the failure tier 0 already shows. --force runs it
@@ -35,7 +36,17 @@ if [ "$gate" -ne 0 ]; then
   echo "tier $tier FORCED past a $verdict tier 0 gate: $force"
 fi
 stamp=$(date +%Y%m%d-%H%M%S)
-home="$repo/out/runs/t$tier/$name-$stamp"; mkdir -p "$home"
+home=${TIER_OUT:-$repo/out/runs/t$tier/$name-$stamp}
+case "$home" in
+  [a-zA-Z]:*) home=$(cygpath -u "$home") ;;
+  /*) ;;
+  *) home="$repo/$home" ;;
+esac
+mkdir -p -- "$(dirname "$home")" || exit 5
+if ! mkdir -- "$home"; then
+  echo "tier $tier: choose a fresh TIER_OUT ($home)" >&2
+  exit 5
+fi
 [ -n "$force" ] && printf 'forced past a %s tier 0 gate: %s\n' "$verdict" "$force" >"$home/forced.txt"
 [ "$verdict" = "MEASUREMENT ONLY" ] || cp "$gate_dir/gate.json" "$home/t0-gate.json" 2>/dev/null
 if ! start_squad "$exe" "$home" "$engine" "$executor" "$process" "$repo/validation/tiers/t1-plan.json" "tier $tier proving run"; then
