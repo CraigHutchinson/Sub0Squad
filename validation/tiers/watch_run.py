@@ -11,7 +11,7 @@ import subprocess
 import time
 
 from gate_t0 import behavior_check, candidate_checks, case_key, cost_limits, measure_cost, overrun
-from t0_diagnostics import compare_golden_path, load_golden_paths, repair_diagnostics
+from t0_diagnostics import compare_golden_path, load_golden_paths, repair_diagnostics, stage_trace, workflow_jobs
 
 
 TERMINAL = {"succeeded", "failed", "cancelled"}
@@ -71,8 +71,9 @@ def saved_t0_trial(root, run_id):
     edits = list(candidate_checks(attempts))
     retries = repair_diagnostics(attempts)
     arm = read_text(root / "edit-address.txt").strip() or "search-default"
+    profile = read_text(root / "workflow-profile.txt").strip() or "legacy"
     comparison = compare_golden_path(load_golden_paths(), run.parent.name, case_key(plan) if plan else "",
-                                     engine, arm, retries, {"calls": usage["turns"], "candidateEdits": len(edits),
+                                     engine, arm, profile, retries, {"calls": usage["turns"], "candidateEdits": len(edits),
                                                             "testedEdits": sum(behavior_check(verdict) for _, verdict in edits)})
     warnings = comparison["warnings"]
     cause = stop.get("reason") or excerpt(" ".join(failure[:3]))
@@ -133,6 +134,9 @@ def t0_snapshot(root, after, limit, details):
                          if p.is_dir() and p.relative_to(root).as_posix() not in recorded)
         if len(pending) == 1:
             result["active_trial"] = pending[0]
+    profile = read_text(root / "workflow-profile.txt").strip()
+    if profile:
+        result["workflow_profile"] = profile
     if manifest.get("releaseCases") and manifest.get("seeds"):
         result["expected"] = manifest["releaseCases"] * len(manifest["seeds"])
     if final:
@@ -146,9 +150,12 @@ def t0_snapshot(root, after, limit, details):
     if details:
         if not RUN_ID.fullmatch(details) or not (root / details).is_dir():
             raise ValueError("use a trial such as fix-op/run-1 inside the selected T0 root")
-        item = root / details / "state/workflows/w-000001/items/app"
+        run = root / details
+        item = run / "state/workflows/w-000001/items/app"
+        attempts = sorted(item.glob("attempt-[0-9]*"), key=lambda path: int(path.name.split("-")[-1]))
         result["details"] = {"run": details, **saved_t0_trial(root, details),
-                             "repair_diagnostics": repair_diagnostics(item.glob("attempt-[0-9]*"))}
+                             "repair_diagnostics": repair_diagnostics(attempts), "jobs": workflow_jobs(run),
+                             "stages": {attempt.name: stage_trace(attempt) for attempt in attempts}}
     return result
 
 

@@ -57,14 +57,74 @@ def repair_diagnostics(attempts):
     return dict(sorted(counts.items()))
 
 
+TURN = re.compile(r"^## Turn (\d+) ", re.MULTILINE)
+USAGE = re.compile(r"^### Reply, turn \d+ \([^\n]*\): (\d+) prompt tokens, (\d+) completion tokens", re.MULTILINE)
+
+
+def stage_trace(attempt):
+    path = attempt / "conversation.md"
+    if not path.is_file():
+        return []
+    text = path.read_text(encoding="utf-8", errors="replace")
+    calls = []
+    current = None
+    previous_end = 0
+    for fence in FENCE.finditer(text):
+        headings = text[previous_end:fence.start()]
+        previous_end = fence.end()
+        if turn := TURN.search(headings):
+            current = {"call": int(turn[1]), "requested": "act", "outcomes": []}
+            calls.append(current)
+        if current is None:
+            continue
+        if "### Sent as system\n\n" in headings and "On a plan turn, follow the plan-only instruction" in fence[2]:
+            current["requested"] = "plan" if current["call"] == 0 else "replan"
+        if usage := USAGE.search(headings):
+            current.update(pp=int(usage[1]), tg=int(usage[2]))
+        if verdict := VERDICT.search(headings):
+            if int(verdict[1]) != current["call"]:
+                continue
+            value = fence[2]
+            outcome = classify(value)
+            if value.startswith("plan written"):
+                outcome = "plan"
+            elif value.startswith("read request:"):
+                outcome = "read"
+            elif "self-check passed:" in value:
+                outcome = "passed"
+            if outcome and outcome not in current["outcomes"]:
+                current["outcomes"].append(outcome)
+    return calls
+
+
+def workflow_jobs(run):
+    jobs = []
+    for journal in sorted((run / "state/journal").glob("journal-*.ndjson")):
+        for row in journal.read_text(encoding="utf-8", errors="replace").splitlines():
+            if '"jobSubmitted"' not in row:
+                continue
+            try:
+                event = json.loads(row)
+                if event["type"] != "jobSubmitted":
+                    continue
+                spec = event["d"]["spec"]
+                if spec.get("workflow") != "w-000001":
+                    continue
+                jobs.append({key: spec[key] for key in ("role", "tool", "attempt") if key in spec})
+            except (ValueError, KeyError):
+                continue
+    return jobs
+
+
 def load_golden_paths():
     return json.loads(Path(__file__).with_name("t0-golden-paths.json").read_text(encoding="utf-8"))
 
 
-def compare_golden_path(registry, name, key, engine, arm, counts, observed):
+def compare_golden_path(registry, name, key, engine, arm, profile, counts, observed):
     """Allowances are explicit fixture policy. These findings never vote on acceptance."""
     case = registry["cases"].get(name)
-    if not case or case["key"] != key or registry["engine"] != engine or registry["editAddress"] != arm:
+    if (not case or case["key"] != key or registry["engine"] != engine
+            or registry["editAddress"] != arm or registry["workflowProfile"] != profile):
         return {"calibration": "uncalibrated", "counts": counts, "warnings": []}
     observed = {**counts, **observed}
     limits = {**case["golden"]["trajectory"], **case["allow"]}

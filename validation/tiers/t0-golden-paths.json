@@ -2,6 +2,7 @@
   "schema": "t0-golden-paths-1",
   "engine": "qwen35",
   "editAddress": "visible-range",
+  "workflowProfile": "legacy",
   "cases": {
     "fix-op": {
       "key": "b35f8198dff31c6f64534f5448f10402027a88c6b49d68697b6f2be51416c7f4",

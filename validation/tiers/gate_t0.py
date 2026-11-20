@@ -334,6 +334,8 @@ def main():
     cases, verdict = {}, "PASS"
     arm_marker = out / "edit-address.txt"
     edit_arm = arm_marker.read_text(encoding="utf-8").strip() if arm_marker.is_file() else "search-default"
+    profile_file = out / "workflow-profile.txt"
+    workflow_profile = profile_file.read_text(encoding="utf-8").strip() if profile_file.is_file() else "legacy"
     golden_paths = load_golden_paths()
     smoke = a.set != "all"   # a named set (make_t0.SETS): a quick check, never the gate
     for name in (make_t0.SETS[a.set] if smoke else make_t0.GATE):
@@ -345,7 +347,7 @@ def main():
         limits, limit_source = cost_limits(cost_policy, name, key) if cost_policy else ({}, "unconfigured engine")
         for run in counted:
             run["costState"], run["costReason"] = judge_cost(run, limits) if limits else ("UNCONFIGURED", "")
-        retry_paths = {r["run"]: compare_golden_path(golden_paths, name, key, a.engine, edit_arm, r["repairDiagnostics"],
+        retry_paths = {r["run"]: compare_golden_path(golden_paths, name, key, a.engine, edit_arm, workflow_profile, r["repairDiagnostics"],
                                                    {"calls": r["turns"], "candidateEdits": r["candidateEdits"],
                                                     "testedEdits": r["testedEdits"]}) for r in counted}
         cost_warnings = sum(r["costState"] == "WARN" for r in counted)
@@ -386,6 +388,7 @@ def main():
     arm = out / "edit-address.txt"
     if arm.is_file():
         gate["editAddress"] = arm.read_text(encoding="utf-8").strip()
+    gate["workflowProfile"] = workflow_profile
     gate["costCalibration"] = cost_policy["calibration"] if cost_policy else None
     gate["costHeadroom"] = cost_policy["headroom"] if cost_policy else None
     gate["totals"] = totals

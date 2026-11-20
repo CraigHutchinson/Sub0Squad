@@ -45,16 +45,16 @@ class TokenGateTest(unittest.TestCase):
             self.assertEqual(repair_diagnostics([attempt]), {"compileFailure": 1, "duplicateDeclaration": 1})
 
     def test_golden_allowance_is_scoped_and_never_mutes_a_different_diagnostic(self):
-        registry = {"engine": "qwen35", "editAddress": "visible-range", "cases": {
+        registry = {"engine": "qwen35", "editAddress": "visible-range", "workflowProfile": "legacy", "cases": {
             "example": {"key": "current", "golden": {"trajectory": {"calls": 2}}, "allow": {"compileFailure": 1}}
         }}
         recorded = {"compileFailure": 1, "duplicateDeclaration": 1}
-        result = compare_golden_path(registry, "example", "current", "qwen35", "visible-range", recorded, {"calls": 3})
+        result = compare_golden_path(registry, "example", "current", "qwen35", "visible-range", "legacy", recorded, {"calls": 3})
         self.assertEqual(result["warnings"], [
             {"kind": "calls", "observed": 3, "allowed": 2},
             {"kind": "duplicateDeclaration", "observed": 1, "allowed": 0},
         ])
-        stale = compare_golden_path(registry, "example", "stale", "qwen35", "visible-range", recorded, {"calls": 3})
+        stale = compare_golden_path(registry, "example", "stale", "qwen35", "visible-range", "legacy", recorded, {"calls": 3})
         self.assertEqual(stale["calibration"], "uncalibrated")
         self.assertEqual(stale["counts"], recorded)
         self.assertEqual(stale["warnings"], [])
