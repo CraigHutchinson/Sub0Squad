@@ -20,6 +20,8 @@ whether degrees mode is part of "scientific" or an owner answer. Runs wait for t
 
 [Canvas reasoning workflow](sessions/canvas-reasoning-workflow.md) carries the next Tier 0 experiments for structured alternatives, model sampling and scratch edits.
 
+Backlog [workflow extension seams](sessions/canvas-reasoning-workflow.md#workflow-extension-seams) for run-scoped providers, named prompt insertion points, and traceable capability changes.
+
 The queue, with hypotheses, arms, measures and commands, is [EXPERIMENTS.md](EXPERIMENTS.md) section 8. In order:
 
 1. **E1, the specialist stance and the contest channel.** Built 2026-11-16 (`--stance specialist`, the CONCERN block, `replay --accepted`, stance in

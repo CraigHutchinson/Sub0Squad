@@ -91,6 +91,7 @@ sub0squad archive --label NAME                         # after the run, daemon s
 * **No legacy.** There is no production version: remove dead code, compatibility shims and retired documents (git keeps them: [ARCHIVE.md](ARCHIVE.md)).
 * **Style:** C++23, camelCase, Doxygen on every interface, `#pragma once`, `[[nodiscard]]`, `-Wall -Wextra -Werror` clean; `std::format`/`std::print`, not `printf` ([DECISIONS.md](DECISIONS.md) 25). New capability off by default.
 * **Self-mending:** every manual fix is a missing rule: catalogue it in [INTERVENTIONS.md](INTERVENTIONS.md) with a detector, a mend and a regression fixture.
+* **Prompt experiments:** review the rendered system messages for each arm and make at least three distinct paired iterations on promising approaches. See [EXPERIMENTS.md](EXPERIMENTS.md) for the method.
 * **Report faithfully:** a failing test is reported with its output; what was not verified is said.
 * **Stop and ask:** the final name; enabling any frontier tier; changes to Sub0Pipeline or Sub0Pub; downloads; installing software; credentials.
 * **Nothing leaves the machine:** local models only (frontier off); no uploading of code or data. This repository is public, so it never names or

@@ -110,6 +110,41 @@ The standard worker read the parser bodies, repeated an existing implementation,
 
 Keep the standard display as the default. The comparison used one seed and changed both the marker and the read command. A follow-up can keep the read command fixed and vary only the marker, then measure whether requested reads and accepted repairs improve across seeds.
 
+
+
+### Workflow extension seams
+
+Backlog a run-scoped extension contract for composing individual workflows and the prompts they send. Start from two consumers: the experiment runner needs
+to swap one instruction in a paired run, and a workflow provider needs to add, replace or remove a capability together with its instructions. Derive the
+initial insertion points from the actual think, plan, read, edit and recovery transitions. Name each slot, its stage, and the context it receives. A
+provider can contribute a bounded fragment or replace a named instruction. Order contributions deterministically and reject conflicting replacements.
+Keep optional capability instructions paired with the registered parser or executor, so removing a capability also removes its example and fallback
+guidance. Preserve required stage, policy and budget instructions at each insertion point.
+
+Use a versioned run manifest to identify the base workflow, provider, configured slots, enabled capabilities and the full rendered prompt hashes. Archive
+the sent messages with the trace and expose a before/after prompt diff for experiment review. Keep workflow configuration local to the run so concurrent
+experiments and the default workflow remain independent. Owners' fixtures and private acceptance checks stay outside provider control.
+
+The first receiving slice should be a small experiment provider that adds one compact-read capability, replaces its usage instruction, and can remove
+both together. Verify the default prompt is byte-identical when the extension is absent, the selected workflow exposes the capability in the intended
+stages only, and the trace records changes through plan, read and edit. Run a paired replay with a real read, verify the edit reached the existing
+checker and record the token difference. Add broader provider loading and cross-workflow propagation when a second consumer demonstrates a need.
+
+### Earlier experiment prompt audit
+
+Review the sent system message in the per-turn conversation. The archived compact-fold run's prompt.txt contains the base standard-fold system text.
+Its conversation.md records the actual compact marker and READ B5 instructions after the per-turn rewrite. The worker received the intended format.
+The old turn also carried a generic demand for a transaction and a later plan-only directive. The two compact results therefore screen the combined
+marker, read command and stage guidance on a single seed. Keep the standard default and reopen the compact comparison with one unambiguous stage
+directive. First vary display with the read command fixed, then isolate the command and the stage guidance in separate paired rounds. Verify whether
+each requested read arrived and whether the next candidate used it.
+
+The archived precedence replay also showed an edit request colliding with a fresh plan-only directive. Before treating added context as ineffective,
+represent post-read stage and evidence delivery as separate factors. Use the archived cases and exact owner checks, verify the sent system and user
+messages agree on the next action, and log first/second candidate and behavior passes, readable evidence, prefill, generation, and retries. The existing
+read-handoff results are bounded screens, including the unscripted pair that never reached a read. Keep upcoming comparisons in the experiment
+method's three-round protocol.
+
 ### Precedence crash replay
 
 A final standard-display replay used build a46b2cf and the same budgets. Skeleton seed 5101 first failed right associativity and unary-minus precedence. Its next tested edit fixed right associativity. Wrong-approach seed 5103 reached the same single precedence failure. Both then crashed on a proposed repair and restored the revision that passed 15 of 16 tests. Skeleton reported 37,560 PP and 4,925 TG. Wrong-approach reported 43,437 PP and 5,287 TG, with one canceled call missing usage. Neither run crossed an observed warning threshold.

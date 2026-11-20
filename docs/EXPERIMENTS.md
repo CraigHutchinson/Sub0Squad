@@ -13,6 +13,14 @@ What is built is in [STATUS.md](STATUS.md); the decisions of the clean-slate san
   engine profile, same seeds.
 * **Smallest proof first.** A recorded reply or fixture (no model) → one item replayed on the model (`replay`, `scenario run`) → a whole project → a 20-seed
   campaign. Each step is only taken when the step below it says the arm is worth it.
+* **Review the actual system prompt in every experiment.** Record the exact rendered messages for each arm and turn, including tool affordances, examples,
+  action ordering, read limits, recovery feedback and stage instructions. Diff the arms and verify the worker received the intended treatment. Hold unrelated
+  instructions, fixture, grader, model settings and budgets fixed. An obsolete or contradictory prompt invalidates the comparison. Use neutral examples
+  that do not expose the fixture's solution.
+* **Iterate promising approaches at least three times.** A first failure is diagnostic evidence. For each round, inspect the trace, name the failure
+  mechanism and test an explicit revision against a paired control. Change one factor per paired comparison or label a bundled comparison explicitly.
+  Preserve each failed round and its cost. Three identical seeds or three retries under an unchanged prompt are replication and recovery evidence,
+  respectively. Neither substitutes for three distinct iterations. If a hard dependency or safety condition blocks a promising arm, record the blocker.
 * **Intervals, not anecdotes.** Rates are reported with their 95 % Wilson interval; a difference counts only when the intervals do not overlap
   (`scenario compare` applies this rule). Five seeds is a rough figure; twenty is the campaign.
 * **Cost in tokens and engine ticks**, not minutes: wall time moves with load ([METRICS.md](METRICS.md) section 3).
