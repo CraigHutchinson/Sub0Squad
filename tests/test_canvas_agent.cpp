@@ -70,6 +70,42 @@ int main()
         const std::string stats = slurp(attemptDir(d, 2) / "agent.json");
         CHECK(stats.find("\"selfcheck\":true") != std::string::npos && stats.find("\"commits\":1") != std::string::npos && stats.find("\"refused\":0") != std::string::npos);
     }
+    {   // Request-bound ranges use the visible margin. A range crossing a fold must leave the entire revision untouched.
+#ifdef _WIN32
+        _putenv_s("SUB0SQUAD_EDIT_ADDRESS", "visible-range");
+#else
+        setenv("SUB0SQUAD_EDIT_ADDRESS", "visible-range", 1);
+#endif
+        const fs::path d = workflow("canvas-visible-range");
+        const std::string helper = "def hidden_helper():\n    x = 'literal AT A3'\n    y = x.upper()\n    return y\n\n";
+        const std::string padding = [] {
+            std::string text;
+            for (int i = 0; i < 230; ++i) text += "# Padding to keep the unrelated body folded and out of the visible view.\n";
+            return text;
+        }();
+        const std::string base = helper + bad + padding;
+        failedAttempt(d, 1, base);
+        const int line = lineOf(base, "v = v / d");
+        const std::string hiddenAttempt = std::string{"=== EDIT: "} + kFile + " LINES 1-3 ===\n# refused\n=== END EDIT ===\n";
+        const std::string visibleFix = std::string{"=== EDIT: "} + kFile + " LINES " + std::to_string(line) + " ===\n" +
+                                       fixedLine + "\n=== END EDIT ===\n";
+        const std::string read = std::string{"=== READ: "} + kFile + " LINES " + std::to_string(line) + "-" + std::to_string(line) + " ===";
+        fake::Engine engine({{hiddenAttempt}, {read}, {visibleFix}});
+        CHECK_EQ(runLlmAgent(canvasArgs(d, engine, 2, 0)), 0);
+#ifdef _WIN32
+        _putenv_s("SUB0SQUAD_EDIT_ADDRESS", "");
+#else
+        unsetenv("SUB0SQUAD_EDIT_ADDRESS");
+#endif
+        const auto requests = engine.requests();
+        CHECK_EQ(requests.size(), 3u);
+        if (requests.size() == 3) {
+            CHECK(requests[0].messages[0].second.find("src/counter.cpp LINES 7-8") != std::string::npos);
+            CHECK(requests[1].last().find("includes lines outside the numbered canvas view") != std::string::npos);
+            CHECK(requests[2].last().find("The lines you asked to read") != std::string::npos);
+        }
+        CHECK_EQ(slurp(attemptDir(d, 2) / "out" / kFile), helper + ref + padding);
+    }
     {   // An edit that does not parse is KEPT as a staged revision, not thrown away: the errors come back in the numbering of that revision (no repair turn
         // used), the tests do not run on it, and the next edit fixes it in place.
         const fs::path d = workflow("canvas-precheck");

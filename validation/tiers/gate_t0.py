@@ -88,6 +88,7 @@ REPLY_USAGE = re.compile(
     re.MULTILINE,
 )
 PROMPT_TIME = re.compile(r", (\d+\.\d+) s prompt")
+PROMPT_CACHE = re.compile(r", (\d+) of them already cached on the slot")
 SENT_TURN = re.compile(r"^## Turn \d+ ", re.MULTILINE)
 TRACE_BODY = re.compile(r"^(`{3,})$\n.*?^\1(?:\n|\Z)", re.MULTILINE | re.DOTALL)
 
@@ -102,6 +103,7 @@ def attempt_cost(attempt, agent):
         "turns": calls,
         "tokensIn": round(max(agent.get("tokensIn", 0), sum(int(r[1]) for r in replies))),
         "tokensOut": round(max(agent.get("tokensOut", 0), sum(int(r[2]) for r in replies))),
+        "cachedPromptTokensObserved": sum(int(cache[1]) for reply in replies if (cache := PROMPT_CACHE.search(reply[0]))),
         "prefillSeconds": sum(timed),
         "prefillTimedCalls": len(timed),
         "missingUsageCalls": calls - sum(int(r[1]) > 0 and int(r[2]) > 0 for r in replies),
@@ -147,7 +149,7 @@ def judge_cost(run, limits):
 
 def measure_cost(attempts):
     engines = set()
-    cost = dict(turns=0, tokensIn=0, tokensOut=0, prefillSeconds=0.0, prefillTimedCalls=0, missingUsageCalls=0)
+    cost = dict(turns=0, tokensIn=0, tokensOut=0, cachedPromptTokensObserved=0, prefillSeconds=0.0, prefillTimedCalls=0, missingUsageCalls=0)
     for attempt in attempts:
         try:
             agent = json.loads((attempt / "agent.json").read_text(encoding="utf-8"))
@@ -329,7 +331,7 @@ def main():
                        "editResults": {r["run"]: {field: r[field] for field in ("candidateEdits", "passingCandidate", "testedEdits", "passingEdit", "acceptedAttempt", "attemptLimit", "repairTurns")} for r in counted},
                        "passedWithoutEditKpi": sum(r["passed"] and r["passingEdit"] is None for r in counted),
                        "costLimits": limits, "costLimitSource": limit_source, "costWarnings": cost_warnings, "costFailures": cost_failures, "costIncomplete": cost_incomplete,
-                       "costResults": {r["run"]: {field: r[field] for field in ("tokensIn", "tokensOut", "prefillSeconds", "prefillTimedCalls",
+                       "costResults": {r["run"]: {field: r[field] for field in ("tokensIn", "tokensOut", "cachedPromptTokensObserved", "prefillSeconds", "prefillTimedCalls",
                                                                               "missingUsageCalls", "costState", "costReason", "costStop")} for r in counted},
                        "failures": [{"run": r["run"], "testedEdits": r["testedEdits"], "lastGate": r.get("lastGate", []),
                                      "costReason": r["costReason"],
@@ -337,6 +339,7 @@ def main():
                                     for r in counted if not r["passed"] or r["costState"] in ("FAIL", "INCOMPLETE")],
                        "turns": sum(r["turns"] for r in counted),
                        "tokensIn": sum(r["tokensIn"] for r in counted), "tokensOut": sum(r["tokensOut"] for r in counted),
+                       "cachedPromptTokensObserved": sum(r["cachedPromptTokensObserved"] for r in counted),
                        "missingUsageCalls": sum(r["missingUsageCalls"] for r in counted),
                        "notCounted": [f"{r['run']} ({'stale case' if r['key'] != key else 'other build' if r['build'].split('+')[0] != build else 'unfinished' if not r['engine'] else 'other engine'})" for r in runs if r not in counted],
                        "quality": {r["run"]: r["quality"] for r in counted},
@@ -347,7 +350,10 @@ def main():
     gate = {"schema": "t0-gate-1", "set": a.set, "verdict": verdict, "build": build, "engine": a.engine, "minRuns": a.min_runs, "cases": cases}
     totals = {field: sum(case[field] for case in cases.values())
               for field in ("runs", "passed", "outsideAttemptBudget", "firstCandidatePass", "secondCandidatePass", "firstPass", "secondPass", "passedWithoutEditKpi",
-                            "turns", "tokensIn", "tokensOut", "missingUsageCalls", "costWarnings", "costFailures", "costIncomplete")}
+                            "turns", "tokensIn", "tokensOut", "cachedPromptTokensObserved", "missingUsageCalls", "costWarnings", "costFailures", "costIncomplete")}
+    arm = out / "edit-address.txt"
+    if arm.is_file():
+        gate["editAddress"] = arm.read_text(encoding="utf-8").strip()
     gate["costCalibration"] = cost_policy["calibration"] if cost_policy else None
     gate["costHeadroom"] = cost_policy["headroom"] if cost_policy else None
     gate["totals"] = totals
@@ -371,6 +377,7 @@ def main():
           f"Behavior first pass {totals['firstPass']}, second pass {totals['secondPass']}.", "",
           "Each pass column counts exact ordinals. Candidate checks include compiler failures. Behavior checks count edits that reached the item test gate. A gate pass without a recorded behavior ordinal is shown separately.", "",
           f"Observed PP (prompt tokens): {totals['tokensIn']:,}. TG (generated tokens): {totals['tokensOut']:,}. "
+          f"Observed cached prompt tokens: {totals['cachedPromptTokensObserved']:,}. "
           f"Usage missing on {totals['missingUsageCalls']} of {totals['turns']} model calls. "
           f"Cost warnings: {totals['costWarnings']}. Hard cost failures: {totals['costFailures']}. Incomplete cost evidence: {totals['costIncomplete']}.", "",
           ("PP and TG warning and hard thresholds use the frozen calibration." if cost_policy else "Token ceilings are unconfigured for this engine.")

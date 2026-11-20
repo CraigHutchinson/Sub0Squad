@@ -23,6 +23,7 @@
 #include <cstdlib>
 #include <fstream>
 #include <limits>
+#include <map>
 #include <regex>
 #include <set>
 #include <sstream>
@@ -58,6 +59,63 @@ const std::string kCanvasSyntax =
     "=== EDIT: src/labels.cpp ===\n<<<<<<< SEARCH\n    return \"draft\";\n=======\n    return \"ready\";\n>>>>>>> REPLACE\n=== END EDIT ===\n"
     "Never copy unchanged text or the numbered view back beyond the few SEARCH lines. Every edit is kept, and checked: when the files do not compile or parse "
     "afterwards you are shown the errors, with the line numbers of the files as they then stand, and fix them with small edits (not a rewrite).\n";
+
+/// Numbered areas offered by this worker's view. A continuation retains the initial reply's view.
+using VisibleLines = std::map<std::string, std::set<int>>;
+
+void rememberVisibleLines(VisibleLines& visible, const std::string& path, const std::string& view)
+{
+    auto& lines = visible[path];
+    std::istringstream input(view);
+    for (std::string row; std::getline(input, row);) {
+        const auto start = row.find_first_not_of(' ');
+        const auto margin = row.find("| ");
+        if (start == std::string::npos || margin == std::string::npos || margin <= start) continue;
+        int line = 0;
+        const auto [end, error] = std::from_chars(row.data() + start, row.data() + margin, line);
+        if (error == std::errc{} && end == row.data() + margin && line > 0) lines.insert(line);
+    }
+}
+
+/// Verify numeric spans before the native transaction path can touch even a scratch revision.
+[[nodiscard]] std::string visibleRangeRefusal(const CanvasReply& reply, const VisibleLines& visible)
+{
+    for (const auto& transaction : reply.transactions) {
+        const auto file = visible.find(transaction.path);
+        for (const auto& op : transaction.ops) {
+            if (op.kind != CanvasOp::Kind::replaceLines) continue;
+            if (file == visible.end() || op.from < 1 || op.to < op.from
+                || !file->second.contains(op.from) || !file->second.contains(op.to)
+                || std::distance(file->second.lower_bound(op.from), file->second.upper_bound(op.to))
+                       != static_cast<long long>(op.to) - op.from + 1)
+                return transaction.path + " LINES " + std::to_string(op.from) + "-" + std::to_string(op.to)
+                       + " includes lines outside the numbered canvas view. Read that range or use a visible range.";
+        }
+    }
+    return {};
+}
+
+/// Keep the worked replacement neutral and show both endpoints so the example cannot imply a one-line limit.
+void useVisibleRangePrompt(std::string& system)
+{
+    constexpr std::string_view form = "=== EDIT: <path> ===\n<<<<<<< SEARCH";
+    constexpr std::string_view file = "=== FILE: <path> ===";
+    const auto forms = system.find(form);
+    system.replace(forms, system.find(file, forms) - forms,
+                   "For numbered replacements, use an EDIT header ending in LINES first-last, followed by source and END EDIT.\n");
+    const auto rule = system.find("3. A few lines");
+    system.replace(rule, system.find(kReadInstruction, rule) - rule,
+                   "3. For a local edit use LINES with the visible source numbers (one number or an inclusive range). "
+                   "Cover all affected lines and write only their replacement. Read folded lines before using them. "
+                   "Preserve indentation and any unchanged lines within the range. SEARCH/REPLACE is also accepted.\n");
+    const auto example = system.find("The view shows\n");
+    const auto after = system.find("afterwards you are shown", example);
+    system.replace(example, after - example,
+                   "The view shows\n  7|     count += 1;\n  8|     return count;\n"
+                   "Suppose line 7 should add two and line 8 should return one more. The reply is:\n"
+                   "=== EDIT: src/counter.cpp LINES 7-8 ===\n    count += 2;\n    return count + 1;\n=== END EDIT ===\n"
+                   "Keep the numbered margin out of the body. Every edit is kept and checked: when the files do not compile or parse ");
+}
 
 std::string canvasSystemBlock(const std::string& persona, const std::string& brief, const std::string& stance)
 {
@@ -286,7 +344,10 @@ int runCanvasAttempt(const AttemptContext& a)
     fs::create_directories(out, ec);
     const std::set<std::string> allowed(a.item->files.begin(), a.item->files.end());
     const Harness* harness = findHarness(a.plan->harness);
-    const std::string system = canvasSystemBlock(a.item->persona, harnessBrief(*a.plan), a.stance);
+    std::string system = canvasSystemBlock(a.item->persona, harnessBrief(*a.plan), a.stance);
+    const char* const rangeMode = std::getenv("SUB0SQUAD_EDIT_ADDRESS");
+    const bool visibleRanges = rangeMode != nullptr && std::string_view{rangeMode} == "visible-range";
+    if (visibleRanges) useVisibleRangePrompt(system);
 
     Canvas canvas;
     for (const auto& [path, text] : a.baselineFiles) canvas.addFile(path, text);
@@ -537,6 +598,7 @@ int runCanvasAttempt(const AttemptContext& a)
     // edits. The out/ directory holds only revisions that compile, and the gate runs only on those.
     int staged = 0, sameStaged = 0;
     std::string lastStagedKey;
+    VisibleLines issuedLines;
     while (!verified && spent <= a.repairTurns) {
         // ---- the message: the card, the verdict, and the current revision folded to fit what the window has left ----
         // A verdict is clipped to 2,400 characters (a gate's output, a refusal), but a READ answer is what the worker asked to see: it gets the window
@@ -544,6 +606,9 @@ int runCanvasAttempt(const AttemptContext& a)
         // out (tier 1 of 2026-11-17: attempts 2 and 4 only ever read, and committed nothing).
         const bool editAfterRead = handoffRead && verdictIsRead;
         const bool readsAvailable = readReplies < freeReads;
+        const bool planStep = separatePlan && !decideNext && !editAfterRead && partial.empty() && plans < 2 * (a.repairTurns + 2);
+        VisibleLines shownLines;
+        if (partial.empty()) issuedLines.clear();
         std::string turnSystem = system;
         if (compactFoldMarkers)
             turnSystem.replace(turnSystem.find(kFoldDescription), kFoldDescription.size(),
@@ -577,6 +642,7 @@ int runCanvasAttempt(const AttemptContext& a)
             const auto viewWith = [&](long availChars) {
                 const std::size_t perFile = static_cast<std::size_t>(std::clamp(availChars / std::max<long>(1, static_cast<long>(canvas.paths().size())), 800L, 9000L));
                 visibleFolds.clear();
+                shownLines.clear();
                 std::string s;
                 for (const auto& path : canvas.paths()) {
                     const std::string& text = canvas.text(path);
@@ -584,6 +650,7 @@ int runCanvasAttempt(const AttemptContext& a)
                     if (!readsAvailable || compactFoldMarkers)
                         if (const auto footer = view.find("\n" + std::string{kFoldFooter}); footer != std::string::npos) view.erase(footer + 1);
                     if (compactFoldMarkers) view = compactFolds(view, path, countedFoldMarkers, visibleFolds);
+                    if (visibleRanges && partial.empty() && allowed.contains(path)) rememberVisibleLines(shownLines, path, view);
                     s += "=== CANVAS: " + path + " (revision " + std::to_string(canvas.revision(path)) + ", " + std::to_string(std::count(text.begin(), text.end(), '\n')) + " lines) ===\n" + view + "=== END CANVAS ===\n";
                 }
                 return s;
@@ -621,9 +688,20 @@ int runCanvasAttempt(const AttemptContext& a)
                              "Preserve the completed prefix. Finish the open scopes and implement the public entry point in the namespace declared by the header.)\n";
                 }
         }
+        if (visibleRanges && partial.empty()) {
+            // A read can be visible above the Canvas even when the body cannot fit inside its folded view.
+            const std::string shownAnswers = clip(verdict, verdictCap) + "\n" + readCarried;
+            for (const auto& read : readKept) {
+                if (!allowed.contains(read.path) || !canvas.has(read.path)) continue;
+                const std::string answer = answerRead(read, canvas.text(read.path), isPythonPath(read.path));
+                if (shownAnswers.find(answer) != std::string::npos) rememberVisibleLines(shownLines, read.path, answer);
+            }
+            issuedLines = std::move(shownLines);
+        }
         const std::string user = a.card + (a.guidance.empty() ? std::string{} : "\n" + a.guidance + "\n") + repairEvidence + (verdict.empty() ? std::string{} : "\n" + clip(verdict, verdictCap) + "\n") + "\n" + readCarried + state +
-                                 (canvas.paths().empty() ? "" : "Reply with the transaction that fixes EVERYTHING listed above (every failing test, every error, one edit each), its form picked once by the rules above: " +
+                                 (canvas.paths().empty() || (visibleRanges && planStep) ? "" : "Reply with the transaction that fixes EVERYTHING listed above (every failing test, every error, one edit each), its form picked once by the rules above: " +
                                                                     std::string{restructure ? "a few functions wrong, edit just them; the approach wrong, the complete new file (in steps when it is long).\n"
+                                                                                            : visibleRanges ? "a few visible lines wrong, LINES; a function wrong or missing, SYMBOL.\n"
                                                                                             : "a few lines wrong, SEARCH/REPLACE; a function wrong or missing, SYMBOL (as many as it takes; FILE only for a file that is new or a stub).\n"} +
                                                                     "The edit reply has a " + std::to_string(a.maxTokens) + "-token budget. "
                                                                     "Use normal formatting and short comments for non-obvious constraints. Keep each rule in one place "
@@ -677,7 +755,6 @@ int runCanvasAttempt(const AttemptContext& a)
         const bool decide = decideNext || editAfterRead;   // write the edit after reasoning or an experimental read handoff
         decideNext = false;
         if (decide || !prefill.empty()) turnEngine.thinking = false;   // a prefill continues the answer: the template closes the reasoning before it
-        const bool planStep = separatePlan && !decide && partial.empty() && plans < 2 * (a.repairTurns + 2);
         if (headCompiles && !restructure && bestFailing == 1 && commits > 0 && partial.empty() &&
             a.item->persona == "developer" && failingTests(lastGate) == 1) {
             convo.back().content += "\nWalk the failing input through the proposed code and check its result against the assertion. "
@@ -945,8 +1022,11 @@ int runCanvasAttempt(const AttemptContext& a)
         Canvas scratch = canvas;
         std::vector<std::string> skipped;
         std::string scopeRefusal;   // FILE over a file that exists and is not a stub, before the scope is widened: refused, nothing applied
-        for (const auto& [path, body] : parsed.wholeFiles)
-            if (scopeRefusal = scopeRefusalFor(path); !scopeRefusal.empty()) break;
+        const std::string rangeRefusal = visibleRanges && parsed.error.empty() ? visibleRangeRefusal(parsed, issuedLines) : std::string{};
+        scopeRefusal = rangeRefusal;
+        if (scopeRefusal.empty())
+            for (const auto& [path, body] : parsed.wholeFiles)
+                if (scopeRefusal = scopeRefusalFor(path); !scopeRefusal.empty()) break;
         std::string refusal = scopeRefusal.empty() ? applyCanvasReply(scratch, parsed, allowed, a.itemId, &skipped) : scopeRefusal;
         std::string skippedNote;
         for (const auto& s : skipped) skippedNote += "- " + s + "\n";
@@ -959,7 +1039,7 @@ int runCanvasAttempt(const AttemptContext& a)
             if (refusal.rfind("the transaction changes nothing", 0) == 0 && rejects > 1) { stagnated = true; traceVerdict(tracePath, call, "stagnated: " + refusal); break; }
             // The same refusal three times running (line numbers aside) is a worker that cannot see its error: more turns repeat it (run-v11's tester spent
             // six turns an attempt on one compile error, catalogue row 72). The attempt stops and says why; the ladder decides with that evidence.
-            const std::string key = errorKey(refusal);
+            const std::string key = rangeRefusal.empty() ? errorKey(refusal) : rangeRefusal;
             sameRefusals = key == lastRefusalKey ? sameRefusals + 1 : 1;
             lastRefusalKey = key;
             lastRefusal = refusal;

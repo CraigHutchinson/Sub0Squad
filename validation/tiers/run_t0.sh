@@ -4,6 +4,7 @@
 # @smoke runs the smoke set (make_t0.py SMOKE: one fast case per kind of edit) and judges it with gate_t0.py --set smoke: smoke.md, never the gate.
 # Each run: its own home out/runs/t0/<case>/run-N, the "t0" process (lib.sh: single, no ladder past the local attempts), the canvas executor, the
 # case's plan (make_t0.py), T0_ATTEMPTS local attempts (default 1: a run stops at its first failed attempt); then `down`.
+# SUB0SQUAD_EDIT_ADDRESS: visible-range selects request-bound numbered edits; unset for the control. Use separate T0_OUT roots.
 # T0_SEED_START: optional base seed, incremented by run number so each case replays the same three seeds.
 # T0_DO_ARGS: more `do` options for every run (e.g. "--max-tokens 7000": a reply budget with room to think; the thinking cap is 60 % of it).
 # out/runs/t0/summary.md gains one row per run as it ends (a progress log; the gate judges the run directories, not this table).
@@ -41,6 +42,12 @@ case "${1:-}" in @*) setname=${1#@}; shift; set -- $(python -I "$repo/validation
 cases=${*:-$(python -I "$repo/validation/tiers/make_t0.py" "$repo" --list | awk '{print $1}')}
 export T0_OUT=$(winpath "$T0_DIR")
 python -I "$repo/validation/tiers/make_t0.py" "$repo" $cases >/dev/null || exit $?
+edit_address=search-default
+[ "${SUB0SQUAD_EDIT_ADDRESS:-}" != visible-range ] || edit_address=visible-range
+if [ -f "$T0_DIR/edit-address.txt" ] && [ "$(cat "$T0_DIR/edit-address.txt")" != "$edit_address" ]; then
+    echo "run_t0: edit-address arm differs; use a separate T0_OUT" >&2; exit 4
+fi
+printf '%s\n' "$edit_address" >"$T0_DIR/edit-address.txt"
 sum="$T0_DIR/summary.md"
 [ -f "$sum" ] || printf '| case | run | result | attempts | turns | out tokens | seconds | commits | staged | refused | reads | aborted | thinking stops |\n|---|---|---|---|---|---|---|---|---|---|---|---|---|\n' >"$sum"
 for c in $cases; do

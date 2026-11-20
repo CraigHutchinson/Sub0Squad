@@ -262,6 +262,41 @@ recovered within two attempts. On this profile the request-bound handle again us
 Raw LINES used fewer tokens on these fresh views. Its prior stale-view wrong-target control still rules it out as an unguarded replacement. This repeat
 is separate from the three prompt rounds. Evidence is under out/runs/edit-address-full-ctx131072-20261120.
 
+
+#### Visible ranges in the Squad worker
+
+The request-bound handle passed the synthetic trials but added a separate alphabet of labels. This harness optimization reuses the number already printed in the
+Canvas margin. The worker can emit LINES with just the inclusive range and replacement source. The dispatched turn records which lines were actually visible
+in each writable file. A range must contain only issued lines, including every interior line. A continuation retains its original issued view. A range that crosses
+a fold is refused before applying a scratch transaction, and the refusal shows the rejected span and how to recover. Existing SEARCH/REPLACE, SYMBOL,
+AFTER and FILE paths remain available. The control keeps the existing system prompt. The visible-range arm has a neutral multi-line system example and omits
+the competing edit directive on plan turns. This is a bundled harness treatment. It remains opt-in pending matched owner checks.
+
+The model tokenizer measured these synthetic transports on the configured qwen35 profile. The numbered source already appears in the control. Its incremental
+margin cost for the range arm is zero. The last two columns include the source text and show the cost of each margin style in isolation. These are raw tokenizer
+counts with no chat wrapper or sampling. Retokenize the entire message to measure an exact in-context delta.
+
+| Replaced lines | SEARCH reply | LINES reply | Short AT reply | Numbered source | Handle-labelled source |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 | 41 | 31 | 30 | 14 | 13 |
+| 2 | 61 | 41 | 40 | 29 | 27 |
+| 8 | 181 | 101 | 100 | 119 | 111 |
+| 24 | 531 | 276 | 275 | 374 | 350 |
+
+On these samples the saving grows from 10 to 255 generated tokens as the repeated old source grows. A short AT header is one token cheaper than LINES.
+The chosen LINES transport can reuse the native parser and existing view. These reply counts cannot predict total repair cost by themselves.
+
+For each matched T0 arm, report logical PP from response usage over all requests, including system and user instructions, file views, read answers, carried
+plans, repair feedback and assistant continuations. The T0 field called PP measures submitted prompt size. It does not measure physical prefill after cache hits.
+Record reported cached tokens separately when comparing engine work, and keep cache mode identical in both arms. TG uses reported completion tokens, including
+returned reasoning where the server includes it. A truncated stream may omit usage. Missing usage is incomplete evidence, and a hard ceiling may stop at the
+first observed response above the cap. The timing fields are for host diagnostics. Measure first and second candidate and behavior passes, pass within the turn
+budget, refusals, reads and retries beside total PP and TG. A shorter failed reply is not an efficiency gain for accepted work.
+
+Run the next matched sweep into separate T0_OUT directories on the same build, model profile, seeds and token policy. The control uses the default edit
+address. Set SUB0SQUAD_EDIT_ADDRESS=visible-range for the candidate. Start with held-out larger edits and the existing failure cases for precedence, partial
+files, compiler conflicts and finite numerical results. Keep all owner fixtures, thresholds and the T0/T1 admission policy fixed.
+
 ## 3. Modes
 
 All three judge the run directories, as `gate_t0.py` does today: a run counts when its `case_key`, build and engine match; stale runs are listed, not counted.

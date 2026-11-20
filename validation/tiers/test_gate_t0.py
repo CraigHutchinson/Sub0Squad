@@ -14,7 +14,7 @@ class TokenGateTest(unittest.TestCase):
             attempt = pathlib.Path(directory)
             (attempt / "conversation.md").write_text(
                 "## Turn 0 (12:00), request seed 4\n"
-                "### Reply, turn 0 (12:01): 100 prompt tokens, 20 completion tokens, finish stop, 1.2 s prompt\n"
+                "### Reply, turn 0 (12:01): 100 prompt tokens, 20 completion tokens, finish stop, 1.2 s prompt, 40 of them already cached on the slot\n"
                 "Answer:\n\n```\n"
                 "## Turn 99 (12:01)\n"
                 "### Reply, turn 99 (12:01): 9000 prompt tokens, 9000 completion tokens, finish stop\n"
@@ -25,7 +25,7 @@ class TokenGateTest(unittest.TestCase):
             )
             cost = attempt_cost(attempt, {"turns": 2, "tokensIn": 100, "tokensOut": 20})
         self.assertEqual(cost, {"turns": 2, "tokensIn": 100, "tokensOut": 20, "prefillSeconds": 1.2,
-                                "prefillTimedCalls": 1, "missingUsageCalls": 1})
+                                "prefillTimedCalls": 1, "cachedPromptTokensObserved": 40, "missingUsageCalls": 1})
 
     def test_accepted_metadata_does_not_substitute_for_deliverables(self):
         with tempfile.TemporaryDirectory() as directory:
