@@ -98,6 +98,26 @@ SUB0SQUAD_FOLDS=compact shows `... B5 ...` under the same signature. SUB0SQUAD_F
 
 Compare paired seeds on behavior and candidate pass ordinals, PP and TG, number of read requests answered or refused, and whether the first edit after a read used the expanded source. Check marker copies in edits and unknown labels in replies. Use a numbered trace to tell a read-selection error from a bad repair made with adequate source.
 
+The Windows qwen35 comparison used skeleton seed 5102. All three runs stayed below the token warnings and reported complete usage.
+
+| Display | Behavior | Read replies answered | PP | TG |
+| --- | --- | ---: | ---: | ---: |
+| `... (N lines folded: a-b; name)` | 16/16, second candidate and behavior check | 2 | 34,713 | 4,223 |
+| `... B5 ...` | 15/16 | 0 | 32,666 | 5,074 |
+| `...(B5@5lines)...` | 15/16 | 0 | 31,299 | 4,933 |
+
+The standard worker read the parser bodies, repeated an existing implementation, then repaired unary-minus precedence after the refusal kept that assertion visible. Both compact workers edited without requesting expansion. The native tests verified hidden-range retrieval for both displays, rejection of an unknown label and option propagation through the daemon. The initial attempted compact run repeated the standard result because the worker shim filtered the switch. The reported compact runs used a build that forwards the switch and validated the marker in the actual source view. Evidence is under out/runs/t0-fold-compare-b25f9f5/standard and out/runs/t0-fold-compare-a46b2cf.
+
+Keep the standard display as the default. The comparison used one seed and changed both the marker and the read command. A follow-up can keep the read command fixed and vary only the marker, then measure whether requested reads and accepted repairs improve across seeds.
+
+### Precedence crash replay
+
+A final standard-display replay used build a46b2cf and the same budgets. Skeleton seed 5101 first failed right associativity and unary-minus precedence. Its next tested edit fixed right associativity. Wrong-approach seed 5103 reached the same single precedence failure. Both then crashed on a proposed repair and restored the revision that passed 15 of 16 tests. Skeleton reported 37,560 PP and 4,925 TG. Wrong-approach reported 43,437 PP and 5,287 TG, with one canceled call missing usage. Neither run crossed an observed warning threshold.
+
+A separate GDB run used the exact crashing source revisions and the harness's debug compile flags. On `-2^2`, skeleton revision 4 alternated between `factor()` at line 77 and `power()` at line 83 with cursor 0. Wrong-approach revision 3 alternated between `parse_unary()` at line 259 and `parse_power()` at line 263 with cursor 1. The top frame of the second crash was in the C++ library. The parser frames and cursor located the call cycle in the candidate. Both restored revisions returned 4 for the same input, where the test expects -4.
+
+The gate reports, source revisions, SHA-256 manifests and bounded backtraces are under out/runs/t0-precedence-final-a46b2cf. These two traces give the canvas receiving slice a concrete lookup in each direction. Starting with the gate crash, show the candidate revision and the recurring parser call sites. Starting with either call site on that revision, find the crashing test executable and the input used to reproduce it. The earlier unary-minus assertion provides the input for this replay. The original crashing gate did not identify an individual assertion.
+
 ## Token cost gate
 
 The T0 workload KPIs are PP (reported prompt tokens) and TG (reported generated tokens), summed across calls and attempts. The report identifies requests with missing usage. Keep model, tokenizer and cache settings fixed when comparing counts. The qwen35 calibration has caching disabled. System-dependent prefill or time-to-first-token measurements remain in the per-run JSON diagnostics. The token gate uses counts alone.
