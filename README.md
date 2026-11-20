@@ -122,7 +122,7 @@ test suite; [docs/BLOCK_PROVING_GROUNDS.md](docs/BLOCK_PROVING_GROUNDS.md) lists
 | [METRICS.md](docs/METRICS.md) | What is measured and how: accounting, ticks, scorecards, quality |
 | [INTERVENTIONS.md](docs/INTERVENTIONS.md) | Every manual fix, as a catalogue row with a detector, a mend and a fixture |
 | [COMPONENTS.md](docs/COMPONENTS.md), [DECISIONS.md](docs/DECISIONS.md), [DEV_SETUP.md](docs/DEV_SETUP.md) | Layers and components; decisions taken; the development machine |
-| [PLATFORM.md](docs/PLATFORM.md) | The platform library: one place for processes, files, sockets and host facts; the path to a Windows build |
+| [PLATFORM.md](docs/PLATFORM.md) | The platform layer, now the Sub0Platform library (CPM): one place for processes, files, sockets and host facts; the path to a Windows build |
 | [ARCHIVE.md](docs/ARCHIVE.md) | Retired documents, by permalink to the commit before they were removed |
 
 ## Licence
