@@ -33,6 +33,14 @@ set(SUB0MATH_PERF_ON_BUILD "OFF" CACHE STRING "")
 set(SUB0MATH_PERF_GIT_HOOKS OFF CACHE BOOL "")
 include("${Sub0Math_SOURCE_DIR}/cmake/Sub0MathTooling.cmake")
 
+# Sub0Platform: the operating-system layer of the Sub0 C++ projects (cpp/README.md there). It is the layer below Sub0Squad's kernel
+# (docs/COMPONENTS.md): only it includes operating-system headers. Pinned to the head of its default branch as of 2026-11-19; its own tests are off here.
+CPMAddPackage(NAME Sub0Platform
+  GIT_REPOSITORY https://github.com/CraigHutchinson/Sub0Platform.git
+  GIT_TAG 5feccdf226046cc790214bc30793832a1888ce4b
+  SOURCE_SUBDIR cpp
+  OPTIONS "SUB0PLATFORM_BUILD_TESTS OFF" "SUB0PLATFORM_INSTALL OFF")
+
 # simdjson 5.1.1 (Apache-2.0, released 2026-11-01): the one JSON library, as in Sub0Llm. Reads use the on-demand forward API;
 # writes use simdjson::builder::string_builder (present since 5.x; Sub0Llm's notes still say "parse only", which is stale for 5.x).
 # Keep simdjson types out of public headers (docs/DECISIONS.md).
