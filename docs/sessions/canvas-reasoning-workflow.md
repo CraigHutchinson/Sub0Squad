@@ -53,6 +53,27 @@ The compact replay showed that the source and assertion can support a passing pa
 
 The next bounded comparison should keep the failing assertion and revision visible through a source read, carry the current plan into one edit turn, and issue a single instruction for that turn. Show the implicated callers and callees in a compact window. Keep the one-line runtime observation available through the issue, with the full stack and values retrievable when asked. Measure whether each requested region arrived, whether the reply became an applicable edit, which owner assertions changed, and how many calls went to re-reading or re-planning. Use the archived post-read sequence as the control.
 
+
+### Staged unary-minus proving grounds
+
+Track the recurring unary-minus versus power failure in [Sub0Squad #6](https://github.com/CraigHutchinson/Sub0Squad/issues/6). Treat source visibility,
+diagnostic delivery and repair choice as separate hypotheses. In the measurement cohort, skeleton seed 5102 reached 15/16 and rejected the remaining
+unary-minus expression. Wrong-approach seed 5103 also reported an unexpected-character exception on that assertion. These traces establish a recurring
+symptom and leave the source-window and recovery hypotheses open.
+
+1. Build a minimal C++ grammar fixture with a known-good implementation, incorrect call orders, and a non-progressing recursion control. Keep independent
+   cases for unary-minus precedence, right associativity, signed exponents, grouping and recursive progress. Establish a passing control and expected failures
+   without model generation. Include a held-out grammar or naming variant to check the approach transfers.
+2. Reconstruct each failed trajectory from requested and observed plan, read, act and replan stages. Tie the failing expression, lookahead or cursor state,
+   calls and edits to their revisions. Report whether implicated source was visible, requested, returned, clipped, or available to expand but unused.
+3. At the same initial revision and seed, compare the standard folded view, a compact window covering the implicated call path, and a wider source view.
+   Keep diagnostic wording and prompt affordances fixed. Then hold the chosen view fixed and vary how the compiler or runtime evidence is delivered.
+4. With the evidence held fixed, compare the ordinary repair cycle with a bounded step-back that can revisit its hypothesis, request a wider view and
+   make a new edit. Compare that with an isolated attempt separately. Keep both histories and avoid fixture-specific solution hints.
+5. Receive a promising arm through the production Canvas worker, the original owner assertions and a held-out repair. Capture first/second candidate and
+   behavior passes, source reads and refusals, failed checks, plan/replan/act PP and TG, and progress across iterations. Keep independent fixture acceptance
+   and use at least three paired iterations before drawing a conclusion.
+
 ### Read-to-edit experiment
 
 The default canvas workflow carries the current plan and the pre-read verdict into the edit turn after a read. The source read stays in the prompt and the act request runs with hidden thinking off. Set SUB0SQUAD_THINKPLAN=steps to replay the earlier workflow. The read-handoff value explicitly selects the default.

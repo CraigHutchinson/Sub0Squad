@@ -26,6 +26,8 @@ Backlog [prompt restatement during reasoning](sessions/canvas-reasoning-workflow
 
 Backlog [a manager-led second isolated attempt](sessions/canvas-reasoning-workflow.md#manager-led-second-isolated-attempt) for production jobs that cycle without progress, with a verified fork of the original Canvas viewpoint. [Issue #2](https://github.com/CraigHutchinson/Sub0Squad/issues/2)
 
+Backlog [staged unary-minus proving grounds](sessions/canvas-reasoning-workflow.md#staged-unary-minus-proving-grounds) to isolate source-view, diagnostic, and replan limitations. [Issue #6](https://github.com/CraigHutchinson/Sub0Squad/issues/6)
+
 The queue, with hypotheses, arms, measures and commands, is [EXPERIMENTS.md](EXPERIMENTS.md) section 8. In order:
 
 1. **E1, the specialist stance and the contest channel.** Built 2026-11-16 (`--stance specialist`, the CONCERN block, `replay --accepted`, stance in
