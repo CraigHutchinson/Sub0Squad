@@ -12,9 +12,9 @@ Start with the isolated terminal commands in [DEV_SETUP.md](DEV_SETUP.md#isolate
 for worker modes, the edit-address experiments, token accounting and the fixture-level golden diagnostics. The [Canvas reasoning brief](sessions/canvas-reasoning-workflow.md)
 has the phase audit and divides the production follow-ups from the simple T0 workflow.
 
-The request-bound visible-range arm is experimental and SEARCH/REPLACE remains the default edit form. The complete legacy measurement cohort must finish
-before using its passing trials to recalibrate token thresholds. [Validation and calibration issue #5](https://github.com/CraigHutchinson/Sub0Squad/issues/5). Its local traces are evidence for that build and profile. A measurement-only run never
-admits Tier 1. Start a fresh output directory for the simple profile, keep its usage calibration separate and keep the owner fixtures frozen.
+The request-bound visible-range arm is experimental and SEARCH/REPLACE remains the default edit form. The legacy measurement completed at 73/78.
+Its calibration and local traces apply to the measured build and profile. Start a fresh directory for the simple profile and keep its calibration separate.
+Keep the owner fixtures frozen. A measurement-only run never admits Tier 1. [Validation and calibration issue #5](https://github.com/CraigHutchinson/Sub0Squad/issues/5).
 
 The production retries and provider work have tracked issues. Canvas owns the pinned starting viewpoint and verification. Squad owns the manager's decision,
 the comparison of workflow trajectories and the receiving gate. Use the issue links in [BACKLOG.md](BACKLOG.md) to pick up these workstreams on a new host.

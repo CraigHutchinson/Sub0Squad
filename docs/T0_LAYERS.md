@@ -338,6 +338,18 @@ waste and compare proposed thresholds against completed passes and failed or run
 sample exists.
 
 
+
+The full legacy visible-range cohort on fd4d8eb completed 78 trials. Seventy-three passed within budget. There were 52 first-candidate and 11 second-candidate
+passes, and 59 first-behavior and 13 second-behavior passes. Write-feature passed 2/3. Wrong-approach and skeleton each passed 1/3. The cohort recorded
+1,410,509 PP and 141,841 TG, with two missing usage calls. Golden diagnostics covered 15 trials, warned on four, and recorded nine duplicate declaration
+or definition verdicts. T1 admission remains closed.
+
+The legacy visible-range policy for qwen35 at 131,072 context tokens, no cache or hidden thinking, and a 3,000-token reply limit uses 72 complete passing
+samples. The prior hard ceilings would have stopped four of those passes. The recalibration covers them and would flag two of the five behavior failures
+at the hard thresholds. It retains the prior fallback for wrong-approach, whose only passing trial had missing usage. Other settings and the simple
+workflow still use the existing policy until measured. The active launcher originally failed after the 78th trial because its script changed on disk.
+The final report was regenerated from the existing run directories, preserving the original exit marker. No trial was replayed.
+
 #### Golden retry paths by fixture
 
 The gate's shadow diagnostics count reported compiler failures, duplicate declaration or definition diagnostics, transaction and read refusals, replies without

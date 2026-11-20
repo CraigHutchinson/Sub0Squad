@@ -11,6 +11,12 @@
 # T0_DO_ARGS: more `do` options for every run (e.g. "--max-tokens 7000": a reply budget with room to think; the thinking cap is 60 % of it).
 # out/runs/t0/summary.md gains one row per run as it ends (a progress log; the gate judges the run directories, not this table).
 set -u
+# Read the launcher once: editing its on-disk copy during a sweep must not break the reporting tail.
+if [ "${SUB0SQUAD_T0_RUNNER_INLINE:-0}" != 1 ]; then
+    runner_source=$(<"$0") || exit 5
+    export SUB0SQUAD_T0_RUNNER_INLINE=1
+    exec bash -c "$runner_source" "$0" "$@"
+fi
 plan_only=false
 if [ "${1:-}" = --plan ]; then plan_only=true; shift; fi
 repo=$(cd "$1" && pwd); engine=$2; repeats=$3; shift 3
@@ -81,9 +87,13 @@ printf '%s\n' "$edit_address" >"$T0_DIR/edit-address.txt"
 # Freeze the policy used by both the live monitor and the report, including resumed runs.
 if [ ! -f "$T0_DIR/token-policy.json" ]; then
     policy="$repo/validation/tiers/t0-token-budget.json"
-    profile="$repo/validation/tiers/t0-token-budget.visible-range.json"
-    if [ "$profile" = legacy ] && [ "$edit_address" = visible-range ] && [ "${engine%%=*}" = qwen35 ] && [ -f "$profile" ]; then
-        case ",$engine," in *,ctx=131072,*) policy=$profile ;; esac
+    candidate_policy="$repo/validation/tiers/t0-token-budget.visible-range.json"
+    if [ "$profile" = legacy ] && [ "$edit_address" = visible-range ] && [ "${engine%%=*}" = qwen35 ] &&
+       [ -f "$candidate_policy" ] && [ "${T0_ATTEMPTS:-1}" = 1 ]; then
+        if [[ ",$engine," == *,ctx=131072,* && ",$engine," == *,cache=0,* && ",$engine," == *,thinking=0,* &&
+              " ${T0_DO_ARGS:-} " == *" --max-tokens 3000 "* && " ${T0_DO_ARGS:-} " == *" --repair-turns 2 "* ]]; then
+            policy=$candidate_policy
+        fi
     fi
     cp -- "$policy" "$T0_DIR/token-policy.json" || exit 5
 fi

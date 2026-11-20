@@ -1,0 +1,217 @@
+{
+  "engine": "qwen35",
+  "calibration": {
+    "build": "0.0.0-269-gfd4d8eb",
+    "seeds": [
+      5101,
+      5102,
+      5103
+    ],
+    "contextTokens": 131072,
+    "maxReplyTokens": 3000,
+    "cache": false,
+    "thinking": false,
+    "workflowProfile": "legacy",
+    "editAddress": "visible-range",
+    "sourceReportSha256": "b79a83497ea26b8a2ce1d76f30f5746129f38e189533619a50729b59d5f64c27",
+    "passingRuns": 73,
+    "completePassingRuns": 72
+  },
+  "headroom": {
+    "warning": {
+      "percent": 25,
+      "minimum": {
+        "tokensIn": 2048,
+        "tokensOut": 256
+      }
+    },
+    "hard": {
+      "percent": 125,
+      "minimum": {
+        "tokensIn": 8192,
+        "tokensOut": 1024
+      }
+    }
+  },
+  "fallback": {
+    "tokensIn": 45073,
+    "tokensOut": 6435
+  },
+  "cases": {
+    "fix-op": {
+      "key": "b35f8198dff31c6f64534f5448f10402027a88c6b49d68697b6f2be51416c7f4",
+      "passingRuns": 3,
+      "partialUsageRuns": 0,
+      "tokensIn": 10223,
+      "tokensOut": 432
+    },
+    "fix-boundary": {
+      "key": "f404d03b60840c8478598825f2997bce43e0919503245a5a1b175ad9e110f15f",
+      "passingRuns": 3,
+      "partialUsageRuns": 0,
+      "tokensIn": 10493,
+      "tokensOut": 446
+    },
+    "fix-distant": {
+      "key": "08a2cf400f874b2f71d6e21eec2e3ca2dfb489cab6601d05ac3965f9fbc3fc44",
+      "passingRuns": 3,
+      "partialUsageRuns": 0,
+      "tokensIn": 10307,
+      "tokensOut": 1429
+    },
+    "fix-missing-check": {
+      "key": "2db62b0bdaac54fc3df9d0a9594b72e92ec5099cbae4760e9a973018ef0a82d2",
+      "passingRuns": 3,
+      "partialUsageRuns": 0,
+      "tokensIn": 10150,
+      "tokensOut": 537
+    },
+    "fix-two-bugs": {
+      "key": "10fc0f1f8ba0e53f5526de2ff7aef6b2917c916f60dfeddf3ca245b4775edde7",
+      "passingRuns": 3,
+      "partialUsageRuns": 0,
+      "tokensIn": 10688,
+      "tokensOut": 646
+    },
+    "compile-typo": {
+      "key": "d339170b310845a5f7e2d41263809ca1dd1f2ee4f290867972d3c8e341851d59",
+      "passingRuns": 3,
+      "partialUsageRuns": 0,
+      "tokensIn": 10192,
+      "tokensOut": 673
+    },
+    "undeclared-member": {
+      "key": "99434cc684a5010fdeab32df2bc22c37576853a1803acb389d1af44cb6997975",
+      "passingRuns": 3,
+      "partialUsageRuns": 0,
+      "tokensIn": 32112,
+      "tokensOut": 5342
+    },
+    "undeclared-many": {
+      "key": "aa38e57ed011ae77565925fc3e183f4ad0e90a78f0790c44d59b0db0f402a40a",
+      "passingRuns": 3,
+      "partialUsageRuns": 0,
+      "tokensIn": 43488,
+      "tokensOut": 2285
+    },
+    "compile-warning": {
+      "key": "efa6146345e3f11100de121495143fcd4b1fda533943b8af6cbc5c47e53a1738",
+      "passingRuns": 3,
+      "partialUsageRuns": 0,
+      "tokensIn": 20376,
+      "tokensOut": 402
+    },
+    "write-function": {
+      "key": "6219ec45e9b5ada1d797ad74e99a1ba8deb8dd682d948dbf9a5f6e267ed21e8b",
+      "passingRuns": 3,
+      "partialUsageRuns": 0,
+      "tokensIn": 17513,
+      "tokensOut": 2475
+    },
+    "write-feature": {
+      "key": "da9e2c7c7f06e97945f30a9612cfa03555c199c7f6945d8bd9cc9f5ac5681555",
+      "passingRuns": 2,
+      "partialUsageRuns": 0,
+      "tokensIn": 21778,
+      "tokensOut": 1336
+    },
+    "write-file": {
+      "key": "a2e0c3e4a77838e45ee90f0beaef641bef8dcf3a9a54d32426fa43178e0a1248",
+      "passingRuns": 3,
+      "partialUsageRuns": 0,
+      "tokensIn": 30682,
+      "tokensOut": 4889
+    },
+    "write-tests": {
+      "key": "c8aa59db6d20f93bd4c7e12b0211ddb1a9397c1742eaeea79ae6b4edccdd2869",
+      "passingRuns": 3,
+      "partialUsageRuns": 0,
+      "tokensIn": 6103,
+      "tokensOut": 1858
+    },
+    "fix-many": {
+      "key": "bacc2f9b1c0f79b05ca7d419a16ca2326753db79797d524c99326959df9b1f53",
+      "passingRuns": 3,
+      "partialUsageRuns": 0,
+      "tokensIn": 10675,
+      "tokensOut": 891
+    },
+    "half-written": {
+      "key": "89467e3b4f756c1da19f695963061c20367bbd551146e087c8c861ea9ea4092a",
+      "passingRuns": 3,
+      "partialUsageRuns": 0,
+      "tokensIn": 45073,
+      "tokensOut": 5072
+    },
+    "merge-conflict": {
+      "key": "90eb961ab95c07de7a3afbdbc2a8a9f3f040d82a3e63febb2420b15b6d5a2079",
+      "passingRuns": 3,
+      "partialUsageRuns": 0,
+      "tokensIn": 10616,
+      "tokensOut": 545
+    },
+    "duplicate": {
+      "key": "033941925d0a634fbb7e6a8f3130f7af092136e11ecfcaf461aa06ce9df40d1d",
+      "passingRuns": 3,
+      "partialUsageRuns": 0,
+      "tokensIn": 10527,
+      "tokensOut": 892
+    },
+    "compile-and-logic": {
+      "key": "ad0272faaf265fddec920b744f12031c8205941329dc45d7612597a6341cb6fd",
+      "passingRuns": 3,
+      "partialUsageRuns": 0,
+      "tokensIn": 20419,
+      "tokensOut": 993
+    },
+    "skeleton": {
+      "key": "062d758b44b0e6abfaef35c6ca6b35381890117379cb7aa112e5d82c82fa79d1",
+      "passingRuns": 1,
+      "partialUsageRuns": 0,
+      "tokensIn": 36310,
+      "tokensOut": 6005
+    },
+    "bugs-3": {
+      "key": "df52810f280cfd737b91191abb0fbc6055189b6ae60bbeb31ea8801119aee588",
+      "passingRuns": 3,
+      "partialUsageRuns": 0,
+      "tokensIn": 25405,
+      "tokensOut": 1284
+    },
+    "bugs-6": {
+      "key": "905cf8095d62fbe55819cf09da1a8ffc8fcfd552f3856163c3eda0c41d8fba18",
+      "passingRuns": 3,
+      "partialUsageRuns": 0,
+      "tokensIn": 20719,
+      "tokensOut": 1157
+    },
+    "bugs-10": {
+      "key": "ba1e6c8c4b3f86d5580ea697dd5140894a23750411649601bcb341a7e91f516c",
+      "passingRuns": 3,
+      "partialUsageRuns": 0,
+      "tokensIn": 26124,
+      "tokensOut": 2585
+    },
+    "repeat-trig": {
+      "key": "43bb2c6a2c5aa2ee4e3c59761a8d6d2bc1810bcafa2000911848664d042238ef",
+      "passingRuns": 3,
+      "partialUsageRuns": 0,
+      "tokensIn": 10894,
+      "tokensOut": 610
+    },
+    "repeat-rename": {
+      "key": "182513b4bb4e21d52420f98d2669ef35e19c41c200a9f22f094d6b8bb7da966c",
+      "passingRuns": 3,
+      "partialUsageRuns": 0,
+      "tokensIn": 21211,
+      "tokensOut": 2343
+    },
+    "two-files": {
+      "key": "0e7f121c365cb450b251ee2ec4a8756d6393e579c5e3bfe48b495f72799c27c5",
+      "passingRuns": 3,
+      "partialUsageRuns": 0,
+      "tokensIn": 13034,
+      "tokensOut": 428
+    }
+  }
+}
