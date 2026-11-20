@@ -297,6 +297,22 @@ Run the next matched sweep into separate T0_OUT directories on the same build, m
 address. Set SUB0SQUAD_EDIT_ADDRESS=visible-range for the candidate. Start with held-out larger edits and the existing failure cases for precedence, partial
 files, compiler conflicts and finite numerical results. Keep all owner fixtures, thresholds and the T0/T1 admission policy fixed.
 
+
+The first production receiving check used build 5326851 on the 131,072-token qwen35 profile, seed 5102, one local attempt and two repair turns. Each arm
+used the same three frozen T0 fixtures. Both traces reported complete usage and zero observed cache hits.
+
+| Case | Control PP / TG | Visible range PP / TG | Owner result |
+| --- | ---: | ---: | --- |
+| fix-op | 10,403 / 262 | 10,178 / 343 | Both passed on the first candidate and behavior check |
+| compile-typo | 10,335 / 162 | 10,188 / 673 | Both passed on the first candidate and behavior check |
+| write-feature | 21,299 / 2,953 | 10,355 / 1,154 | Control missed the fact function, candidate passed on the first candidate and behavior check |
+
+Neither arm had a second-candidate pass or a hard cost failure. The candidate mixed a visible five-line range with a SYMBOL replacement to pass the final
+case. The two commonly passing cases cost 220 more tokens combined in the candidate. Their edit replies saved 38 and 25 TG, respectively, while their
+plans consumed an extra 119 and 536 TG. The most useful next comparison isolates the edit format from the plan-stage wording, then tests whether concise
+planning guidance recovers the cost on small edits. Candidate promotion still requires larger held-out edits and the complete matched T0 sweep.
+Evidence is under out/runs/t0-visible-range-receiving-20261120.
+
 ## 3. Modes
 
 All three judge the run directories, as `gate_t0.py` does today: a run counts when its `case_key`, build and engine match; stale runs are listed, not counted.
