@@ -162,7 +162,32 @@ For a best-practice exercise, the review could ask for the factorial limit to ha
 
 For skeleton fills and folded functions, consider short comments that state an invariant, assumption or call-order constraint that a reader needs. In a parser, a useful comment might explain why a call consumes input before recursion. Put a comment needed to understand a folded block where the ordinary folded view shows it, near the visible signature. Check it against the code and a representative test. Comment count, verbosity and summaries of obvious statements provide weak evidence. Run a future paired experiment with the same source and read interface to see whether these comments help the worker choose which blocks to expand and preserve the invariant while editing.
 
+Evaluate mechanical formatting recovery separately from model judgment. A C++ prototype can apply the project's clang-format configuration to touched ranges in a scratch candidate, show the formatting diff and rerun the same checks before accepting it. Preserve the original and formatted revisions and their provenance. Evaluate clang-tidy findings and semantic fix-its separately from indentation and alignment. Verify idempotence, ranges and behavior, and use each language's own formatter and rules where indentation affects execution.
+
 A criterion joins the release gate after positive and negative controls establish that it checks the stated contract, the experiment measures false rejects on alternative valid implementations, and a held-out task shows that the prompt and checker transfer. Keep PP, TG and first-pass ordinals in the same report. They measure how the worker got to the result. They carry no vote on whether a particular code structure meets the contract.
+
+### 2.6 Split planning and handoff
+
+The plan aims for about 150 words on the current step. Expand it when the next edit needs more detail. Record dependencies, missing evidence, and work that can be planned in a later turn or separate scope. Use the reply token budget to bound transport and the receiving view budget to retain source evidence alongside the carried plan.
+
+Start with a serial A/B on the same T0 fixtures, seeds, budgets and owner checks. The control uses ordinary plan and act. The split arm declares one checkable slice, its prerequisite evidence and a list of remaining slices. Use the first slice in the same worker and record the tested revision, result, and remaining plan. A later turn receives that handoff and can continue or revise it. The full work item stays open until the unchanged acceptance criteria pass. Require evidence that the receiving worker can recover the scope and that checks still describe the revision being edited. Record first-pass and in-budget acceptance, PP, TG and handoff errors. A future separate-agent arm can assign non-overlapping scopes and test merge and conflict behavior once the serial handoff works.
+
+### 2.7 Edit address shootout
+
+A SEARCH/REPLACE transaction requires the worker to copy the old text before sending the replacement. The model-free sandbox measures alternative addresses on a small source change with moved blocks, duplicate text and a copy typo. It validates emitted edits using the production canvas reply checker.
+
+| Address | Qwen reply tokens | Behavior and trade-off |
+| --- | ---: | --- |
+| SEARCH/REPLACE | 33 | Follows an intact unique text match after a move. Refuses duplicate text and a copying error. Larger replacements repeat the old and new bodies. |
+| LINES | 23 | Changes only the selected lines and needs no old text. In the replay, the old numeric address edited the wrong function after the functions moved. |
+| SYMBOL | 47 | Named function replacement found the same function after it moved and ignored duplicate lines in other functions. Requires the full function text and an unambiguous symbol. |
+| Block and content hash | 31 | The sandbox found the same original line after a move and distinguished duplicate text in another block. It refused a changed line and duplicates inside the selected block. |
+
+The hash arm is a resolver prototype for this fixture. It lowers a validated address into the existing LINES transaction. The production parser checked all 16 emitted transactions. The two rejected hash anchors were verified by the prototype. Use the canvas to issue the short identifier and retain its full binding to source, block, revision and line span. A worker copies the identifier. Require a unique exact resolution inside the intended block before applying a stale request. If the contents or block ownership changed, request fresh evidence. A short hash is a display handle and does not establish uniqueness by itself.
+
+Two further variants are worth measuring. A revision-guarded range keeps the payload small and rejects a stale view before applying any edit, at the cost of a fresh read after harmless movement. A short start/end context pair targets a span without copying its interior. It can survive unrelated line movement, but repeated or reordered anchors require a refusal. Compare those variants on stale references, changed spans, duplicated anchors, insertions and deletions. After model-free results, try a paired live run on a local logic repair and a compile repair. Record actual transaction form, PP and TG, refusal cause, accepted edit ordinal and changed scope.
+
+Run the sandbox with python -B validation/tiers/edit_syntax_shootout.py --exe PATH --out NEW_DIRECTORY. Optionally pass the local tokenizer endpoint with --tokenizer for measured reply tokens. Evidence is under out/runs/t0-edit-syntax-shootout-hash-20261120.
 
 ## 3. Modes
 
