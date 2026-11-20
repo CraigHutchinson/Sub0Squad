@@ -58,7 +58,12 @@ ARITH_CONTRACT = (
     "Division or remainder by zero and malformed expressions raise std::runtime_error. "
     "Keep the degrees argument for interface compatibility. It has no effect on arithmetic expressions."
 )
-GIVEN_TEXT = {"tests/fact.test.cpp": FACT_TESTS, "tests/trig.test.cpp": TRIG_TESTS, "tests/arith.test.cpp": ARITH_TESTS}
+FACT_FINITE_TESTS = '#include <cmath>\n' + TEST_HEAD + (
+    'TEST(factorial_finite_boundary) { const double value = ev("170!"); CHECK(std::isfinite(value)); '
+    'CHECK_NEAR(value / 7.257415615307999e306, 1.0, 1e-12); CHECK_THROWS(ev("171!")); }\n'
+)
+GIVEN_TEXT = {"tests/fact.test.cpp": FACT_TESTS, "tests/factorial-finite.test.cpp": FACT_FINITE_TESTS,
+               "tests/trig.test.cpp": TRIG_TESTS, "tests/arith.test.cpp": ARITH_TESTS}
 
 # Curveballs: a naive engine whose approach cannot meet the spec (the right reply is a rewrite), and a parser skeleton with every method still a stub.
 NAIVE = '''#include "calc/calc.hpp"
@@ -306,6 +311,21 @@ build_mixed = sub(CASES["compile-and-logic"]["calc"], NUMBER,
 build_mixed = sub(build_mixed, "        const double base = postfix();",
                   "        const double base = postfix();\n        const double unused = base;")
 CASES.update({
+    "build-definition-conflict": dict(
+        exercises="a source definition conflicts with a build-supplied preprocessor definition", diagnostic=True,
+        calc="#define _USE_MATH_DEFINES\n" + CALC,
+        context="The calculator source does not build with the existing project settings. Fix it with the smallest edit."),
+    "runtime-call-cycle": dict(
+        exercises="a compiling seed crashes before the test program reports assertions", diagnostic=True,
+        calc=sub(CALC, "        const double base = postfix();",
+                 "        if (pos_ < s_.size() && std::isdigit(static_cast<unsigned char>(s_[pos_]))) return unary();\n"
+                 "        const double base = postfix();"),
+        context="The calculator builds, but its acceptance test executable terminates unexpectedly. Diagnose and repair the defect."),
+    "factorial-finite-boundary": dict(
+        exercises="an intermediate overflow corrupts a finite result", diagnostic=True,
+        calc=sub(CALC, "r *= i;", "{ r *= i * i; r /= i; }"),
+        given=["tests/factorial-finite.test.cpp"],
+        context="The calculator fails a boundary check. Correct the defect and preserve the other behavior."),
     "edit-mix": dict(exercises="independent local, grammar and repeated conversion defects", diagnostic=True,
                      calc=edit_mixed, given=["tests/trig.test.cpp"],
                      context="The calculator builds and several distinct behaviors fail. Repair the individual causes."),
@@ -322,7 +342,8 @@ CASES.update({
 SMOKE = ["fix-op", "fix-two-bugs", "fix-missing-check", "compile-typo", "write-function", "write-file", "merge-conflict", "two-files"]
 assert set(SMOKE) <= set(CASES)
 # Named sets for run_t0.sh @<set> and gate_t0.py --set <set>. The diagnostic cases are not part of the gate: they localise a failure of a gate case.
-SETS = {"smoke": SMOKE, "rewrite": ["write-engine", "add-functions", "replace-function"]}
+SETS = {"smoke": SMOKE, "rewrite": ["write-engine", "add-functions", "replace-function"],
+        "failure-modes": ["build-definition-conflict", "runtime-call-cycle", "factorial-finite-boundary"]}
 GATE = [n for n in CASES if not CASES[n].get("diagnostic")]
 
 # The case tree (docs/T0_LAYERS.md, step 1 of its migration: data only, no plan, key or gate changes). A case's children are the base requirements that

@@ -146,6 +146,10 @@ The `--t1-source` option freezes the replay's CLI and the original calculator he
 
 All four opening prompts listed all 22 failures from the starter stubs. All four generated drafts hit compilation errors before the behavior tests ran, so this campaign cannot tell whether the old delimiter or power defects recur. The 6,000-token arm isolated a compile blocker that can occur without truncation. The next targeted test can isolate whether the worker can repair a single reported compile error without rewriting unrelated code.
 
+### Failure-mode diagnostics
+
+The named failure-modes set adds three isolated checks after the full run, without changing its 26 official plans. The build-definition conflict seed is rejected by the compiler. The data-dependent runtime cycle builds and terminates before reporting a test assertion. The factorial boundary seed returns infinity for a finite result. The focused test rejected that result when the older size-only assertion accepted it. Every repaired reference passed the same checks. Control evidence is under out/runs/t0-fairness-preflight-20261120/failure-mode-controls-v2.
+
 ### 2.5 Optimizer, QA and DRY exercises
 
 The worker receives a change request, the public contract and the evidence a maintainer would normally see. The checker holds the private fixtures, threshold calibration and known controls outside the worker prompt. Start each exercise as a named T0 diagnostic and record the behavior and quality verdicts independently.
