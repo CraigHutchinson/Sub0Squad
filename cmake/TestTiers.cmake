@@ -5,12 +5,12 @@
 #   full   everything else: the long suites, run at the quality gates (`ctest --preset full` runs smoke and full together).
 # The family's `quick` preset is "everything not labelled full", so with one tier label per test it is exactly the smoke set.
 #
-# Areas: structure (layering, link proofs, test reporting), platform, kernel (durable jobs), workflow (plan, policy, stages),
+# Areas: structure (layering, link proofs, test reporting), kernel (durable jobs), workflow (plan, policy, stages),
 # harness (project harnesses and gates), agents (executors, canvas, fork, planner, mends), portal, e2e (real daemon and CLI scenarios).
 # Include this file after every add_test; a test with no tier or no area fails the configure, so a new test cannot be left out.
 
 set(SUB0SQUAD_TEST_TIERS smoke full)
-set(SUB0SQUAD_TEST_AREAS structure platform kernel workflow harness agents portal e2e)
+set(SUB0SQUAD_TEST_AREAS structure kernel workflow harness agents portal e2e)
 
 # Gives each named test the area and tier labels. A name that is not a test on this system (m0_graph_growth is POSIX only) is skipped.
 function(sub0squad_label_tests area tier)
@@ -27,8 +27,6 @@ list(REMOVE_ITEM otherLinkProofs link_presentation)
 
 sub0squad_label_tests(structure smoke layering test_reporting dependency_selftest link_presentation)
 sub0squad_label_tests(structure full  ${otherLinkProofs})
-sub0squad_label_tests(platform  smoke test_platform_process test_platform_file)
-sub0squad_label_tests(platform  full  test_platform_proc test_platform_host test_platform_net test_platform_wait)
 sub0squad_label_tests(kernel    smoke test_job_spec test_journal)
 sub0squad_label_tests(kernel    full  test_job_store test_shim test_idle test_host_guard test_archive test_adapter m0_graph_growth)
 sub0squad_label_tests(workflow  smoke test_policy test_workflow test_plan)
@@ -50,7 +48,7 @@ foreach(test ${allTests})
   set(tiers ${labels})
   list(FILTER tiers INCLUDE REGEX "^(smoke|full)$")
   set(areas ${labels})
-  list(FILTER areas INCLUDE REGEX "^(structure|platform|kernel|workflow|harness|agents|portal|e2e)$")
+  list(FILTER areas INCLUDE REGEX "^(structure|kernel|workflow|harness|agents|portal|e2e)$")
   list(LENGTH tiers tierCount)
   list(LENGTH areas areaCount)
   if(NOT tierCount EQUAL 1 OR NOT areaCount EQUAL 1)
