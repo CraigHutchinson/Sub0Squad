@@ -112,6 +112,19 @@ Keep the standard display as the default. The comparison used one seed and chang
 
 
 
+
+### Prompt restatement during reasoning
+
+Backlog a diagnostic for replies that repeat a prominent instruction before taking an action, for example the worker's reported “Wait, the prompt says
+‘Fix it with the smallest edit’.” A single reminder can be useful when it changes a decision. Repeated restatements, long preambles outside the requested
+plan envelope, returns to an abandoned option, or plans that hit the reply limit before proposing an edit are signals to investigate. Use captured output
+and verdict transitions to separate these from difficult repairs or missing source.
+
+For a matched replay, keep the fixture, build, engine settings and private checker fixed. Compare the current wording to a version that puts scope guidance
+only where the worker chooses an edit, then try a neutral description of the intended outcome. Review the exact rendered system and user messages. Count
+plan-stage TG, tokens before the plan envelope, replies that reach an applicable edit, first/second passes, and progress on the same diagnostics. Preserve
+a passing control and use at least three distinct iterations for a promising change.
+
 ### Workflow extension seams
 
 Backlog a run-scoped extension contract for composing individual workflows and the prompts they send. Start from two consumers: the experiment runner needs

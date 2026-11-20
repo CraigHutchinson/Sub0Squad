@@ -162,6 +162,26 @@ MinGW's GCC has no AddressSanitizer or UBSan runtime: the C++ harness probes for
 benchmarks' sub0perf baselines are per host name; a WSL instance on the same machine needs its own name (`-DSUB0MATH_PERF_HOST=...` at configure, for example `croglegion` natively
 and `croglegion-wsl` in WSL), since both baselines live in the same `perf/baselines/` folder.
 
+
+### Compact run monitoring
+
+Use validation/tiers/watch_run.py for agent-friendly, one-line JSON status. It reads the existing artifacts and reports progress, observed PP/TG,
+missing usage, and bounded events without loading complete traces into the caller's context. The gate and workflow ledger remain the authorities on
+acceptance. A workflow snapshot identifies its status source. An archive or local state file reports the last recorded state.
+
+- T0 snapshot: python -B validation/tiers/watch_run.py OUT_DIR
+- Wait for a new result or terminal event: add --after CURSOR --wait 30
+- Wait for the next behavior failure or terminal event: add --after CURSOR --wait 30 --wake failure
+- Drill into one T0 result: add --details CASE/run-N
+- Tier 1, Tier 2, or any live Squad workflow: pass its home and --exe PATH. Select the workflow with --workflow w-000001.
+- Product tiers: pass the trial directory with workflow.json or verdict.json. For a workflow item add --details ITEM.
+- Campaigns: pass the directory with campaign.jsonl. Use --after CURSOR for incremental records and --details SEED for one run.
+
+Carry the returned cursor into the next poll on that same run. A response with wait_expired is an idle interval. The command does not cancel a workflow.
+Use --limit to bound returned events. T0 and campaign cursors retain omitted failure events for the next page. T0 reports a completed behavior pass over
+a frozen token ceiling as a token-overrun event. This event remains visible during a failure-only poll without triggering an early wake. Tier 1 and 2
+require an enforced T0 report. A measurement-only cohort cannot satisfy their normal admission check.
+
 ### The engine on a Windows host
 
 The model runs natively on Windows (CUDA), not in WSL: [Sub0LlmEngine](https://github.com/CraigHutchinson/Sub0LlmEngine), a sibling checkout, holds the

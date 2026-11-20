@@ -61,6 +61,7 @@ fi
 printf '%s\n' "$edit_address" >"$T0_DIR/edit-address.txt"
 sum="$T0_DIR/summary.md"
 [ -f "$sum" ] || printf '| case | run | result | attempts | turns | out tokens | seconds | commits | staged | refused | reads | aborted | thinking stops |\n|---|---|---|---|---|---|---|---|---|---|---|---|---|\n' >"$sum"
+echo "watch: python validation/tiers/watch_run.py '$(winpath "$T0_DIR")' --wait 30"
 for c in $cases; do
   for r in $(seq "${START:-1}" $(( ${START:-1} + repeats - 1 ))); do
     home="$T0_DIR/$c/run-$r"

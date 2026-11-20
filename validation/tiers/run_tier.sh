@@ -17,11 +17,18 @@ case "$tier" in
   2) process=forked; executor=fork ;;
   *) echo "tier $tier is not defined (1: single worker, 2: forked sections)"; exit 2 ;;
 esac
-T0_OUT="$(winpath "$gate_dir")" python -I "$repo/validation/tiers/gate_t0.py" "$(winpath "$repo")" --engine "$name" --exe "$(winpath "$exe")" >/dev/null; gate=$?
-case "$gate" in 0) verdict=PASS ;; 1) verdict=FAIL ;; 2) verdict=INCOMPLETE ;; *) verdict="UNREADABLE (gate exit $gate)" ;; esac
+if [ -f "$gate_dir/cost-mode.txt" ] && [ "$(cat "$gate_dir/cost-mode.txt")" = measure ]; then
+  gate=2
+  verdict="MEASUREMENT ONLY"
+else
+  T0_OUT="$(winpath "$gate_dir")" python -I "$repo/validation/tiers/gate_t0.py" "$(winpath "$repo")" --engine "$name" --exe "$(winpath "$exe")" >/dev/null; gate=$?
+  case "$gate" in 0) verdict=PASS ;; 1) verdict=FAIL ;; 2) verdict=INCOMPLETE ;; *) verdict="UNREADABLE (gate exit $gate)" ;; esac
+fi
 if [ "$gate" -ne 0 ]; then
   if [ -z "$force" ]; then
-    echo "tier $tier refused: the tier 0 gate is $verdict for this build on engine '$name' ($gate_dir/gate.md)."
+    report=gate.md
+    [ "$verdict" != "MEASUREMENT ONLY" ] || report=gate-measure.md
+    echo "tier $tier refused: the tier 0 gate is $verdict for this build on engine '$name' ($gate_dir/$report)."
     echo "Run tier 0 first: validation/tiers/run_t0.sh $repo '$engine' 3   (or pass --force \"why\" to run tier $tier anyway)"
     exit 3
   fi
@@ -30,13 +37,14 @@ fi
 stamp=$(date +%Y%m%d-%H%M%S)
 home="$repo/out/runs/t$tier/$name-$stamp"; mkdir -p "$home"
 [ -n "$force" ] && printf 'forced past a %s tier 0 gate: %s\n' "$verdict" "$force" >"$home/forced.txt"
-cp "$gate_dir/gate.json" "$home/t0-gate.json" 2>/dev/null
+[ "$verdict" = "MEASUREMENT ONLY" ] || cp "$gate_dir/gate.json" "$home/t0-gate.json" 2>/dev/null
 if ! start_squad "$exe" "$home" "$engine" "$executor" "$process" "$repo/validation/tiers/t1-plan.json" "tier $tier proving run"; then
   echo "tier $tier workflow startup failed at $home" >&2
   "$exe" down >/dev/null 2>&1
   exit 5
 fi
-echo "tier $tier running in $home (gate: $verdict${force:+, forced}); watch: SUB0SQUAD_HOME='$SUB0SQUAD_HOME' $exe project status w-000001"
+echo "tier $tier running in $home (gate: $verdict${force:+, forced})"
+echo "watch: python validation/tiers/watch_run.py '$(winpath "$home")' --exe '$(winpath "$exe")' --wait 30"
 if [ -n "${TIER_WAIT_SECONDS:-}" ]; then
   state=$(wait_workflow "$exe" "$TIER_WAIT_SECONDS")
   "$exe" down >/dev/null 2>&1

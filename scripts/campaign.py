@@ -331,6 +331,7 @@ class Campaign:
         self.pin_binary()
         self.ensure_daemon()
         done = self.done_seeds()
+        say('watch: python validation/tiers/watch_run.py "%s" --kind campaign --wait 30' % self.home)
         say("campaign %s: %d runs, seeds %d..%d, %d already recorded" % (self.a.name, self.a.runs, self.a.seed_base, self.a.seed_base + self.a.runs - 1, len(done)))
         errors = 0
         for i in range(self.a.runs):

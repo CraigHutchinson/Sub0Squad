@@ -151,6 +151,8 @@ def execute(args, trial, request):
         require(cli("do", request, "--sandbox", workspace, "--agent", "llm", "--engine", args.engine,
                     "--executor", "canvas", "--defaults"))
         started = True
+        print(f'watch: python validation/tiers/watch_run.py "{trial}" --exe "{args.exe}" --wait 30',
+              file=sys.stderr, flush=True)
         until = time.monotonic() + args.timeout
         while time.monotonic() < until:
             status = workflow_state(args.exe, home, env, log)
