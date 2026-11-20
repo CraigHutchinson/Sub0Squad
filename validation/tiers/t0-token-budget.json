@@ -20,8 +20,8 @@
       "minimum": { "tokensIn": 2048, "tokensOut": 256 }
     },
     "hard": {
-      "percent": 50,
-      "minimum": { "tokensIn": 4096, "tokensOut": 512 }
+      "percent": 125,
+      "minimum": { "tokensIn": 8192, "tokensOut": 1024 }
     }
   },
   "fallback": {

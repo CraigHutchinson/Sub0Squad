@@ -59,10 +59,10 @@ class TokenGateTest(unittest.TestCase):
         key = policy["cases"]["fix-op"]["key"]
         self.assertEqual(cost_limits(policy, "fix-op", key), (
             {"warning": {"tokensIn": 13048, "tokensOut": 504},
-             "hard": {"tokensIn": 15657, "tokensOut": 760}}, "case"))
+             "hard": {"tokensIn": 23486, "tokensOut": 1272}}, "case"))
         self.assertEqual(cost_limits(policy, "fix-op", "changed"), (
             {"warning": {"tokensIn": 49010, "tokensOut": 8044},
-             "hard": {"tokensIn": 58812, "tokensOut": 9653}}, "suite fallback"))
+             "hard": {"tokensIn": 88218, "tokensOut": 14479}}, "suite fallback"))
 
     def test_live_watch_waits_at_warning_and_cancels_above_hard_limit(self):
         policy = json.loads(pathlib.Path(__file__).with_name("t0-token-budget.json").read_text(encoding="utf-8"))
@@ -79,14 +79,14 @@ class TokenGateTest(unittest.TestCase):
                 commands.append(argv[2])
                 return '{"workflows":[{"state":"running"}]}' if argv[2] == "status" else "{}"
 
-            samples = [("", {"tokensIn": 50000, "tokensOut": 8000}), ("", {"tokensIn": 59000, "tokensOut": 9000})]
+            samples = [("", {"tokensIn": 50000, "tokensOut": 8000}), ("", {"tokensIn": 89000, "tokensOut": 9000})]
             with patch("gate_t0.subprocess.check_output", side_effect=cli), patch("gate_t0.time.sleep"), \
                  patch("gate_t0.measure_cost", side_effect=samples):
                 self.assertEqual(wait_run(home / "sub0squad", home, "qwen35", policy), "cancelled")
             self.assertEqual(commands, ["status", "status", "cancel"])
             mark = json.loads((home / "cost-stop.json").read_text(encoding="utf-8"))
-            self.assertEqual(mark["tokensIn"], 59000)
-            self.assertIn("59000 > 58812", mark["reason"])
+            self.assertEqual(mark["tokensIn"], 89000)
+            self.assertIn("89000 > 88218", mark["reason"])
 
 
 if __name__ == "__main__":

@@ -349,6 +349,7 @@ def main():
               for field in ("runs", "passed", "outsideAttemptBudget", "firstCandidatePass", "secondCandidatePass", "firstPass", "secondPass", "passedWithoutEditKpi",
                             "turns", "tokensIn", "tokensOut", "missingUsageCalls", "costWarnings", "costFailures", "costIncomplete")}
     gate["costCalibration"] = cost_policy["calibration"] if cost_policy else None
+    gate["costHeadroom"] = cost_policy["headroom"] if cost_policy else None
     gate["totals"] = totals
 
     def tree_node(name):
