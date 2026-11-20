@@ -335,6 +335,20 @@ that pass behavior within the allowed turns. Preserve failed and missing-usage t
 waste and compare proposed thresholds against completed passes and failed or runaway runs. Retain the prior ceiling or fallback when no admissible cost
 sample exists.
 
+
+#### Golden retry paths by fixture
+
+The gate's shadow diagnostics count reported compiler failures, duplicate declaration or definition diagnostics, transaction and read refusals, replies without
+a transaction, plan and edit cutoffs, failed behavior checks and engine call failures. A class is counted at most once per attempt and model call. Seeded
+prechecks and compiler text quoted in worker messages are excluded. A duplicate diagnostic is evidence about the candidate produced and may need comparison
+with the addressed span and applied revision to attribute it. Successful reasoning, ordinary reads and the fact that a run made a second attempt are separate.
+
+The registry in validation/tiers/t0-golden-paths.json records a reference trajectory for five existing fixtures using the first passing seed on the visible-range
+arm. Each entry records the fixture fingerprint, build, seed, trace hash and ideal call and check counts. The allowances are indexed by fixture and diagnostic
+class. An additional occurrence of a class, another class, or extra calls and candidates produces a warning for that fixture. Do not add an allowance simply
+because a repair eventually passed. Require evidence of a legitimate alternative trajectory. The registry starts without exceptions. Uncalibrated fixtures retain
+raw counts. The warnings never vote on acceptance and can later support a rate once the coverage and diagnostic attribution are established.
+
 ## 3. Modes
 
 All three judge the run directories, as `gate_t0.py` does today: a run counts when its `case_key`, build and engine match; stale runs are listed, not counted.

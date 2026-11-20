@@ -6,6 +6,7 @@ import unittest
 from unittest.mock import patch
 
 from gate_t0 import attempt_cost, case_state, cost_limits, cost_mode, judge_cost, judge_run, wait_run
+from t0_diagnostics import compare_golden_path, repair_diagnostics
 
 
 class TokenGateTest(unittest.TestCase):
@@ -26,6 +27,37 @@ class TokenGateTest(unittest.TestCase):
             cost = attempt_cost(attempt, {"turns": 2, "tokensIn": 100, "tokensOut": 20})
         self.assertEqual(cost, {"turns": 2, "tokensIn": 100, "tokensOut": 20, "prefillSeconds": 1.2,
                                 "prefillTimedCalls": 1, "cachedPromptTokensObserved": 40, "missingUsageCalls": 1})
+
+    def test_retry_diagnostics_are_harness_verdicts_not_quoted_prompt_text(self):
+        verdict = "staged (does not compile yet): duplicate\n  src/a.cpp:5: error: redeclaration of 'x'\n"
+        marker = "### Verdict, turn 1 (00:00)\n\n"
+        fence = chr(96) * 3
+        record = marker + fence + "\n" + verdict + fence + "\n"
+        quoted = "Answer:\n\n" + fence + chr(96) + "\n" + record + fence + chr(96) + "\n"
+        with tempfile.TemporaryDirectory() as directory:
+            attempt = pathlib.Path(directory)
+            (attempt / "conversation.md").write_text(
+                quoted + record + "\n" + record + "\n"
+                + record.replace("turn 1", "turn -1") + "\n"
+                + record.replace("turn 1", "turn 3").replace("redeclaration", "syntax error"),
+                encoding="utf-8",
+            )
+            self.assertEqual(repair_diagnostics([attempt]), {"compileFailure": 1, "duplicateDeclaration": 1})
+
+    def test_golden_allowance_is_scoped_and_never_mutes_a_different_diagnostic(self):
+        registry = {"engine": "qwen35", "editAddress": "visible-range", "cases": {
+            "example": {"key": "current", "golden": {"trajectory": {"calls": 2}}, "allow": {"compileFailure": 1}}
+        }}
+        recorded = {"compileFailure": 1, "duplicateDeclaration": 1}
+        result = compare_golden_path(registry, "example", "current", "qwen35", "visible-range", recorded, {"calls": 3})
+        self.assertEqual(result["warnings"], [
+            {"kind": "calls", "observed": 3, "allowed": 2},
+            {"kind": "duplicateDeclaration", "observed": 1, "allowed": 0},
+        ])
+        stale = compare_golden_path(registry, "example", "stale", "qwen35", "visible-range", recorded, {"calls": 3})
+        self.assertEqual(stale["calibration"], "uncalibrated")
+        self.assertEqual(stale["counts"], recorded)
+        self.assertEqual(stale["warnings"], [])
 
     def test_accepted_metadata_does_not_substitute_for_deliverables(self):
         with tempfile.TemporaryDirectory() as directory:

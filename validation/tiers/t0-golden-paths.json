@@ -1,0 +1,77 @@
+{
+  "schema": "t0-golden-paths-1",
+  "engine": "qwen35",
+  "editAddress": "visible-range",
+  "cases": {
+    "fix-op": {
+      "key": "b35f8198dff31c6f64534f5448f10402027a88c6b49d68697b6f2be51416c7f4",
+      "golden": {
+        "build": "0.0.0-269-gfd4d8eb",
+        "seed": 5101,
+        "traceSha256": "2046b31633350b08f0e67f01c448e314d44fd1ee10e281795e3f5dfa5f694f89",
+        "trajectory": {
+          "calls": 2,
+          "candidateEdits": 1,
+          "testedEdits": 1
+        }
+      },
+      "allow": {}
+    },
+    "compile-typo": {
+      "key": "d339170b310845a5f7e2d41263809ca1dd1f2ee4f290867972d3c8e341851d59",
+      "golden": {
+        "build": "0.0.0-269-gfd4d8eb",
+        "seed": 5101,
+        "traceSha256": "c9abbca3c81b72e7ce070f74614bca6ccbf7cdbeee5a9f38794a46799af6d303",
+        "trajectory": {
+          "calls": 2,
+          "candidateEdits": 1,
+          "testedEdits": 1
+        }
+      },
+      "allow": {}
+    },
+    "compile-warning": {
+      "key": "efa6146345e3f11100de121495143fcd4b1fda533943b8af6cbc5c47e53a1738",
+      "golden": {
+        "build": "0.0.0-269-gfd4d8eb",
+        "seed": 5101,
+        "traceSha256": "67f20ffaf69de01009038ebb9eb60f4ea61e1389d518614693b9f5a2995fa7f9",
+        "trajectory": {
+          "calls": 2,
+          "candidateEdits": 1,
+          "testedEdits": 1
+        }
+      },
+      "allow": {}
+    },
+    "undeclared-member": {
+      "key": "99434cc684a5010fdeab32df2bc22c37576853a1803acb389d1af44cb6997975",
+      "golden": {
+        "build": "0.0.0-269-gfd4d8eb",
+        "seed": 5101,
+        "traceSha256": "0f73c1040fd4d69800118abcca736fdb1f396c46a185dc52d0244b9014d91368",
+        "trajectory": {
+          "calls": 2,
+          "candidateEdits": 1,
+          "testedEdits": 1
+        }
+      },
+      "allow": {}
+    },
+    "undeclared-many": {
+      "key": "aa38e57ed011ae77565925fc3e183f4ad0e90a78f0790c44d59b0db0f402a40a",
+      "golden": {
+        "build": "0.0.0-269-gfd4d8eb",
+        "seed": 5101,
+        "traceSha256": "4df346ec210c650aabd48f05a3b12c4a669555bc64d4668774e74a5939882bcd",
+        "trajectory": {
+          "calls": 2,
+          "candidateEdits": 1,
+          "testedEdits": 1
+        }
+      },
+      "allow": {}
+    }
+  }
+}

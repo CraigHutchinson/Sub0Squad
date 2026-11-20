@@ -11,6 +11,7 @@ import subprocess
 import time
 
 from gate_t0 import candidate_checks, case_key, cost_limits, measure_cost, overrun
+from t0_diagnostics import repair_diagnostics
 
 
 TERMINAL = {"succeeded", "failed", "cancelled"}
@@ -129,6 +130,8 @@ def t0_snapshot(root, after, limit, details):
         result["expected"] = manifest["releaseCases"] * len(manifest["seeds"])
     if final:
         result.update(verdict=final["verdict"], report=report.name)
+        if "diagnosticSummary" in final:
+            result["repair_diagnostics"] = final["diagnosticSummary"]
         totals = final.get("totals", {})
         result["gate_kpis"] = {key: totals[key] for key in
                                ("firstCandidatePass", "secondCandidatePass", "firstPass", "secondPass",
@@ -136,7 +139,9 @@ def t0_snapshot(root, after, limit, details):
     if details:
         if not RUN_ID.fullmatch(details) or not (root / details).is_dir():
             raise ValueError("use a trial such as fix-op/run-1 inside the selected T0 root")
-        result["details"] = {"run": details, **saved_t0_trial(root, details)}
+        item = root / details / "state/workflows/w-000001/items/app"
+        result["details"] = {"run": details, **saved_t0_trial(root, details),
+                             "repair_diagnostics": repair_diagnostics(item.glob("attempt-[0-9]*"))}
     return result
 
 

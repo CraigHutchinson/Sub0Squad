@@ -17,6 +17,7 @@ import argparse, hashlib, json, os, pathlib, re, subprocess, sys, time
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))   # the sibling modules, also under python -I
 import quality_t0  # noqa: E402
+from t0_diagnostics import compare_golden_path, load_golden_paths, repair_diagnostics  # noqa: E402
 
 
 def case_key(plan):
@@ -237,6 +238,7 @@ def judge_run(run, plan, ref_dir):
     item = wf / "items/app"
     attempts = sorted(item.glob("attempt-[0-9]*"), key=lambda attempt: int(attempt.name.split("-")[1]))
     info["attempts"] = len(attempts)
+    info["repairDiagnostics"] = repair_diagnostics(attempts)
     engine, cost = measure_cost(attempts)
     try:
         stopped = json.loads((run / "cost-stop.json").read_text(encoding="utf-8"))
@@ -326,6 +328,9 @@ def main():
     out = pathlib.Path(os.environ.get("T0_OUT", repo / "out/runs/t0"))
     mode = cost_mode(out)
     cases, verdict = {}, "PASS"
+    arm_marker = out / "edit-address.txt"
+    edit_arm = arm_marker.read_text(encoding="utf-8").strip() if arm_marker.is_file() else "search-default"
+    golden_paths = load_golden_paths()
     smoke = a.set != "all"   # a named set (make_t0.SETS): a quick check, never the gate
     for name in (make_t0.SETS[a.set] if smoke else make_t0.GATE):
         plan = make_t0.plan_for(name)
@@ -336,6 +341,9 @@ def main():
         limits, limit_source = cost_limits(cost_policy, name, key) if cost_policy else ({}, "unconfigured engine")
         for run in counted:
             run["costState"], run["costReason"] = judge_cost(run, limits) if limits else ("UNCONFIGURED", "")
+        retry_paths = {r["run"]: compare_golden_path(golden_paths, name, key, a.engine, edit_arm, r["repairDiagnostics"],
+                                                   {"calls": r["turns"], "candidateEdits": r["candidateEdits"],
+                                                    "testedEdits": r["testedEdits"]}) for r in counted}
         cost_warnings = sum(r["costState"] == "WARN" for r in counted)
         cost_failures = sum(r["costState"] == "FAIL" for r in counted)
         cost_incomplete = sum(r["costState"] == "INCOMPLETE" for r in counted)
@@ -348,6 +356,7 @@ def main():
                        "firstCandidatePass": sum(r["passed"] and r["passingCandidate"] == 1 for r in counted),
                        "secondCandidatePass": sum(r["passed"] and r["passingCandidate"] == 2 for r in counted),
                        "editResults": {r["run"]: {field: r[field] for field in ("candidateEdits", "passingCandidate", "testedEdits", "passingEdit", "acceptedAttempt", "attemptLimit", "repairTurns")} for r in counted},
+                       "retryDiagnostics": retry_paths,
                        "passedWithoutEditKpi": sum(r["passed"] and r["passingEdit"] is None for r in counted),
                        "costLimits": limits, "costLimitSource": limit_source, "costWarnings": cost_warnings, "costFailures": cost_failures, "costIncomplete": cost_incomplete,
                        "costResults": {r["run"]: {field: r[field] for field in ("tokensIn", "tokensOut", "cachedPromptTokensObserved", "prefillSeconds", "prefillTimedCalls",
@@ -376,6 +385,12 @@ def main():
     gate["costCalibration"] = cost_policy["calibration"] if cost_policy else None
     gate["costHeadroom"] = cost_policy["headroom"] if cost_policy else None
     gate["totals"] = totals
+    retry_profiles = [trial for case in cases.values() for trial in case["retryDiagnostics"].values()]
+    gate["diagnosticSummary"] = {
+        "calibratedTrials": sum(trial["calibration"] == "golden" for trial in retry_profiles),
+        "trialsWithWarnings": sum(bool(trial["warnings"]) for trial in retry_profiles),
+        "duplicateDeclarationEvents": sum(trial["counts"].get("duplicateDeclaration", 0) for trial in retry_profiles),
+    }
 
     def tree_node(name):
         evidence = cases.get(name)
@@ -425,6 +440,11 @@ def main():
             md.append(f"{'  ' * level}- {node['case']} · {node['state']}{note}")
             add_tree(node["requires"], level + 1)
 
+    diagnostic = gate["diagnosticSummary"]
+    md.extend(["", "## Repair diagnostics", "",
+               f"Golden comparisons: {diagnostic['calibratedTrials']} trials. Warnings: {diagnostic['trialsWithWarnings']} trials. "
+               f"Duplicate declaration or definition: {diagnostic['duplicateDeclarationEvents']} verdicts.",
+               "These observations do not change acceptance. Per-trial counts and exceeded allowances are in the JSON report."])
     md.extend(["", "## Cost warnings", ""])
     for name, case in cases.items():
         for run, cost in case["costResults"].items():
