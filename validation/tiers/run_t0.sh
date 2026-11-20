@@ -59,6 +59,15 @@ if [ -f "$T0_DIR/edit-address.txt" ] && [ "$(cat "$T0_DIR/edit-address.txt")" !=
     echo "run_t0: edit-address arm differs; use a separate T0_OUT" >&2; exit 4
 fi
 printf '%s\n' "$edit_address" >"$T0_DIR/edit-address.txt"
+# Freeze the policy used by both the live monitor and the report, including resumed runs.
+if [ ! -f "$T0_DIR/token-policy.json" ]; then
+    policy="$repo/validation/tiers/t0-token-budget.json"
+    profile="$repo/validation/tiers/t0-token-budget.visible-range.json"
+    if [ "$edit_address" = visible-range ] && [ "${engine%%=*}" = qwen35 ] && [ -f "$profile" ]; then
+        case ",$engine," in *,ctx=131072,*) policy=$profile ;; esac
+    fi
+    cp -- "$policy" "$T0_DIR/token-policy.json" || exit 5
+fi
 sum="$T0_DIR/summary.md"
 [ -f "$sum" ] || printf '| case | run | result | attempts | turns | out tokens | seconds | commits | staged | refused | reads | aborted | thinking stops |\n|---|---|---|---|---|---|---|---|---|---|---|---|---|\n' >"$sum"
 echo "watch: python validation/tiers/watch_run.py '$(winpath "$T0_DIR")' --wait 30"

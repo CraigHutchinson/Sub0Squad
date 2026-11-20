@@ -111,8 +111,11 @@ def attempt_cost(attempt, agent):
     }
 
 
-def load_cost_policy(engine):
-    policy = json.loads(pathlib.Path(__file__).with_name("t0-token-budget.json").read_text(encoding="utf-8"))
+def load_cost_policy(engine, out=None):
+    path = out / "token-policy.json" if out is not None else None
+    if path is None or not path.is_file():
+        path = pathlib.Path(__file__).with_name("t0-token-budget.json")
+    policy = json.loads(path.read_text(encoding="utf-8"))
     return policy if policy["engine"] == engine else None
 
 
@@ -303,13 +306,13 @@ def main():
     run_mode.add_argument("--wait-run", type=pathlib.Path, help="watch a live T0 run and cancel it at the hard ceiling")
     a = ap.parse_args()
     repo = pathlib.Path(a.repo).resolve()
-    cost_policy = load_cost_policy(a.engine)
     if a.wait_run is not None:
         if a.exe is None:
             ap.error("--wait-run requires --exe")
         run = a.wait_run.resolve()
-        mode = cost_mode(run.parent.parent)
-        print(wait_run(a.exe, run, a.engine, cost_policy if mode == "enforce" else None))
+        out = run.parent.parent
+        policy = load_cost_policy(a.engine, out) if cost_mode(out) == "enforce" else None
+        print(wait_run(a.exe, run, a.engine, policy))
         return 0
     sys.argv = ["make_t0.py", str(repo)]
     import make_t0
@@ -327,6 +330,7 @@ def main():
         build = version[1].split("+", 1)[0]
     out = pathlib.Path(os.environ.get("T0_OUT", repo / "out/runs/t0"))
     mode = cost_mode(out)
+    cost_policy = load_cost_policy(a.engine, out)
     cases, verdict = {}, "PASS"
     arm_marker = out / "edit-address.txt"
     edit_arm = arm_marker.read_text(encoding="utf-8").strip() if arm_marker.is_file() else "search-default"

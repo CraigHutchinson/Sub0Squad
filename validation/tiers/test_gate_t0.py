@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from gate_t0 import attempt_cost, case_state, cost_limits, cost_mode, judge_cost, judge_run, wait_run
+from gate_t0 import attempt_cost, case_state, cost_limits, cost_mode, judge_cost, judge_run, load_cost_policy, wait_run
 from t0_diagnostics import compare_golden_path, repair_diagnostics
 
 
@@ -95,6 +95,16 @@ class TokenGateTest(unittest.TestCase):
         self.assertEqual(cost_limits(policy, "fix-op", "changed"), (
             {"warning": {"tokensIn": 49010, "tokensOut": 8044},
              "hard": {"tokensIn": 88218, "tokensOut": 14479}}, "suite fallback"))
+
+    def test_calibration_is_pinned_to_the_run_root(self):
+        reference = load_cost_policy("qwen35")
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            self.assertEqual(load_cost_policy("qwen35", root), reference)
+            updated = {**reference, "fallback": {"tokensIn": 12345, "tokensOut": 678}}
+            (root / "token-policy.json").write_text(json.dumps(updated), encoding="utf-8")
+            self.assertEqual(load_cost_policy("qwen35", root), updated)
+            self.assertIsNone(load_cost_policy("other", root))
 
     def test_measurement_does_not_change_behavior_gate_or_cancel_for_cost(self):
         self.assertEqual(case_state(3, 3, 3, 1, 1, "measure"), "PASS")
