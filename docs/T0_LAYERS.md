@@ -197,6 +197,26 @@ Keep zero wrong-target writes and zero out-of-scope writes as receiving criteria
 
 Run the sandbox with python -B validation/tiers/edit_syntax_shootout.py --exe PATH --out NEW_DIRECTORY. Optionally pass the local tokenizer endpoint with --tokenizer for measured reply tokens. Evidence is under out/runs/t0-edit-syntax-shootout-views-20261120.
 
+
+#### Live paired follow-up
+
+The local Qwen 35B ran three matched seeds (5101–5103) on each of three frozen fixtures: a single-line label, two adjacent numeric settings, and a C++ raw string with literal handle-like text. Each pair alternated which arm ran first. Each trial had up to two attempts with generic feedback and no reference text in the prompt. The production reply checker compared the resulting entire file against the exact expected output. This spike exercised one contiguous edit in a single view with thinking disabled. It did not run the release T0 workflow.
+
+| Arm | First candidate | Second candidate | Pass within two | PP, all attempts | TG, all attempts |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| SEARCH/REPLACE | 9/9 | 0/9 | 9/9 | 1,317 | 653 |
+| Explicit view handle, placeholder template | 0/9 | 0/9 | 0/9 | 4,008 | 790 |
+| Explicit view handle, concrete example | 4/9 | 1/9 | 5/9 | 2,879 | 572 |
+| Request-bound handle, concrete example | 4/9 | 0/9 | 4/9 | 2,772 | 458 |
+
+SEARCH/REPLACE reproduced the same counts and usage on all three paired runs. The request-bound arm copies the same short address shown in the margin, with the issuing view bound to the request. It passed all three single-line trials. Each used 23 TG and 131 PP, versus 34 TG and 114 PP for SEARCH/REPLACE. The reply savings did not cover the prompt overhead even on that simple case.
+
+The placeholder arm copied its replacement placeholder into the source. The explicit example removed that problem, although one seed omitted the view prefix and another emitted two edits before recovering on attempt two. Shortening the handle to match the displayed margin removed the prefix error. It passed one of the three adjacent-range trials, with the other two changing only the first setting. All handle variants failed the raw-string task. For example, an explicit handle selected the first line of the literal but supplied the full string as its replacement, duplicating the remaining source.
+
+The deterministic controls accept embedded AT V1:A2 or V1:A4 text as payload, and the native checker accepted an exact edit containing rewritten handle-like text. The prototype refuses an exact nested edit header or terminator and conservatively guards the fixture format. A framing scheme for arbitrary delimiter-shaped source can wait until that case is needed. Preserve the existing edit default. If revisiting handles, first test bounded labels and explicit start and end addresses, with rejection feedback that echoes the resolved span and replacement footprint without showing expected output. Require exact output, fewer total tokens on matched successful work, and zero collateral writes before a live harness integration. Keep request-bound addresses bound to the issued view and defer stale cross-view commands and concurrent T2 work to the shared Canvas contract.
+
+Reproduce with python -B validation/tiers/edit_address_ab.py --exe PATH --out NEW_DIRECTORY --handle-arm handle-local. The other arm names are handle and handle-template. Use --preflight-only for the model-free controls. Local run evidence is under out/runs/edit-address-ab-{live,example,local}-20261120.
+
 ## 3. Modes
 
 All three judge the run directories, as `gate_t0.py` does today: a run counts when its `case_key`, build and engine match; stale runs are listed, not counted.
