@@ -254,6 +254,14 @@ The nested edit delimiter remains a framing limitation.
 Reproduce the screen with python -B validation/tiers/edit_address_full.py --exe PATH --out NEW_DIRECTORY --round contract. Repeat for scope and preview.
 The original screen is under out/runs/edit-address-full-{contract,scope,preview}-20261120.
 
+
+**Restarted-server repeat.** After the original screen completed, the contract round repeated all 63 trials on the externally managed qwen35 server with
+four slots, 131,072 context tokens per slot, and unified KV enabled. The native checker and recorded prompts were unchanged. SEARCH/REPLACE, SYMBOL,
+request-bound handle, guarded range and raw LINES each passed 9/9 on the first candidate. The explicit view and hash arms each passed 6/9 and neither
+recovered within two attempts. On this profile the request-bound handle again used 1,677 PP and 285 TG, versus 1,578 PP and 873 TG for SEARCH/REPLACE.
+Raw LINES used fewer tokens on these fresh views. Its prior stale-view wrong-target control still rules it out as an unguarded replacement. This repeat
+is separate from the three prompt rounds. Evidence is under out/runs/edit-address-full-ctx131072-20261120.
+
 ## 3. Modes
 
 All three judge the run directories, as `gate_t0.py` does today: a run counts when its `case_key`, build and engine match; stale runs are listed, not counted.
