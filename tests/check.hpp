@@ -1,6 +1,7 @@
 #pragma once
 // Tiny test helpers: no framework dependency.
 #include "sub0platform/file.hpp"   // removeTree
+#include "sub0platform/proc.hpp"   // getEnvironment
 
 #include <chrono>
 #include <cstdio>
@@ -23,8 +24,8 @@ inline int gFailures = 0;
 /// /proc/self/fd trick, so a long base is fine there; on Windows the path itself must fit.
 inline std::filesystem::path makeTempDir(const char* tag)
 {
-    const char* base = std::getenv("SUB0SQUAD_TEST_TMP");
-    const std::filesystem::path root = base ? std::filesystem::path{base} : std::filesystem::current_path() / "test-tmp";
+    const auto base = sub0platform::getEnvironment("SUB0SQUAD_TEST_TMP");
+    const std::filesystem::path root = base && !base->empty() ? std::filesystem::path{*base} : std::filesystem::current_path() / "test-tmp";
     std::filesystem::create_directories(root);
     // create_directory fails on a name that exists, so the first name it makes is this test's alone (what mkdtemp does, on every system).
     std::mt19937_64 random{std::random_device{}() ^ static_cast<std::uint64_t>(std::chrono::steady_clock::now().time_since_epoch().count())};
