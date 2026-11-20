@@ -128,9 +128,9 @@ int main(int, char** argv)
 {
     sub0squad::registerBuiltinHarnesses();   // the registry starts empty: this program is its own composition root
     const std::string exe = argv[1];
-    sub0squad::platform::setEnvironment("SUB0SQUAD_FOLDS", "compact-count");
+    sub0platform::setEnvironment("SUB0SQUAD_FOLDS", "compact-count");
     runWorkflow(exe, "canvas", "exec-canvas");
-    sub0squad::platform::unsetEnvironment("SUB0SQUAD_FOLDS");
+    sub0platform::unsetEnvironment("SUB0SQUAD_FOLDS");
     runWorkflow(exe, "fork", "exec-fork");
     return finish();
 }
