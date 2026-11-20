@@ -96,28 +96,54 @@ def main():
             results.append(row)
 
     digest = line_digest(OLD)
-    hash_reply = f"=== EDIT: {PATH} SYMBOL statusLabel LINE @{digest[:10]} ===\n{NEW}\n=== END EDIT ==="
-    hash_cases = dict(scenarios)
-    hash_cases["changed-target"] = (function("statusLabel", "pending") + other, changed + other)
+    view = {"id": "V1", "base": scenarios["original"][0], "anchors": {"A1": digest}}
+    address_cases = dict(scenarios)
+    address_cases["changed-target"] = (function("statusLabel", "pending") + other, changed + other)
     repeated = target.replace(OLD, f"{OLD}\n{OLD}")
-    hash_cases["duplicate-in-block"] = (repeated + other, changed + other)
-    for scenario, (base, goal) in hash_cases.items():
-        name = f"{scenario}-hash-line"
-        address = resolve_sample_anchor(base, digest)
-        must_refuse = scenario in ("changed-target", "duplicate-in-block")
-        if (address is None) != must_refuse:
-            raise RuntimeError(f"{name}: anchor result differs from the paired control")
-        if address is not None:
-            lowered = f"=== EDIT: {PATH} LINES {address} ===\n{NEW}\n=== END EDIT ==="
-            fixture = make_fixture(name, base, lowered, goal, "")
-            (fixtures / f"{name}.case").write_text(fixture, encoding="utf-8", newline="\n")
-        row = {"scenario": scenario, "form": "hash prototype", "bytes": len(hash_reply.encode()),
-               "outcome": "refused" if address is None else "correct"}
-        if args.tokenizer:
-            if hash_reply not in measured_tokens:
-                measured_tokens[hash_reply] = token_count(args.tokenizer, hash_reply)
-            row["tokens"] = measured_tokens[hash_reply]
-        results.append(row)
+    address_cases["duplicate-in-block"] = (repeated + other, changed + other)
+    address_cases["wrong-view"] = address_cases["original"]
+    address_cases["unknown-handle"] = address_cases["original"]
+    for scenario, (base, goal) in address_cases.items():
+        view_id = "V2" if scenario == "wrong-view" else view["id"]
+        handle = "A9" if scenario == "unknown-handle" else "A1"
+        hash_address = resolve_sample_anchor(base, digest)
+        guarded_address = line if base == view["base"] and view_id == view["id"] else None
+        handle_digest = view["anchors"].get(handle) if view_id == view["id"] else None
+        handle_address = resolve_sample_anchor(base, handle_digest) if handle_digest else None
+        variants = {
+            "hash prototype": (
+                f"SYMBOL statusLabel LINE @{digest[:10]}", hash_address,
+                scenario in ("changed-target", "duplicate-in-block"),
+            ),
+            "guarded range": (
+                f"VIEW {view_id} LINES {line}", guarded_address,
+                scenario in ("moved-block", "duplicate-text", "changed-target", "duplicate-in-block", "wrong-view"),
+            ),
+            "view handle": (
+                f"AT {view_id}:{handle}", handle_address,
+                scenario in ("changed-target", "duplicate-in-block", "wrong-view", "unknown-handle"),
+            ),
+        }
+        for form, (header, address, must_refuse) in variants.items():
+            if scenario == "wrong-view" and form == "hash prototype":
+                continue
+            if scenario == "unknown-handle" and form != "view handle":
+                continue
+            if (address is None) != must_refuse:
+                raise RuntimeError(f"{scenario}/{form}: anchor result differs from the paired control")
+            if address is not None:
+                reply = f"=== EDIT: {PATH} LINES {address} ===\n{NEW}\n=== END EDIT ==="
+                name = f"{scenario}-{form.replace(' ', '-')}"
+                fixture = make_fixture(name, base, reply, goal, "")
+                (fixtures / f"{name}.case").write_text(fixture, encoding="utf-8", newline="\n")
+            proposal = f"=== EDIT: {PATH} {header} ===\n{NEW}\n=== END EDIT ==="
+            row = {"scenario": scenario, "form": form, "bytes": len(proposal.encode()),
+                   "outcome": "refused" if address is None else "correct"}
+            if args.tokenizer:
+                if proposal not in measured_tokens:
+                    measured_tokens[proposal] = token_count(args.tokenizer, proposal)
+                row["tokens"] = measured_tokens[proposal]
+            results.append(row)
 
     command = [str(args.exe.resolve()), "block", "run", "--block", "1", "--fixtures", str(fixtures), "--out", str(out)]
     subprocess.run(command, check=True, timeout=30)
