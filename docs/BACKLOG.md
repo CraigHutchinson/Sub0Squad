@@ -16,6 +16,8 @@ expectations: the tester's wrong-literal failure at its hardest, which is also w
 product word ("basic arithmetic only, or scientific functions, and degrees or radians?") through the inbox that already asks for the platform; decide
 whether degrees mode is part of "scientific" or an owner answer. Runs wait for the llama.cpp configuration work in its own session.
 
+The next [clean-slate calculator receiving case](CLEAN_SLATE.md#end-to-end-receiving-case-for-the-scientific-calculator) exercises planner, tester, developer and integration handoffs. [Issue #7](https://github.com/CraigHutchinson/Sub0Squad/issues/7)
+
 ## Now: the experiment queue
 
 [Canvas reasoning workflow](sessions/canvas-reasoning-workflow.md) carries the next Tier 0 experiments for structured alternatives, model sampling and scratch edits.

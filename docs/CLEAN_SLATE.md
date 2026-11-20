@@ -34,6 +34,25 @@ Built now: the oracle is out of the harness; `validation/grade_run.py` grades an
 * **Golden examples in the contract:** the planner is asked to put worked examples into the contract (`2 + 3 * 4 = 14`). They are checkable data a real project's author can write, and the cheapest available check on a tester's literals.
 * **Grading:** after each run `validation/grade_run.py` produces the independent verdicts; the campaign report adds them next to the squad's own result. The squad never sees the reference; the harness never reads it.
 
+
+### End-to-end receiving case for the scientific calculator
+
+Track the next exploratory product run in [Sub0Squad #7](https://github.com/CraigHutchinson/Sub0Squad/issues/7). Use the exact request
+“write a c++ scientific calculator application, make it fancy”. The goal is to receive the work through the actual Squad roles from a fresh workspace.
+
+- A planner agent authors the plan from the request. Keep the supplied-plan and blueprint paths inactive. Record what the planner asks or assumes about
+  the application interface and presentation.
+- Tester agents author the application tests and the harness records their provenance. Developers implement against the accepted contracts and tests.
+  Integration assembles and checks the result. Preserve each handoff, repair and terminal verdict. Treat a missing role or a bypassed handoff as evidence.
+- Grade scientific behavior with independent checks after the build. Use grade_blackbox.py with the scientific group if the project exposes the supported
+  command-line interface. Record the delivered interaction and presentation separately from arithmetic correctness, with evidence from the actual build.
+- Use a fresh session and the planned process to exercise the local planner, or the clarified process when testing explicit scope questions. Keep a single
+  declared choice fixed for the first trial. Record phase PP and TG, failed checks, the first cause and the integrated output. Keep this exploratory run
+  separate from T0/T1 admission.
+
+The active T0 cohort finishes before considering the shared-engine launch of this product run. The prior clean-slate prompt and supplied-plan runs remain
+separate controls.
+
 ## 4. What is needed (build order)
 
 1. **The planner role**: a prompt, the plan-2 schema as the reply format, validator-driven repair, the plan written to the workflow (`plan.json`), journaled like any job; no blueprint lookup for real-model runs (`--blueprint` stays an explicit opt-in for machinery tests).
