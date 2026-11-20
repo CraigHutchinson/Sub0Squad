@@ -179,7 +179,7 @@ acceptance. A workflow snapshot identifies its status source. An archive or loca
 
 Carry the returned cursor into the next poll on that same run. A response with wait_expired is an idle interval. The command does not cancel a workflow.
 Use --limit to bound returned events. T0 and campaign cursors retain omitted failure events for the next page. T0 reports a completed behavior pass over
-a frozen token ceiling as a token-overrun event. This event remains visible during a failure-only poll without triggering an early wake. Tier 1 and 2
+a frozen token ceiling as a token-overrun event and checks calibrated fixtures for retry warnings. These diagnostics appear in failure-only polls without triggering an early wake. Tier 1 and 2
 require an enforced T0 report. A measurement-only cohort cannot satisfy their normal admission check.
 
 ### The engine on a Windows host

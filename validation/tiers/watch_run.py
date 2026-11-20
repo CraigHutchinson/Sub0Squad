@@ -10,8 +10,8 @@ import re
 import subprocess
 import time
 
-from gate_t0 import candidate_checks, case_key, cost_limits, measure_cost, overrun
-from t0_diagnostics import repair_diagnostics
+from gate_t0 import behavior_check, candidate_checks, case_key, cost_limits, measure_cost, overrun
+from t0_diagnostics import compare_golden_path, load_golden_paths, repair_diagnostics
 
 
 TERMINAL = {"succeeded", "failed", "cancelled"}
@@ -57,7 +57,7 @@ def saved_t0_trial(root, run_id):
     stop = read_json(run / "cost-stop.json")
     attempts = sorted((run / "state/workflows/w-000001/items/app").glob("attempt-[0-9]*"),
                       key=lambda attempt: int(attempt.name.split("-")[-1]))
-    _, usage = measure_cost(attempts)
+    engine, usage = measure_cost(attempts)
     usage["tokensIn"] = max(usage["tokensIn"], stop.get("tokensIn", 0))
     usage["tokensOut"] = max(usage["tokensOut"], stop.get("tokensOut", 0))
     policy = read_json(root / "token-policy.json")
@@ -69,6 +69,12 @@ def saved_t0_trial(root, run_id):
     evidence = attempts[-1] if attempts else run
     failure = read_text(evidence / "gate.txt").splitlines()
     edits = list(candidate_checks(attempts))
+    retries = repair_diagnostics(attempts)
+    arm = read_text(root / "edit-address.txt").strip() or "search-default"
+    comparison = compare_golden_path(load_golden_paths(), run.parent.name, case_key(plan) if plan else "",
+                                     engine, arm, retries, {"calls": usage["turns"], "candidateEdits": len(edits),
+                                                            "testedEdits": sum(behavior_check(verdict) for _, verdict in edits)})
+    warnings = comparison["warnings"]
     cause = stop.get("reason") or excerpt(" ".join(failure[:3]))
     if not cause and edits:
         cause = excerpt(edits[-1][1])
@@ -76,6 +82,7 @@ def saved_t0_trial(root, run_id):
         "pp": usage["tokensIn"],
         "tg": usage["tokensOut"],
         **({"hard_ceiling": ceiling} if ceiling else {}),
+        **({"retry_warnings": warnings} if warnings else {}),
         "cached": usage["cachedPromptTokensObserved"],
         "missing_usage": usage["missingUsageCalls"],
         "cause": cause,
@@ -106,8 +113,8 @@ def t0_snapshot(root, after, limit, details):
     indexed_events = []
     for index, (run_id, status) in enumerate(new, cursor):
         trial = saved_t0_trial(root, run_id)
-        if status != "succeeded" or trial.get("hard_ceiling"):
-            kind = "failure" if status != "succeeded" else "token-overrun"
+        if status != "succeeded" or trial.get("hard_ceiling") or trial.get("retry_warnings"):
+            kind = "failure" if status != "succeeded" else "token-overrun" if trial.get("hard_ceiling") else "retry-warning"
             indexed_events.append((index, {"type": kind, "run": run_id, "state": status, **trial}))
     subtotal = Counter()
     for run_id, _ in rows:
@@ -255,7 +262,7 @@ def main():
             if not args.wait or args.details:
                 break
             terminal = result["state"] in TERMINAL | {"finished", "stopped", "runner-exited"}
-            failure = any(event.get("type") != "token-overrun" for event in result["events"])
+            failure = any(event.get("type", "failure") == "failure" for event in result["events"])
             if after is None and (terminal or (result["events"] if args.wake == "change" else failure)):
                 break
             if after is None:
