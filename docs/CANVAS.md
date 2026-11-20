@@ -145,8 +145,7 @@ The first real use failed before any section ran, and the failure changed three 
 did not compile. An instruction is a request; a format is a constraint. So the primer no longer writes bodies at all: it DECLARES the structure
 (imports, constants, type declarations, and one `@@ <signature>` line per function, placed where the function belongs) and the harness completes it
 (`expandSkeleton`): every `@@` line becomes the function with a placeholder body that raises `not implemented: <name>`; a C++ file gets `<stdexcept>` and a
-prototype for each file-scope function so sections can call each other in any order. There is no body for the model to get wrong. Three bounds make a
-runaway cheap: the skeleton reply is limited to 1,500 tokens at the server, cancelled while it streams past 120 lines, and the whole attempt has a wall
+prototype for each file-scope function so sections can call each other in any order. The skeleton reply uses a token allowance at the server, and the whole attempt has a wall
 budget (`--attempt-wall`, 1,500 s by default) after which no session starts. A `@@` line that is not a signature is refused with its line number.
 
 **A file being written in sections is checked as partial (row 46).** A skeleton's stubs leave helpers uncalled and parameters unused, which `-Werror` rejects
@@ -272,7 +271,7 @@ section and whether a section's second reply differs from its first.
 ### What is not built or not proven
 
 * Nothing here has run on a real model. The commands are in `docs/BLOCK_PROVING_GROUNDS.md` ("Real-model measurements").
-* Whether a 35B keeps to the `@@` format is unknown. If it does not, the reply is cancelled at 120 lines or refused with the line that is wrong, once; a
+* Whether a 35B keeps to the `@@` format is unknown. If it does not, the reply can hit the token budget or be refused at an invalid declaration; a
   second failure ends the attempt in minutes, not in an hour.
 * A signature with a default argument would be declared twice by the prototype the harness adds for a C++ file-scope function (a compile error the precheck
   reports); templates on the line above a `@@` line are not handled.

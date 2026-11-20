@@ -306,6 +306,26 @@ int main()
         if (rq.size() == 2) CHECK(rq[1].last().find("SEARCH block copied more than 40 lines") != std::string::npos);
         CHECK(slurp(attemptDir(d, 2) / "agent.json").find("\"aborted\":1") != std::string::npos);
     }
+    {   // A function replacement can use ordinary formatting beyond the old body line ceiling.
+        const fs::path d = workflow("canvas-long-formatted-function");
+        failedAttempt(d, 1, bad);
+        std::string expanded = term;
+        const auto signatureEnd = expanded.find('\n');
+        std::string separatedStatements;
+        for (int i = 0; i < 110; ++i)
+            separatedStatements += "        sample_" + std::to_string(i) + " = " + std::to_string(i) + "\n";
+        expanded.insert(signatureEnd + 1, separatedStatements);
+        fake::Engine engine({{std::string{"=== EDIT: "} + kFile + " SYMBOL term ===\n" + expanded + "=== END EDIT ===\n"}});
+        CHECK_EQ(runLlmAgent(canvasArgs(d, engine, 2, 0)), 0);
+        CHECK(slurp(attemptDir(d, 2) / "out" / kFile).find("sample_109 = 109") != std::string::npos);
+        const auto requests = engine.requests();
+        CHECK_EQ(requests.size(), 1u);
+        if (!requests.empty()) {
+            CHECK(requests[0].last().find("3000-token budget") != std::string::npos);
+            CHECK(requests[0].last().find("lines at most") == std::string::npos);
+        }
+        CHECK(slurp(attemptDir(d, 2) / "agent.json").find("\"selfcheck\":true") != std::string::npos);
+    }
     {   // A reply that repeats one line is cancelled too.
         const fs::path d = workflow("canvas-repeat");
         failedAttempt(d, 1, bad);
@@ -558,7 +578,7 @@ int main()
             CHECK_EQ(rq.size(), static_cast<std::size_t>(2));
             if (rq.size() == 2) {
                 CHECK(rq[0].thinking == static_cast<int>(thinking) && rq[0].last().find("reply with your plan only") != std::string::npos);
-                CHECK(rq[0].last().find(options ? "three different options" : "smallest viable edit") != std::string::npos);
+                CHECK(rq[0].last().find(options ? "three different options" : "next useful edit") != std::string::npos);
                 if (options) CHECK(rq[0].last().find("leave the code for the act turn") != std::string::npos);
                 const std::string& m = rq[1].last();
                 CHECK(m.find("Your plan from the last turn:\nThe modulo branch divides: replace it with math.fmod.") != std::string::npos);
@@ -590,14 +610,17 @@ int main()
     {   // A length-limited plan can still use its first tested edit.
         const fs::path d = workflow("canvas-bounded-plan");
         failedAttempt(d, 1, bad);
-        fake::Engine engine({{"=== PLAN ===\nInspection incomplete", "length"}, {fixByLine}});
-        CHECK_EQ(runLlmAgent(canvasArgs(d, engine, 2, 0)), 0);
+        const std::string detail = "=== PLAN ===\n" + std::string(3000, 'x') + "\nInspection incomplete";
+        fake::Engine engine({{detail, "length"}, {fixByLine}});
+        CHECK_EQ(runLlmAgent(canvasArgsCtx(d, engine, 2, 0, 16384)), 0);
         CHECK_EQ(slurp(attemptDir(d, 2) / "out" / kFile), ref);
         const auto requests = engine.requests();
         CHECK_EQ(requests.size(), 2u);
         if (requests.size() == 2) {
-            CHECK_EQ(requests[0].maxTokens, 640L);
-            CHECK(requests[1].maxTokens > requests[0].maxTokens);
+            CHECK_EQ(requests[0].maxTokens, 3000L);
+            CHECK_EQ(requests[1].maxTokens, requests[0].maxTokens);
+            CHECK(requests[0].last().find("Aim for about 150 words") != std::string::npos);
+            CHECK(requests[0].last().find("at most 150 words") == std::string::npos);
             CHECK(requests[1].last().find("The plan ran out of room") != std::string::npos);
             CHECK(requests[1].last().find("Inspection incomplete") != std::string::npos);
         }

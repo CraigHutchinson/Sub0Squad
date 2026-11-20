@@ -121,7 +121,7 @@ const char* const kPrimerAsk =
     "=== END SKELETON ===\n"
     "Put one `@@` line where each function or method belongs (a method: inside its class, indented like the class's other members). Write NO function bodies at all: the harness "
     "gives every `@@` line a placeholder body and compiles the result. Declare only functions that will be CALLED: every one must be used by another or be part of the file's contract. "
-    "Split the work into functions of at most about 40 lines each. Keep each file's skeleton under 80 lines. Nothing else in the reply (no explanations, no markdown fences).\n"
+    "Choose sections that each have a clear responsibility. Reply with the skeleton blocks only, without explanations or markdown fences.\n"
     "Example (C++):\n=== SKELETON: src/shapes.cpp ===\n#include \"shapes.hpp\"\n#include <cmath>\n\nnamespace shapes {\n\n@@ static double square(double x)\n@@ double circleArea(double radius)\n@@ double hypotenuse(double a, double b)\n\n}  // namespace shapes\n=== END SKELETON ===\n"
     "Example (Python):\n=== SKELETON: shapes/core.py ===\nimport math\n\n\nclass Circle:\n    def __init__(self, radius):\n        self.radius = radius\n\n    @@ def area(self)\n    @@ def scaled(self, factor)\n\n\n@@ def hypotenuse(a, b)\n=== END SKELETON ===\n";
 
@@ -563,15 +563,14 @@ ForkResult runCanvasFork(const ForkOptions& o)
         std::vector<ChatMessage> primer = {{"system", primerSystem}, {"user", card + kPrimerAsk + contractNote}};
         const fs::path primerTrace = attemptDir / "conversation-skeleton.md";
         // The bound is on the skeleton's TEXT. With thinking on, the reasoning counts against the same max_tokens: the 35B run of 2026-11-17 spent all
-        // 1,500 on reasoning twice (finish `length`, no skeleton), so the `think` strategy guaranteed the failure it was meant to cure. The line guard
-        // below still stops a skeleton that runs on.
+        // 1,500 on reasoning twice (finish `length`, no skeleton), so the `think` strategy needed room for the visible declaration.
         const int skeletonTokens = o.engine.thinking ? std::max(o.maxTokens, kThinkingMaxTokens) : std::min(o.maxTokens, o.skeletonMaxTokens);
         traceBegin(primerTrace, "Skeleton session of " + o.itemId, o.engine, skeletonTokens);
         for (int tryNo = 0; tryNo < 2; ++tryNo) {
             if (remainingSec() <= 0) { res.budgetSpent = true; res.error = "the attempt's wall budget (" + std::to_string(budget.load()) + " s) was spent before a skeleton was accepted"; return finish(2, "budget"); }
             ++res.skeletonTries;
             traceSent(primerTrace, tryNo, primer, tryNo == 0 ? 0 : primer.size() - 2, -1);
-            // A skeleton is short by definition: the reply is bounded at the server, and cancelled while it streams if it runs on.
+            // The server bounds the transport. A caller can additionally set an explicit experimental line guard.
             const StreamGuard tooLong = [&](const std::string& soFar) { return o.skeletonMaxLines > 0 && std::count(soFar.begin(), soFar.end(), '\n') > o.skeletonMaxLines; };
             auto r = chat(seeded("skeleton" + std::to_string(tryNo)), primer, skeletonTokens, remainingSec(), tooLong);
             if (!r) { res.error = "the skeleton call failed: " + r.error(); return finish(2, remainingSec() <= 0 ? "budget" : "skeleton"); }

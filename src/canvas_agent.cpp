@@ -22,6 +22,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>
+#include <limits>
 #include <regex>
 #include <set>
 #include <sstream>
@@ -116,7 +117,6 @@ void addFoldReads(const std::string& text, const std::vector<ReadRequest>& folds
 
 constexpr double kThinkingShare = 0.6;               ///< share of a turn's token budget thinking may use before it is stopped and carried over
 constexpr double kCharsPerToken = 3.5;               ///< characters per token, to judge streamed reasoning without a tokenizer
-constexpr int kTokensPerLine = 12;                    ///< tokens per line of code (about 40 characters), to tell the worker its reply limit in lines
 /// What a thinking turn is asked to reason about (experiment SUB0SQUAD_THINKPLAN): the cause and the plan, never the code itself.
 constexpr std::string_view kThinkPlanNote =
     "Before you answer, think about the problem, not the code: what is wrong or missing and why, its root cause, and the plan (which "
@@ -129,9 +129,9 @@ constexpr std::string_view kThinkOptionsNote =
     "and leave the code for the act turn.";
 /// The plan turn asks for a short decision before the act turn writes the transaction.
 constexpr std::string_view kPlanStepNote =
-    "\nThink about the root cause, the smallest viable edit and the check it should satisfy. "
-    "This turn, reply with your plan only, no edits and no code, at most 150 words: === PLAN === then the plan, then === END PLAN ===. "
-    "You write the transaction in the next turn.";
+    "\nThink about the root cause, the next useful edit and the check it should satisfy. Aim for about 150 words for the current step. "
+    "Use more detail when the next edit needs it. Note unresolved evidence, dependencies and work that can be planned separately later. "
+    "This turn, reply with your plan only between === PLAN === and === END PLAN ===. You write the transaction in the next turn.";
 constexpr std::size_t kCarriedReasoningChars = 3000; ///< how much of stopped reasoning comes back with the next turn (its end, where it was heading)
 
 /// The last `n` characters of `s`, starting at a line boundary when one is near.
@@ -554,9 +554,14 @@ int runCanvasAttempt(const AttemptContext& a)
                 ? "To see a hidden body, reply `READ B5` on its own line, using its marker from this view. Request multiple bodies in one reply. You have two read replies per attempt."
                 : "The read allowance is used up. Work from the source shown and reply with an edit transaction.");
         const long availTokens = static_cast<long>(a.engine.contextTokens) - a.maxTokens - 300;
-        const long windowChars = static_cast<long>(static_cast<double>(availTokens) * 3.2) - static_cast<long>(turnSystem.size() + a.card.size() + a.guidance.size()) - 1500;
+        const long availableChars = static_cast<long>(static_cast<double>(availTokens) * 3.2) - static_cast<long>(turnSystem.size() + a.card.size() + a.guidance.size()) - 1500;
+        const long sourceReserve = 800L * static_cast<long>(std::max<std::size_t>(1, canvas.paths().size()));
+        const long planRoom = verdictIsRead ? availableChars - static_cast<long>(verdict.size()) - sourceReserve : availableChars;
+        const auto planCap = static_cast<std::size_t>(std::max(0L, std::min(availableChars / 4, planRoom)));
+        const std::string planView = planCap == 0 || carriedPlan.empty() ? std::string{} : clip(carriedPlan, planCap);
+        const long windowChars = availableChars - static_cast<long>(planView.size());
         const std::size_t verdictCap = verdictIsRead
-            ? static_cast<std::size_t>(std::max(2400L, windowChars - 800L * static_cast<long>(std::max<std::size_t>(1, canvas.paths().size()))))
+            ? static_cast<std::size_t>(std::max(2400L, windowChars - sourceReserve))
             : 2400;
         // A transaction refusal replaces the last message, but the measured near pass still describes this canvas.
         std::string repairEvidence;
@@ -620,12 +625,10 @@ int runCanvasAttempt(const AttemptContext& a)
                                  (canvas.paths().empty() ? "" : "Reply with the transaction that fixes EVERYTHING listed above (every failing test, every error, one edit each), its form picked once by the rules above: " +
                                                                     std::string{restructure ? "a few functions wrong, edit just them; the approach wrong, the complete new file (in steps when it is long).\n"
                                                                                             : "a few lines wrong, SEARCH/REPLACE; a function wrong or missing, SYMBOL (as many as it takes; FILE only for a file that is new or a stub).\n"} +
-                                                                    // The worker cannot know the reply limit, and its overrun was not thoroughness (T0 write-engine, 2026-11-18, docs/BACKLOG.md:
-                                                                    // the same features as the reference at 1.7 times the code, through per-case copies, dead code and reasoning in comments).
-                                                                    // So the ask is quality, never fewer checks: decide the design first, each rule in one place.
-                                                                    "A reply holds about " + std::to_string(a.maxTokens / kTokensPerLine) + " lines at most. Decide the design before you write; "
-                                                                    "keep each rule in one place (a shared helper, not a copy per case), no unused code, no reasoning in comments; keep every check "
-                                                                    "the contract needs. A longer file is written in steps (its first part, then the remaining functions as SYMBOL edits).\n");
+                                                                    "The edit reply has a " + std::to_string(a.maxTokens) + "-token budget. "
+                                                                    "Use normal formatting and short comments for non-obvious constraints. Keep each rule in one place "
+                                                                    "and preserve every check the contract requires. A longer file can be written in steps "
+                                                                    "(its first part, then the remaining functions as SYMBOL edits).\n");
         verdictIsRead = false;
         // Reasoning that ran out before an edit is kept, not thrown away: its end comes back with this turn, which runs with thinking off so the decision
         // already reasoned out is written down (the 35B runs: 19 turns, 114k tokens of thinking that never reached an edit).
@@ -641,8 +644,8 @@ int runCanvasAttempt(const AttemptContext& a)
         carriedLoop.clear();
         std::string planForTurn = std::move(carriedPlan);
         carriedPlan.clear();
-        const std::string planned = planForTurn.empty() ? std::string{}
-            : (editAfterRead ? "\nYour current plan:\n" : "\nYour plan from the last turn:\n") + planForTurn +
+        const std::string planned = planView.empty() ? std::string{}
+            : (editAfterRead ? "\nYour current plan:\n" : "\nYour plan from the last turn:\n") + planView +
               (readsAvailable ? "\nCarry it out now: reply with the transaction it describes (the forms above), written once.\n"
                               : "\nApply the plan using the source already shown. Reply with the edit transaction now.\n");
         std::vector<ChatMessage> convo = {{"system", turnSystem}, {"user", user + carried + planned}};
@@ -659,7 +662,7 @@ int runCanvasAttempt(const AttemptContext& a)
         } else if (!partial.empty()) {
             const auto nl = partial.rfind('\n');
             const std::string atLine = nl == std::string::npos ? std::string{} : partial.substr(0, nl + 1);
-            const auto estimate = static_cast<int>(static_cast<double>(turnSystem.size() + user.size() + carried.size() + atLine.size()) / kCharsPerToken) + a.maxTokens;
+            const auto estimate = static_cast<int>(static_cast<double>(turnSystem.size() + user.size() + carried.size() + planned.size() + atLine.size()) / kCharsPerToken) + a.maxTokens;
             if (!atLine.empty() && estimate < a.engine.contextTokens) {
                 prefill = atLine;
                 convo.push_back({"assistant", prefill});
@@ -688,8 +691,6 @@ int runCanvasAttempt(const AttemptContext& a)
                 convo.back().content += "\nFollow the single failing input through the current code. Identify the first incorrect value or state "
                                         "and the affected callers. Check that the proposed repair preserves a nearby passing case.\n";
             convo.back().content += kPlanStepNote;
-            if (handoffRead && !turnEngine.thinking)
-                convo.back().content += "\nKeep the plan brief. Name the first action and the check it should satisfy.\n";
         } else if (turnEngine.thinking && thinkPlanMode == "1") {
             convo.back().content += "\n" + std::string{kThinkPlanNote};
         }
@@ -737,16 +738,16 @@ int runCanvasAttempt(const AttemptContext& a)
                 path.erase(path.find_last_not_of(" \t\r") + 1);
                 if (auto why = scopeRefusalFor(path); !why.empty()) { runaway = {"scope", "Your reply was stopped: " + why}; return true; }
             }
-            // The same rewrite in disguise (35B, 2026-11-18): a SEARCH of the whole file with a 600-line REPLACE, or one edit growing past a function's size.
-            if (!locked.empty()) if (runaway = detectEditOverrun(soFar, locked); runaway) return true;
+            // Keep the whole-file SEARCH guard. Replacement bodies are bounded by tokens so formatting cannot trigger a scope refusal.
+            if (!locked.empty())
+                if (runaway = detectEditOverrun(soFar, locked, std::numeric_limits<int>::max()); runaway) return true;
             // After a rollback the kept text was judged when it was written: it is not a restatement now (its head may be the draft's, as written).
             runaway = detectRunaway(soFar, rolledBack ? std::map<std::string, std::string>{} : drafts);
             if (runaway && aborts >= freeAborts && runaway.kind != "repeat") runaway = {};   // a loop is always stopped (past the free aborts it costs a turn)
             if (runaway.kind == "repeat") loopKept = soFar.substr(0, std::min(runaway.keep, soFar.size()));
             return static_cast<bool>(runaway);
         };
-        const int replyTokens = planStep && handoffRead && !turnEngine.thinking ? std::min(a.maxTokens, 640) : a.maxTokens;
-        auto reply = chatCompleteMessages(turnEngine, convo, replyTokens, a.timeoutSec, liveSink, guard);
+        auto reply = chatCompleteMessages(turnEngine, convo, a.maxTokens, a.timeoutSec, liveSink, guard);
         { std::error_code lec; fs::remove(livePath, lec); }
         const int call = calls++;
         if (!reply) {
@@ -803,7 +804,7 @@ int runCanvasAttempt(const AttemptContext& a)
                 verdict += "\nThis is the second loop in a row, so the reply is not kept this time: start it afresh, built a different way.";
             }
             loopKept.clear();
-            if (runaway.kind == "scope" || runaway.kind == "rewrite-search" || runaway.kind == "big-edit") noteScopeStop(call, verdict);
+            if (runaway.kind == "scope" || runaway.kind == "rewrite-search") noteScopeStop(call, verdict);
             traceVerdict(tracePath, call, "cancelled while streaming (" + runaway.kind + ") after " + std::to_string(reply->content.size()) + " characters");
             std::printf("canvas turn %d: cancelled early (%s)\n", call, runaway.kind.c_str());
             events::note("reply cancelled early: " + runaway.kind);
@@ -833,17 +834,17 @@ int runCanvasAttempt(const AttemptContext& a)
                 plan.erase(0, plan.find_first_not_of(" \t\r\n"));
                 if (!plan.empty()) {
                     ++plans;
-                    carriedPlan = clip(plan, 2000);
+                    carriedPlan = std::move(plan);
                     decideNext = true;
                     traceVerdict(tracePath, call, "plan written (" + std::to_string(plan.size()) + " characters): carried into the next turn, which runs with thinking off; no turn used");
                     std::printf("canvas turn %d: plan written\n", call);
                     continue;
                 }
             }
-            if (replyTokens < a.maxTokens && reply->finishReason == "length") {
+            if (reply->finishReason == "length") {
                 ++plans;
                 decideNext = true;
-                if (first != std::string::npos) carriedPlan = clip(text.substr(first + 1), 1600);
+                if (first != std::string::npos) carriedPlan = text.substr(first + 1);
                 verdict += "\nThe plan ran out of room. Use the current evidence and write the smallest applicable transaction now.";
                 traceVerdict(tracePath, call, "bounded plan cut off; continuing to the edit without spending an edit turn");
                 continue;

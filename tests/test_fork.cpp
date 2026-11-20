@@ -138,20 +138,20 @@ int main()
             }
         CHECK(sawRound);
     }
-    {   // Row 46, as it happened: asked for the structure, the model writes the IMPLEMENTATION. The stream is cancelled past 120 lines (the server is
-        // stopped, not waited for), the re-prompt says why, and a declared skeleton then runs as usual. The skeleton reply is also bounded at the server.
+    {   // When a response runs out of transport tokens, the retry asks for declarations. Normal source line counts do not constrain the primer.
         const fs::path d = workflow("fork-ignores");
         std::string implementation = std::string{"=== SKELETON: "} + kFile + " ===\n" + ref + "\n" + ref + "=== END SKELETON ===\n";   // about 300 lines
         fake::Engine engine([&](const fake::Request& rq, int index) {
-            if (index == 0) { fake::Reply slow{implementation}; slow.pieceChars = 80; slow.pauseMs = 2; return slow; }
+            if (index == 0) { fake::Reply slow{implementation, "length"}; slow.pieceChars = 80; slow.pauseMs = 2; return slow; }
             return primerOr(rq, [&](const std::string& name) { return fake::Reply{edit(name, fn[name])}; });
         });
         CHECK_EQ(runLlmFork(forkArgs(d, engine)), 0);
         CHECK_EQ(slurp(attemptDir(d, 1) / "out" / kFile), ref);
-        CHECK(engine.abortedAfter(0) >= 0 && engine.abortedAfter(0) < static_cast<long>(implementation.size() * 3 / 4));
+        CHECK(engine.abortedAfter(0) < 0);
         const auto rq = engine.requests();
         CHECK(rq.size() >= 2 && rq[0].maxTokens == 1500);                                   // bounded at the server, whatever the item's budget
-        CHECK(rq.size() >= 2 && rq[1].last().find("ran past 120 lines and was stopped") != std::string::npos && rq[1].last().find("NO function bodies") != std::string::npos);
+        CHECK(!rq.empty() && rq[0].last().find("40 lines") == std::string::npos && rq[0].last().find("80 lines") == std::string::npos);
+        CHECK(rq.size() >= 2 && rq[1].last().find("was cut off at the token limit") != std::string::npos && rq[1].last().find("NO function bodies") != std::string::npos);
         CHECK(slurp(attemptDir(d, 1) / "fork.json").find("\"skeletonTries\":2") != std::string::npos);
     }
     {   // Under the manager's `think` strategy the skeleton call has room to reason: the reasoning counts against max_tokens, and the 35B run of

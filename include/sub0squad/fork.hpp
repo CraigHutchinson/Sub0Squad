@@ -37,8 +37,8 @@ struct ForkOptions
     int parallel = 0;                   ///< 0: up to the idle slots (the default); N: exactly N at once (an experiment)
     std::string sequentialReason;       ///< non-empty: one section at a time, and this is why
     long memFloorMiB = 0;               ///< > 0: below this much available memory forks are shed (one section at a time)
-    int skeletonMaxTokens = 1500;       ///< the skeleton is declarations only: its reply is bounded at the server (plus room to reason, with thinking on) ...
-    int skeletonMaxLines = 120;         ///< ... and cancelled while it streams when it runs past this many lines (row 46)
+    int skeletonMaxTokens = 1500;       ///< the declaration reply is bounded at the server, with room to reason when thinking is on
+    int skeletonMaxLines = 0;           ///< an explicit caller may set a line guard for an experiment
     int wallBudgetSec = 900;            ///< the attempt's wall budget: this base (0 = no budget at all) ...
     int wallPerSectionSec = 150;        ///< ... plus this for every section, so a file of 14 functions is not given the time of a file of 4
     bool fresh = false;                 ///< never resume the previous attempt's canvas: start from a new skeleton
