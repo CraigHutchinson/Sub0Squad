@@ -146,6 +146,24 @@ The `--t1-source` option freezes the replay's CLI and the original calculator he
 
 All four opening prompts listed all 22 failures from the starter stubs. All four generated drafts hit compilation errors before the behavior tests ran, so this campaign cannot tell whether the old delimiter or power defects recur. The 6,000-token arm isolated a compile blocker that can occur without truncation. The next targeted test can isolate whether the worker can repair a single reported compile error without rewriting unrelated code.
 
+### 2.5 Optimizer, QA and DRY exercises
+
+The worker receives a change request, the public contract and the evidence a maintainer would normally see. The checker holds the private fixtures, threshold calibration and known controls outside the worker prompt. Start each exercise as a named T0 diagnostic and record the behavior and quality verdicts independently.
+
+| Exercise | Public task | Independent receiving check |
+| --- | --- | --- |
+| Optimizer | Reduce repeated work on a named path while preserving output and error behavior. | Run the existing behavior suite and count the relevant operations, allocations or reads on fixed inputs. Show that the seed exceeds the stated budget and a known-good implementation stays within it. Keep timing as a separate host measurement. |
+| QA | Add tests for a named behavior and its boundary or error cases. | Run the submitted tests against the unmodified implementation and one or more frozen defects. Require a clean pass on the reference and an assertion failure from the behavior under test on a defect. A compile error, crash or missing test counts as a separate failure. |
+| DRY and C++ review | Move a named duplicated invariant to one source of truth, or repair a stated review finding, while preserving public behavior. | Test every affected consumer. Use a structural check only when the requirement can be stated independently of the reference patch. Record reviewer findings with the applicable rule and source location. Keep line counts, similarity and repetition as supporting diagnostics. |
+
+Use the existing repeated-conversion case to calibrate the DRY review and the archived test-writing mutation probe to calibrate the QA check. A useful next optimizer fixture has a deterministic work count at the caller boundary and a known reference that reduces it. Keep the patch private and permit a different implementation with the same behavior and measured result.
+
+For a best-practice exercise, the review could ask for the factorial limit to have a descriptive name and a short explanation of the numerical boundary. Verify that 170 factorial is finite and accurate, that 171 is rejected, and that the existing invalid-input behavior is preserved. The current expression comparing the value with 1e306 also accepts infinity. A finite-value probe closes that gap in a separate diagnostic. A style-only case needs an independent criterion that can reject a behavior-green seed and accept a conforming edit. Until it exists, keep the named constant and its explanation as a review exercise.
+
+For skeleton fills and folded functions, consider short comments that state an invariant, assumption or call-order constraint that a reader needs. In a parser, a useful comment might explain why a call consumes input before recursion. Put a comment needed to understand a folded block where the ordinary folded view shows it, near the visible signature. Check it against the code and a representative test. Comment count, verbosity and summaries of obvious statements provide weak evidence. Run a future paired experiment with the same source and read interface to see whether these comments help the worker choose which blocks to expand and preserve the invariant while editing.
+
+A criterion joins the release gate after positive and negative controls establish that it checks the stated contract, the experiment measures false rejects on alternative valid implementations, and a held-out task shows that the prompt and checker transfer. Keep PP, TG and first-pass ordinals in the same report. They measure how the worker got to the result. They carry no vote on whether a particular code structure meets the contract.
+
 ## 3. Modes
 
 All three judge the run directories, as `gate_t0.py` does today: a run counts when its `case_key`, build and engine match; stale runs are listed, not counted.

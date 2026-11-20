@@ -112,6 +112,9 @@ The queue, with hypotheses, arms, measures and commands, is [EXPERIMENTS.md](EXP
 - The tree report, shadow tier sets and scoped runner are implemented. The three new composites passed model-free seed and positive controls. Run their live calibration before deciding whether to promote them or change `GATE`. [Migration](T0_LAYERS.md#5-migration-with-no-behaviour-change-until-switched).
 - A failing composite reported as blocked by its failing requirements, not as a failure of its own (2026-11-18: wrong-approach fails while write-engine
   and replace-function fail on their own; `gate_t0.py` does not read `REQUIRES` yet).
+- Calibrate optimizer, QA, DRY and best-practice exercises with independently checkable outcomes. Include named numerical limits and comments
+  that explain invariants needed in folded source. Keep the current gate frozen while testing these criteria. [T0 layers](T0_LAYERS.md#25-optimizer-qa-and-dry-exercises).
+  The Sub0Canvas prose verification brief covers revision-bound evidence, author and QA acknowledgment, and a scoped code-and-comments view.
 - Half-written follow-up, parked until incomplete source blocks a later workflow. Some appends close the current function and leave required declarations or the public entry point missing. Cascade diagnostics can then send the worker back into the correct prefix. Try a hint that derives a short list of unresolved names and missing public definitions from the compiler diagnostics, header and visible contract. Keep the fixture, output scope and gate fixed, and leave the missing implementation to the worker. [T0 evidence](BLOCK_PROVING_GROUNDS.md).
 - The near-pass repair attempt goes past `--max-local` in the t0 process: decide whether tier 0 keeps it.
 - Token usage as a gate measure, T0 and up (owner, 2026-11-18): an expected budget per case, and the usage broken down by area, so a workflow that
