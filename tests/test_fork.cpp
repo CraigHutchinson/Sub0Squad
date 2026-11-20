@@ -6,7 +6,7 @@
 #include "agent_bench.hpp"
 #include "sub0squad/harness_registry.hpp"
 #include "sub0squad/fork.hpp"
-#include "sub0squad/platform_proc.hpp"
+#include "sub0platform/proc.hpp"
 #include "sub0squad/harness_cpp.hpp"
 #include "sub0squad/outline.hpp"
 
@@ -50,9 +50,9 @@ int main()
     {   // Throughput by default: five sections, four slots, so four at once; every function lands, nothing is lost, the merged file is the reference.
         const fs::path d = workflow("fork-parallel");
         fake::Engine engine([&](const fake::Request& rq, int) { return primerOr(rq, [&](const std::string& name) { fake::Reply r{edit(name, fn[name])}; r.pauseMs = 5; return r; }); });
-        sub0squad::platform::setEnvironment("SUB0SQUAD_LEASE_INDEX", "1");   // as inside a daemon job that holds lease slot 1
+        sub0platform::setEnvironment("SUB0SQUAD_LEASE_INDEX", "1");   // as inside a daemon job that holds lease slot 1
         CHECK_EQ(runLlmFork(forkArgs(d, engine)), 0);
-        sub0squad::platform::unsetEnvironment("SUB0SQUAD_LEASE_INDEX");
+        sub0platform::unsetEnvironment("SUB0SQUAD_LEASE_INDEX");
         for (const auto& r : engine.requests()) CHECK_EQ(r.idSlot, -1L);   // several requests at once are never pinned to the job's one slot (row 47)
         CHECK_EQ(slurp(attemptDir(d, 1) / "out" / kFile), ref);
         CHECK_EQ(engine.requestCount(), static_cast<std::size_t>(6));               // the primer and one session per section

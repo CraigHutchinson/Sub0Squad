@@ -2,7 +2,7 @@
 
 #include "json_util.hpp"
 
-#include "sub0squad/platform_net.hpp"
+#include "sub0platform/net.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -90,10 +90,10 @@ std::string dechunk(const std::string& s)
 }
 
 /// Connect to the URL's host and send one request; the stream is then read until the server closes it.
-std::expected<platform::SocketStream, std::string> sendRequest(const std::string& host, int port, const std::string& path, const std::string& method,
+std::expected<sub0platform::SocketStream, std::string> sendRequest(const std::string& host, int port, const std::string& path, const std::string& method,
                                                                const std::string& body, const char* accept)
 {
-    auto s = platform::connectTcp(host, static_cast<std::uint16_t>(port));
+    auto s = sub0platform::connectTcp(host, static_cast<std::uint16_t>(port));
     if (!s) return std::unexpected(s.error().message);
     std::string req = method + " " + path + " HTTP/1.1\r\nHost: " + host + "\r\nConnection: close\r\nAccept: " + accept + "\r\n";
     if (!body.empty() || method == "POST") req += "Content-Type: application/json\r\nContent-Length: " + std::to_string(body.size()) + "\r\n";

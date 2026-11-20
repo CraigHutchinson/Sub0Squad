@@ -3,7 +3,7 @@
 /// Blocking client for the control socket, plus the command line (`sub0squad submit|status|logs|cancel|wait|resume|serve|...`).
 
 #include "sub0squad/paths.hpp"
-#include "sub0squad/platform_net.hpp"
+#include "sub0platform/net.hpp"
 
 #include <chrono>
 #include <expected>
@@ -38,7 +38,7 @@ public:
     void setReceiveTimeout(int seconds);
 
 private:
-    platform::SocketStream stream_;
+    sub0platform::SocketStream stream_;
     std::optional<std::chrono::milliseconds> receiveTimeout_;
 };
 

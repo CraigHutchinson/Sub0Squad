@@ -1,6 +1,6 @@
 #pragma once
 // Tiny test helpers: no framework dependency.
-#include "sub0squad/platform_file.hpp"   // removeTree
+#include "sub0platform/file.hpp"   // removeTree
 
 #include <chrono>
 #include <cstdio>
@@ -45,7 +45,7 @@ inline void removeTree(const std::filesystem::path& p)
 {
     for (int i = 0; i < 20; ++i) {
         // The platform's removal opens no file: std::filesystem::remove_all blocked for ever on a daemon's socket file on Windows Server 2022.
-        if (sub0squad::platform::removeTree(p)) return;
+        if (sub0platform::removeTree(p)) return;
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
 }

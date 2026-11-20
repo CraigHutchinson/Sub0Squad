@@ -87,7 +87,7 @@
       "cv": 0.062,
       "rounds": 5
     },
-    "spawn and wait, platform::spawn()": {
+    "spawn and wait, sub0platform::spawn()": {
       "median_ns": 16534201.692,
       "cv": 0.0779,
       "rounds": 5
@@ -120,7 +120,7 @@
       "reference": "loopback 64 B write and read, hand-written",
       "ratio": 1.0021
     },
-    "spawn and wait, platform::spawn()": {
+    "spawn and wait, sub0platform::spawn()": {
       "reference": "spawn and wait, hand-written",
       "ratio": 1.011
     },

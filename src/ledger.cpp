@@ -2,7 +2,7 @@
 
 #include "json_util.hpp"
 
-#include "sub0squad/platform_file.hpp"
+#include "sub0platform/file.hpp"
 
 #include <algorithm>
 #include <fstream>
@@ -31,7 +31,7 @@ bool appendLedger(const std::filesystem::path& file, const LedgerRecord& r)
 {
     std::string line = toJson(r);
     line.push_back('\n');
-    return platform::appendToFile(file, line).has_value();
+    return sub0platform::appendToFile(file, line).has_value();
 }
 
 std::vector<LedgerRecord> readLedger(const std::filesystem::path& file)

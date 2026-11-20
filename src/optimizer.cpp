@@ -5,7 +5,7 @@
 #include "sub0squad/harness_common.hpp"
 #include "sub0squad/harness_web.hpp"
 #include "sub0squad/sandbox.hpp"
-#include "sub0squad/platform_file.hpp"
+#include "sub0platform/file.hpp"
 
 #include <chrono>
 #include <cstdio>
@@ -61,11 +61,11 @@ int runOptimizeJob(const std::vector<std::string>& args)
             if (rc == 0) {
                 const int g = runHarnessGate({"--workflow-dir", dir.string(), "--item", item, "--attempt", std::to_string(attempt), "--no-publish", "1"});
                 row.passed = g == 0;
-                const std::string gate = platform::readFileText(dir / "items" / item / ("attempt-" + std::to_string(attempt)) / "gate.txt");
+                const std::string gate = sub0platform::readFileText(dir / "items" / item / ("attempt-" + std::to_string(attempt)) / "gate.txt");
                 if (const auto [failed, total] = harnessutil::gateTestCounts(gate); failed >= 0) { row.failing = failed; row.tests = total; }
                 else if (row.passed) { row.failing = 0; }
             }
-            const std::string metrics = platform::readFileText(dir / "items" / item / ("attempt-" + std::to_string(attempt)) / "agent.json");
+            const std::string metrics = sub0platform::readFileText(dir / "items" / item / ("attempt-" + std::to_string(attempt)) / "agent.json");
             row.tokensIn = numberAfter(metrics, "\"tokensIn\":");
             row.tokensOut = numberAfter(metrics, "\"tokensOut\":");
             row.seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - began).count();
@@ -81,7 +81,7 @@ int runOptimizeJob(const std::vector<std::string>& args)
         w.beginObject().kv("treatment", r.treatment).kv("attempt", r.attempt).kvBool("generated", r.generated).kvBool("passed", r.passed).kv("failing", r.failing).kv("tests", r.tests)
             .kv("tokensIn", r.tokensIn).kv("tokensOut", r.tokensOut).kv("seconds", r.seconds).endObject();
     w.endArray().endObject();
-    (void)platform::writeFile(dir / "items" / item / "optimization.json", w.take());
+    (void)sub0platform::writeFile(dir / "items" / item / "optimization.json", w.take());
     std::printf("\n%-10s %7s %7s %12s %10s %10s %8s\n", "treatment", "rounds", "passed", "fail(avg)", "tokens in", "tokens out", "seconds");
     for (const auto& t : treatments) {
         int n = 0, ok = 0, failN = 0; double fail = 0, tin = 0, tout = 0, secs = 0;

@@ -6,8 +6,8 @@
 #include "sub0squad/event_channel.hpp"
 #include "sub0squad/harness.hpp"
 #include "sub0squad/mends.hpp"
-#include "sub0squad/platform_process.hpp"
-#include "sub0squad/platform_file.hpp"
+#include "sub0platform/process.hpp"
+#include "sub0platform/file.hpp"
 
 #include <print>
 #include <algorithm>
@@ -87,14 +87,14 @@ std::string one(const Args& m, const std::string& k, const std::string& d)
     auto it = m.find(k);
     return it == m.end() || it->second.empty() ? d : it->second.back();
 }
-std::string slurp(const fs::path& p) { return platform::readFileText(p); }
-bool writeFile(const fs::path& p, const std::string& text) { return platform::writeFile(p, text).has_value(); }
+std::string slurp(const fs::path& p) { return sub0platform::readFileText(p); }
+bool writeFile(const fs::path& p, const std::string& text) { return sub0platform::writeFile(p, text).has_value(); }
 
 
 Cmd run(const std::vector<std::string>& argv, const fs::path& cwd, int timeoutSec)
 {
     Cmd r;
-    const auto ran = platform::runCaptured({.argv = argv, .cwd = cwd}, {.timeout = std::chrono::seconds(timeoutSec), .maxBytes = 512 * 1024});
+    const auto ran = sub0platform::runCaptured({.argv = argv, .cwd = cwd}, {.timeout = std::chrono::seconds(timeoutSec), .maxBytes = 512 * 1024});
     if (!ran) { r.exitCode = 127; r.output = ran.error().message + "\n"; return r; }   // said, so a gate shows "cannot start 'g++'" rather than nothing
     r.timedOut = ran->timedOut;
     r.exitCode = ran->status.exited() ? ran->status.code : -1;

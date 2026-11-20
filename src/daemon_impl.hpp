@@ -20,12 +20,12 @@
 #include "sub0squad/progress.hpp"
 #include "sub0squad/workflow.hpp"
 #include "sub0squad/workflow_status.hpp"
-#include "sub0squad/platform_proc.hpp"
+#include "sub0platform/proc.hpp"
 #include "sub0squad/status.hpp"
 #include "sub0squad/supervisor.hpp"
-#include "sub0squad/platform_file.hpp"
-#include "sub0squad/platform_ipc.hpp"
-#include "sub0squad/platform_wait.hpp"
+#include "sub0platform/file.hpp"
+#include "sub0platform/ipc.hpp"
+#include "sub0platform/wait.hpp"
 #include "sub0pipeline/sub0pipeline.hpp"
 #include <cerrno>
 #include <chrono>
@@ -105,7 +105,7 @@ struct Daemon::Impl
 {
     struct Client
     {
-        platform::SocketStream stream;
+        sub0platform::SocketStream stream;
         std::string owner;   ///< who connected ("uid:1000"), read when it was accepted
         FrameBuffer in;
         std::string out;
@@ -116,7 +116,7 @@ struct Daemon::Impl
     {
         std::string id;
         int run = 1;
-        platform::ProcessId shimPid = 0;
+        sub0platform::ProcessId shimPid = 0;
         bool finalized = false;
         bool hasPipeline = false;
         int leaseIndex = -1;           ///< slot of the job's lease (0..cap-1), passed to the job as SUB0SQUAD_LEASE_INDEX; -1 = none or adopted
@@ -125,11 +125,11 @@ struct Daemon::Impl
         std::jthread runner;
     };
     DaemonOptions opts;
-    platform::FileLock instanceLock;      ///< one daemon per state directory
-    platform::SocketListener listener;    ///< the control socket
+    sub0platform::FileLock instanceLock;      ///< one daemon per state directory
+    sub0platform::SocketListener listener;    ///< the control socket
     std::uint64_t exitWithStart = 0;      ///< the start stamp of opts.exitWith, so a reused process id is not taken for it
     bool exitWithPolled = false;          ///< the waiter could not watch opts.exitWith: the loop checks it once a second instead
-    platform::Waiter waiter;              ///< the reactor: the listener, the clients, the shims' exits, posts (wake) and stop requests
+    sub0platform::Waiter waiter;              ///< the reactor: the listener, the clients, the shims' exits, posts (wake) and stop requests
     Journal journal;
     JobStore store;
     WorkflowStore wfStore;
@@ -137,10 +137,10 @@ struct Daemon::Impl
     bool inAdvance = false;
     bool journalOk = true;
     bool stopping = false;
-    std::map<platform::NativeSocket, Client> clients;
+    std::map<sub0platform::NativeSocket, Client> clients;
     std::map<std::string, std::unique_ptr<Running>> running;
-    std::map<platform::ProcessId, std::string> shimToJob;   ///< the shims whose exit is watched (by the waiter, or by polling below)
-    std::map<platform::ProcessId, std::uint64_t> polledShims;   ///< shims the waiter could not watch (its limit, no pidfd): their start stamp, checked each second
+    std::map<sub0platform::ProcessId, std::string> shimToJob;   ///< the shims whose exit is watched (by the waiter, or by polling below)
+    std::map<sub0platform::ProcessId, std::uint64_t> polledShims;   ///< shims the waiter could not watch (its limit, no pidfd): their start stamp, checked each second
     void checkPolledShims();
     void onServedExit();   ///< the process named by --exit-with ended: stop as on SIGTERM
     std::mutex postMutex;
@@ -154,7 +154,7 @@ struct Daemon::Impl
     // ---- reactor plumbing ------------------------------------------------------------------------------------------
     void post(std::move_only_function<void()> fn);
     /// Watch a shim's exit; false when it is already gone. One the waiter refuses while it lives is polled instead (checkPolledShims).
-    bool watchShim(const std::string& id, platform::ProcessId shim);
+    bool watchShim(const std::string& id, sub0platform::ProcessId shim);
     // ---- journal ---------------------------------------------------------------------------------------------------
     bool record(std::string_view type, const std::string& body);
     // ---- startup reconciliation ------------------------------------------------------------------------------------
@@ -177,7 +177,7 @@ struct Daemon::Impl
     void startRun(const JobRecord& job, int leaseIndex = -1);
     void onShimStart(const std::string& id, int run, sub0pipeline::Completion done);
     void onRunnerDone(const std::string& id) { running.erase(id); }
-    void onShimExit(platform::ProcessId shim);
+    void onShimExit(sub0platform::ProcessId shim);
     void finalizeWith(const std::string& id, JobState state, const std::string& exitJson, const std::string& note);
     // ---- workflows and the ledger ---------------------------------------------------------------------------------
     void ledgerFor(const std::string& id);
@@ -205,8 +205,8 @@ struct Daemon::Impl
     std::string doCancel(const std::string& id);
     std::string doResume(const std::string& id);
     void handle(Client& c, const std::string& text);
-    void closeClient(platform::NativeSocket socket);
-    void onClient(const platform::WaitEvent& event);
+    void closeClient(sub0platform::NativeSocket socket);
+    void onClient(const sub0platform::WaitEvent& event);
     void onAccept();
     void drainPosts();
     int loop();

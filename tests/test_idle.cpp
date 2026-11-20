@@ -13,10 +13,10 @@ int main(int, char** argv)
     CHECK(sq.waitState(done, "succeeded"));
     CHECK(sq.waitState(live, "running"));
     sleepMs(1500);  // settle
-    const auto before = sub0squad::platform::processUsage(sq.daemonPid());
+    const auto before = sub0platform::processUsage(sq.daemonPid());
     const int windowMs = 12000;
     sleepMs(windowMs);
-    const auto after = sub0squad::platform::processUsage(sq.daemonPid());
+    const auto after = sub0platform::processUsage(sq.daemonPid());
     CHECK(before && after);
     if (before && after) {
         const double cpu = after->cpuSeconds - before->cpuSeconds;

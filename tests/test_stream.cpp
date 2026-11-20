@@ -3,7 +3,7 @@
 #include "check.hpp"
 #include "sub0squad/engine.hpp"
 
-#include "sub0squad/platform_net.hpp"
+#include "sub0platform/net.hpp"
 
 #include <atomic>
 #include <chrono>
@@ -12,26 +12,26 @@
 using namespace sub0squad;
 using Clock = std::chrono::steady_clock;
 
-static void sendAll(platform::SocketStream& fd, const std::string& s) { (void)fd.writeAll(s); }
+static void sendAll(sub0platform::SocketStream& fd, const std::string& s) { (void)fd.writeAll(s); }
 static std::string chunk(const std::string& s) { char h[32]; std::snprintf(h, sizeof h, "%zx\r\n", s.size()); return std::string(h) + s + "\r\n"; }
 
 /// A one-connection fake engine on an ephemeral port. `mode`: 0 streaming 200, 1 an error status.
 struct Fake
 {
-    platform::SocketListener listener;
+    sub0platform::SocketListener listener;
     int port = 0;
     std::atomic<long long> finishedAtMs{0};
     std::thread th;
     Clock::time_point t0 = Clock::now();
     explicit Fake(int mode)
     {
-        auto l = platform::listenLoopback(0);
+        auto l = sub0platform::listenLoopback(0);
         CHECK(l.has_value());
         if (l) { listener = std::move(*l); port = listener.port(); }
         th = std::thread([this, mode] {
             auto accepted = listener.accept(std::chrono::seconds(30));
             if (!accepted || !*accepted) return;
-            platform::SocketStream fd = std::move(**accepted);
+            sub0platform::SocketStream fd = std::move(**accepted);
             char buf[16384];
             std::string req;
             while (req.find("\r\n\r\n") == std::string::npos) { const auto n = fd.readSome(buf, sizeof buf, std::chrono::seconds(10)); if (!n || !*n || **n == 0) break; req.append(buf, **n); }

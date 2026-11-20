@@ -4,7 +4,7 @@
 #include "sub0squad/harness.hpp"
 #include "sub0squad/harness_common.hpp"
 #include "sub0squad/plan.hpp"
-#include "sub0squad/platform_proc.hpp"
+#include "sub0platform/proc.hpp"
 #include "sub0squad/scenario_compare.hpp"
 
 #include <print>
@@ -63,7 +63,7 @@ std::string itemId(const PlatformDef& p, const std::string& key)
 
 std::string selfPath()
 {
-    const auto self = platform::selfExecutable();
+    const auto self = sub0platform::selfExecutable();
     return self.empty() ? std::string{"sub0squad"} : self.string();
 }
 
@@ -76,10 +76,10 @@ std::string exePath() { return exeRef(); }
 bool adoptExe(const std::string& exe, std::string& error)
 {
     if (std::getenv("SUB0SQUAD_SCENARIO_ACTIVE")) { error = "refusing to run a scenario inside a scenario run"; return false; }
-    platform::setEnvironment("SUB0SQUAD_SCENARIO_ACTIVE", "1");   // set BEFORE anything is executed: children inherit it, so a scenario started from inside one is refused
-    if (exe.empty() || !fs::exists(exe)) { platform::unsetEnvironment("SUB0SQUAD_SCENARIO_ACTIVE"); error = "the sub0squad binary '" + exe + "' does not exist"; return false; }
+    sub0platform::setEnvironment("SUB0SQUAD_SCENARIO_ACTIVE", "1");   // set BEFORE anything is executed: children inherit it, so a scenario started from inside one is refused
+    if (exe.empty() || !fs::exists(exe)) { sub0platform::unsetEnvironment("SUB0SQUAD_SCENARIO_ACTIVE"); error = "the sub0squad binary '" + exe + "' does not exist"; return false; }
     const Cmd v = run({fs::absolute(exe).string(), "--version"}, ".", 10);
-    if (v.exitCode != 0 || v.output.rfind("sub0squad", 0) != 0) { platform::unsetEnvironment("SUB0SQUAD_SCENARIO_ACTIVE"); error = "'" + exe + "' is not the sub0squad binary (--version said: " + v.output.substr(0, 60) + ")"; return false; }
+    if (v.exitCode != 0 || v.output.rfind("sub0squad", 0) != 0) { sub0platform::unsetEnvironment("SUB0SQUAD_SCENARIO_ACTIVE"); error = "'" + exe + "' is not the sub0squad binary (--version said: " + v.output.substr(0, 60) + ")"; return false; }
     exeRef() = fs::absolute(exe).string();   // absolute: every command changes directory before it starts
     return true;
 }
@@ -211,7 +211,7 @@ std::vector<std::string> scenarioSelfTest(const std::string& only, const std::st
             if (!only.empty() && only != d.element && only != pd.harness && only != name) continue;
             Fixture fx;
             std::string err;
-            const fs::path dir = fs::temp_directory_path() / ("s0q-scenario-" + std::string(pd.harness) + "-" + d.element + "-" + std::to_string(platform::currentProcess()));
+            const fs::path dir = fs::temp_directory_path() / ("s0q-scenario-" + std::string(pd.harness) + "-" + d.element + "-" + std::to_string(sub0platform::currentProcess()));
             if (!makeFixture(pd, d, dir, fx, err)) { problems.push_back(name + ": fixture: " + err); continue; }
             const std::string item = itemId(pd, d.itemKey);
             const WorkItem* it = fx.plan.find(item);

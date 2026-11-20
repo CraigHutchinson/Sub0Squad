@@ -2,7 +2,7 @@
 
 #include "json_util.hpp"
 
-#include "sub0squad/platform_file.hpp"
+#include "sub0platform/file.hpp"
 
 #include <filesystem>
 #include <fstream>
@@ -15,7 +15,7 @@ Progress readProgress(const std::filesystem::path& runDir)
     const auto path = runDir / "events.ndjson";
     std::error_code ec;
     const auto size = static_cast<std::streamoff>(std::filesystem::file_size(path, ec));
-    const auto modified = platform::modifiedSeconds(path);
+    const auto modified = sub0platform::modifiedSeconds(path);
     if (ec || size == 0 || !modified) return p;
     p.lastEventAt = *modified;
     constexpr std::streamoff kTail = 256 * 1024;
@@ -107,7 +107,7 @@ Progress readProgress(const std::filesystem::path& runDir, const ProgressAdapter
     p.adapterSchema = a.adapterSchema;
     if (!p.hasProgress) { p.hasProgress = a.hasProgress; p.done = a.done; p.total = a.total; p.phase = a.phase; }
     for (const auto& [name, v] : a.metrics) p.metrics.emplace(name, v);  // events win on a name clash
-    if (const auto mt = platform::modifiedSeconds(path); mt && *mt > p.lastEventAt) p.lastEventAt = *mt;  // the tool's own record counts as liveness
+    if (const auto mt = sub0platform::modifiedSeconds(path); mt && *mt > p.lastEventAt) p.lastEventAt = *mt;  // the tool's own record counts as liveness
     return p;
 }
 

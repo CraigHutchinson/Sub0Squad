@@ -1,8 +1,8 @@
 // The portal's sampler (portal_impl.hpp): the host and each engine, once a second, into bounded series; `liveJson` renders them.
 #include "portal_impl.hpp"
 
-#include "sub0squad/platform_file.hpp"
-#include "sub0squad/platform_host.hpp"
+#include "sub0platform/file.hpp"
+#include "sub0platform/host.hpp"
 
 namespace sub0squad::portal {
 
@@ -18,20 +18,20 @@ void rates(std::deque<std::array<double, 3>>& win, double dt, double dec, double
 
 double nowSec() { return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count(); }
 
-std::string slurp(const fs::path& p) { return platform::readFileText(p); }
+std::string slurp(const fs::path& p) { return sub0platform::readFileText(p); }
 
 void sampleSystem(Live& L, double& prevBusy, double& prevTotal)
 {
-    const auto times = platform::cpuTimes().value_or(platform::CpuTimes{});
+    const auto times = sub0platform::cpuTimes().value_or(sub0platform::CpuTimes{});
     double cpu = 0;
     if (prevTotal > 0 && times.total > prevTotal) cpu = 100.0 * (times.busy - prevBusy) / (times.total - prevTotal);
     prevBusy = times.busy;
     prevTotal = times.total;
-    const platform::MemoryFacts mem = platform::memory();
+    const sub0platform::MemoryFacts mem = sub0platform::memory();
     const double memTotal = static_cast<double>(mem.totalMiB), memAvail = static_cast<double>(mem.availableMiB);
     const double swapTotal = static_cast<double>(mem.swapTotalMiB), swapFree = static_cast<double>(mem.swapFreeMiB);
-    const double load = platform::loadAverage().value_or(0.0);
-    const auto card = platform::gpu();
+    const double load = sub0platform::loadAverage().value_or(0.0);
+    const auto card = sub0platform::gpu();
     std::lock_guard lock(L.m);
     L.cpu.push(cpu);
     L.mem.push(memTotal > 0 ? 100.0 * (memTotal - memAvail) / memTotal : 0);

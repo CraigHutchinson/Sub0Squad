@@ -1,6 +1,6 @@
 // The stance of a worker's system block and the CONCERN channel (include/sub0squad/stance.hpp, docs/PROMPTS.md).
 #include "sub0squad/stance.hpp"
-#include "sub0squad/platform_file.hpp"
+#include "sub0platform/file.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -114,7 +114,7 @@ bool recordConcerns(const std::filesystem::path& attemptDir, std::string_view wh
     std::filesystem::create_directories(attemptDir, ec);
     std::string text;
     for (const auto& c : concerns) text += std::format("## CONCERN: {}  ({}, turn {})\n\n{}\n\n", c.kind.empty() ? "(no kind)" : c.kind, who, turn, c.text);
-    return platform::appendToFile(attemptDir / "concerns.md", text).has_value();
+    return sub0platform::appendToFile(attemptDir / "concerns.md", text).has_value();
 }
 
 std::string concernAcknowledgement(const std::vector<Concern>& concerns)

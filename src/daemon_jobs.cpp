@@ -4,7 +4,7 @@
 #include "daemon_impl.hpp"
 
 #include "sub0squad/attempt_failure.hpp"
-#include "sub0squad/platform_file.hpp"
+#include "sub0platform/file.hpp"
 
 namespace sub0squad {
 
@@ -148,7 +148,7 @@ void Daemon::Impl::startRun(const JobRecord& job, int leaseIndex)
     JobSpec spec = job.spec;
     if (leaseIndex >= 0) spec.env["SUB0SQUAD_LEASE_INDEX"] = std::to_string(leaseIndex);
     if (job.run > 1 && !spec.resumeArgv.empty()) spec.argv = spec.resumeArgv;
-    (void)platform::writeFile(runDir / "spec.json", spec.toJson());
+    (void)sub0platform::writeFile(runDir / "spec.json", spec.toJson());
     auto entry = std::make_unique<Running>();
     entry->id = job.id;
     entry->run = job.run;
@@ -182,14 +182,14 @@ void Daemon::Impl::onShimStart(const std::string& id, int run, sub0pipeline::Com
         return;
     }
     r.shimPid = *pid;
-    const auto ticks = platform::processStart(*pid).value_or(0);
+    const auto ticks = sub0platform::processStart(*pid).value_or(0);
     record("jobStarted", journalbody::started(id, run, *pid, ticks));
     // A shim already gone (it failed at once) ends the run now, as its exit would have.
     if (!watchShim(id, *pid)) post([this, shim = *pid, id] { shimToJob[shim] = id; onShimExit(shim); });
     logf("job %s run %d started (shim %lld)", id.c_str(), run, static_cast<long long>(*pid));
 }
 
-void Daemon::Impl::onShimExit(platform::ProcessId shim)
+void Daemon::Impl::onShimExit(sub0platform::ProcessId shim)
 {
     auto it = shimToJob.find(shim);   // the waiter reaped it when it was our child
     if (it == shimToJob.end()) return;
@@ -262,10 +262,10 @@ std::string Daemon::Impl::doCancel(const std::string& id)
     if (isTerminal(job->state)) return errorReply("job " + id + " is already " + std::string{toString(job->state)});
     const int run = job->run;
     const bool wasQueued = job->state == JobState::queued;
-    const platform::ProcessId shim = job->shimPid;
+    const sub0platform::ProcessId shim = job->shimPid;
     const std::uint64_t ticks = job->shimStartTicks;
     record("jobCancelRequested", journalbody::cancelRequested(id, run));
-    if (!wasQueued && shim > 0 && platform::isAlive(shim, ticks)) (void)platform::terminateProcess(shim);
+    if (!wasQueued && shim > 0 && sub0platform::isAlive(shim, ticks)) (void)sub0platform::terminateProcess(shim);
     json::Writer w;
     w.beginObject().kvBool("ok", true).kv("id", id).kv("state", toString(store.find(id)->state)).endObject();
     if (wasQueued) { notifyWaiters(id); }

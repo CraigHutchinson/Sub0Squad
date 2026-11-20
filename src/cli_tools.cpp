@@ -24,7 +24,7 @@
 #include "sub0squad/triage.hpp"
 #include "sub0squad/workflow.hpp"
 #include "sub0squad/workflow_status.hpp"
-#include "sub0squad/platform_proc.hpp"
+#include "sub0platform/proc.hpp"
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -38,7 +38,7 @@ int cmdServe(const RuntimePaths& paths, int argc, char** argv)
 {
     DaemonOptions opts;
     opts.paths = paths;
-    const auto self = platform::selfExecutable();
+    const auto self = sub0platform::selfExecutable();
     opts.exe = self.empty() ? std::filesystem::path{argv[0]} : self;
     // SUB0SQUAD_EXIT_WITH is --exit-with for a daemon started by `up` on a test's behalf; the flag wins.
     if (const char* exitWith = std::getenv("SUB0SQUAD_EXIT_WITH"); exitWith && *exitWith) opts.exitWith = std::atoll(exitWith);
@@ -155,7 +155,7 @@ int cmdReplay(const RuntimePaths& paths, int argc, char** argv)
     if (ro.sandbox.empty()) { std::fprintf(stderr, "no such workflow: %s\n", argv[2]); return 2; }
     if (ro.engineProfile.empty()) ro.engineProfile = firstEngine;
     {
-        const auto self = platform::selfExecutable();
+        const auto self = sub0platform::selfExecutable();
         ro.exe = self.empty() ? std::filesystem::path{argv[0]} : self;
     }
     return sub0squad::runReplay(ro);

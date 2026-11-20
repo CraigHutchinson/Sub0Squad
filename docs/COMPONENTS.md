@@ -54,7 +54,7 @@ the project).
 * One responsibility, a header with Doxygen comments, `#pragma once`, `[[nodiscard]]` on what returns a value that matters.
 * Put its stem in the lowest layer whose units it needs. If it wants something from above, the thing above registers itself or is passed in.
 * Nothing of the operating system directly: use a `platform_*` interface, or add one there.
-* Text through `std::format` and `std::print` (not `printf`), files through `platform::writeFile` and friends (binary mode), strings tested with
+* Text through `std::format` and `std::print` (not `printf`), files through `sub0platform::writeFile` and friends (binary mode), strings tested with
   `contains`/`starts_with`/`ends_with` ([DECISIONS.md](DECISIONS.md) 25). Code that predates the rule moves when it is touched.
 * A test of its own, linked against its layer. A unit that starts processes takes the program's path as an argument; nothing re-executes
   `/proc/self/exe` (catalogue row 32).

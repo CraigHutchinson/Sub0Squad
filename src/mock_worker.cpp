@@ -3,8 +3,8 @@
 #include "json_util.hpp"
 #include "sub0squad/progress.hpp"
 
-#include "sub0squad/platform_proc.hpp"
-#include "sub0squad/platform_process.hpp"
+#include "sub0platform/proc.hpp"
+#include "sub0platform/process.hpp"
 
 #include <chrono>
 #include <cstdio>
@@ -22,27 +22,27 @@ void emit(const std::string& line)
 {
     const char* v = std::getenv("SUB0SQUAD_EVENT_FD");
     if (!v) return;
-    (void)platform::writeToInherited(v, line + '\n');
+    (void)sub0platform::writeToInherited(v, line + '\n');
 }
 
 void sleepMs(long ms) { std::this_thread::sleep_for(std::chrono::milliseconds(ms)); }
 
 [[noreturn]] void idleForever(bool ignoreTerm)
 {
-    if (ignoreTerm) platform::ignoreStopRequests();
+    if (ignoreTerm) sub0platform::ignoreStopRequests();
     for (;;) sleepMs(1000);
 }
 
-void nameSelf(const std::string& prefix, const std::string& tag) { platform::setProcessName((prefix + tag).substr(0, 15)); }
+void nameSelf(const std::string& prefix, const std::string& tag) { sub0platform::setProcessName((prefix + tag).substr(0, 15)); }
 
 /// Start this program again as `mock-worker <mode...>`: the extra processes are the same program on every system (no fork).
 void spawnSelf(std::vector<std::string> mode, bool newSession)
 {
-    platform::ProcessSpec ps;
-    ps.argv = {platform::selfExecutable().string(), "mock-worker"};
+    sub0platform::ProcessSpec ps;
+    ps.argv = {sub0platform::selfExecutable().string(), "mock-worker"};
     ps.argv.insert(ps.argv.end(), mode.begin(), mode.end());
     ps.newSession = newSession;
-    (void)platform::spawn(ps);
+    (void)sub0platform::spawn(ps);
 }
 
 // A "server": a child in the job's own group that ignores stop requests (like a model server that must be killed).
@@ -97,7 +97,7 @@ int runMockWorker(int argc, char** argv)
         else if (a == "--metric") { std::string kv = next(); auto eq = kv.find('='); if (eq != std::string::npos) metrics.emplace_back(kv.substr(0, eq), std::atof(kv.c_str() + eq + 1)); }
         else { std::fprintf(stderr, "mock-worker: unknown option %s\n", a.c_str()); return 64; }
     }
-    if (ignoreTerm) platform::ignoreStopRequests();
+    if (ignoreTerm) sub0platform::ignoreStopRequests();
     nameSelf("s0q-wrk-", tag);
     std::vector<char> ballast;
     if (memMiB > 0) { ballast.assign(static_cast<std::size_t>(memMiB) << 20, 1); }
@@ -121,7 +121,7 @@ int runMockWorker(int argc, char** argv)
     for (int step = firstStep; step <= steps; ++step) {
         if (step == stallAt) { emit("{\"schema\":\"sub0squad-event-1\",\"type\":\"note\",\"text\":\"stalling\"}"); idleForever(ignoreTerm); }
         sleepMs(stepMs);
-        if (step == crashAt) platform::crash();
+        if (step == crashAt) sub0platform::crash();
         if (step == failAt) { std::fprintf(stderr, "mock-worker: failing at step %d\n", step); return 3; }
         json::Writer w;
         w.beginObject().kv("schema", "sub0squad-event-1").kv("type", "progress").kv("done", step).kv("total", steps).kv("phase", "work").endObject();

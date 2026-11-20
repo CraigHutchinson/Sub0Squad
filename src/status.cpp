@@ -1,7 +1,7 @@
 #include "sub0squad/status.hpp"
 
 #include "json_util.hpp"
-#include "sub0squad/platform_proc.hpp"
+#include "sub0platform/proc.hpp"
 #include "sub0squad/progress.hpp"
 
 #include <chrono>
@@ -43,7 +43,7 @@ Effective reconcile(const RuntimePaths& paths, const JobRecord& job)
         e.fromExitRecord = true;
         return e;
     }
-    e.shimAlive = job.shimPid > 0 && platform::isAlive(job.shimPid, job.shimStartTicks);
+    e.shimAlive = job.shimPid > 0 && sub0platform::isAlive(job.shimPid, job.shimStartTicks);
     if (!e.shimAlive) {
         // The shim is gone and left no outcome: never report `running`.
         const auto pr = readProgress(runDir, job.spec.adapter, job.spec.cwd);

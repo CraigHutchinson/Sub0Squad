@@ -4,8 +4,8 @@
 #include "sub0squad/clarify.hpp"
 #include "sub0squad/engine.hpp"
 #include "sub0squad/paths.hpp"
-#include "sub0squad/platform_process.hpp"
-#include "sub0squad/platform_file.hpp"
+#include "sub0platform/process.hpp"
+#include "sub0platform/file.hpp"
 
 #include <chrono>
 #include <cstdio>
@@ -37,7 +37,7 @@ Ran runCommand(const std::string& exe, std::vector<std::string> args)
     Ran r;
     args.insert(args.begin(), exe);
     // A daemon the command starts never holds the capture open: the launcher passes only the standard streams, and `up` points the daemon's at its log.
-    const auto ran = platform::runCaptured({.argv = std::move(args)}, {.maxBytes = 4 * 1024 * 1024});
+    const auto ran = sub0platform::runCaptured({.argv = std::move(args)}, {.maxBytes = 4 * 1024 * 1024});
     if (!ran) { r.out = ran.error().message + "\n"; return r; }
     r.code = ran->status.exited() ? ran->status.code : -1;
     r.out = ran->output;
@@ -235,7 +235,7 @@ int runWizard(const std::vector<std::string>& args, const std::string& exe, cons
         if (fs::exists(sandbox / "brief.json")) { settled = true; break; }
         const Ran inbox = runCommand(exe, {"request", "list", wf});
         if (inbox.out.find("planner") != std::string::npos && inbox.out.find("open") != std::string::npos) {
-            const auto questions = ClarifyPlan::fromJson(platform::readFileText(sandbox / "questions.json"));
+            const auto questions = ClarifyPlan::fromJson(sub0platform::readFileText(sandbox / "questions.json"));
             if (questions) std::printf("\n%s", questions->requestDetail().c_str());
             for (int tries = 0; tries < 3 && !settled; ++tries) {
                 const auto answer = w.ask("Your answer", "go");
@@ -248,7 +248,7 @@ int runWizard(const std::vector<std::string>& args, const std::string& exe, cons
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
     for (int i = 0; i < 100 && !fs::exists(sandbox / "brief.json"); ++i) std::this_thread::sleep_for(std::chrono::milliseconds(100));
-    if (const auto brief = platform::readFileText(sandbox / "brief.json"); !brief.empty()) {
+    if (const auto brief = sub0platform::readFileText(sandbox / "brief.json"); !brief.empty()) {
         const auto at = brief.find("\"task\":\"");
         std::printf("planned as: %s\n", at == std::string::npos ? "?" : brief.substr(at + 8, brief.find('"', at + 8) - at - 8).c_str());
     }

@@ -3,7 +3,7 @@
 /// Append-only durable record of everything that changes job state (`journal-1`, NDJSON). The journal is the source of truth;
 /// live events are a view of it. One segment file in M1; a torn final line (crash mid-write) is discarded on open.
 
-#include "sub0squad/platform_file.hpp"
+#include "sub0platform/file.hpp"
 
 #include <cstdint>
 #include <expected>
@@ -55,7 +55,7 @@ public:
     [[nodiscard]] std::uint64_t nextSeq() const { return nextSeq_; }
 
 private:
-    platform::AppendFile file_;
+    sub0platform::AppendFile file_;
     std::uint64_t nextSeq_ = 1;
     std::vector<JournalRecord> records_;
 };

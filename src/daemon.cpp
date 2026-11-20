@@ -1,8 +1,8 @@
 /// @file daemon.cpp
-/// Daemon: reactor and IPC (a platform_wait loop, clients, request dispatch), construction and run.
+/// Daemon: reactor and IPC (a sub0platform::Waiter loop, clients, request dispatch), construction and run.
 
 #include "daemon_impl.hpp"
-#include "sub0squad/platform_file.hpp"
+#include "sub0platform/file.hpp"
 
 namespace sub0squad {
 
@@ -12,12 +12,12 @@ void Daemon::Impl::post(std::move_only_function<void()> fn)
     waiter.wake();
 }
 
-bool Daemon::Impl::watchShim(const std::string& id, platform::ProcessId shim)
+bool Daemon::Impl::watchShim(const std::string& id, sub0platform::ProcessId shim)
 {
     const char* forcePoll = std::getenv("SUB0SQUAD_TEST_POLL_SHIMS");   // tests take the fallback on purpose
     if ((forcePoll && *forcePoll) || !waiter.watchExit(shim, tag(kShimExit, shim))) {
-        const auto start = platform::processStart(shim);
-        if (!start || !platform::isAlive(shim, *start)) return false;
+        const auto start = sub0platform::processStart(shim);
+        if (!start || !sub0platform::isAlive(shim, *start)) return false;
         polledShims[shim] = *start;
         logf("job %s: shim %lld is watched by polling (the waiter could not take it)", id.c_str(), static_cast<long long>(shim));
     }
@@ -27,9 +27,9 @@ bool Daemon::Impl::watchShim(const std::string& id, platform::ProcessId shim)
 
 void Daemon::Impl::checkPolledShims()
 {
-    std::vector<platform::ProcessId> gone;
+    std::vector<sub0platform::ProcessId> gone;
     for (const auto& [shim, start] : polledShims)
-        if (!platform::isAlive(shim, start)) gone.push_back(shim);
+        if (!sub0platform::isAlive(shim, start)) gone.push_back(shim);
     for (const auto shim : gone) {
         polledShims.erase(shim);
         onShimExit(shim);
@@ -78,7 +78,7 @@ void Daemon::Impl::handle(Client& c, const std::string& text)
     if (cmd == "ping") {
         // Pure: a ping reads and answers, it never changes anything (the watchers are run by `check`).
         json::Writer w;
-        w.beginObject().kvBool("ok", true).kv("v", 1).kv("pid", platform::currentProcess()).kv("maxJobs", opts.maxJobs)
+        w.beginObject().kvBool("ok", true).kv("v", 1).kv("pid", sub0platform::currentProcess()).kv("maxJobs", opts.maxJobs)
             .kvBool("journalOk", journalOk).kv("build", buildId()).endObject();
         send(c, w.take());
     } else if (cmd == "check") {
@@ -149,15 +149,15 @@ void Daemon::Impl::handle(Client& c, const std::string& text)
     }
 }
 
-void Daemon::Impl::closeClient(platform::NativeSocket socket)
+void Daemon::Impl::closeClient(sub0platform::NativeSocket socket)
 {
     waiter.unwatchSocket(socket);
     clients.erase(socket);   // closes the socket
 }
 
-void Daemon::Impl::onClient(const platform::WaitEvent& event)
+void Daemon::Impl::onClient(const sub0platform::WaitEvent& event)
 {
-    const auto socket = static_cast<platform::NativeSocket>(event.tag & kTagValueMask);
+    const auto socket = static_cast<sub0platform::NativeSocket>(event.tag & kTagValueMask);
     auto it = clients.find(socket);
     if (it == clients.end()) return;
     Client& c = it->second;
@@ -187,12 +187,12 @@ void Daemon::Impl::onAccept()
     for (;;) {
         auto accepted = listener.accept(std::chrono::milliseconds(0));
         if (!accepted || !*accepted) return;
-        platform::SocketStream& s = **accepted;
-        if (!platform::peerIsSameUser(s)) { logf("rejected a client from another user"); continue; }
-        const platform::NativeSocket socket = s.native();
+        sub0platform::SocketStream& s = **accepted;
+        if (!sub0platform::peerIsSameUser(s)) { logf("rejected a client from another user"); continue; }
+        const sub0platform::NativeSocket socket = s.native();
         if (!waiter.watchSocket(socket, true, false, tag(kClient, socket))) { logf("cannot watch a new client; closing it"); continue; }
         Client& c = clients[socket];
-        c.owner = platform::peerUser(s);
+        c.owner = sub0platform::peerUser(s);
         c.stream = std::move(s);
     }
 }
@@ -226,19 +226,19 @@ int Daemon::Impl::loop()
         if (!polledShims.empty() || exitWithPolled) timeout = std::min(timeout.value_or(std::chrono::milliseconds(1000)), std::chrono::milliseconds(1000));
         auto events = waiter.wait(timeout);
         if (!events) { logf("%s", events.error().what().c_str()); return 1; }
-        if (exitWithPolled && !platform::isAlive(opts.exitWith, exitWithStart)) { onServedExit(); break; }
+        if (exitWithPolled && !sub0platform::isAlive(opts.exitWith, exitWithStart)) { onServedExit(); break; }
         if (!polledShims.empty()) checkPolledShims();
         if (const auto now = std::chrono::steady_clock::now(); now - lastMemCheck >= std::chrono::milliseconds(watchMs) && hasWorkToWatch()) {
             lastMemCheck = now;
             shedIfPressured();
             scheduleQueued();  // memory recovered: admit what was held back
         }
-        for (const platform::WaitEvent& e : *events) {
-            if (e.kind == platform::WaitEvent::Kind::woken) { drainPosts(); continue; }
+        for (const sub0platform::WaitEvent& e : *events) {
+            if (e.kind == sub0platform::WaitEvent::Kind::woken) { drainPosts(); continue; }
             switch (static_cast<Kind>(e.tag >> 56)) {
                 case kListen: onAccept(); break;
                 case kClient: onClient(e); break;
-                case kShimExit: onShimExit(static_cast<platform::ProcessId>(e.tag & kTagValueMask)); break;
+                case kShimExit: onShimExit(static_cast<sub0platform::ProcessId>(e.tag & kTagValueMask)); break;
                 case kStop: logf("asked to stop: stopping (jobs keep running)"); stopping = true; break;
                 case kServedExit: onServedExit(); break;
             }
@@ -254,21 +254,21 @@ Daemon::~Daemon()
     // The socket's file goes while the instance lock is still held (the Impl and its lock go after this body): a moved name (a long path on
     // Windows) would otherwise stay behind in the user's profile.
     impl_->listener = {};
-    platform::removeLocal(impl_->opts.paths.controlSocket());
+    sub0platform::removeLocal(impl_->opts.paths.controlSocket());
 }
 
 std::expected<std::unique_ptr<Daemon>, std::string> Daemon::create(DaemonOptions options)
 {
     if (auto err = options.paths.ensureDirectories(); !err.empty()) return std::unexpected(err);
-    auto lock = platform::FileLock::tryExclusive(options.paths.instanceLock());
+    auto lock = sub0platform::FileLock::tryExclusive(options.paths.instanceLock());
     if (!lock) return std::unexpected(lock.error().message);
     if (!*lock) return std::unexpected("another sub0squad daemon already runs for this state directory");
     // The waiter takes the stop requests BEFORE the Impl starts its executor threads, so on POSIX those threads inherit SIGTERM and SIGINT blocked
     // and the signals reach the loop instead of ending the process.
-    auto waiter = platform::Waiter::create();
+    auto waiter = sub0platform::Waiter::create();
     if (!waiter) return std::unexpected(waiter.error().message);
     if (auto ok = waiter->watchStopRequests(tag(kStop, 0)); !ok) return std::unexpected(ok.error().message);
-    platform::ignoreBrokenPipes();
+    sub0platform::ignoreBrokenPipes();
     auto impl = std::make_unique<Impl>();
     impl->opts = std::move(options);
     impl->instanceLock = std::move(**lock);
@@ -279,16 +279,16 @@ std::expected<std::unique_ptr<Daemon>, std::string> Daemon::create(DaemonOptions
     for (const auto& rec : impl->journal.records()) { impl->store.apply(rec); impl->wfStore.apply(rec); }
 
     if (impl->opts.exitWith != 0) {
-        const auto start = platform::processStart(impl->opts.exitWith);
+        const auto start = sub0platform::processStart(impl->opts.exitWith);
         if (!start) return std::unexpected("--exit-with " + std::to_string(impl->opts.exitWith) + ": no such process");
         impl->exitWithStart = *start;
         // An exit event, not a timer: an idle daemon must not wake (test_idle). Polling once a second only if the waiter cannot take it.
         impl->exitWithPolled = !impl->waiter.watchExit(impl->opts.exitWith, tag(kServedExit, 0));
-        if (impl->exitWithPolled && !platform::isAlive(impl->opts.exitWith, impl->exitWithStart))
+        if (impl->exitWithPolled && !sub0platform::isAlive(impl->opts.exitWith, impl->exitWithStart))
             return std::unexpected("--exit-with " + std::to_string(impl->opts.exitWith) + ": the process has ended");
     }
-    (void)platform::clearStaleLocalSockets();   // names moved for daemons that were killed
-    auto listener = platform::listenLocal(impl->opts.paths.controlSocket());
+    (void)sub0platform::clearStaleLocalSockets();   // names moved for daemons that were killed
+    auto listener = sub0platform::listenLocal(impl->opts.paths.controlSocket());
     if (!listener) return std::unexpected(listener.error().message);
     impl->listener = std::move(*listener);
     if (auto ok = impl->waiter.watchSocket(impl->listener.native(), true, false, tag(kListen, 0)); !ok) return std::unexpected(ok.error().message);
@@ -296,10 +296,10 @@ std::expected<std::unique_ptr<Daemon>, std::string> Daemon::create(DaemonOptions
     {   // run-info.json: which program is serving this state directory, since when and with which limits (catalogue row 20). Rewritten at every start.
         using namespace std::chrono;
         json::Writer w;
-        w.beginObject().kv("schema", "run-info-1").kv("build", buildId()).kv("pid", platform::currentProcess()).kv("exe", impl->opts.exe.string())
+        w.beginObject().kv("schema", "run-info-1").kv("build", buildId()).kv("pid", sub0platform::currentProcess()).kv("exe", impl->opts.exe.string())
             .kv("startedAt", duration<double>(system_clock::now().time_since_epoch()).count()).kv("maxJobs", impl->opts.maxJobs).kv("memShedMiB", impl->opts.memShedMiB)
             .kv("frontier", impl->opts.frontier == FrontierMode::off ? "off" : "stub").endObject();
-        (void)platform::writeFileAtomic(impl->opts.paths.stateDir / "run-info.json", w.take() + "\n");
+        (void)sub0platform::writeFileAtomic(impl->opts.paths.stateDir / "run-info.json", w.take() + "\n");
     }
     return std::unique_ptr<Daemon>(new Daemon(std::move(impl)));
 }

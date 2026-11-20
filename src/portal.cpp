@@ -2,8 +2,8 @@
 #include "portal_impl.hpp"
 #include "portal_work.hpp"
 
-#include "sub0squad/platform_file.hpp"
-#include "sub0squad/platform_net.hpp"
+#include "sub0platform/file.hpp"
+#include "sub0platform/net.hpp"
 
 #include <optional>
 #include <random>
@@ -15,7 +15,7 @@ using namespace portal;
 namespace {
 
 // ---- HTTP -----------------------------------------------------------------------------------------------------------------------
-void respond(platform::SocketStream& fd, int code, const char* type, const std::string& body, const char* extraHeaders = "")
+void respond(sub0platform::SocketStream& fd, int code, const char* type, const std::string& body, const char* extraHeaders = "")
 {
     const char* text = code == 200 ? "OK" : code == 404 ? "Not Found" : "Method Not Allowed";
     (void)fd.writeAll("HTTP/1.1 " + std::to_string(code) + " " + text + "\r\nContent-Type: " + type + "\r\nContent-Length: " + std::to_string(body.size()) +
@@ -53,32 +53,32 @@ int servePortal(int port, const std::function<std::string()>& state, const std::
     // Loopback only: the portal is never reachable from another machine. Generated sites are served from a second loopback port, the next one
     // (the page assumes it), a different origin from the portal: a page the models wrote cannot read the portal's API (no CORS headers there),
     // and its own responses forbid any network access (CSP connect-src 'none', default-src to itself).
-    std::optional<platform::SocketListener> srv, siteSrv;
+    std::optional<sub0platform::SocketListener> srv, siteSrv;
     if (port == 0) {
         // The system picks the portal's port, so parallel instances never collide; pairs are tried until the next port is free too. Both stay
         // held from here on, so nothing can take them between the choice and the use.
         for (int attempt = 0; attempt < 32 && !siteSrv; ++attempt) {
-            auto first = platform::listenLoopback(0);
+            auto first = sub0platform::listenLoopback(0);
             if (!first) { std::fprintf(stderr, "portal: %s\n", first.error().message.c_str()); return 1; }
             if (first->port() == 65535) continue;
-            if (auto next = platform::listenLoopback(static_cast<std::uint16_t>(first->port() + 1))) { srv = std::move(*first); siteSrv = std::move(*next); }
+            if (auto next = sub0platform::listenLoopback(static_cast<std::uint16_t>(first->port() + 1))) { srv = std::move(*first); siteSrv = std::move(*next); }
         }
         if (!siteSrv) { std::fprintf(stderr, "portal: no two adjacent free loopback ports after 32 tries\n"); return 1; }
         port = srv->port();
     } else {
-        auto main = platform::listenLoopback(static_cast<std::uint16_t>(port));
+        auto main = sub0platform::listenLoopback(static_cast<std::uint16_t>(port));
         if (!main) { std::fprintf(stderr, "portal: %s\n", main.error().message.c_str()); return 1; }
-        auto site = platform::listenLoopback(static_cast<std::uint16_t>(port + 1));
+        auto site = sub0platform::listenLoopback(static_cast<std::uint16_t>(port + 1));
         if (!site) { std::fprintf(stderr, "portal: site port: %s\n", site.error().message.c_str()); return 1; }
         srv = std::move(*main);
         siteSrv = std::move(*site);
     }
     // Written once both ports are held, so a reader (`up`) never sees a port that is not yet the portal's.
-    if (!portFile.empty() && !platform::writeFileAtomic(portFile, std::to_string(port) + "\n")) {
+    if (!portFile.empty() && !sub0platform::writeFileAtomic(portFile, std::to_string(port) + "\n")) {
         std::fprintf(stderr, "portal: cannot write the port file %s\n", portFile.string().c_str());
         return 1;
     }
-    const platform::SocketListener* listeners[] = {&*srv, &*siteSrv};
+    const sub0platform::SocketListener* listeners[] = {&*srv, &*siteSrv};
     Live live;
     for (const auto& b : extraEngines) live.bases.insert(b);
     std::jthread sampler([&live, &state](std::stop_token st) {
@@ -106,12 +106,12 @@ int servePortal(int port, const std::function<std::string()>& state, const std::
     });
     std::fprintf(stderr, "portal: http://127.0.0.1:%d/  (read-only, loopback only; Ctrl-C to stop)\n", port);
     for (;;) {
-        const auto ready = platform::waitForConnection(listeners);
+        const auto ready = sub0platform::waitForConnection(listeners);
         if (!ready) continue;
         const bool onSite = *ready == 1;
         auto accepted = (onSite ? *siteSrv : *srv).accept(std::chrono::milliseconds(0));
         if (!accepted || !*accepted) continue;
-        platform::SocketStream c = std::move(**accepted);   // closed at the end of this iteration
+        sub0platform::SocketStream c = std::move(**accepted);   // closed at the end of this iteration
         const auto readDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);   // a slow or silent client cannot hold the portal
         const auto readMore = [&](char* b, std::size_t size) -> std::size_t {
             const auto left = std::max(std::chrono::milliseconds(0), std::chrono::duration_cast<std::chrono::milliseconds>(readDeadline - std::chrono::steady_clock::now()));

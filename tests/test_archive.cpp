@@ -20,7 +20,7 @@ static Result cliAll(Squad& sq, std::vector<std::string> args) { return sq.cli(s
 
 int main(int, char** argv)
 {
-    sub0squad::platform::unsetEnvironment("SUB0SQUAD_BUILD_ID");
+    sub0platform::unsetEnvironment("SUB0SQUAD_BUILD_ID");
     Squad sq(argv[1], "archive");
     const fs::path state = sq.home() / "state";
 
@@ -34,7 +34,7 @@ int main(int, char** argv)
     CHECK_EQ(sq.cli({"submit", "--", "true"}).exitCode, 0);
 
     // Another build on the command line (the test-only override): every kind of submit is refused, and the message says both builds and what to do.
-    sub0squad::platform::setEnvironment("SUB0SQUAD_BUILD_ID", "newer-build");
+    sub0platform::setEnvironment("SUB0SQUAD_BUILD_ID", "newer-build");
     for (const std::vector<std::string>& cmd : {std::vector<std::string>{"submit", "--", "true"}, std::vector<std::string>{"project", "submit", "--task", "calculator-py"}, std::vector<std::string>{"do", "write a calculator in Python"}}) {
         const Result r = cliAll(sq, cmd);
         CHECK(r.exitCode != 0);
@@ -45,10 +45,10 @@ int main(int, char** argv)
     {
         const Result warned = cliAll(sq, {"up", "--no-portal"});
         CHECK(contains(warned.out, "ANOTHER BUILD") && contains(warned.out, "'newer-build'") == false && contains(warned.out, "this command is newer-build") && contains(warned.out, "sub0squad down"));
-        sub0squad::platform::unsetEnvironment("SUB0SQUAD_BUILD_ID");
+        sub0platform::unsetEnvironment("SUB0SQUAD_BUILD_ID");
         const Result same = cliAll(sq, {"up", "--no-portal"});
         CHECK(contains(same.out, "daemon: already running") && !contains(same.out, "ANOTHER BUILD"));
-        sub0squad::platform::setEnvironment("SUB0SQUAD_BUILD_ID", "newer-build");
+        sub0platform::setEnvironment("SUB0SQUAD_BUILD_ID", "newer-build");
     }
     // reading is never refused: status and ping work across builds
     CHECK_EQ(sq.cli({"status"}).exitCode, 0);
@@ -59,7 +59,7 @@ int main(int, char** argv)
     CHECK_EQ(forced.exitCode, 0);
     CHECK(contains(forced.out, "w-000001"));
     CHECK_EQ(sq.cli({"project", "wait", "w-000001", "--timeout", "120"}).exitCode, 0);
-    sub0squad::platform::unsetEnvironment("SUB0SQUAD_BUILD_ID");
+    sub0platform::unsetEnvironment("SUB0SQUAD_BUILD_ID");
 
     // A process with no plan and no items (two job stages) runs through the daemon: no "awaiting a plan", both jobs run, the workflow succeeds (row 56).
     {

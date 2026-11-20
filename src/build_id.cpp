@@ -1,6 +1,6 @@
 #include "sub0squad/build_id.hpp"
 
-#include "sub0squad/platform_proc.hpp"
+#include "sub0platform/proc.hpp"
 
 #include <cstdint>
 #include <cstdlib>
@@ -17,7 +17,7 @@ std::string& version() { static std::string v = "unknown"; return v; }
 /// A daemon started before a rebuild still reads the file it was started from, so its fingerprint stays the old one.
 std::string fingerprint()
 {
-    const auto self = platform::selfExecutable();
+    const auto self = sub0platform::selfExecutable();
     if (self.empty()) return {};
     std::ifstream in(self, std::ios::binary);   // a path, not a char*: on Windows the path is wide
     if (!in) return {};

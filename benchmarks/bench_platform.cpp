@@ -4,10 +4,10 @@
 // Part of Sub0Squad_Bench (one executable, so one baseline per host): bench_squad.cpp's main calls runPlatformBenchmarks.
 #include "bench_platform.hpp"
 
-#include "sub0squad/platform_file.hpp"
-#include "sub0squad/platform_net.hpp"
-#include "sub0squad/platform_process.hpp"
-#include "sub0squad/platform_wait.hpp"
+#include "sub0platform/file.hpp"
+#include "sub0platform/net.hpp"
+#include "sub0platform/process.hpp"
+#include "sub0platform/wait.hpp"
 
 #if defined(_WIN32)
 #ifndef WIN32_LEAN_AND_MEAN
@@ -36,14 +36,13 @@
 extern char** environ;
 #endif
 
-namespace platform = sub0squad::platform;
 namespace fs = std::filesystem;
 
 namespace {
 
 /// Read exactly `size` bytes from a raw socket (a loopback read can return part of a small write). The library's sockets are non-blocking, so
 /// an empty read waits for data in poll, as any real reader must (giving up on EAGAIN would let the twin skip the wait it is measured against).
-void recvAll(platform::NativeSocket s, char* buf, std::size_t size)
+void recvAll(sub0platform::NativeSocket s, char* buf, std::size_t size)
 {
     std::size_t got = 0;
 #if defined(_WIN32)
@@ -68,7 +67,7 @@ void recvAll(platform::NativeSocket s, char* buf, std::size_t size)
 #endif
 }
 
-void sendAll(platform::NativeSocket s, const char* buf, std::size_t size)
+void sendAll(sub0platform::NativeSocket s, const char* buf, std::size_t size)
 {
 #if defined(_WIN32)
     (void)::send(static_cast<SOCKET>(s), buf, static_cast<int>(size), 0);
@@ -112,7 +111,7 @@ void runPlatformBenchmarks(sub0bench::BenchRunner& runner, const fs::path& self,
         ::close(ep);
         ::close(efd);
 #endif
-        auto waiter = platform::Waiter::create();
+        auto waiter = sub0platform::Waiter::create();
         runner.run("waiter wake and wait, Waiter", [&] {
             waiter->wake();
             auto events = waiter->wait();
@@ -122,10 +121,10 @@ void runPlatformBenchmarks(sub0bench::BenchRunner& runner, const fs::path& self,
 
     // ---- 64 bytes over a loopback TCP connection, written on one end and read on the other ------------------------------------------------
     {
-        auto listener = platform::listenLoopback(0);
-        auto client = platform::connectTcp("127.0.0.1", listener->port());
+        auto listener = sub0platform::listenLoopback(0);
+        auto client = sub0platform::connectTcp("127.0.0.1", listener->port());
         auto accepted = listener->accept(std::chrono::seconds{5});
-        platform::SocketStream server = std::move(**accepted);
+        sub0platform::SocketStream server = std::move(**accepted);
         char out[64];
         std::memset(out, 'x', sizeof out);
         char in[64];
@@ -170,7 +169,7 @@ void runPlatformBenchmarks(sub0bench::BenchRunner& runner, const fs::path& self,
             ::rename(temp.c_str(), target.c_str());
         });
 #endif
-        runner.run("atomic replace 4 KiB, writeFileAtomic()", [&] { auto r = platform::writeFileAtomic(target, text); ankerl::nanobench::doNotOptimizeAway(r); });
+        runner.run("atomic replace 4 KiB, writeFileAtomic()", [&] { auto r = sub0platform::writeFileAtomic(target, text); ankerl::nanobench::doNotOptimizeAway(r); });
         runner.bench().minEpochIterations(10);
     }
 
@@ -201,9 +200,9 @@ void runPlatformBenchmarks(sub0bench::BenchRunner& runner, const fs::path& self,
             }
         });
 #endif
-        const platform::ProcessSpec spec{.argv = {self.string(), kBenchExitNow}};
-        runner.run("spawn and wait, platform::spawn()", [&] {
-            auto child = platform::spawn(spec);
+        const sub0platform::ProcessSpec spec{.argv = {self.string(), kBenchExitNow}};
+        runner.run("spawn and wait, sub0platform::spawn()", [&] {
+            auto child = sub0platform::spawn(spec);
             if (child) { auto st = child->wait(); ankerl::nanobench::doNotOptimizeAway(st); }
         });
         runner.bench().epochs(11).minEpochIterations(10);

@@ -2,8 +2,8 @@
 // built binary), against a private home and a free portal port, with the mock agent (no model). Every command must succeed, the project the README
 // promises must exist where it says, and nothing may be left running. argv[1] is the binary, argv[2] the README.
 #include "check.hpp"
-#include "sub0squad/platform_proc.hpp"
-#include "sub0squad/platform_process.hpp"
+#include "sub0platform/proc.hpp"
+#include "sub0platform/process.hpp"
 
 #include <fstream>
 #include <sstream>
@@ -16,7 +16,7 @@ struct Result { int exitCode = -1; std::string out; };
 
 static Result run(std::vector<std::string> argv)
 {
-    auto ran = sub0squad::platform::runCaptured(sub0squad::platform::ProcessSpec{.argv = std::move(argv)}, {.timeout = std::chrono::minutes(10), .maxBytes = 16u << 20});
+    auto ran = sub0platform::runCaptured(sub0platform::ProcessSpec{.argv = std::move(argv)}, {.timeout = std::chrono::minutes(10), .maxBytes = 16u << 20});
     if (!ran) return Result{-1, ran.error().message};
     return Result{ran->status.exited() ? ran->status.code : -1, ran->output};
 }
@@ -68,10 +68,10 @@ int main(int argc, char** argv)
     CHECK(commands.size() >= 11);   // doctor, up, do, wait, status, process list/add, do --process, wait, process show, down
 
     const fs::path home = makeTempDir("readme");
-    sub0squad::platform::setEnvironment("SUB0SQUAD_HOME", home.string());
-    sub0squad::platform::setEnvironment("SUB0SQUAD_EXIT_WITH", std::to_string(sub0squad::platform::currentProcess()));   // `up`'s daemon ends with this test
+    sub0platform::setEnvironment("SUB0SQUAD_HOME", home.string());
+    sub0platform::setEnvironment("SUB0SQUAD_EXIT_WITH", std::to_string(sub0platform::currentProcess()));   // `up`'s daemon ends with this test
     // Port 0: the portal takes a free pair from the system and `up` prints the one it got, so neither a real portal nor a parallel test can collide.
-    sub0squad::platform::setEnvironment("SUB0SQUAD_PORTAL_PORT", "0");
+    sub0platform::setEnvironment("SUB0SQUAD_PORTAL_PORT", "0");
     bool sawDo = false, sawUp = false, sawDown = false, sawDoctor = false, sawProcessAdd = false;
     int doCount = 0;
     for (const auto& c : commands) {

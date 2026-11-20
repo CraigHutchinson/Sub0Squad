@@ -5,7 +5,7 @@
 #include "sub0squad/harness.hpp"
 #include "sub0squad/harness_web.hpp"
 #include "sub0squad/plan.hpp"
-#include "sub0squad/platform_file.hpp"
+#include "sub0platform/file.hpp"
 
 #include <chrono>
 #include <print>
@@ -39,7 +39,7 @@ std::string one(const std::map<std::string, std::vector<std::string>>& m, const 
 
 std::optional<Plan> loadPlan(const fs::path& dir, std::string& error)
 {
-    auto plan = Plan::fromJson(platform::readFileText(dir / "plan.json"));
+    auto plan = Plan::fromJson(sub0platform::readFileText(dir / "plan.json"));
     if (!plan) { error = "cannot load plan.json: " + plan.error(); return std::nullopt; }
     return std::move(*plan);
 }
@@ -59,7 +59,7 @@ int runMockPlanner(const std::vector<std::string>& args)
         auto parsed = Plan::fromJson(text);
         if (!parsed) { std::println(stderr, "mock-planner: blueprint invalid: {}", parsed.error()); return 1; }
         events::metric("plan.items", static_cast<double>(parsed->items.size()));
-        if (!platform::writeFileAtomic(out, parsed->toJson())) { std::println(stderr, "mock-planner: cannot write {}", out); return 1; }
+        if (!sub0platform::writeFileAtomic(out, parsed->toJson())) { std::println(stderr, "mock-planner: cannot write {}", out); return 1; }
         events::progress(1, 1, "planned");
         std::println("planned {} item(s) for {} from the blueprint", parsed->items.size(), task);
         return 0;
@@ -112,7 +112,7 @@ int runMockAgent(const std::vector<std::string>& args)
         const bool useBug = buggy && f == bugFile;
         std::string text = harness->mockFile(f, useBug);
         if (text.empty()) { std::println(stderr, "mock-agent: no template for '{}' (or its defect no longer matches)", f); return 1; }
-        if (!platform::writeFileAtomic(out / f, text)) { std::println(stderr, "mock-agent: cannot write {}", f); return 1; }
+        if (!sub0platform::writeFileAtomic(out / f, text)) { std::println(stderr, "mock-agent: cannot write {}", f); return 1; }
         tokensOut += static_cast<double>(text.size()) / 4.0;
         events::metric("tokens.out", tokensOut);
         events::progress(++done, total, "writing");
@@ -120,7 +120,7 @@ int runMockAgent(const std::vector<std::string>& args)
     }
     json::Writer w;
     w.beginObject().kv("item", itemId).kv("tier", tier).kv("attempt", attempt).kvBool("injectedDefect", buggy).endObject();
-    (void)platform::writeFileAtomic(out.parent_path() / "agent.json", w.take());   // a note for the reader, not the deliverable
+    (void)sub0platform::writeFileAtomic(out.parent_path() / "agent.json", w.take());   // a note for the reader, not the deliverable
     {   // a mock still reports the metrics the harness KPIs use: all of it is deliverable work, the card is the only input
         double cardTokens = 0;
         cardTokens += static_cast<double>(item->card.estimatedTokens());

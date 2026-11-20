@@ -2,9 +2,9 @@
 
 #include "json_util.hpp"
 #include "sub0squad/job_spec.hpp"
-#include "sub0squad/platform_file.hpp"
-#include "sub0squad/platform_proc.hpp"
-#include "sub0squad/platform_wait.hpp"
+#include "sub0platform/file.hpp"
+#include "sub0platform/proc.hpp"
+#include "sub0platform/wait.hpp"
 
 #include <algorithm>
 #include <atomic>
@@ -35,8 +35,8 @@ private:
     /// One piped stream and the file it is copied to. Written by its reader thread only.
     struct Stream
     {
-        platform::Pipe pipe;
-        platform::AppendFile file;
+        sub0platform::Pipe pipe;
+        sub0platform::AppendFile file;
         bool events = false;
         std::size_t written = 0;
         bool capped = false;
@@ -53,43 +53,43 @@ private:
 
     std::filesystem::path dir_;
     JobSpec spec_;
-    platform::Waiter waiter_;
-    platform::Child child_;
+    sub0platform::Waiter waiter_;
+    sub0platform::Child child_;
     Stream out_, err_, events_;
     std::vector<std::jthread> readers_;
     std::atomic<int> readersActive_{0};
     std::atomic<bool> stopReaders_{false};
     std::atomic<std::size_t> droppedEventLines_{0};
-    std::optional<platform::ExitStatus> status_;
+    std::optional<sub0platform::ExitStatus> status_;
     std::string outcome_ = "exited";  // exited | cancelled | timeout | startFailed
     std::string teardown_ = "verified";
-    std::vector<platform::ProcessId> survivors_;
+    std::vector<sub0platform::ProcessId> survivors_;
     Clock::time_point began_ = Clock::now();
 };
 
 bool Shim::start()
 {
-    auto spec = JobSpec::fromJson(platform::readFileText(dir_ / "spec.json"));
+    auto spec = JobSpec::fromJson(sub0platform::readFileText(dir_ / "spec.json"));
     if (!spec) { std::fprintf(stderr, "exec-shim: bad spec: %s\n", spec.error().c_str()); outcome_ = "startFailed"; return false; }
     spec_ = std::move(*spec);
 
-    platform::setEnvironment("SUB0SQUAD_IN_SHIM", "1");  // recursion guard for spawnShim (the job's environment is rebuilt below, so it is not inherited)
-    platform::becomeSubreaper();
+    sub0platform::setEnvironment("SUB0SQUAD_IN_SHIM", "1");  // recursion guard for spawnShim (the job's environment is rebuilt below, so it is not inherited)
+    sub0platform::becomeSubreaper();
     // Stop requests are taken before any thread starts, so on POSIX every thread inherits SIGTERM and SIGINT blocked and they reach the waiter.
-    auto waiter = platform::Waiter::create();
+    auto waiter = sub0platform::Waiter::create();
     if (!waiter || !waiter->watchStopRequests(kStop)) { std::fprintf(stderr, "exec-shim: cannot wait for the job\n"); outcome_ = "startFailed"; return false; }
     waiter_ = std::move(*waiter);
 
     auto openOut = [&](const char* name) {
-        auto f = platform::AppendFile::open(dir_ / name);
-        return f ? std::move(*f) : platform::AppendFile{};
+        auto f = sub0platform::AppendFile::open(dir_ / name);
+        return f ? std::move(*f) : sub0platform::AppendFile{};
     };
     out_.file = openOut("stdout.log");
     err_.file = openOut("stderr.log");
     events_.file = openOut("events.ndjson");
     events_.events = true;
 
-    platform::ProcessSpec ps;
+    sub0platform::ProcessSpec ps;
     ps.argv = spec_.argv;
     ps.cwd = spec_.cwd;
     ps.newSession = true;   // the job leads a group of its own, so terminate and kill reach all of it
@@ -110,7 +110,7 @@ bool Shim::start()
     for (const auto& [k, v] : spec_.env) env.push_back(k + "=" + v);
     ps.environment = std::move(env);
 
-    auto child = platform::spawn(ps);
+    auto child = sub0platform::spawn(ps);
     if (!child) {
         // As a shell reports it: 127 when the program is not there, 126 when it cannot be run (or its working directory is missing). The reason goes
         // to stderr.log, where the job's own complaint would have been.
@@ -118,8 +118,8 @@ bool Shim::start()
         if (err_.file.isOpen()) (void)err_.file.append(reason);
         std::error_code ec;
         const bool missing = spec_.argv.empty() || (std::filesystem::is_directory(spec_.cwd.empty() ? "." : spec_.cwd, ec) &&
-                                                    platform::findOnPath(spec_.argv.front()).empty());
-        status_ = platform::ExitStatus{missing ? 127 : 126, 0};
+                                                    sub0platform::findOnPath(spec_.argv.front()).empty());
+        status_ = sub0platform::ExitStatus{missing ? 127 : 126, 0};
         return false;
     }
     child_ = std::move(*child);
@@ -131,11 +131,11 @@ bool Shim::start()
         readers_.emplace_back([this, s] { readStream(*s); --readersActive_; });
     }
 
-    const auto ticks = platform::processStart(platform::currentProcess());
+    const auto ticks = sub0platform::processStart(sub0platform::currentProcess());
     json::Writer w;
-    w.beginObject().kv("schema", "shim-1").kv("pid", platform::currentProcess()).kv("startTicks", static_cast<std::int64_t>(ticks.value_or(0)))
+    w.beginObject().kv("schema", "shim-1").kv("pid", sub0platform::currentProcess()).kv("startTicks", static_cast<std::int64_t>(ticks.value_or(0)))
         .kv("child", child_.id()).endObject();
-    (void)platform::writeFileAtomic(dir_ / "shim.json", w.take(), true);
+    (void)sub0platform::writeFileAtomic(dir_ / "shim.json", w.take(), true);
     return true;
 }
 
@@ -192,12 +192,12 @@ void Shim::joinReaders()
 
 void Shim::teardown(std::int64_t graceSec)
 {
-    const platform::ProcessId self = platform::currentProcess();
-    auto live = [&] { child_.reapOrphans(); return platform::descendants(self); };
+    const sub0platform::ProcessId self = sub0platform::currentProcess();
+    auto live = [&] { child_.reapOrphans(); return sub0platform::descendants(self); };
     auto sendAll = [&](bool hard) {
         (void)(hard ? child_.kill() : child_.terminate());   // the job's own group first
-        for (const platform::ProcessId d : platform::descendants(self))   // escapees that left the group
-            (void)(hard ? platform::killProcess(d) : platform::terminateProcess(d));
+        for (const sub0platform::ProcessId d : sub0platform::descendants(self))   // escapees that left the group
+            (void)(hard ? sub0platform::killProcess(d) : sub0platform::terminateProcess(d));
     };
     if (!live().empty()) {
         sendAll(false);
@@ -211,8 +211,8 @@ void Shim::teardown(std::int64_t graceSec)
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
     child_.reapOrphans();
-    survivors_ = platform::descendants(self);
-    std::erase_if(survivors_, [](platform::ProcessId p) { return !platform::processStart(p); });
+    survivors_ = sub0platform::descendants(self);
+    std::erase_if(survivors_, [](sub0platform::ProcessId p) { return !sub0platform::processStart(p); });
     teardown_ = survivors_.empty() ? "verified" : "survivors";
 }
 
@@ -229,8 +229,8 @@ void Shim::loop()
         if (events->empty() && wall && Clock::now() >= *wall) { outcome_ = "timeout"; break; }
         bool cancel = false;
         for (const auto& e : *events) {
-            if (e.kind == platform::WaitEvent::Kind::exited) { ended = true; status_ = e.status; }
-            else if (e.kind == platform::WaitEvent::Kind::stopRequested) cancel = true;
+            if (e.kind == sub0platform::WaitEvent::Kind::exited) { ended = true; status_ = e.status; }
+            else if (e.kind == sub0platform::WaitEvent::Kind::stopRequested) cancel = true;
         }
         if (ended) break;  // the main command ended first: the outcome stays "exited"
         if (cancel) { outcome_ = "cancelled"; break; }
@@ -249,12 +249,12 @@ void Shim::writeExit()
     if (status_ && status_->signal != 0) w.kv("signal", status_->signal);
     w.kv("teardown", teardown_);
     w.key("survivors").beginArray();
-    for (const platform::ProcessId p : survivors_) w.num(static_cast<std::int64_t>(p));
+    for (const sub0platform::ProcessId p : survivors_) w.num(static_cast<std::int64_t>(p));
     w.endArray();
     w.kv("durationMs", static_cast<std::int64_t>(ms)).kv("eventsDropped", static_cast<std::int64_t>(droppedEventLines_.load()));
     // What the job itself reports about its outcome (`result.json` in its run directory: a small JSON object, e.g. a gate's mend): carried in the exit
     // record, so it reaches the journal with the job's end and the workflow engine can read it without touching a file.
-    if (auto text = platform::readFile(dir_ / "result.json")) {
+    if (auto text = sub0platform::readFile(dir_ / "result.json")) {
         std::string result = std::move(*text);
         while (!result.empty() && (result.back() == '\n' || result.back() == ' ')) result.pop_back();
         bool object = false;
@@ -262,7 +262,7 @@ void Shim::writeExit()
         if (object) w.kvRaw("result", result);
     }
     w.endObject();
-    (void)platform::writeFileAtomic(dir_ / "exit.json", w.take(), true);
+    (void)sub0platform::writeFileAtomic(dir_ / "exit.json", w.take(), true);
 }
 
 int Shim::run()

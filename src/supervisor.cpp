@@ -1,18 +1,18 @@
 #include "sub0squad/supervisor.hpp"
 
 #include "json_util.hpp"
-#include "sub0squad/platform_process.hpp"
-#include "sub0squad/platform_file.hpp"
+#include "sub0platform/process.hpp"
+#include "sub0platform/file.hpp"
 
 #include <cstdlib>
 
 namespace sub0squad {
 
-std::expected<platform::ProcessId, std::string> spawnShim(const std::filesystem::path& exe, const std::filesystem::path& runDir)
+std::expected<sub0platform::ProcessId, std::string> spawnShim(const std::filesystem::path& exe, const std::filesystem::path& runDir)
 {
     if (std::getenv("SUB0SQUAD_IN_SHIM")) return std::unexpected("refusing to start a shim from inside a shim");
     using std::filesystem::perms;
-    auto shim = platform::spawn({.argv = {exe.string(), "exec-shim", runDir.string()},
+    auto shim = sub0platform::spawn({.argv = {exe.string(), "exec-shim", runDir.string()},
                                  .outputFile = runDir / "shim.log",
                                  .appendOutput = true,
                                  .outputPerms = perms::owner_read | perms::owner_write,
@@ -23,7 +23,7 @@ std::expected<platform::ProcessId, std::string> spawnShim(const std::filesystem:
 
 std::optional<ShimInfo> readShimInfo(const std::filesystem::path& runDir)
 {
-    auto text = platform::readFile(runDir / "shim.json");
+    auto text = sub0platform::readFile(runDir / "shim.json");
     if (!text) return std::nullopt;
     ShimInfo info;
     try {
@@ -40,7 +40,7 @@ std::optional<ShimInfo> readShimInfo(const std::filesystem::path& runDir)
 
 std::optional<ExitRecord> readExitRecord(const std::filesystem::path& runDir)
 {
-    auto text = platform::readFile(runDir / "exit.json");
+    auto text = sub0platform::readFile(runDir / "exit.json");
     if (!text) return std::nullopt;
     ExitRecord rec;
     rec.raw = *text;

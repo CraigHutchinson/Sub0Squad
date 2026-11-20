@@ -25,14 +25,14 @@ std::expected<bool, std::string> FrameBuffer::next(std::string& out)
     return true;
 }
 
-std::expected<void, std::string> writeFrameBlocking(platform::SocketStream& stream, std::string_view payload)
+std::expected<void, std::string> writeFrameBlocking(sub0platform::SocketStream& stream, std::string_view payload)
 {
     const std::string f = encodeFrame(payload);
     if (auto w = stream.writeAll(f); !w) return std::unexpected("write: " + w.error().message);
     return {};
 }
 
-std::expected<std::string, std::string> readFrameBlocking(platform::SocketStream& stream, std::optional<std::chrono::milliseconds> timeout)
+std::expected<std::string, std::string> readFrameBlocking(sub0platform::SocketStream& stream, std::optional<std::chrono::milliseconds> timeout)
 {
     FrameBuffer fb;
     std::string out;

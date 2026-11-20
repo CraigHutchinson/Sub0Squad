@@ -3,7 +3,7 @@
 #include "check.hpp"
 #include "portal_impl.hpp"
 #include "portal_work.hpp"
-#include "sub0squad/platform_proc.hpp"
+#include "sub0platform/proc.hpp"
 
 #include <fstream>
 
@@ -34,7 +34,7 @@ int main()
         CHECK_EQ(std::string(mimeOf("noext")), std::string("text/plain; charset=utf-8"));
     }
     {   // The file view never leaves the sandbox: no absolute path, no `..`, no symbolic link that points outside; a job's files only by their exact names.
-        const fs::path home = fs::temp_directory_path() / ("s0q-portal-" + std::to_string(sub0squad::platform::currentProcess()));
+        const fs::path home = fs::temp_directory_path() / ("s0q-portal-" + std::to_string(sub0platform::currentProcess()));
         const fs::path root = home / "state" / "workflows" / "w-000001";
         put(root / "items" / "a" / "gate.txt", "GATE PASS\n");
         put(root / "items" / "a" / "attempt-1" / "ws" / "copy.txt", "x");
@@ -53,7 +53,7 @@ int main()
         fs::remove_all(home, ec);
     }
     {
-        const auto home = fs::temp_directory_path() / ("s0q-work-" + std::to_string(platform::currentProcess()));
+        const auto home = fs::temp_directory_path() / ("s0q-work-" + std::to_string(sub0platform::currentProcess()));
         const auto config = home / "work.json";
         put(config, R"({"localProject":"primary","homes":[{"id":"east","project":"calculator","home":"east"},{"id":"west","project":"store","home":"west"}],"work":[{"id":"outline","project":"store","state":"staged","title":"Plan the outline"}],"reports":[{"id":"gate","project":"calculator","root":"results","file":"gate.json","kind":"gate"},{"id":"private","project":"store","root":"checker","file":"verdict.json"}]})");
         put(home / "results/gate.json", R"({"schema":"t0-gate-1","minRuns":3,"verdict":"FAIL","cases":{"repair":{"runs":3,"passed":2,"state":"FAIL"}}})");

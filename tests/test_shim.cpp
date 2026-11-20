@@ -5,8 +5,8 @@
 #include "sub0squad/supervisor.hpp"
 
 #include "tagged.hpp"
-#include "sub0squad/platform_proc.hpp"
-#include "sub0squad/platform_wait.hpp"
+#include "sub0platform/proc.hpp"
+#include "sub0platform/wait.hpp"
 
 #include <chrono>
 #include <fstream>
@@ -22,7 +22,7 @@ static std::string slurp(const fs::path& p) { std::ifstream in(p, std::ios::bina
 
 static int countByTag(const std::string& tag) { return tagged::count(tag); }
 
-struct Run { fs::path dir; platform::ProcessId shim = 0; };
+struct Run { fs::path dir; sub0platform::ProcessId shim = 0; };
 
 static Run startRun(const char* tag, std::vector<std::string> workerArgs, std::int64_t wall = 0, std::int64_t grace = 1)
 {
@@ -43,7 +43,7 @@ static Run startRun(const char* tag, std::vector<std::string> workerArgs, std::i
 /// Wait (up to two minutes) for the shim to end; it is this process's child, so the wait also reaps it.
 static void waitShim(const Run& r)
 {
-    auto w = platform::Waiter::create();
+    auto w = sub0platform::Waiter::create();
     CHECK(w.has_value());
     if (!w || !w->watchExit(r.shim, 1)) return;   // already gone
     for (int i = 0; i < 240; ++i) {
@@ -98,7 +98,7 @@ int main(int, char** argv)
         CHECK(waitForFile(r.dir / "shim.json"));
         for (int i = 0; i < 300 && countByTag(tag) < 3; ++i) std::this_thread::sleep_for(std::chrono::milliseconds(10));
         CHECK(countByTag(tag) >= 3);  // worker, server and escapee are all alive before the cancel
-        CHECK(platform::terminateProcess(r.shim));
+        CHECK(sub0platform::terminateProcess(r.shim));
         waitShim(r);
         auto ex = readExitRecord(r.dir);
         CHECK(ex && ex->outcome == "cancelled" && ex->teardown == "verified");

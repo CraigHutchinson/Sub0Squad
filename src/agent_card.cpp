@@ -5,7 +5,7 @@
 #include "sub0squad/harness.hpp"
 #include "sub0squad/outline.hpp"
 #include "sub0squad/stance.hpp"
-#include "sub0squad/platform_file.hpp"
+#include "sub0platform/file.hpp"
 
 #include <algorithm>
 #include <cstdlib>
@@ -26,8 +26,8 @@ std::string harnessBrief(const Plan& plan)
     return h->brief ? h->brief() : std::string{};
 }
 
-std::string slurp(const fs::path& p) { return platform::readFileText(p); }
-bool writeFile(const fs::path& p, const std::string& text) { return platform::writeFile(p, text).has_value(); }
+std::string slurp(const fs::path& p) { return sub0platform::readFileText(p); }
+bool writeFile(const fs::path& p, const std::string& text) { return sub0platform::writeFile(p, text).has_value(); }
 std::string arg(const std::vector<std::string>& a, const std::string& key, const std::string& d)
 {
     for (std::size_t i = 0; i + 1 < a.size(); ++i) if (a[i] == "--" + key) return a[i + 1];

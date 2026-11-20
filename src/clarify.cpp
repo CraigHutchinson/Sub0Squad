@@ -2,7 +2,7 @@
 
 #include "json_util.hpp"
 #include "sub0squad/triage.hpp"
-#include "sub0squad/platform_file.hpp"
+#include "sub0platform/file.hpp"
 
 #include <algorithm>
 #include <cstdio>
@@ -303,10 +303,10 @@ int runPlanQuestions(const std::vector<std::string>& args)
     std::filesystem::path dir;
     for (std::size_t i = 0; i + 1 < args.size(); ++i) if (args[i] == "--workflow-dir") dir = args[i + 1];
     if (dir.empty()) { std::fprintf(stderr, "plan-questions: --workflow-dir D\n"); return 64; }
-    const auto facts = ClarifyFacts::fromJson(platform::readFileText(dir / "clarify-input.json"));
+    const auto facts = ClarifyFacts::fromJson(sub0platform::readFileText(dir / "clarify-input.json"));
     if (!facts) { std::fprintf(stderr, "plan-questions: %s\n", facts.error().c_str()); return 1; }
     const ClarifyPlan plan = clarify(*facts);
-    if (!platform::writeFile(dir / "questions.json", plan.toJson() + "\n")) { std::fprintf(stderr, "plan-questions: cannot write questions.json\n"); return 1; }
+    if (!sub0platform::writeFile(dir / "questions.json", plan.toJson() + "\n")) { std::fprintf(stderr, "plan-questions: cannot write questions.json\n"); return 1; }
     for (const auto& t : plan.settled) std::printf("%-9s %-10s %s%s%s\n", t.key.c_str(), t.source.c_str(), t.value.c_str(), t.value.empty() ? "" : ": ", t.note.c_str());
     for (const auto& q : plan.questions) std::printf("%-9s ASK        %s (default: %s)\n", q.key.c_str(), q.question.c_str(), q.values.front().c_str());
     return 0;

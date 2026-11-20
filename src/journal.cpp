@@ -81,7 +81,7 @@ std::expected<Journal, std::string> Journal::open(const std::filesystem::path& d
     std::error_code ec;
     std::filesystem::create_directories(dir, ec);
     const auto path = dir / kSegment;
-    auto file = platform::AppendFile::open(path);
+    auto file = sub0platform::AppendFile::open(path);
     if (!file) return std::unexpected("cannot open " + path.string() + ": " + file.error().message);
     if (replayed->tornTail)
         if (auto cut = file->truncate(replayed->validBytes); !cut) return std::unexpected("cannot truncate torn tail of " + path.string() + ": " + cut.error().message);

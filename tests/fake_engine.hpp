@@ -5,7 +5,7 @@
 // agent sent, and how many characters of a reply had been sent when the client closed the connection (an early abort).
 #include <simdjson.h>
 
-#include "sub0squad/platform_net.hpp"
+#include "sub0platform/net.hpp"
 
 #include <atomic>
 #include <chrono>
@@ -74,7 +74,7 @@ public:
     /// The script chooses the reply from the request (forked sessions arrive in any order).
     explicit Engine(Script script) : script_(std::move(script))
     {
-        auto l = sub0squad::platform::listenLoopback(0);
+        auto l = sub0platform::listenLoopback(0);
         if (!l) { std::fprintf(stderr, "%s\n", l.error().message.c_str()); std::exit(2); }
         listener_ = std::move(*l);
         port_ = listener_.port();
@@ -99,7 +99,7 @@ public:
     [[nodiscard]] long abortedAfter(std::size_t i) const { std::lock_guard<std::mutex> l(mu_); return i < aborted_.size() ? aborted_[i] : -1; }
 
 private:
-    using Stream = sub0squad::platform::SocketStream;
+    using Stream = sub0platform::SocketStream;
     static bool sendAll(Stream& fd, const std::string& s) { return fd.writeAll(s).has_value(); }
     static std::string chunk(const std::string& s) { char h[32]; std::snprintf(h, sizeof h, "%zx\r\n", s.size()); return std::string(h) + s + "\r\n"; }
     /// Whether the peer has closed (it sends nothing after its request, so readable means closed).
@@ -206,7 +206,7 @@ private:
     }
 
     Script script_;
-    sub0squad::platform::SocketListener listener_;
+    sub0platform::SocketListener listener_;
     int port_ = 0;
     std::atomic<bool> stop_{false};
     std::thread acceptor_;

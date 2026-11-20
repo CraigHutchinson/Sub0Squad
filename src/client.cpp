@@ -21,7 +21,7 @@
 #include "sub0squad/triage.hpp"
 #include "sub0squad/workflow.hpp"
 #include "sub0squad/workflow_status.hpp"
-#include "sub0squad/platform_ipc.hpp"
+#include "sub0platform/ipc.hpp"
 
 #include <chrono>
 #include <cstdio>
@@ -34,7 +34,7 @@ namespace sub0squad {
 
 std::expected<ControlClient, ControlClient::ConnectError> ControlClient::connect(const RuntimePaths& paths)
 {
-    auto s = platform::connectLocal(paths.controlSocket());
+    auto s = sub0platform::connectLocal(paths.controlSocket());
     if (!s) return std::unexpected(ConnectError{s.error().error.message, s.error().noServer});
     ControlClient c;
     c.stream_ = std::move(*s);

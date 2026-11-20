@@ -2,7 +2,7 @@
 // state does not, on all three platforms; and the statistic that decides "proven" is the 95 % Wilson lower bound.
 #include "check.hpp"
 #include "sub0squad/harness_registry.hpp"
-#include "sub0squad/platform_process.hpp"
+#include "sub0platform/process.hpp"
 #include "sub0squad/scenario.hpp"
 #include "sub0squad/scenario_compare.hpp"
 
@@ -53,7 +53,7 @@ int main(int argc, char** argv)
         const std::filesystem::path dir = makeTempDir("scenario-compare");
         { std::ofstream(dir / "a.json") << a; std::ofstream(dir / "b.json") << b; }
         const auto command = [&](const std::string& x, const std::string& y) {
-            const auto ran = sub0squad::platform::runCaptured({.argv = {argv[1], "scenario", "compare", (dir / x).string(), (dir / y).string()}});
+            const auto ran = sub0platform::runCaptured({.argv = {argv[1], "scenario", "compare", (dir / x).string(), (dir / y).string()}});
             return ran && ran->status.exited() ? ran->status.code : -1;
         };
         CHECK_EQ(command("a.json", "b.json"), 1);

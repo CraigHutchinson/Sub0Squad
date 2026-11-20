@@ -3,8 +3,8 @@
 #include "check.hpp"
 
 #include "tagged.hpp"
-#include "sub0squad/platform_proc.hpp"
-#include "sub0squad/platform_process.hpp"
+#include "sub0platform/proc.hpp"
+#include "sub0platform/process.hpp"
 
 #include <chrono>
 #include <fstream>
@@ -15,7 +15,7 @@
 
 namespace e2e {
 
-using sub0squad::platform::ProcessId;
+using sub0platform::ProcessId;
 
 inline std::string slurp(const std::filesystem::path& p) { std::ifstream in(p, std::ios::binary); std::stringstream ss; ss << in.rdbuf(); return ss.str(); }
 inline void sleepMs(int ms) { std::this_thread::sleep_for(std::chrono::milliseconds(ms)); }
@@ -31,9 +31,9 @@ class Squad
 public:
     Squad(std::string exe, const char* tag) : exe_(std::move(exe)), home_(makeTempDir(tag))
     {
-        sub0squad::platform::setEnvironment("SUB0SQUAD_HOME", home_.string());
+        sub0platform::setEnvironment("SUB0SQUAD_HOME", home_.string());
         // A daemon that `up` starts for this test stops when the test ends, even when ctest kills it (startDaemon passes --exit-with as well).
-        sub0squad::platform::setEnvironment("SUB0SQUAD_EXIT_WITH", std::to_string(sub0squad::platform::currentProcess()));
+        sub0platform::setEnvironment("SUB0SQUAD_EXIT_WITH", std::to_string(sub0platform::currentProcess()));
     }
     ~Squad() { stopDaemon(); removeTree(home_); }
 
@@ -41,11 +41,11 @@ public:
     {
         // --exit-with this test: a test that ctest kills on its timeout runs no destructor, and its daemon would live on, holding the home and
         // whatever waits on the test's process tree.
-        sub0squad::platform::ProcessSpec spec{.argv = {exe_, "serve", "--max-jobs", std::to_string(maxJobs), "--exit-with",
-                                                       std::to_string(sub0squad::platform::currentProcess())},
+        sub0platform::ProcessSpec spec{.argv = {exe_, "serve", "--max-jobs", std::to_string(maxJobs), "--exit-with",
+                                                       std::to_string(sub0platform::currentProcess())},
                                               .outputFile = home_ / "daemon.log", .appendOutput = true};
         for (auto& e : extra) spec.argv.push_back(e);
-        auto child = sub0squad::platform::spawn(spec);
+        auto child = sub0platform::spawn(spec);
         CHECK(child.has_value());
         if (!child) return;
         daemon_ = std::move(*child);
@@ -55,7 +55,7 @@ public:
         std::fprintf(stderr, "ping: %s\ndaemon.log:\n%s\n", cli({"ping"}, true).out.c_str(), slurp(home_ / "daemon.log").c_str());
     }
     /// Ask the daemon to stop (SIGTERM; on Windows its stop event) and wait for it.
-    void stopDaemon() { if (daemon_.id() > 0) { (void)sub0squad::platform::terminateProcess(daemon_.id()); (void)daemon_.wait(); daemon_ = {}; } }
+    void stopDaemon() { if (daemon_.id() > 0) { (void)sub0platform::terminateProcess(daemon_.id()); (void)daemon_.wait(); daemon_ = {}; } }
     void killDaemon() { if (daemon_.id() > 0) { daemon_.kill(); (void)daemon_.wait(); daemon_ = {}; } }
     [[nodiscard]] ProcessId daemonPid() const { return daemon_.id(); }
     [[nodiscard]] const std::filesystem::path& home() const { return home_; }
@@ -64,9 +64,9 @@ public:
     /// Run the CLI to its end: its stdout, and its stderr too when `withStderr` (otherwise discarded).
     Result cli(std::vector<std::string> args, bool withStderr = false)
     {
-        sub0squad::platform::ProcessSpec spec{.argv = {exe_}};
+        sub0platform::ProcessSpec spec{.argv = {exe_}};
         for (auto& a : args) spec.argv.push_back(a);
-        auto ran = sub0squad::platform::runCaptured(spec, {.timeout = std::chrono::minutes(10), .maxBytes = 64u << 20, .includeStderr = withStderr, .discardStderr = !withStderr});
+        auto ran = sub0platform::runCaptured(spec, {.timeout = std::chrono::minutes(10), .maxBytes = 64u << 20, .includeStderr = withStderr, .discardStderr = !withStderr});
         CHECK(ran.has_value());
         if (!ran) return {};
         return Result{ran->status.exited() ? ran->status.code : -1, ran->output};
@@ -107,7 +107,7 @@ public:
 private:
     std::string exe_;
     std::filesystem::path home_;
-    sub0squad::platform::Child daemon_;
+    sub0platform::Child daemon_;
 };
 
 }  // namespace e2e

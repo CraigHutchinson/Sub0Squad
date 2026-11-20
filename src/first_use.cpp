@@ -7,10 +7,10 @@
 #include "sub0squad/harness.hpp"
 #include "sub0squad/host_guard.hpp"
 #include "sub0squad/paths.hpp"
-#include "sub0squad/platform_proc.hpp"
-#include "sub0squad/platform_process.hpp"
-#include "sub0squad/platform_file.hpp"
-#include "sub0squad/platform_net.hpp"
+#include "sub0platform/proc.hpp"
+#include "sub0platform/process.hpp"
+#include "sub0platform/file.hpp"
+#include "sub0platform/net.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -36,7 +36,7 @@ std::string option(const std::vector<std::string>& a, const std::string& key, co
 bool flag(const std::vector<std::string>& a, const std::string& key) { for (const auto& x : a) if (x == "--" + key) return true; return false; }
 
 /// The directory of a program on PATH ("" when it is not there).
-std::string onPath(const std::string& program) { return platform::findOnPath(program).string(); }
+std::string onPath(const std::string& program) { return sub0platform::findOnPath(program).string(); }
 
 bool daemonAnswers(const RuntimePaths& paths)
 {
@@ -60,12 +60,12 @@ std::string daemonBuild(const RuntimePaths& paths)
 }
 
 /// Whether something accepts connections on 127.0.0.1:port.
-bool portInUse(int port) { return platform::loopbackPortInUse(static_cast<std::uint16_t>(port)); }
+bool portInUse(int port) { return sub0platform::loopbackPortInUse(static_cast<std::uint16_t>(port)); }
 
 /// Start `argv` detached (its own session, output appended to `log`); returns its process id, or the reason it could not start.
-std::expected<platform::ProcessId, std::string> startDetached(std::vector<std::string> argv, const fs::path& log)
+std::expected<sub0platform::ProcessId, std::string> startDetached(std::vector<std::string> argv, const fs::path& log)
 {
-    auto child = platform::spawn({.argv = std::move(argv), .outputFile = log, .appendOutput = true, .newSession = true});
+    auto child = sub0platform::spawn({.argv = std::move(argv), .outputFile = log, .appendOutput = true, .newSession = true});
     if (!child) return std::unexpected(child.error().message);
     return child->id();   // not waited for: it outlives this command
 }
@@ -89,14 +89,14 @@ std::string resolveProgram(const char* argv0)
     std::error_code ec;
     if (name.find_first_of("/\\") == std::string::npos) return onPath(name);
     const fs::path found = fs::absolute(name, ec);
-    return !ec && platform::isExecutable(found) ? found.string() : std::string{};
+    return !ec && sub0platform::isExecutable(found) ? found.string() : std::string{};
 }
 
 int runUp(const std::vector<std::string>& args, const std::string& exe)
 {
     if (std::getenv("SUB0SQUAD_UP_ACTIVE")) { std::fprintf(stderr, "up: refusing to run inside a process that `up` started\n"); return 64; }
     if (exe.empty()) { std::fprintf(stderr, "up: cannot find this program's own path; run it by its full path\n"); return 64; }
-    platform::setEnvironment("SUB0SQUAD_UP_ACTIVE", "1");   // inherited by what is started below, so nothing started by `up` can run `up` again
+    sub0platform::setEnvironment("SUB0SQUAD_UP_ACTIVE", "1");   // inherited by what is started below, so nothing started by `up` can run `up` again
     const RuntimePaths paths = RuntimePaths::fromEnvironment();
     if (const std::string err = paths.ensureDirectories(); !err.empty()) { std::fprintf(stderr, "up: %s\n", err.c_str()); return 1; }
     const fs::path upDir = paths.stateDir / "up";
@@ -128,7 +128,7 @@ int runUp(const std::vector<std::string>& args, const std::string& exe)
             fs::remove(portFile, ec);
             const auto pid = startDetached({exe, "portal", "--port", std::to_string(port), "--port-file", portFile.string()}, upDir / "portal.log");
             if (!pid) { std::fprintf(stderr, "up: %s\n", pid.error().c_str()); return 1; }
-            (void)platform::writeFile(upDir / "portal.pid", std::to_string(*pid) + "\n");
+            (void)sub0platform::writeFile(upDir / "portal.pid", std::to_string(*pid) + "\n");
             int serving = 0;
             for (int i = 0; i < kStartTenths && serving == 0; ++i) {
                 std::this_thread::sleep_for(std::chrono::milliseconds(100));
@@ -160,10 +160,10 @@ int runDown(const std::vector<std::string>&)
     long pid = 0;
     if (in >> pid && pid > 1) {
         // Only a process that is still this program's portal is signalled: a pid can be reused after a reboot.
-        const auto args = platform::commandLine(pid).value_or(std::vector<std::string>{});
+        const auto args = sub0platform::commandLine(pid).value_or(std::vector<std::string>{});
         const bool isPortal = std::ranges::any_of(args, [](const std::string& a) { return a.find("sub0squad") != std::string::npos; }) &&
                               std::ranges::find(args, std::string{"portal"}) != args.end();
-        if (isPortal && platform::terminateProcess(pid)) std::printf("portal: stopped\n");
+        if (isPortal && sub0platform::terminateProcess(pid)) std::printf("portal: stopped\n");
         else std::printf("portal: not running\n");
     } else std::printf("portal: not started by `up`\n");
     std::error_code ec;

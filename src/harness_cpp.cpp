@@ -4,8 +4,8 @@
 #include "sub0squad/event_channel.hpp"
 #include "sub0squad/harness_common.hpp"
 #include "sub0squad/plan.hpp"
-#include "sub0squad/platform_file.hpp"
-#include "sub0squad/platform_proc.hpp"
+#include "sub0platform/file.hpp"
+#include "sub0platform/proc.hpp"
 
 
 #include <print>
@@ -68,7 +68,7 @@ bool sanitizersLink()
 {
     static const bool ok = [] {
         std::error_code ec;
-        const fs::path dir = fs::temp_directory_path(ec) / ("s0q-sanitizer-probe-" + std::to_string(platform::currentProcess()));
+        const fs::path dir = fs::temp_directory_path(ec) / ("s0q-sanitizer-probe-" + std::to_string(sub0platform::currentProcess()));
         fs::create_directories(dir, ec);
         writeFile(dir / "probe.cpp", "int main() { return 0; }\n");
         const Cmd c = run({compiler(), "-fsanitize=address,undefined", "probe.cpp", "-o", "probe"}, dir, 60);
@@ -108,7 +108,7 @@ std::string cppCheck(const fs::path& out, const fs::path& ws, bool partial)
         const std::string rel = fs::relative(e.path(), out).generic_string();
         // A real compile to nowhere, not -fsyntax-only: the checks that judge a whole function or a whole file (a path with no return, a function nobody
         // calls) run after parsing, and the build would otherwise be the first to report them (run-v9: every merged file failed on exactly those).
-        std::vector<std::string> argv = {compiler(), "-std=c++20", "-c", "-o", platform::nullDevice(), "-Wall", "-Wextra", "-Werror", "-D_USE_MATH_DEFINES", "-Iinclude", "-Isrc", "-Itests", "-DCALC_CLI_PATH=\"x\""};
+        std::vector<std::string> argv = {compiler(), "-std=c++20", "-c", "-o", sub0platform::nullDevice(), "-Wall", "-Wextra", "-Werror", "-D_USE_MATH_DEFINES", "-Iinclude", "-Isrc", "-Itests", "-DCALC_CLI_PATH=\"x\""};
         // A file still being written in sections: what is unused is expected (a stub calls nothing), so it is not an error until the file is whole.
         if (partial) argv.insert(argv.end(), {"-Wno-unused-function", "-Wno-unused-parameter", "-Wno-unused-variable", "-Wno-unused-but-set-variable"});
         argv.push_back(rel);
@@ -158,13 +158,13 @@ std::string cppCheckPlanScaffold(const std::string& planJson)
     auto plan = Plan::fromJson(planJson);
     if (!plan) return "the plan does not parse: " + plan.error();
     std::error_code ec;
-    const fs::path ws = fs::temp_directory_path(ec) / ("s0q-plan-scaffold-" + std::to_string(platform::currentProcess()) + "-" + std::to_string(reinterpret_cast<std::uintptr_t>(&planJson)));
+    const fs::path ws = fs::temp_directory_path(ec) / ("s0q-plan-scaffold-" + std::to_string(sub0platform::currentProcess()) + "-" + std::to_string(reinterpret_cast<std::uintptr_t>(&planJson)));
     fs::remove_all(ws, ec);
     writeScaffold(*plan, cppScaffold(), ws);
     std::string bad;
     for (const auto& f : plan->scaffold) {
         if (fs::path(f.path).extension() != ".cpp") continue;
-        const Cmd c = run({compiler(), "-std=c++20", "-c", "-o", platform::nullDevice(), "-Wall", "-Wextra", "-Werror", "-D_USE_MATH_DEFINES", "-Iinclude", "-Isrc", f.path}, ws, 60);
+        const Cmd c = run({compiler(), "-std=c++20", "-c", "-o", sub0platform::nullDevice(), "-Wall", "-Wextra", "-Werror", "-D_USE_MATH_DEFINES", "-Iinclude", "-Isrc", f.path}, ws, 60);
         if (c.exitCode != 0) bad += "the scaffold file '" + f.path + "' does not compile (a stub ignores its parameters: leave them unnamed, for example `double evaluate(const std::string&)`, and never use a name the stub does not read):\n" + diagnostics(c.output, 4);
     }
     // The stubs must LINK as the build links them (every src/*.cpp with src/main.cpp): a function the headers declare that no stub defines would fail every

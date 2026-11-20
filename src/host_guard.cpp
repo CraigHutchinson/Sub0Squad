@@ -1,8 +1,8 @@
 #include "sub0squad/host_guard.hpp"
 
 #include "sub0squad/event_channel.hpp"
-#include "sub0squad/platform_host.hpp"
-#include "sub0squad/platform_process.hpp"
+#include "sub0platform/host.hpp"
+#include "sub0platform/process.hpp"
 
 #include <cstdio>
 #include <cstdlib>
@@ -15,13 +15,13 @@ namespace fs = std::filesystem;
 
 HostMemory readHostMemory()
 {
-    const platform::MemoryFacts m = platform::memory();
+    const sub0platform::MemoryFacts m = sub0platform::memory();
     return {.totalMiB = m.totalMiB, .availableMiB = m.availableMiB};
 }
 
 std::int64_t freeDiskMiB(const fs::path& path)
 {
-    return platform::freeDiskMiB(path).value_or(-1);
+    return sub0platform::freeDiskMiB(path).value_or(-1);
 }
 
 std::expected<void, std::string> requireMemory(std::int64_t needMiB, std::int64_t reserveMiB)
@@ -55,15 +55,15 @@ Run run(const std::vector<std::string>& argv, bool capture)
 {
     Run r;
     if (capture) {
-        const auto ran = platform::runCaptured({.argv = argv, .nullInput = false}, {.maxBytes = 1024 * 1024, .includeStderr = false});
+        const auto ran = sub0platform::runCaptured({.argv = argv, .nullInput = false}, {.maxBytes = 1024 * 1024, .includeStderr = false});
         if (!ran) { std::fprintf(stderr, "%s\n", ran.error().message.c_str()); return r; }
         r.code = ran->status.exited() ? ran->status.code : -1;
         r.out = ran->output;
         return r;
     }
-    auto child = platform::spawn({.argv = argv, .nullInput = false});
+    auto child = sub0platform::spawn({.argv = argv, .nullInput = false});
     if (!child) { std::fprintf(stderr, "%s\n", child.error().message.c_str()); return r; }
-    const auto status = child->wait().value_or(platform::ExitStatus{});
+    const auto status = child->wait().value_or(sub0platform::ExitStatus{});
     r.code = status.exited() ? status.code : -1;
     return r;
 }

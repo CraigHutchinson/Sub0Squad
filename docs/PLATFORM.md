@@ -137,12 +137,12 @@ tests, `test_e2e` (cancel leaves no process, lost supervisors, a daemon crash an
 `test_archive`, `test_fork`, `test_scenarios`, `test_planner`, `test_wizard`, `test_project` (Python, C++ and web projects, cancel, crash and adoption), `test_readme`, `test_clarify` and the rest of the unit suite.
 What it took, beyond the platform layer:
 
-* **Line ends.** The program puts its standard streams in binary mode at start (`platform::useBinaryStandardStreams`): in text mode every `\n` became `\r\n`,
+* **Line ends.** The program puts its standard streams in binary mode at start (`sub0platform::useBinaryStandardStreams`): in text mode every `\n` became `\r\n`,
   so a captured workflow id read back as `w-000001\r`. A checkout made before `.gitattributes` still had CRLF fixtures and goldens; re-checking those
   files out fixed a dozen golden tests. Test fixtures are written in binary mode.
 * **Paths.** A workflow sandbox must be rooted (`has_root_directory`, so `C:\x` and `/x` both qualify), not "start with `/`"; the portal's sandbox check
   compares generic strings and refuses a root name (`C:x`, `\\server`); `mend-apply` refuses any rooted file. The compile-to-nowhere checks use
-  `platform::nullDevice()` (`NUL`).
+  `sub0platform::nullDevice()` (`NUL`).
 * **The C++ harness on MinGW.** `_USE_MATH_DEFINES` everywhere (`M_PI` is hidden under `-std=c++20` otherwise); the app's test helper uses
   `_popen` with cmd.exe quoting and reads in text mode; the app is `calc_cli.exe`; the integration builds with AddressSanitizer and UBSan only where
   the compiler can link them (probed once: MinGW's GCC has neither, and the report then says "WITHOUT sanitizers"); a link error is quoted from
@@ -190,7 +190,7 @@ GCC 16.2; `croglegion-wsl` is WSL2 Ubuntu 24.04 with GCC 15 on the same machine)
 | waiter wake and wait (`Waiter`) | 260 ns | 1.15x | 410 ns | 1.04x |
 | loopback 64 B write and read (`SocketStream`) | 7.5 µs | 1.00x | 70 µs | 0.93x |
 | atomic replace 4 KiB (`writeFileAtomic`) | 300 µs | 1.08x | 78 µs | 0.98x |
-| spawn and wait (`platform::spawn`) | 14.9 ms | 1.01x | 0.61 ms | 1.01x |
+| spawn and wait (`sub0platform::spawn`) | 14.9 ms | 1.01x | 0.61 ms | 1.01x |
 
 What the pass changed, and what is left:
 

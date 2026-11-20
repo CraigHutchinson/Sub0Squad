@@ -1,8 +1,8 @@
 #include "sub0squad/replay.hpp"
 
 #include "sub0squad/plan.hpp"
-#include "sub0squad/platform_process.hpp"
-#include "sub0squad/platform_file.hpp"
+#include "sub0platform/process.hpp"
+#include "sub0platform/file.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -54,7 +54,7 @@ struct Variant
 {
     long seed = 0;
     fs::path dir;
-    platform::Child child;
+    sub0platform::Child child;
     std::chrono::steady_clock::time_point began;
     double seconds = 0;
     int exitCode = -1;
@@ -71,7 +71,7 @@ ReplayOptions::AcceptedOverride parseAcceptedOverride(const std::string& value)
 
 int runReplay(const ReplayOptions& o)
 {
-    auto plan = Plan::fromJson(platform::readFileText(o.sandbox / "plan.json"));
+    auto plan = Plan::fromJson(sub0platform::readFileText(o.sandbox / "plan.json"));
     if (!plan) { std::println(stderr, "replay: cannot read the workflow's plan: {}", plan.error()); return 2; }
     const WorkItem* node = plan->find(o.node);
     if (!node) { std::println(stderr, "replay: the plan has no node '{}'", o.node); return 2; }
@@ -119,7 +119,7 @@ int runReplay(const ReplayOptions& o)
         else argv.insert(argv.end(), {"llm-agent", "--workflow-dir", v.dir.string(), "--item", o.node, "--tier", "local", "--attempt", "1", "--engine", profile, "--max-tokens", std::to_string(o.think ? std::max(o.maxTokens, 6000) : o.maxTokens),
                                       "--timeout", "3600", "--treatment", o.treatment, "--stance", o.stance, "--repair-turns", std::to_string(o.repairTurns), "--size-budget", "0"});
         v.began = std::chrono::steady_clock::now();
-        auto child = platform::spawn({.argv = std::move(argv), .outputFile = v.dir / "replay.log", .nullInput = false});
+        auto child = sub0platform::spawn({.argv = std::move(argv), .outputFile = v.dir / "replay.log", .nullInput = false});
         if (!child) { std::println(stderr, "replay: cannot start a variant: {}", child.error().message); return 2; }
         v.child = std::move(*child);
         vs.push_back(std::move(v));
@@ -127,7 +127,7 @@ int runReplay(const ReplayOptions& o)
     std::println("replaying '{}' ({}) with {} variant(s) in {}", o.node, o.decompose ? "the division" : "the worker", vs.size(), base.string());
     std::fflush(stdout);
     for (auto& v : vs) {
-        const auto status = v.child.wait().value_or(platform::ExitStatus{});
+        const auto status = v.child.wait().value_or(sub0platform::ExitStatus{});
         v.seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - v.began).count();
         v.exitCode = status.shellCode();
     }
@@ -135,7 +135,7 @@ int runReplay(const ReplayOptions& o)
     std::println("{:<6} {:<8} {:>5} {:>12} {:>7} {:>8}  {}", "seed", "result", "turns", "completion", "wall s", "concerns", "first failure / note");
     for (const auto& v : vs) {
         const fs::path attempt = v.dir / "items" / o.node / (o.decompose ? "attempt-9" : "attempt-1");
-        const std::string log = platform::readFileText(v.dir / "replay.log");
+        const std::string log = sub0platform::readFileText(v.dir / "replay.log");
         int turns = 0;
         for (const auto& e : fs::directory_iterator(attempt, ec)) if (e.path().filename().string().starts_with("reply-")) ++turns;
         long completion = 0;
@@ -151,7 +151,7 @@ int runReplay(const ReplayOptions& o)
             const auto d = log.find("DECLINED:");
             note = ok ? "a valid division was proposed" : d != std::string::npos ? log.substr(d, log.find('\n', d) - d).substr(0, 140) : "no division";
         } else {
-            const std::string gate = platform::readFileText(attempt / "gate.txt");
+            const std::string gate = sub0platform::readFileText(attempt / "gate.txt");
             const bool ok = gate.starts_with("GATE PASS");
             result = ok ? "PASS" : (v.exitCode == 0 || v.exitCode == 3 || v.exitCode == 5 || v.exitCode == 7 ? "FAIL" : "ERROR");
             note = ok ? "" : gate.substr(0, gate.find('\n')).substr(0, 140);
@@ -159,7 +159,7 @@ int runReplay(const ReplayOptions& o)
         }
         if (result == "PASS") ++passed;
         int concerns = 0;   // CONCERN blocks the worker raised (stance.hpp): recorded one heading each in concerns.md
-        const std::string raised = platform::readFileText(attempt / "concerns.md");
+        const std::string raised = sub0platform::readFileText(attempt / "concerns.md");
         for (std::size_t at = raised.find("## CONCERN:"); at != std::string::npos; at = raised.find("## CONCERN:", at + 1)) ++concerns;
         std::println("{:<6} {:<8} {:5} {:12} {:7.0f} {:8}  {}", v.seed, result, turns, completion, v.seconds, concerns, note);
         if (concerns > 0) std::println("       concerns: {}", (attempt / "concerns.md").string());
