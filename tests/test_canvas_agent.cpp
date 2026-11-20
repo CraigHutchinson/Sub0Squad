@@ -127,17 +127,22 @@ int main()
             CHECK(rq[1].last().find("failed") != std::string::npos && rq[1].last().find("modulo") != std::string::npos);
         }
     }
-    {   // Refusing a no-op must keep the measured behavior failure visible.
+    {   // A read and a refused edit both return to the measured failure and its repair check.
         const fs::path d = workflow("canvas-near-pass-after-refusal");
         failedAttempt(d, 1, bad);
         const std::string wrong = std::string{"=== EDIT: "} + kFile + " LINES " + std::to_string(bugLine) + " ===\n                v = v * d\n=== END EDIT ===\n";
-        fake::Engine engine({{wrong}, {wrong}, {fixByLine}});
+        const std::string read = std::string{"=== READ: "} + kFile + " SYMBOL term ===";
+        fake::Engine engine({{wrong}, {read}, {wrong}, {fixByLine}});
         CHECK_EQ(runLlmAgent(canvasArgs(d, engine, 2, 1)), 0);
         CHECK_EQ(slurp(attemptDir(d, 2) / "out" / kFile), ref);
         const auto requests = engine.requests();
-        CHECK_EQ(requests.size(), 3u);
-        if (requests.size() == 3) {
-            const std::string& message = requests[2].last();
+        CHECK_EQ(requests.size(), 4u);
+        if (requests.size() == 4) {
+            CHECK(requests[0].last().find("If calls can cycle") == std::string::npos);
+            CHECK(requests[2].last().find("The lines you asked to read") != std::string::npos);
+            CHECK(requests[2].last().find("If calls can cycle") != std::string::npos);
+            const std::string& message = requests[3].last();
+            CHECK(message.find("If calls can cycle") != std::string::npos);
             CHECK(message.find("The current tested revision still has this failing assertion:") != std::string::npos);
             CHECK(message.find("test_modulo") != std::string::npos);
         }

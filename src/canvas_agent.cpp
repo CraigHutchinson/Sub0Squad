@@ -675,6 +675,12 @@ int runCanvasAttempt(const AttemptContext& a)
         decideNext = false;
         if (decide || !prefill.empty()) turnEngine.thinking = false;   // a prefill continues the answer: the template closes the reasoning before it
         const bool planStep = separatePlan && !decide && partial.empty() && plans < 2 * (a.repairTurns + 2);
+        if (headCompiles && !restructure && bestFailing == 1 && commits > 0 && partial.empty() &&
+            a.item->persona == "developer" && failingTests(lastGate) == 1) {
+            convo.back().content += "\nWalk the failing input through the proposed code and check its result against the assertion. "
+                                    "If calls can cycle, verify that a token is consumed or state advances before the same function is entered again. "
+                                    "Preserve a nearby passing case.\n";
+        }
         if (planStep) {
             convo.front().content += "\nOn a plan turn, follow the plan-only instruction instead of the transaction format.";
             if (compareOptions) convo.back().content += "\n" + std::string{kThinkOptionsNote};
