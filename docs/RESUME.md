@@ -5,6 +5,20 @@ harness builds sandbox projects from a bare request with local models; the Qwen3
 
 ## 1. Where things stand
 
+
+### 2026-11-20 T0 and Canvas handoff
+
+Start with the isolated terminal commands in [DEV_SETUP.md](DEV_SETUP.md#isolated-t0-and-t1-operator-session), then read [T0_LAYERS.md](T0_LAYERS.md)
+for worker modes, the edit-address experiments, token accounting and the fixture-level golden diagnostics. The [Canvas reasoning brief](sessions/canvas-reasoning-workflow.md)
+has the phase audit and divides the production follow-ups from the simple T0 workflow.
+
+The request-bound visible-range arm is experimental and SEARCH/REPLACE remains the default edit form. The complete legacy measurement cohort must finish
+before using its passing trials to recalibrate token thresholds. Its local traces are evidence for that build and profile. A measurement-only run never
+admits Tier 1. Start a fresh output directory for the simple profile, keep its usage calibration separate and keep the owner fixtures frozen.
+
+The production retries and provider work have tracked issues. Canvas owns the pinned starting viewpoint and verification. Squad owns the manager's decision,
+the comparison of workflow trajectories and the receiving gate. Use the issue links in [BACKLOG.md](BACKLOG.md) to pick up these workstreams on a new host.
+
 **Update 2026-11-17** (the rest of this section is as written on 2026-11-16):
 * **Windows is a first-class platform**: the program runs natively under MinGW-w64, and CI builds and tests on Windows and Linux. Tests carry `smoke`/`full`
   tiers with area labels: smoke runs on every change, full at the gates ([DEV_SETUP.md](DEV_SETUP.md)). Windows Server 2022 behaves differently from

@@ -20,9 +20,11 @@ whether degrees mode is part of "scientific" or an owner answer. Runs wait for t
 
 [Canvas reasoning workflow](sessions/canvas-reasoning-workflow.md) carries the next Tier 0 experiments for structured alternatives, model sampling and scratch edits.
 
-Backlog [workflow extension seams](sessions/canvas-reasoning-workflow.md#workflow-extension-seams) for run-scoped providers, named prompt insertion points, and traceable capability changes.
+Backlog [workflow extension seams](sessions/canvas-reasoning-workflow.md#workflow-extension-seams) for run-scoped providers, named prompt insertion points, and traceable capability changes. [Issue #3](https://github.com/CraigHutchinson/Sub0Squad/issues/3)
 
-Backlog [prompt restatement during reasoning](sessions/canvas-reasoning-workflow.md#prompt-restatement-during-reasoning) as a signal for paired wording and placement experiments.
+Backlog [prompt restatement during reasoning](sessions/canvas-reasoning-workflow.md#prompt-restatement-during-reasoning) as a signal for paired wording and placement experiments. [Issue #4](https://github.com/CraigHutchinson/Sub0Squad/issues/4)
+
+Backlog [a manager-led second isolated attempt](sessions/canvas-reasoning-workflow.md#manager-led-second-isolated-attempt) for production jobs that cycle without progress, with a verified fork of the original Canvas viewpoint. [Issue #2](https://github.com/CraigHutchinson/Sub0Squad/issues/2)
 
 The queue, with hypotheses, arms, measures and commands, is [EXPERIMENTS.md](EXPERIMENTS.md) section 8. In order:
 

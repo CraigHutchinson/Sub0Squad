@@ -125,6 +125,29 @@ only where the worker chooses an edit, then try a neutral description of the int
 plan-stage TG, tokens before the plan envelope, replies that reach an applicable edit, first/second passes, and progress on the same diagnostics. Preserve
 a passing control and use at least three distinct iterations for a promising change.
 
+
+### Manager-led second isolated attempt
+
+Backlog a production Squad decision to start one independent attempt when the current job appears to be cycling without progress. The T0 measurement run
+provides an example: write-feature seed 5101 failed after 14 model calls, while seeds 5102 and 5103 succeeded after two and four. This shows variation on
+the same fixture. It does not establish a trigger or establish that the job, its prompt, the harness or the worker caused the failure.
+
+Start by observing repeated diagnostics, duplicated candidates, reversals, reiterated plans, refusal loops, and changes in passing checks or source.
+Separate sustained progress from repetition. Review the earlier stage transitions and compare known recoveries with jobs that stayed stuck before choosing
+a trigger. The manager records the evidence, decision and retry budget. The first receiving slice compares one independent retry against the existing
+in-session repair under the same owner checks. Keep the production experiment separate from the simple T0 workflow and preserve the original first-pass
+and attempt results.
+
+At first dispatch, record an immutable job-start identity. Include the Canvas viewpoint fingerprint and revision, writable scope, task and contract versions,
+dependency inputs, harness and check versions, and model profile. Verify those inputs before dispatching an isolated attempt. Fork the recorded starting
+viewpoint into a new session with separate scratch, transcript and address authority. For a controlled comparison, keep the inputs stable and record any
+intentional variation such as the seed. A trial from an intermediate checkpoint is a separate experiment with its own starting identity.
+
+Keep both result histories and compare owner-check progress, failure classes, PP/TG for both attempts, and any recovered deliverable. Have the manager record
+whether the evidence suggests an unstable trajectory, a shared problem with the job or harness, or an unresolved cause. Receive the selected candidate
+through the usual independent checks and revision-checked integration. Where the branches diverge, preserve both and record why one was selected.
+Sub0Canvas owns the revision-pinned viewpoint clone and provenance contract. Squad owns the trigger, budget, comparison and recovery policy.
+
 ### Workflow extension seams
 
 Backlog a run-scoped extension contract for composing individual workflows and the prompts they send. Start from two consumers: the experiment runner needs
