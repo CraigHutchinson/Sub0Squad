@@ -1,4 +1,4 @@
-# Component layering check (docs/COMPONENTS.md): a source or header may include only its own layer or a lower one; and only the platform library
+# Component layering check (docs/COMPONENTS.md): a source or header may include only its own layer or a lower one; and only Sub0Platform
 # includes operating-system headers (docs/PLATFORM.md).
 # Run as: cmake -DSRC_DIR=<repo> -P CheckLayers.cmake (without SRC_DIR it is an error: it used to check nothing and say ok). Known upward includes are listed in KNOWN_VIOLATIONS; the list may only shrink
 # (a listed violation that no longer exists is an error, so fixed ones are removed and cannot come back).
@@ -28,7 +28,6 @@ set(unmapped "")
 file(GLOB files "${SRC_DIR}/src/*.cpp" "${SRC_DIR}/include/sub0squad/*.hpp")
 foreach(f ${files})
   get_filename_component(stem "${f}" NAME_WE)
-  string(REGEX REPLACE "_(posix|win32)$" "" stem "${stem}")   # a platform backend belongs to its stem (docs/PLATFORM.md)
   layer_of(${stem} mine)
   if(mine EQUAL -1)
     list(APPEND unmapped ${stem})
@@ -71,17 +70,14 @@ endforeach()
 if(unmapped)
   list(APPEND bad "files not assigned to a layer: ${unmapped}")
 endif()
-# The platform rule (docs/PLATFORM.md section 2): only the platform library (stems platform_*) includes operating-system headers or reads /proc.
-# Slice 5 emptied the list of files that still did; it stays as the mechanism, so a new direct use fails here until it moves behind a platform_* interface.
+# The platform rule (docs/PLATFORM.md section 2): only Sub0Platform, a library of its own below layer 0, includes operating-system headers or reads /proc.
+# The list is empty; it stays as the mechanism, so a new direct use fails here until it moves behind a Sub0Platform module.
 set(KNOWN_SYSTEM_USERS "")
 set(systemHeader "^#include <((unistd|spawn|poll|signal|fcntl|dirent|termios|pty|netdb|pwd|grp|dlfcn|windows|winsock2|ws2tcpip)\\.h|csignal|(sys|arpa|netinet|linux)/[a-z_0-9]+\\.h)>")
 set(systemUsers "")
-file(GLOB platformScoped "${SRC_DIR}/src/*.cpp" "${SRC_DIR}/src/*.hpp" "${SRC_DIR}/include/sub0squad/*.hpp")
-foreach(f ${platformScoped})
+file(GLOB systemScoped "${SRC_DIR}/src/*.cpp" "${SRC_DIR}/src/*.hpp" "${SRC_DIR}/include/sub0squad/*.hpp")
+foreach(f ${systemScoped})
   get_filename_component(stem "${f}" NAME_WE)
-  if(stem MATCHES "^platform_")
-    continue()
-  endif()
   file(STRINGS "${f}" sys REGEX "${systemHeader}|\"/proc/")
   if(sys)
     file(RELATIVE_PATH rel "${SRC_DIR}" "${f}")
@@ -91,7 +87,7 @@ endforeach()
 foreach(u ${systemUsers})
   list(FIND KNOWN_SYSTEM_USERS "${u}" idx)
   if(idx EQUAL -1)
-    list(APPEND bad "new operating-system dependency outside the platform library (use a platform_* interface): ${u}")
+    list(APPEND bad "new operating-system dependency outside Sub0Platform (use a sub0platform/<module>.hpp interface): ${u}")
   endif()
 endforeach()
 foreach(u ${KNOWN_SYSTEM_USERS})
@@ -106,4 +102,4 @@ if(bad)
   message(FATAL_ERROR "layering check failed:\n  ${msg}")
 endif()
 list(LENGTH systemUsers systemUserCount)
-message(STATUS "layering ok (${found} known upward includes remain; ${systemUserCount} files still use the operating system outside the platform library)")
+message(STATUS "layering ok (${found} known upward includes remain; ${systemUserCount} files still use the operating system outside Sub0Platform)")
