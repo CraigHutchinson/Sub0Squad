@@ -330,6 +330,8 @@ in-flight trial was manually cancelled and excluded. Twenty-six passed on their 
 | undeclared-many, seed 5102 | 1,832 / 1,556 | Two short edits failed compilation. Three planning replies used 1,672 TG. |
 | write-feature, seed 5101 | 3,352 / 3,006 | The first edit omitted a helper. A broad follow-up rewrite broke scope and still failed to compile. |
 
+Run python -B validation/tiers/calibrate_t0.py OUT_DIR once gate-measure.json and runner.exit exist. The proposal and its comparison with the frozen policy stay in the cohort directory.
+
 A cancelled run does not show whether the worker would eventually repair the code. Calibrate by case and engine profile using complete usage from trials
 that pass behavior within the allowed turns. Preserve failed and missing-usage traces separately. Inspect expensive passing runs for recurring protocol
 waste and compare proposed thresholds against completed passes and failed or runaway runs. Retain the prior ceiling or fallback when no admissible cost

@@ -13,7 +13,7 @@ for worker modes, the edit-address experiments, token accounting and the fixture
 has the phase audit and divides the production follow-ups from the simple T0 workflow.
 
 The request-bound visible-range arm is experimental and SEARCH/REPLACE remains the default edit form. The complete legacy measurement cohort must finish
-before using its passing trials to recalibrate token thresholds. Its local traces are evidence for that build and profile. A measurement-only run never
+before using its passing trials to recalibrate token thresholds. [Validation and calibration issue #5](https://github.com/CraigHutchinson/Sub0Squad/issues/5). Its local traces are evidence for that build and profile. A measurement-only run never
 admits Tier 1. Start a fresh output directory for the simple profile, keep its usage calibration separate and keep the owner fixtures frozen.
 
 The production retries and provider work have tracked issues. Canvas owns the pinned starting viewpoint and verification. Squad owns the manager's decision,

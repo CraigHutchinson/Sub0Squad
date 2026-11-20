@@ -87,6 +87,32 @@ if [ ! -f "$T0_DIR/token-policy.json" ]; then
     fi
     cp -- "$policy" "$T0_DIR/token-policy.json" || exit 5
 fi
+if [ ! -f "$T0_DIR/manifest.json" ]; then
+    python -I - "$(winpath "$T0_DIR")" "$(winpath "$exe")" "$engine" "$repeats" "${START:-1}" \
+      "${T0_SEED_START:-}" "$edit_address" "$profile" "$cost_mode" "${T0_DO_ARGS:-}" "$cases" <<'PY'
+import hashlib, json, pathlib, shlex, subprocess, sys
+out, executable, engine, repeats, start, base_seed, arm, profile, cost_mode, options, cases = sys.argv[1:]
+exe = pathlib.Path(executable).resolve()
+settings = dict(part.split("=", 1) for part in engine.split(",")[1:] if "=" in part)
+argv = shlex.split(options)
+max_tokens = next((int(value) for option, value in zip(argv, argv[1:]) if option == "--max-tokens"), None)
+manifest = {
+    "arm": arm,
+    "costMode": cost_mode,
+    "workflowProfile": profile,
+    "version": subprocess.check_output([str(exe), "--version"], text=True).strip(),
+    "sha256": hashlib.sha256(exe.read_bytes()).hexdigest(),
+    "context": int(settings["ctx"]) if "ctx" in settings else None,
+    "maxTokens": max_tokens,
+    "promptCache": settings.get("cache", "1") != "0",
+    "thinking": settings.get("thinking", "0") == "1",
+    "releaseCases": len(cases.split()),
+    "seeds": [int(base_seed) + i - 1 for i in range(int(start), int(start) + int(repeats))] if base_seed else [],
+}
+pathlib.Path(out, "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+PY
+    if [ "$?" -ne 0 ]; then exit 5; fi
+fi
 sum="$T0_DIR/summary.md"
 [ -f "$sum" ] || printf '| case | run | result | attempts | turns | out tokens | seconds | commits | staged | refused | reads | aborted | thinking stops |\n|---|---|---|---|---|---|---|---|---|---|---|---|---|\n' >"$sum"
 echo "watch: python validation/tiers/watch_run.py '$(winpath "$T0_DIR")' --wait 30"
@@ -130,5 +156,6 @@ name=gate; [ -n "$setname" ] && name=$setname
 [ "$cost_mode" != measure ] || name="$name-measure"
 python -I "$repo/validation/tiers/gate_t0.py" "$(winpath "$repo")" --engine "${engine%%=*}" --exe "$(winpath "$exe")" "${set_args[@]}" >/dev/null
 gate_status=$?
+printf '%s\n' "$gate_status" > "$T0_DIR/runner.exit"
 echo "tier 0 $name: see $T0_DIR/$name.md (exit $gate_status)"
 exit "$gate_status"
