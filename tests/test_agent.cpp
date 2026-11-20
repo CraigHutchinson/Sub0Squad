@@ -99,7 +99,7 @@ int main()
         CHECK(engine.abortedAfter(0) >= 0);
         const auto rq = engine.requests();
         CHECK(rq.size() == 2 && rq[1].last().find("SEARCH block copied more than 40 lines") != std::string::npos);
-        CHECK(!rq.empty() && rq[0].last().find("=== EDIT: src/calc.cpp LINES 41 ===") != std::string::npos);   // the worked LINES example is in the edit prompt
+        CHECK(!rq.empty() && rq[0].last().find("=== EDIT: src/labels.cpp LINES 41 ===") != std::string::npos);   // the worked LINES example is in the edit prompt
     }
     {   // Row 36: reads cannot loop. Two are free; the third spends the only turn, so the attempt ends after three calls with the earlier draft's failure standing.
         const fs::path d = workflow("agent-readloop");

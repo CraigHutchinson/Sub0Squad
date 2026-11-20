@@ -52,9 +52,9 @@ const std::string kCanvasSyntax =
     std::string{kReadInstruction} + "\nWhen several things are wrong (several failing tests, several errors), fix ALL of them in one reply, one edit for each: a reply that fixes one of "
     "several costs a turn per defect. Each edit applies on its own: one that cannot apply is named and the others are kept. A worked example. "
     "The view shows\n"
-    "  41|     if (d == 0) return 0;\n"
-    "and it must report the error instead. The whole reply is:\n"
-    "=== EDIT: src/calc.cpp ===\n<<<<<<< SEARCH\n    if (d == 0) return 0;\n=======\n    if (d == 0) throw std::domain_error(\"division by zero\");\n>>>>>>> REPLACE\n=== END EDIT ===\n"
+    "  41|     return \"draft\";\n"
+    "and the label must read ready. The whole reply is:\n"
+    "=== EDIT: src/labels.cpp ===\n<<<<<<< SEARCH\n    return \"draft\";\n=======\n    return \"ready\";\n>>>>>>> REPLACE\n=== END EDIT ===\n"
     "Never copy unchanged text or the numbered view back beyond the few SEARCH lines. Every edit is kept, and checked: when the files do not compile or parse "
     "afterwards you are shown the errors, with the line numbers of the files as they then stand, and fix them with small edits (not a rewrite).\n";
 
@@ -678,7 +678,7 @@ int runCanvasAttempt(const AttemptContext& a)
         if (headCompiles && !restructure && bestFailing == 1 && commits > 0 && partial.empty() &&
             a.item->persona == "developer" && failingTests(lastGate) == 1) {
             convo.back().content += "\nWalk the failing input through the proposed code and check its result against the assertion. "
-                                    "If calls can cycle, verify that a token is consumed or state advances before the same function is entered again. "
+                                    "If calls can cycle, verify that each cycle consumes input or advances state toward a stopping condition. "
                                     "Preserve a nearby passing case.\n";
         }
         if (planStep) {

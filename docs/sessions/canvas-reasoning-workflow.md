@@ -118,6 +118,14 @@ A separate GDB run used the exact crashing source revisions and the harness's de
 
 The gate reports, source revisions, SHA-256 manifests and bounded backtraces are under out/runs/t0-precedence-final-a46b2cf. These two traces give the canvas receiving slice a concrete lookup in each direction. Starting with the gate crash, show the candidate revision and the recurring parser call sites. Starting with either call site on that revision, find the crashing test executable and the input used to reproduce it. The earlier unary-minus assertion provides the input for this replay. The original crashing gate did not identify an individual assertion.
 
+### Gate preflight and prompt fairness
+
+The near-pass repair check asks the worker to run the failing input through its proposed code and verify that any call cycle consumes input or advances state toward a stopping condition. Apply it after the developer has produced a compiling edit with one measured failure. The check uses the task's evidence and travels with the edit request after reads and refusals.
+
+The preflight found a calculator division example in the shared edit protocol. It overlapped the missing-check case, so the batch on 987cb01 was stopped and its results were retained separately. Shared SEARCH and LINES examples now change a label in an unrelated file. The generic C++ CLI examples demonstrate argument quoting with an unrelated command. The T0 case definitions and T1 owner tests remain frozen. The T0 judge also requires every declared deliverable to exist in the integrated project before counting a model pass.
+
+The independent preflight rebuilt the fixed seeds and three reference controls. The compiler or owner tests rejected all 25 implementation seeds. The three reference controls passed 22, 19 and 19 checks. The remaining case asks the worker to write tests against a working implementation. An archived generated suite passed all 16 checks on that implementation and rejected the version with inverse-trig degree conversion removed. These checks establish that the frozen cases distinguish those defects. The accepted model build still has to pass the full T0 gate. A different task and broader independent checks remain separate controls for generalization. Preflight logs are under out/runs/t0-fairness-preflight-20261120.
+
 ## Token cost gate
 
 The T0 workload KPIs are PP (reported prompt tokens) and TG (reported generated tokens), summed across calls and attempts. The report identifies requests with missing usage. Keep model, tokenizer and cache settings fixed when comparing counts. The qwen35 calibration has caching disabled. System-dependent prefill or time-to-first-token measurements remain in the per-run JSON diagnostics. The token gate uses counts alone.

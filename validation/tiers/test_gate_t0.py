@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from gate_t0 import attempt_cost, cost_limits, judge_cost, wait_run
+from gate_t0 import attempt_cost, cost_limits, judge_cost, judge_run, wait_run
 
 
 class TokenGateTest(unittest.TestCase):
@@ -26,6 +26,21 @@ class TokenGateTest(unittest.TestCase):
             cost = attempt_cost(attempt, {"turns": 2, "tokensIn": 100, "tokensOut": 20})
         self.assertEqual(cost, {"turns": 2, "tokensIn": 100, "tokensOut": 20, "prefillSeconds": 1.2,
                                 "prefillTimedCalls": 1, "missingUsageCalls": 1})
+
+    def test_accepted_metadata_does_not_substitute_for_deliverables(self):
+        with tempfile.TemporaryDirectory() as directory:
+            run = pathlib.Path(directory)
+            workflow = run / "state/workflows/w-000001"
+            (workflow / "items/app/accepted").mkdir(parents=True)
+            (workflow / "report.md").write_text("| app | model | 1 |\n", encoding="utf-8")
+            plan = {"items": [{"files": ["src/labels.cpp"]}]}
+            result = judge_run(run, plan, run)
+            self.assertFalse(result["passed"])
+            self.assertEqual(result["lastGate"], ["accepted output missing: src/labels.cpp"])
+            final = workflow / "project/src/labels.cpp"
+            final.parent.mkdir(parents=True)
+            final.write_text('const char* label() { return "ready"; }\n', encoding="utf-8")
+            self.assertTrue(judge_run(run, plan, run)["passed"])
 
     def test_warning_hard_cap_and_missing_usage(self):
         limits = {"warning": {"tokensIn": 100, "tokensOut": 20}, "hard": {"tokensIn": 150, "tokensOut": 30}}

@@ -59,7 +59,7 @@ int main()
         if (!rq.empty()) {
             CHECK_EQ(rq[0].messages.size(), static_cast<std::size_t>(2));
             CHECK(rq[0].messages[0].second.find("=== EDIT: <path> SYMBOL <function name> ===") != std::string::npos);   // the transaction forms
-            CHECK(rq[0].messages[0].second.find("=== EDIT: src/calc.cpp ===\n<<<<<<< SEARCH\n    if (d == 0) return 0;") != std::string::npos);   // the worked snippet example
+            CHECK(rq[0].messages[0].second.find("=== EDIT: src/labels.cpp ===\n<<<<<<< SEARCH\n    return \"draft\";") != std::string::npos);   // the worked snippet example
             CHECK(rq[0].last().find("=== CANVAS: calc/engine.py (revision 1,") != std::string::npos);
             CHECK(rq[0].last().find("modulo") != std::string::npos);                                                     // why the draft failed
         }

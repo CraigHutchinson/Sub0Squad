@@ -234,17 +234,20 @@ def judge_run(run, plan, ref_dir):
     info["accepted"] = (item / "accepted").exists()
     # Quality of what was handed on (quality_t0.py): judged on every accepted run; a leftover (a stub, a conflict marker) fails it.
     info["quality"] = {}
+    missing_outputs = []
     if info["accepted"]:
         seeds = {f["path"]: f["content"] for f in plan.get("scaffold", [])}
         given = [f["content"] for f in plan.get("given", [])]
         for path in plan["items"][0]["files"]:
             final = wf / "project" / path
-            if not final.exists(): continue
+            if not final.is_file():
+                missing_outputs.append(path)
+                continue
             ref = ref_dir / path
             info["quality"][path] = quality_t0.judge(seeds.get(path, ""), final.read_text(encoding="utf-8", errors="replace"),
                                                      ref.read_text(encoding="utf-8") if ref.exists() else None, given if path.startswith("tests/") else ())
     info["leftovers"] = sum(q.get("leftovers", 0) for q in info["quality"].values())
-    info["workflowPassed"] = info["accepted"] and info["builtByModel"] and info["leftovers"] == 0
+    info["workflowPassed"] = info["accepted"] and info["builtByModel"] and not missing_outputs and info["leftovers"] == 0
     attempt_match = re.search(r"^\| app \| model \| (\d+) \|", report, re.MULTILINE)
     accepted_attempt = int(attempt_match[1]) if attempt_match and info["workflowPassed"] else None
     attempt_limit, repair_turns = run_budget(run)
@@ -255,6 +258,9 @@ def judge_run(run, plan, ref_dir):
     info.update(edit_kpis(attempts, f"attempt-{accepted_attempt}"))
     if outside_budget:
         info["lastGate"] = [f"accepted on worker attempt {accepted_attempt}, above configured limit {attempt_limit}"]
+        return info
+    if missing_outputs:
+        info["lastGate"] = ["accepted output missing: " + ", ".join(missing_outputs)]
         return info
     if not info["passed"]:
         for attempt in reversed(attempts):

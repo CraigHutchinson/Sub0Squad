@@ -112,9 +112,9 @@ template <class T> std::string show(const T& v) { std::ostringstream o; o << v; 
 )CPP";
 
 const char* kAppHelper = R"CPP(#pragma once
-// Runs the app (calc_cli) and returns what it printed. ONE string is ONE argument, as given (app::run("2 + 2") gives the program the single argument
+// Runs the app (calc_cli) and returns what it printed. ONE string is ONE argument, as given (app::run("sample label") gives the program the single argument
 // `2 + 2`), except that a string starting with '-' is a command line of options written as in a shell: app::run("--degrees \"sin(90)\"");
-// or SEVERAL strings, one per argument, passed exactly as given: app::run("--degrees", "sin(90)"). No string: the program with no arguments. The program's path is supplied by the build; do not use CALC_CLI_PATH yourself.
+// or SEVERAL strings, one per argument, passed exactly as given: app::run("--name", "sample label"). No string: the program with no arguments. The program's path is supplied by the build; do not use CALC_CLI_PATH yourself.
 #include <cstdio>
 #include <string>
 #include <utility>
@@ -523,7 +523,7 @@ std::string cppOwnScaffoldBrief()
            "every tests/NAME.test.cpp is its own test executable. The harness supplies CMakeLists.txt and tests/helpers/ (do not recreate them): "
            "tests/helpers/check.hpp gives TEST(name){...}, CHECK(cond), CHECK_EQ(a, b), CHECK_NEAR(a, b, tol) and CHECK_THROWS(expr) (a failure shows each side's own text and value; write the value under test first and the constant you expect second); "
            "a test file includes the project's own header and \"helpers/check.hpp\" and defines only TEST cases (no main). To test the command-line app a test file includes \"helpers/app.hpp\" and calls app::run(\"ARGS\") "
-           "(one string is ONE argument, so app::run(\"2 + 2\") gives the program the single argument 2 + 2; a string starting with - is a command line of options, app::run(\"--degrees \\\"sin(90)\\\"\"); or app::run(\"ARG1\", \"ARG2\", ...), one string per argument; app::run() gives no arguments), which runs the built app and returns .output (stdout and stderr together) and .code (the exit code). "
+           "(one string is ONE argument, so app::run(\"sample label\") gives the program one argument; a string starting with - is a command line of options, app::run(\"--name \\\"sample label\\\"\"); or app::run(\"ARG1\", \"ARG2\", ...), one string per argument; app::run() gives no arguments), which runs the built app and returns .output (stdout and stderr together) and .code (the exit code). "
            "The project's own interface (headers) and the STUBS of every source file a developer writes (including src/main.cpp when there is an app) come from the plan's scaffold. "
            "A tester's tests must fail against the stubs (at least 70 % of them); a developer's file must pass every test.";
 }

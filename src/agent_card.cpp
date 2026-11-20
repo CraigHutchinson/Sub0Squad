@@ -156,8 +156,8 @@ const char* const kEditSyntax =
     "=== EDIT: <path> LINES 345-347 ===\n<the new text for those lines; empty to delete them>\n=== END EDIT ===\n"
     "(LINES 345 is one line; AFTER 120 inserts after line 120. Numbers are those of the draft shown, and several edits may be given: they are applied together.) Or a search block, which must match the current text exactly once:\n"
     "=== EDIT: <path> ===\n<<<<<<< SEARCH\n<exact lines to replace>\n=======\n<new lines>\n>>>>>>> REPLACE\n=== END EDIT ===\n"
-    "A worked example. The draft shows\n  41|     if (d == 0) return 0;\nand line 41 must report the error instead. The whole reply is:\n"
-    "=== EDIT: src/calc.cpp LINES 41 ===\n    if (d == 0) throw std::domain_error(\"division by zero\");\n=== END EDIT ===\n"
+    "A worked example. The draft shows\n  41|     return \"draft\";\nand line 41 must return the label ready. The whole reply is:\n"
+    "=== EDIT: src/labels.cpp LINES 41 ===\n    return \"ready\";\n=== END EDIT ===\n"
     "Never copy the file into a SEARCH block. Rewrite the whole file (in the usual === FILE: <path> === form) only when most of it changes.";
 
 // The work card as the worker reads it: the task, the files, the context, the contract, the acceptance list, the provided tests of accepted dependencies
