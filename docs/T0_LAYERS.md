@@ -217,6 +217,43 @@ The deterministic controls accept embedded AT V1:A2 or V1:A4 text as payload, an
 
 Reproduce with python -B validation/tiers/edit_address_ab.py --exe PATH --out NEW_DIRECTORY --handle-arm handle-local. The other arm names are handle and handle-template. Use --preflight-only for the model-free controls. Local run evidence is under out/runs/edit-address-ab-{live,example,local}-20261120.
 
+
+#### Full live shootout under reviewed system prompts
+
+The full screen paired seven arms, covering all six address families plus the request-bound handle variant, on the same three fixtures and three seeds.
+Each arm received a neutral worked example. The system prompt changed in three rounds: contract and format, scope and whitespace, then a mental preview
+of the edit with instructions to use addresses and names from the current view. Each round included its own matched SEARCH/REPLACE control. The runner
+archives the system messages and validates the full resulting source with the native checker. Two attempts were allowed. Thinking was disabled.
+
+| Arm | Contract first / second | Scope first / second | Preview first / second | All passes within two | All PP | All TG |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| SEARCH/REPLACE | 9 / 0 | 9 / 0 | 9 / 0 | 27/27 | 5,580 | 2,099 |
+| LINES | 7 / 0 | 8 / 0 | 6 / 0 | 21/27 | 7,421 | 1,132 |
+| SYMBOL | 9 / 0 | 9 / 0 | 9 / 0 | 27/27 | 5,499 | 1,476 |
+| Block and content hash | 6 / 0 | 1 / 2 | 6 / 0 | 15/27 | 12,925 | 2,614 |
+| Revision-guarded range | 8 / 0 | 6 / 0 | 8 / 0 | 22/27 | 7,292 | 1,230 |
+| Explicit view handle | 6 / 1 | 7 / 0 | 8 / 0 | 22/27 | 8,185 | 1,364 |
+| Request-bound handle | 9 / 0 | 8 / 1 | 8 / 1 | 27/27 | 6,513 | 951 |
+
+First and second are exact candidate ordinals out of nine trials per cell. Usage includes every attempt. All 189 trials recorded usage and the sent system
+messages matched their round manifests. The native preflight verified valid edits in all seven arms, embedded handle-shaped text, hash relocation and
+stale-view refusal. These are prototype mechanics and exact-source checks on small C++ functions.
+
+The initial one-line example had steered the worker toward one-line replacement. The neutral range example made the request-bound handle pass all
+nine raw-string trials within two attempts, including fixtures that had failed every earlier handle trial. In the contract round it also used 1,962 total
+tokens, about 17% below its matched SEARCH/REPLACE result (2,363), with identical first-pass acceptance. Scope and preview guidance cost more prompt
+tokens and introduced a retry each for the short handle. The explicit view handle improved across the rounds, but repeated view prefixes and range
+selection remained visible failure modes. Hash edits sometimes copied the example symbol despite selecting hashes from the live margin. Scope guidance
+also induced indentation changes in some literal text. The preview round improved some arms and did not improve all of them.
+
+Keep SEARCH/REPLACE as the default and take the contract-round request-bound handle and SYMBOL forward to longer, held-out edits. SYMBOL was strong here
+because each function was short. For a handle, preserve the issued view in request state and separately verify stale reads and recovery after reissue.
+Use the production worker path, edited-code behavior tests, complete token accounting, and zero wrong-target or out-of-scope writes before promotion.
+The nested edit delimiter remains a framing limitation.
+
+Reproduce the screen with python -B validation/tiers/edit_address_full.py --exe PATH --out NEW_DIRECTORY --round contract. Repeat for scope and preview.
+The original screen is under out/runs/edit-address-full-{contract,scope,preview}-20261120.
+
 ## 3. Modes
 
 All three judge the run directories, as `gate_t0.py` does today: a run counts when its `case_key`, build and engine match; stale runs are listed, not counted.

@@ -166,13 +166,19 @@ def request(url, model, messages, seed):
         return json.load(response)
 
 
-def trial(args, case, arm, seed, out):
+def trial(args, case, arm, seed, out, protocol=None):
     base, want, task = CASES[case]
     lines = base.splitlines()
     issued = list(map(digest, lines))
     source = base if arm == "search" else "\n".join(f"A{i} | {line}" for i, line in enumerate(lines, 1))
+    system = "Make one minimal contiguous edit. Return exactly one edit block with no commentary.\n"
+    if protocol is None:
+        system += FORMAT[arm]
+        resolve = lambda reply, current: lower(arm, reply, issued, current)
+    else:
+        system, source, resolve = protocol(arm, base)
     messages = [
-        {"role": "system", "content": "Make one minimal contiguous edit. Return exactly one edit block with no commentary.\n" + FORMAT[arm]},
+        {"role": "system", "content": system},
         {"role": "user", "content": f"{task}\nPreserve all other source text.\nFile: {PATH}\n{source}"},
     ]
     out.mkdir()
@@ -185,7 +191,7 @@ def trial(args, case, arm, seed, out):
         (directory / "response.json").write_text(json.dumps(response, indent=2), encoding="utf-8")
         choice = response["choices"][0]
         reply = choice["message"].get("content") or ""
-        native, refusal = lower(arm, reply, issued, lines)
+        native, refusal = resolve(reply, lines)
         outcome = refusal or native_check(args.exe, base, want, native, directory)
         usage = response.get("usage", {})
         attempts.append({"outcome": outcome, "pp": usage.get("prompt_tokens"), "tg": usage.get("completion_tokens"),
