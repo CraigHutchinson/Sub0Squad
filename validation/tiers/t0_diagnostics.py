@@ -17,6 +17,10 @@ def classify(verdict):
     if verdict.startswith(("staged (does not compile", "stopped: the same compile error")):
         return "duplicateDeclaration" if DUPLICATE.search(verdict) else "compileFailure"
     if verdict.startswith("committed; GATE FAIL:"):
+        if "INTERFACE MISMATCH" in verdict:
+            return "interfaceFailure"
+        if "crashed " in verdict and "before it reported" in verdict:
+            return "testCrash"
         return "behaviorFailure"
     if verdict.startswith(("transaction refused:", "stopped: the same refusal", "stagnated: the transaction")):
         return "transactionRefusal"

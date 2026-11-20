@@ -339,7 +339,7 @@ sample exists.
 #### Golden retry paths by fixture
 
 The gate's shadow diagnostics count reported compiler failures, duplicate declaration or definition diagnostics, transaction and read refusals, replies without
-a transaction, plan and edit cutoffs, failed behavior checks and engine call failures. A class is counted at most once per attempt and model call. Seeded
+a transaction, plan and edit cutoffs, interface failures, test crashes, failed assertions, and engine call failures. A class is counted at most once per attempt and model call. Seeded
 prechecks and compiler text quoted in worker messages are excluded. A duplicate diagnostic is evidence about the candidate produced and may need comparison
 with the addressed span and applied revision to attribute it. Successful reasoning, ordinary reads and the fact that a run made a second attempt are separate.
 
