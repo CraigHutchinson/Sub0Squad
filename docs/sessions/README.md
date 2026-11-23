@@ -52,14 +52,11 @@ machine (frontier off), no commits without the owner's go-ahead, ask before chan
 | Brief | Task | Written |
 |---|---|---|
 | [engine-registry-integration.md](engine-registry-integration.md) | Run the squad on Sub0LlmEngine and Sub0LlmModelRegistry instead of its own `llama-server` line | 2026-11-16 |
-| [platform-unification.md](platform-unification.md) | Sub0Platform (github.com/CraigHutchinson/Sub0Platform): Python package live; C++ move and remaining decisions open | 2026-11-17 |
+| [platform-unification.md](platform-unification.md) | Sub0Platform (github.com/CraigHutchinson/Sub0Platform): Python package live; Sub0Squad's C++ move done 2026-11-19; the other repositories and the owner's decisions open | 2026-11-17 |
 
 Elsewhere: Sub0LlmEngine's `docs/sessions/` has the brief for isolating the Qwen3.8-27B UD-IQ3_XXS CUDA fault.
 Sub0Canvas's `docs/sessions/` has the canvas briefs (S0 scale harness, B0 format catch-up, G1 git history); work that reaches this repository arrives as a pull request bumping its pin.
 
 ## Done
 
-| Brief | Task | Closed |
-|---|---|---|
-| [portal-work-overview.md](portal-work-overview.md) | Cross-project work overview and evidence sources, received on Windows | 2026-11-18 |
-| [layered-document.md](layered-document.md) | The layered document: slice 2 of the issues layer (built, measured, adaptive by default); the backbone design (in Sub0Canvas, where it continues) | 2026-11-18 |
+Closed briefs are retired to git; each has a row in [../ARCHIVE.md](../ARCHIVE.md).

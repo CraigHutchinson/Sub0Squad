@@ -56,7 +56,7 @@ tests from every area (structure, kernel, workflow, harness, agents, portal, e2e
 suite runs at milestones, releases, a `ci:full` pull request and the weekly CI run.
 The full suite is about 50 tests and 6 to 12 minutes sequentially. clang 21 is the reference compiler; GCC 15 builds too (two flow-based GCC
 diagnostics are warnings, not errors: `CMakeLists.txt`). The program runs on Linux and natively on Windows (MinGW-w64): the platform layer has Windows backends, and the daemon, shims, jobs, workflows and the
-end-to-end tests run natively ([PLATFORM.md](PLATFORM.md) section 6). On a Windows host use WSL with the checkout
+end-to-end tests run natively (the retired PLATFORM.md section 6, in [ARCHIVE.md](ARCHIVE.md)). On a Windows host use WSL with the checkout
 cloned inside WSL, or `.gitattributes` keeping the shell scripts LF. `cmake -DSRC_DIR=$PWD -P cmake/CheckLayers.cmake` is the layer check by hand.
 
 ## 4. Running on the model

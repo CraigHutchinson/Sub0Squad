@@ -147,7 +147,7 @@ errors (`CMakeLists.txt`).
 
 ### A native Windows build
 
-The program builds and runs natively: the daemon, shims, jobs, workflows and the CLI, and the full test suite runs ([PLATFORM.md](PLATFORM.md) section 6
+The program builds and runs natively: the daemon, shims, jobs, workflows and the CLI, and the full test suite runs (the retired PLATFORM.md section 6, in [ARCHIVE.md](ARCHIVE.md)
 lists what it took and what is left). Toolchain: MinGW-w64 with the UCRT runtime (GCC 16.2 is what was tested), CMake and Ninja on
 `PATH`. Configure uses `cmake/git-semver.cmd` in place of the shell script. From PowerShell in the checkout:
 

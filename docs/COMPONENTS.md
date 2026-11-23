@@ -8,7 +8,7 @@ units that is built, tested and changed together, and that may depend only on th
 
 The lists live in ONE file, `cmake/Layers.cmake`, read by both the include check and the build. Adding a unit means adding its stem to one list.
 
-Below layer 0 is **Sub0Platform**, a separate library ([PLATFORM.md](PLATFORM.md)): the only code that talks to the operating system, and it uses
+Below layer 0 is **Sub0Platform**, a separate library ([Sub0Platform](https://github.com/CraigHutchinson/Sub0Platform), pinned in `cmake/dependencies.cmake`): the only code that talks to the operating system, and it uses
 nothing of ours.
 
 | Layer | Library | Units | Responsibility | Tests that link it as their highest layer |
@@ -33,7 +33,7 @@ nothing of ours.
    the libraries below it. If any unit of the layer calls upward, that program does not link and the build fails. The seven `link_*` tests run them so
    the report shows them.
 3. **The operating system: the same `layering` test.** Only Sub0Platform includes operating-system headers (`<unistd.h>`, `<sys/...>`, sockets,
-   `<windows.h>`) or reads `/proc`. `KNOWN_SYSTEM_USERS` lists the files of this repository that still do; it is empty ([PLATFORM.md](PLATFORM.md)).
+   `<windows.h>`) or reads `/proc`. `KNOWN_SYSTEM_USERS` lists the files of this repository that still do; it is empty.
 
 The second mechanism found exactly one upward call when it was introduced: `findHarness` was declared in the kernel, called from the domain (`workflow`,
 `plan`, `triage`) and defined in the harnesses layer. The fix is the shape now in the code: **the registry is kernel code and starts empty**

@@ -1,13 +1,13 @@
 # Follow-up session: one shared platform library for the Sub0 projects
 
-Status: in progress (2026-11-17). **Sub0Platform** (owner, 2026-11-17) is public at
+Status: in progress (2026-11-17; Sub0Squad's side done 2026-11-19: its platform layer is deleted and Sub0Platform is pinned). **Sub0Platform** (owner, 2026-11-17) is public at
 https://github.com/CraigHutchinson/Sub0Platform, tagged v0.1.0: the Python package (`env`, `paths`, `dirs`, `proc`,
 `fs`, `lock`), shared conformance vectors, CI green on Windows and Linux. **Sub0LlmEngine and Sub0LlmModelRegistry
 depend on it** (2026-11-17; both CI green on Windows and Linux, the registry's CI new). The C++ library moved to Sub0Platform on 2026-11-19 (pinned at 5feccdf in Sub0Squad, which deleted its copy);
 Sub0Log's Windows quoting is not in it yet. Tracking: [Sub0Platform#1](https://github.com/CraigHutchinson/Sub0Platform/issues/1), with one migration issue per
 consumer (listed under Steps). Evidence: a review
 of the CraigHutchinson and Kismotech repositories (2026-11-16, Haiku agent, main claims re-checked against the local
-checkouts); Sub0Squad [../PLATFORM.md](../PLATFORM.md); Sub0LlmEngine `sub0llmengine/platform.py`.
+checkouts); Sub0Squad: done, the layer is deleted here and Sub0Platform is pinned (the record of the old layer: [../ARCHIVE.md](../ARCHIVE.md)); Sub0LlmEngine `sub0llmengine/platform.py`.
 
 ## Goal
 

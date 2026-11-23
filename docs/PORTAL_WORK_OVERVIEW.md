@@ -1,6 +1,6 @@
 # Portal work overview
 
-Status: initial overview and evidence adapters implemented, 2026-11-18. This extends the current per-workflow portal with a read-only view of projects, backlog work, scenarios and tier campaigns. Use the [implementation brief](sessions/portal-work-overview.md) to begin the first slice.
+Status: initial overview and evidence adapters implemented, 2026-11-18. This extends the current per-workflow portal with a read-only view of projects, backlog work, scenarios and tier campaigns. Use the implementation brief (retired; [ARCHIVE.md](ARCHIVE.md)) to begin the first slice.
 
 ## What the owner needs to see
 

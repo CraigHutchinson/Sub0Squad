@@ -83,7 +83,7 @@ The queue, with hypotheses, arms, measures and commands, is [EXPERIMENTS.md](EXP
 
 ## Next: what the experiments need
 
-**Layered document** ([LAYERED_DOCUMENT.md](LAYERED_DOCUMENT.md); slice 2 done 2026-11-18, brief closed: [sessions/layered-document.md](sessions/layered-document.md))
+**Layered document** ([LAYERED_DOCUMENT.md](LAYERED_DOCUMENT.md); slice 2 done 2026-11-18, brief closed and retired ([ARCHIVE.md](ARCHIVE.md)))
 - Measure the layer where it acts: off against adaptive on bugs-10 and other clipped cases, 10 runs per arm; inline detail against the summary alone
   (`SUB0SQUAD_ISSUE_INLINE=0` against 3). A pull request here with no library change.
 - The backbone, sources (git, GitHub) and scale work is planned and briefed in Sub0Canvas (`docs/BACKLOG.md`, `docs/sessions/`). Each of its steps that
@@ -343,13 +343,13 @@ every role. Needs expectation QA, the routed CONCERN channel and the habit score
 - [Portal access and a Node.js viewer](sessions/portal-access.md) — prototype a limited viewer on loopback first. Prefer Tailscale Serve for private remote access. Evaluate authenticated ngrok for a time-limited external demo. Real data and remote activation require owner agreement.
 
 **Platform and CI**
-- The platform library ([PLATFORM.md](PLATFORM.md), moved to Sub0Platform on 2026-11-19): slices 0 to 4 built 2026-11-16 (the system-header check; one process launcher; process identity
+- The platform library ([Sub0Platform](https://github.com/CraigHutchinson/Sub0Platform) since 2026-11-19; the record of the layer as built here is in [ARCHIVE.md](ARCHIVE.md)): slices 0 to 4 built 2026-11-16 (the system-header check; one process launcher; process identity
   and host facts, `ProcessId` out of the public headers; files, with one copy of the read and write helpers; sockets and the instance lock), each with
   Windows backends. Slice 5 (the daemon's and the shim's wait loops, the log follower, the pidfd watch) is done, and the program runs natively.
 - `std::format`/`std::print` and `contains`/`starts_with` ([DECISIONS.md](DECISIONS.md) 25): piloted 2026-11-16 on `replay.cpp` and `sandbox.cpp` (the
   specifier mapping checked byte for byte against `printf`, rounding cases included). Left: about 380 `printf`-family calls in 35 files, 28 `snprintf`,
   77 `find(...) != npos`. One layer per change, kernel upward, with the goldens as the guard; a layer is done when `git grep printf` is empty in it.
-- Windows and macOS builds, after the platform library (about 3,000 lines for Windows: [PLATFORM.md](PLATFORM.md) section 6). The platform layer's
+- Windows and macOS builds, after the platform library (about 3,000 lines for Windows: the retired PLATFORM.md section 6, in [ARCHIVE.md](ARCHIVE.md)). The platform layer's
   Windows backends are built and tested natively (MinGW-w64); slices 4 and 5 are done the same way, and the program runs natively under MinGW-w64; next is the domain layer under MSVC. The HTTP stack on Boost.Beast and Asio
   behind the seam ([DECISIONS.md](DECISIONS.md) 18).
 - CI for the squad: build, tests, ASan and UBSan, TSan, clang-tidy, and a GCC job (the GCC build was made clean on 2026-11-16).
