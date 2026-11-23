@@ -26,14 +26,16 @@ a release tag, and the squad's copies are deleted. This is the first step of Sub
   These go to Sub0Canvas first, or the squad loses them. Diff again before starting: other T0 work may have touched them since.
 - **One intended behaviour change.** Canvas's `applyReply` makes all-or-nothing atomic (a refusal leaves the canvas exactly as it was, whole files
   written earlier in the reply included). The squad's copy can leave whole files written before a later refusal. The partial path matches.
-- **None of Sub0Canvas's owner decisions are confirmed** (its `PLAN.md` section 3, O1-O13). This step needs only O1, the release.
+- **Sub0Canvas's owner decisions** (its `PLAN.md` section 3): O1, the v0.3.0 release, was approved 2026-11-23; O2-O13 are still open. This step needs
+  only O1.
 
 ## Steps
 
 1. **Sub0Canvas: upstream the drift.** Add `Runaway::detail` and `endsInsideBlock` to `turn_control`, each with a test in `test_turn_control` and a
    requirement row (R-TURN in `docs/REQUIREMENTS.md`). Diff both copies of `turn_control` and the reply applier once more, until nothing remains
    that only the squad has.
-2. **Release v0.3.0** (Sub0Canvas `PLAN.md` O1). **Ask the owner before pushing the tag**; the full CI tier runs on it.
+2. **Release v0.3.0** (Sub0Canvas `PLAN.md` O1). **The owner approved it on 2026-11-23**, once step 1 is in and both suites are green. Push the tag; the
+   full CI tier runs on it, and it must pass before the pin moves.
 3. **Sub0Squad: adopt.** Bump the pin to the tag. Include `sub0canvas/turn_control.hpp`, replace `applyCanvasReply` / `applyAsTransactions` with
    `applyReply` / `applyReplyText`, and delete the copies and their declarations. Keep `test_blocks`' recorded replies running against the new pin.
    Drop squad tests only where Sub0Canvas's `test_replies` / `test_turn_control` now hold the same case.
