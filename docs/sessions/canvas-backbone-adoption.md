@@ -58,3 +58,18 @@ locks it. Sub0Canvas: `cmake --preset default -G Ninja -DCMAKE_C_COMPILER=gcc -D
 `npm test`. Both: `export CPM_SOURCE_CACHE='D:\Craig\GitHub\Sub0Squad\out\cpm-cache'`. A change to the library is made in Sub0Canvas first, then
 the pin is bumped here. The owner's rules: [STATUS.md](../STATUS.md) section 6 and Sub0Canvas `AGENTS.md` ("Rules"). In particular: commit as
 you go, confirm before pushing or tagging, and never skip hooks.
+
+## Outcome (2026-11-23)
+
+Steps 1-3 done, step 4 partly. Sub0Canvas `8bf7024` upstreamed `Runaway::detail` and `endsInsideBlock` (R-TURN-6, R-TURN-7); v0.3.0 is tagged and its full CI tier
+passed. Sub0Squad now pins `v0.3.0`, holds no copy of turn control or the reply applier (`grep -rn applyCanvasReply src include` is empty), and
+`test_blocks` keeps its recorded replies and drops only turn-control checks Sub0Canvas's `test_turn_control` holds. `Runaway` declares `detail` after `keep`,
+the squad's order; its one positional call site now uses designated initialisers.
+
+Checked: `ctest` 47/47 on a fresh build against the tag with `CPM_Sub0Canvas_SOURCE` cleared (`out/build/pin`); 47/47 and quick 15/15 on the dev tree; layering and
+test-coverage checks pass. One `test_canvas_agent` failure in a first full run was not captured and did not recur (suspected load; watch it).
+
+Not done: the T0 comparison (`half-written`, `undeclared-member` on the simple profile). The shared engine on port 8092 was not running and real-model runs
+are not for agents (STATUS.md section 7); the owner or a session that holds the engine runs it and records which differences are the atomicity change. The
+brief's mentions of `daemon_governance.cpp:129` and of which files use which applier were wrong: the former is `RequestRecord::detail`; `llm_agent.cpp` and
+`planner.cpp` use `applyAsTransactions`, `blocks.cpp` and `canvas_agent.cpp` use `applyCanvasReply`. Not pushed.
