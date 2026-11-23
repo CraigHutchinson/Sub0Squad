@@ -1,6 +1,14 @@
 # Follow-up session — Portal access and a Node.js viewer
 
-Status — open. [Portal design](../PORTAL_WORK_OVERVIEW.md) · [Backlog](../BACKLOG.md)
+Status — open, **re-scoped 2026-11-23** by the Sub0Canvas architecture review (`docs/reviews/2026-11-23-fabric-portal-store.md` there, D7, D8, D10, D11,
+owner decisions). [Portal design](../PORTAL_WORK_OVERVIEW.md) · [Backlog](../BACKLOG.md)
+
+**What changed.** The native portal is the local default and grows HTTP/2 where tooling supports it (HTTP/1.1 stays the baseline); the shared `http`
+module will live in Sub0Fabric. The Node viewer below is therefore an **optional delivery process for remote access only** (Tailscale Serve, ngrok),
+and it must read the **one projection definition** (a versioned, field-allowlisted, opt-in-project data file shared with the native portal), not a
+second hand-written projection. The portal will join the Sub0Canvas views in three steps: deep links from a portal row to its canvas view, then an
+integrated shell, then work items as Canvas items. The measurement in receiving step 4 still applies and now compares the Node viewer against the
+native projection on the same budgets.
 
 ## Goal
 
