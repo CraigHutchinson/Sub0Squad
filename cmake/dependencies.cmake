@@ -50,11 +50,11 @@ CPMAddPackage(NAME simdjson
   OPTIONS "SIMDJSON_DEVELOPER_MODE OFF")
 
 # Sub0Canvas: the canvas tooling (folded views, edits, the revisioned canvas, stable block ids and layers; its docs/INTEGRATION.md), split out of this
-# repository on 2026-11-17 so it can serve other consumers. Sub0Squad is its first. Pinned to an immutable revision; changes to that code are made there first, then
+# repository on 2026-11-17 so it can serve other consumers. Sub0Squad is its first. Pinned to the v0.3.0 release (turn control and the reply applier live there, adopted 2026-11-23); changes to that code are made there first, then
 # the pin is bumped here (test_blocks' recorded replies exercise it, so they run against every new pin). It reuses the simdjson target above.
 CPMAddPackage(NAME Sub0Canvas
   GIT_REPOSITORY https://github.com/CraigHutchinson/Sub0Canvas.git
-  GIT_TAG fcaa76cf9a668e2fc6781f23930b55e0622f65db
+  GIT_TAG v0.3.0
   OPTIONS "SUB0CANVAS_BUILD_TESTING OFF")
 
 # Version.cmake (BareCpper org, same author): git describe -> version fields and a generated header, refreshed every configure. Pinned to the v0.4 tag.
