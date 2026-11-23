@@ -10,7 +10,7 @@
 #include "sub0squad/plan.hpp"
 #include "sub0squad/policy.hpp"
 #include "sub0squad/trace.hpp"
-#include "sub0squad/turn_control.hpp"
+#include "sub0canvas/turn_control.hpp"
 #include "sub0squad/sandbox.hpp"
 #include "sub0squad/stance.hpp"
 
@@ -330,12 +330,12 @@ int runLlmAgent(const std::vector<std::string>& args)
             }
         }
         if (parsed.files.empty() && !currentFiles.empty() && reply->content.find("=== EDIT:") != std::string::npos) {
-            std::string editError;
-            if (auto merged = applyAsTransactions(reply->content, currentFiles, allowed, itemId, editError)) {   // one applier for every edit form (LINES, AFTER, SYMBOL, SEARCH)
+            if (auto merged = applyReplyText(reply->content, currentFiles, allowed, itemId)) {   // one applier for every edit form (LINES, AFTER, SYMBOL, SEARCH)
                 parsed.files = *merged;
                 parsed.fileChars = reply->content.size();
                 std::printf("turn %d: edits applied to %zu file(s)\n", turn, parsed.files.size());
             } else {
+                const std::string& editError = merged.error();
                 traceVerdict(tracePath, turn, "the edit could not be applied: " + editError);
                 std::printf("turn %d: edit rejected: %s\n", turn, editError.c_str());
                 if (turn == turnLimit) break;

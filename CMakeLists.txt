@@ -54,7 +54,7 @@ foreach(layerName ${SUB0SQUAD_LAYER_NAMES})
   set(SUB0SQUAD_LOWER ${lib})
   math(EXPR layerIndex "${layerIndex} + 1")
 endforeach()
-# The canvas tooling is the Sub0Canvas library (cmake/dependencies.cmake); the domain layer's forwarding headers (outline, edits, canvas, doc_layers) name it.
+# The canvas tooling is the Sub0Canvas library (cmake/dependencies.cmake); the domain layer's forwarding headers (outline, edits, canvas, doc_layers) and its turn_control name it.
 target_link_libraries(sub0squad_domain PUBLIC sub0canvas::sub0canvas)
 # The daemon's job graph and typed events are the Sub0 libraries; only the orchestration layer uses them.
 target_link_libraries(sub0squad_orchestration PUBLIC Sub0Pipeline::Sub0Pipeline Sub0Pipeline::Priority Sub0Pub::Sub0Pub)

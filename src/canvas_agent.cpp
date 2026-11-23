@@ -15,7 +15,7 @@
 #include "sub0squad/outline.hpp"
 #include "sub0squad/stance.hpp"
 #include "sub0squad/trace.hpp"
-#include "sub0squad/turn_control.hpp"
+#include "sub0canvas/turn_control.hpp"
 
 #include <algorithm>
 #include <charconv>
@@ -216,37 +216,6 @@ std::string revisionList(const Canvas& canvas)
     for (const auto& path : canvas.paths()) s += (s.empty() ? "" : ", ") + path + " r" + std::to_string(canvas.revision(path));
     return s;
 }
-
-/// `=== EDIT: path ===` blocks of SEARCH/REPLACE pairs split into one block per pair, so each can apply on its own. Text that is not a recognisable pair
-/// (an unclosed block) is passed on whole, so `applyEdits` names what is wrong with it.
-std::vector<std::string> splitSnippets(const std::string& edits)
-{
-    std::vector<std::string> out;
-    std::size_t at = 0;
-    while ((at = edits.find("=== EDIT:", at)) != std::string::npos) {
-        const std::size_t headEnd = edits.find('\n', at);
-        if (headEnd == std::string::npos) { out.push_back(edits.substr(at)); break; }
-        const std::string head = edits.substr(at, headEnd - at + 1);
-        std::size_t end = edits.find("=== END EDIT ===", headEnd);
-        const std::string body = edits.substr(headEnd + 1, (end == std::string::npos ? edits.size() : end) - headEnd - 1);
-        std::size_t b = 0;
-        bool any = false;
-        while (true) {
-            const std::size_t s0 = body.find("<<<<<<< SEARCH", b);
-            if (s0 == std::string::npos) break;
-            const std::size_t r0 = body.find(">>>>>>> REPLACE", s0);
-            if (r0 == std::string::npos) { out.push_back(head + body.substr(s0) + "\n=== END EDIT ===\n"); any = true; break; }
-            const std::size_t r1 = r0 + std::string_view{">>>>>>> REPLACE"}.size();
-            out.push_back(head + body.substr(s0, r1 - s0) + "\n=== END EDIT ===\n");
-            any = true;
-            b = r1;
-        }
-        if (!any) out.push_back(head + body + "\n=== END EDIT ===\n");
-        at = end == std::string::npos ? edits.size() : end + 1;
-    }
-    if (out.empty()) out.push_back(edits);
-    return out;
-}
 }  // namespace
 
 /// Tests failing by the gate's text; -1 when it names no count (a pass, or a file that did not build).
@@ -254,64 +223,6 @@ int failingTests(const std::string& gateText)
 {
     const auto [failed, total] = harnessutil::gateTestCounts(gateText);
     return gateText.rfind("GATE FAIL: ", 0) == 0 ? failed : -1;
-}
-
-std::string applyCanvasReply(Canvas& canvas, const CanvasReply& reply, const std::set<std::string>& allowed, const std::string& by, std::vector<std::string>* skipped)
-{
-    if (!reply.error.empty()) return reply.error;
-    // One part that cannot apply: all or nothing returns it as the refusal; partial records it and goes on with the rest.
-    const auto fail = [&](const std::string& why) { if (skipped) skipped->push_back(why); return !skipped; };
-    std::map<std::string, int> shown;   // the revision each file was at when the worker saw it: every operation's line numbers are in that view
-    for (const auto& path : canvas.paths()) shown[path] = canvas.revision(path);
-    for (const auto& [path, text] : reply.wholeFiles) {
-        if (!allowed.count(path)) { const std::string why = "'" + path + "' is not one of the files you may write"; if (fail(why)) return why; continue; }
-        (void)canvas.replaceText(path, text, by);
-    }
-    for (Transaction tx : reply.transactions) {
-        std::string why;
-        if (!allowed.count(tx.path)) why = "'" + tx.path + "' is not one of the files you may write";
-        else if (!shown.count(tx.path)) why = "there is no '" + tx.path + "' yet: write it whole with === FILE: " + tx.path + " ===";
-        else if (reply.wholeFiles.count(tx.path)) why = "'" + tx.path + "' is both rewritten whole and edited in one reply: use one or the other";
-        if (!why.empty()) { if (fail(why)) return why; continue; }
-        tx.by = by;
-        if (!skipped) {   // all or nothing: the file's operations as one transaction
-            tx.baseRevision = canvas.revision(tx.path);
-            if (const TxResult r = canvas.apply(tx); !r.ok) return tx.path + ": " + r.error;
-            continue;
-        }
-        // Partial: each operation on its own, all against the revision that was shown (the canvas rebases each over the ones applied before it), so one
-        // bad operation never costs the good ones beside it.
-        for (const auto& op : tx.ops) {
-            Transaction one{tx.path, shown[tx.path], by, {op}};
-            if (const TxResult r = canvas.apply(one); !r.ok) skipped->push_back(tx.path + ": " + r.error);
-        }
-    }
-    // The snippet form (SEARCH/REPLACE): its result is committed as a whole-text revision. A snippet names its place by its text, not by line numbers, so
-    // in partial mode each one applies on its own to the text as it then stands.
-    const auto applySnippets = [&](const std::string& edits) {
-        std::string err;
-        const auto before = canvas.files();
-        const auto merged = applyEdits(edits, before, allowed, err);
-        if (!merged) return err;
-        for (const auto& [path, text] : *merged) if (!before.count(path) || before.at(path) != text) (void)canvas.replaceText(path, text, by);
-        return std::string{};
-    };
-    if (!reply.searchEdits.empty()) {
-        if (!skipped) { if (std::string err = applySnippets(reply.searchEdits); !err.empty()) return err; }
-        else for (const auto& one : splitSnippets(reply.searchEdits)) if (std::string err = applySnippets(one); !err.empty()) skipped->push_back(err);
-    }
-    return {};
-}
-
-std::optional<std::map<std::string, std::string>> applyAsTransactions(const std::string& reply, const std::map<std::string, std::string>& files, const std::set<std::string>& allowed, const std::string& by, std::string& error)
-{
-    Canvas canvas;
-    for (const auto& [path, text] : files) canvas.addFile(path, text);
-    const CanvasReply parsed = parseCanvasReply(reply);
-    if (parsed.error.empty() && !parsed.hasEdits()) { error = "the reply holds no edit blocks"; return std::nullopt; }
-    error = applyCanvasReply(canvas, parsed, allowed, by);
-    if (!error.empty()) return std::nullopt;
-    return canvas.files();
 }
 
 std::string precheckCanvas(const Canvas& canvas, const Harness* harness, const fs::path& dir, const std::string& itemId, int attempt, const fs::path& attemptDir, bool partial)
@@ -809,7 +720,7 @@ int runCanvasAttempt(const AttemptContext& a)
             // before is carried, and the next turn decides with thinking off (judged every 400 characters of reasoning: the rule walks the whole text).
             if (thinkingCap > 0 && reasoningSoFar.size() >= reasoningJudged + 400 && soFar.find("=== ") == std::string::npos) {
                 reasoningJudged = reasoningSoFar.size();
-                if (auto r = detectRunaway(reasoningSoFar, {}); r.kind == "repeat") { runaway = {"thinking-loop", r.instruction, r.keep, r.detail}; return true; }
+                if (auto r = detectRunaway(reasoningSoFar, {}); r.kind == "repeat") { runaway = {.kind = "thinking-loop", .instruction = r.instruction, .keep = r.keep, .detail = r.detail}; return true; }
             }
             // The scope rules never run out (2026-11-18: after two free stops the 35B's third rewrite went through, ran past the token limit and failed
             // to apply); a scope stop past the free aborts costs a turn instead.
@@ -1035,7 +946,11 @@ int runCanvasAttempt(const AttemptContext& a)
         if (scopeRefusal.empty())
             for (const auto& [path, body] : parsed.wholeFiles)
                 if (scopeRefusal = scopeRefusalFor(path); !scopeRefusal.empty()) break;
-        std::string refusal = scopeRefusal.empty() ? applyCanvasReply(scratch, parsed, allowed, a.itemId, &skipped) : scopeRefusal;
+        std::string refusal = scopeRefusal;
+        if (scopeRefusal.empty()) {
+            if (auto applied = applyReply(scratch, parsed, {.allowed = allowed, .by = a.itemId, .partial = true})) skipped = std::move(applied->skipped);
+            else refusal = applied.error();
+        }
         std::string skippedNote;
         for (const auto& s : skipped) skippedNote += "- " + s + "\n";
         if (!skippedNote.empty()) skippedNote = "These parts of your reply did not apply (the rest did):\n" + skippedNote;

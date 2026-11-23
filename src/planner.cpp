@@ -368,13 +368,12 @@ int runLlmPlanner(const std::vector<std::string>& args)
             std::set<std::string> allowed;
             for (const auto& [path, text] : doc) allowed.insert(path);
             for (const auto& b : blocks) allowed.insert(b.path);
-            std::string error;
-            if (auto next = agent::applyAsTransactions(reply->content, doc, allowed, "planner", error)) {
+            if (auto next = applyReplyText(reply->content, doc, allowed, "planner")) {
                 doc = std::move(*next);
                 edited = true;
             } else {
                 problems = lastProblems;   // the edits changed nothing, so the original problems stand
-                problems.insert(problems.begin(), "your edits were not applied (nothing changed): " + error);
+                problems.insert(problems.begin(), "your edits were not applied (nothing changed): " + next.error());
             }
         }
         if (edited) {   // rebuild the plan from the edited document

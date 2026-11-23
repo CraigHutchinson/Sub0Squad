@@ -65,15 +65,6 @@ struct AttemptContext
 /// The canvas turn loop (docs/CANVAS.md slice 0; canvas_agent.cpp): replies are transactions against a revisioned document, the harness precheck gates
 /// each commit, the conversation is rebuilt each turn from the card and a folded view of the current revision. Same exit codes as the classic loop.
 [[nodiscard]] int runCanvasAttempt(const AttemptContext& a);
-/// Apply a parsed reply to `canvas` (whole files, transactions against the current revisions, the older search edits): "" when everything applied, else why
-/// not. With `skipped` null it is all or nothing (the caller passes a scratch copy, so a refusal leaves the real canvas untouched). With `skipped` given,
-/// nothing valid is thrown away: every operation that can apply does (each against the revision the worker was shown), each one that cannot is named in
-/// `skipped`, and "" is returned unless the reply could not be read at all.
-[[nodiscard]] std::string applyCanvasReply(Canvas& canvas, const CanvasReply& reply, const std::set<std::string>& allowed, const std::string& by,
-                                           std::vector<std::string>* skipped = nullptr);
-/// The edits of `reply` applied to `files` as one all-or-nothing transaction set (every edit form the canvas reads): the updated files, or nullopt with why.
-[[nodiscard]] std::optional<std::map<std::string, std::string>> applyAsTransactions(const std::string& reply, const std::map<std::string, std::string>& files, const std::set<std::string>& allowed,
-                                                                                    const std::string& by, std::string& error);
 /// The harness's cheapest check over the canvas's current files: "" when they pass (or the harness has no precheck).
 /// `partial`: the file is still being written in sections (stubs leave helpers and parameters unused), so only what is wrong regardless is reported.
 [[nodiscard]] std::string precheckCanvas(const Canvas& canvas, const Harness* harness, const std::filesystem::path& dir, const std::string& itemId, int attempt, const std::filesystem::path& attemptDir, bool partial = false);

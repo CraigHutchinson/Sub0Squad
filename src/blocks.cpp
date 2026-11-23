@@ -8,7 +8,7 @@
 #include "sub0squad/outline.hpp"
 #include "sub0squad/sandbox.hpp"
 #include "sub0squad/scenario.hpp"
-#include "sub0squad/turn_control.hpp"
+#include "sub0canvas/turn_control.hpp"
 
 #include <print>
 #include <algorithm>
@@ -97,7 +97,11 @@ std::string runReplyCase(const ReplyCase& c)
         return {};
     }
     Canvas scratch = canvas;
-    std::string refusal = parsed.hasEdits() || !parsed.error.empty() ? applyCanvasReply(scratch, parsed, allowed, "case") : std::string{"the reply holds no edit"};
+    std::string refusal = "the reply holds no edit";
+    if (parsed.hasEdits() || !parsed.error.empty()) {
+        const auto applied = applyReply(scratch, parsed, {.allowed = allowed, .by = "case"});
+        refusal = applied ? std::string{} : applied.error();
+    }
     if (!c.expectError.empty()) {
         if (refusal.empty()) return "expected a refusal containing '" + c.expectError + "', but the reply applied";
         if (refusal.find(c.expectError) == std::string::npos) return "refused with '" + refusal + "', expected a message containing '" + c.expectError + "'";

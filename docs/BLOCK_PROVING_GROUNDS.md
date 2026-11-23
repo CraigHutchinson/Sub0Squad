@@ -232,7 +232,7 @@ lives): a stopped caller had left its bash loop running, and three loops wiped e
 | edits: FILE still refused, the edit size limits lifted | 0/5 | 8 to 11 | 3,069 to 11,415 |
 | today's rules (19 runs: the baseline, plus the first A/B, which ran the default in every arm) | 4/19 | 4 to 19 | 1,739 to 10,680 |
 
-The hint is kept (`95b4c6a`; `endsInsideBlock` in `turn_control.cpp` decides a cut-off file) and the experiment switch is gone. 2/5 against about
+The hint is kept (`95b4c6a`; `endsInsideBlock` in Sub0Canvas's `turn_control` decides a cut-off file) and the experiment switch is gone. 2/5 against about
 20 % is within the noise of 5 runs (identical code gave 0/5 and 2/5 in the first A/B), but it is the only arm that changed the first move: 3 of 5 runs
 opened with the append. **The hint runs that still fail append too little:** the missing tail is 56 lines (under the 100-line edit limit), but the
 model appended 11 lines (the current function), then 2, leaving the class's members (`s_`, `pos_`, `degrees_`) and `evaluate()` unwritten; the
