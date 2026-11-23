@@ -88,7 +88,7 @@ The queue, with hypotheses, arms, measures and commands, is [EXPERIMENTS.md](EXP
   (`SUB0SQUAD_ISSUE_INLINE=0` against 3). A pull request here with no library change.
 - The backbone, sources (git, GitHub) and scale work is planned and briefed in Sub0Canvas (`docs/BACKLOG.md`, `docs/sessions/`). Each of its steps that
   changes what the squad sees reaches this repository as a pull request bumping the pin (Sub0Canvas `docs/INTEGRATION.md`); review and measure those
-  here.
+  here. The first step, adopting its reply applier and turn control and dropping the copies here: [sessions/canvas-backbone-adoption.md](sessions/canvas-backbone-adoption.md).
 
 **Measurement** ([METRICS.md](METRICS.md))
 - Accounting that reconciles with the engine (a blocker for every efficiency figure): the ledger records a fraction of a forked run's tokens (1.4k, 38k and 40k

@@ -45,6 +45,8 @@ machine (frontier off), no commits without the owner's go-ahead, ask before chan
 
 - [Resume the tier work](tier-work-resume.md) — hello world end to end, reasoned planner sizing, then T0 to T2 on the 35B. Start here for the tier work.
 
+- [Adopt Sub0Canvas as the backend](canvas-backbone-adoption.md) — backbone migration phase 1: upstream the drifted turn control, release v0.3.0, drop the squad's copies. Start here for the backbone work.
+
 - [Canvas reasoning workflow](canvas-reasoning-workflow.md) — measure structured thinking and design feedback from scratch checks.
 
 - [Portal access and a Node.js viewer](portal-access.md) — receive a local summary viewer, then verify private remote access from a second device.
