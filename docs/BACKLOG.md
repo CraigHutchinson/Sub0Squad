@@ -1,10 +1,35 @@
 # Backlog
 
-Work that is understood but not done, in three horizons. Updated 2026-11-16. Each item names where its design lives. The focus is the proving sandbox: every
+Work that is understood but not done, in three horizons. Updated 2026-11-23. Each item names where its design lives. The focus is the proving sandbox: every
 change to how the squad works is an experiment on the local engine, with a hypothesis, a fixture and an A/B on the same seeds
 ([EXPERIMENTS.md](EXPERIMENTS.md)). What is done is in [STATUS.md](STATUS.md); the older backlog is in git ([ARCHIVE.md](ARCHIVE.md)).
-**Resuming on a new machine?** [RESUME.md](RESUME.md) (2026-11-16) orders the clean-slate work into a priority list, starting with re-measuring speed and the
-planner's success rate on the new host. The queue below and that list are the same work.
+**Resuming the tier work?** [RESUME.md](RESUME.md) (2026-11-23) is where it stands and what comes next; the brief is
+[sessions/tier-work-resume.md](sessions/tier-work-resume.md).
+
+## Now: the proving ladder and reasoned workflow decisions (owner, 2026-11-23)
+
+**The ladder.** "Write a hello world app in C++" is the lowest bar: one request through the planned process (planner, tester, developer, integration),
+before the calculator. The calculator (T0 then T1) must be achievable before any long computation goes into larger projects; a more complex scenario
+is designed but not run until then. The first hello-world run (2026-11-23, `D:\tmp\.local\state\sub0squad`) failed every attempt of its one tester
+item: the C++ harness's CMakeLists declared a `calc` library from every `src/*.cpp` except `main.cpp`, and an app-only project has none ("No SOURCES
+given to target: calc"). Fixed in `src/cpp_templates.cpp` (an INTERFACE library when there are no library sources; checked by hand on that run's
+workspace). TO DO: a test that configures an app-only workspace; the hello-world request run end to end and graded; it becomes the first rung of the
+tier runner (a request-level tier below T1).
+
+**A reasoning or evidence step in each workflow decision, not a hard limit.** Fixed thresholds stand in for judgement in several places: the planned
+process's `--min-speedup 2.0` (`registry/processes/planned@1.json`) sent the 2026-11-20 calculator planner round 8 turns chasing parallelism it never
+reached (1.31x, `barMet: false`), and the same bar would push a hello world into parallel items it is too small for. Each such decision (split or not,
+how many items, parallel or serial, a retry or a different approach, accept or ask for more) should be made by a step that states its evidence (the
+plan's size, the lint's slot fill, the history of attempts) and its reasoning, recorded with the decision; a threshold becomes an input to it, not the
+verdict. First cases: the speedup bar (a small project may stay serial, with the reason recorded), the near-pass repair, the attempt limits.
+
+**A test plan before tests, and area plans as living documents.** In the 2026-11-20 calculator run (`out/runs/calculator-e2e-20261120-161815`) the
+CLI tester's file was accepted with 3 tests and nothing ever asked whether more were needed (16 tests in all). The tester should first write a test
+plan (what the contract promises, the cases and edges that cover it, what is out of scope), which is reviewed against the contract and then drives
+the tests; coverage is judged against the plan, not a count. Plans per area (code, tests, interfaces, and others the agents raise) are documents that
+live with the project and are revised as work lands or a gap is found: an agent that finds a gap raises it against the plan, and a later pass (or the
+integrator) checks the plan is met before the project is accepted. Design to build on: the layered document and the canvas (plans as canvas
+documents with revisions), the CONCERN channel (raising a gap), the planner's contract sections.
 
 ## Now: the sandbox request is "scientific" (owner, 2026-11-16: it had slipped)
 

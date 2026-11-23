@@ -1,114 +1,75 @@
-# Resume here (written 2026-11-16, to continue on a faster machine; updated 2026-11-17)
+# Resume here (2026-11-23)
 
-Follow-up work with its own brief: [sessions/](sessions/README.md) (handoff docs, one per task). Read this first; it supersedes the "next steps" of the old `HANDOFF.md`, `NEXT_SESSION_PROMPT.md` and `ITERATION_PROGRESS.md` (in git history: [ARCHIVE.md](ARCHIVE.md)). The owner's goal is unchanged: prove the
-harness builds sandbox projects from a bare request with local models; the Qwen3.6-35B-A3B (Q4_K_M) is the minimum bar and nothing leaves the machine (frontier stays OFF).
+The tier work is **paused** with the tree clean and pushed. This page is where it stands and what comes next; the session brief to start from is
+[sessions/tier-work-resume.md](sessions/tier-work-resume.md). The owner's goal is unchanged: prove the harness builds projects from a bare request
+with local models. The Qwen3.6-35B-A3B is the minimum bar, and nothing leaves the machine (frontier stays OFF). The previous versions of this page
+(2026-11-16 and 2026-11-17: the clean-slate path, the scientific request, the parallelism bar) are in git history ([ARCHIVE.md](ARCHIVE.md)).
 
-## 1. Where things stand
+## 1. The proving ladder
 
+Each rung is run only once the rung below passes; a larger project waits until the calculator is achievable.
 
-### 2026-11-20 T0 and Canvas handoff
+| Rung | What one run is | Where it stands (2026-11-23) |
+|---|---|---|
+| **Hello world** (new lowest bar) | `sub0squad do "Write a hello world app in C++"` through the planned process | First run failed every attempt on a harness defect, now fixed (section 2). Not yet re-run. |
+| **T0** | One worker, one seeded edit on the reference calculator (`validation/tiers/run_t0.sh`, `gate_t0.py`) | Not passed. Last full cohorts: 73/78 within budget (legacy visible-range arm, `fd4d8eb`) and 69/78 (default think-plan-act, `7ec8209`). The failures are in the whole-engine cases: wrong-approach and skeleton 1/3, write-feature 2/3. |
+| **T1** | One worker builds the whole calculator against the owner's tests (`run_tier.sh <repo> 1`) | Closed: it needs a T0 PASS. Forced runs are diagnostic only ([T0_LAYERS.md](T0_LAYERS.md) 2.4). |
+| **T2** | The same plan with forked sections | Closed behind T1. |
+| **Clean slate** | The scientific calculator from the request alone (planner, testers, developers, integration) | The 2026-11-20 run (`out/runs/calculator-e2e-20261120-161815`) built and passed 16 tests, but it shows the two design gaps in section 3. |
 
-Start with the isolated terminal commands in [DEV_SETUP.md](DEV_SETUP.md#isolated-t0-and-t1-operator-session), then read [T0_LAYERS.md](T0_LAYERS.md)
-for worker modes, the edit-address experiments, token accounting and the fixture-level golden diagnostics. The [Canvas reasoning brief](sessions/canvas-reasoning-workflow.md)
-has the phase audit and divides the production follow-ups from the simple T0 workflow.
+**T0 in detail.** The run defaults to the **simple** profile: the fixture plan, one Canvas worker, think-plan-act (`SUB0SQUAD_THINKPLAN=read-handoff`),
+no ladder past the worker's turns. `T0_PROCESS_PROFILE=legacy` replays the broader worker policy; the two profiles never share an output directory.
+The simple profile has **not yet had a full cohort**, and its token calibration is separate from the legacy one. Commands, the isolated operator
+session and the watch tool: [DEV_SETUP.md](DEV_SETUP.md#isolated-t0-and-t1-operator-session). The design of the tree, the modes, the token
+accounting, the edit-address shootout and the golden retry paths: [T0_LAYERS.md](T0_LAYERS.md). The history of the 2026-11-18 iteration (early stop,
+half-written cut-off hint, undeclared-member/-many, the thinking A/B): [BLOCK_PROVING_GROUNDS.md](BLOCK_PROVING_GROUNDS.md).
 
-The request-bound visible-range arm is experimental and SEARCH/REPLACE remains the default edit form. The legacy measurement completed at 73/78.
-Its calibration and local traces apply to the measured build and profile. Start a fresh directory for the simple profile and keep its calibration separate.
-Keep the owner fixtures frozen. A measurement-only run never admits Tier 1. [Validation and calibration issue #5](https://github.com/CraigHutchinson/Sub0Squad/issues/5).
+**What thinking showed (2026-11-18/19).** Before then, every T0 and T1 run had thinking off. With it on, undeclared-member and undeclared-many went
+10/10 in 2 or 3 turns, against 1/5 and 5/5 without. But the 35B drafts the whole code inside its reasoning, so on larger edits the thinking ran to its
+cap and was thrown away. That is why think-plan-act is now the default: hidden thinking is followed by a visible plan with no code, then an act turn with
+thinking off. The open arms (bounded options, a short thinking budget, presence 1.5, compact repair context, scratch checks) are in the
+[canvas reasoning brief](sessions/canvas-reasoning-workflow.md).
 
-The production retries and provider work have tracked issues. Canvas owns the pinned starting viewpoint and verification. Squad owns the manager's decision,
-the comparison of workflow trajectories and the receiving gate. Use the issue links in [BACKLOG.md](BACKLOG.md) to pick up these workstreams on a new host.
+## 2. Fixed on 2026-11-23: the harness assumed a library
 
-**Update 2026-11-17** (the rest of this section is as written on 2026-11-16):
-* **Windows is a first-class platform**: the program runs natively under MinGW-w64, and CI builds and tests on Windows and Linux. Tests carry `smoke`/`full`
-  tiers with area labels: smoke runs on every change, full at the gates ([DEV_SETUP.md](DEV_SETUP.md)). Windows Server 2022 behaves differently from
-  Windows 11 for AF_UNIX sockets, and the fixes are in `1f45940` (a socket file is seen without opening it; the waiter sees a connection that arrived before
-  its first wait; a socket path over 107 bytes moves to a short name). `f25441c` lets the portal take port 0, so parallel tests never collide.
-* **The canvas tooling lives in [Sub0Canvas](https://github.com/CraigHutchinson/Sub0Canvas)**: outline, edits, canvas and doc_layers, consumed through CPM at a
-  pinned tag (v0.2.1), with forwarding headers so callers are unchanged. A change there lands in Sub0Canvas first, is tagged, and reaches this repository
-  as a pull request bumping the pin (Sub0Canvas `docs/INTEGRATION.md`; run `test_blocks` and `test_canvas_agent`). The issues layer's slice 2 is done
-  and measured (adaptive is the default; [LAYERED_DOCUMENT.md](LAYERED_DOCUMENT.md)). The design ahead (the backbone, git and GitHub sources, scale) and
-  its follow-up briefs are in Sub0Canvas (`docs/RESUME.md`, `docs/BACKBONE.md`, `docs/sessions/`), worked there.
-* **Model tiers and the tier 0 gate** ([BLOCK_PROVING_GROUNDS.md](BLOCK_PROVING_GROUNDS.md)): 24 seeded cases on the reference calculator; tier 1 and
-  above run only on a tier 0 PASS. **The definitive gate (2026-11-18, build `101e19c`, the 35B, 72 runs): FAIL.** 22 of 24 cases passed 3 of 3,
-  bugs-3/6/10 included (1.29, 3.0 and 3.0 defects a turn; fix-many 3.75). The two whole-engine rewrites passed 1 of 3 each: wrong-approach and
-  skeleton. Every run of both, passing or failing, used all 5 attempts, and the failures ended close: 1 or 2 tests failing, or a cut-off reply that did
-  not compile. The same test recurs: `unary_minus_binds_looser_than_power` (`-2^2` is -4). Results: `out/runs/t0-101e19c/gate.md`. Tier 1 stays
-  closed until these two pass. The smoke set (`run_t0.sh <repo> <engine> 1 @smoke`, about 8 minutes) is for iterating, and never stands in for the gate.
-* **Engine**: Qwen3.6-35B-A3B APEX I-Compact on `llama-server` port 8092 (`-c 65536 -np 4`, alias `qwen35`). A 9B (Qwen3.5-9B Q4_K_M) is downloaded
-  for tier 0 once the 35B passes it reliably.
+The C++ harness's CMakeLists declared a `calc` library from every `src/*.cpp` except `main.cpp`. A hello world has only `main.cpp`, so configure
+failed ("No SOURCES given to target: calc"). The tester could not change the harness's file, so all five attempts of its one item failed. Now an
+app-only project gets an INTERFACE library (`src/cpp_templates.cpp`). I checked it by hand on that run's workspace: the tester's test fails on the stub
+and passes on a real hello world. No unit test covers it yet (BACKLOG).
 
-**The clean-slate path exists end to end** (`sub0squad do "write a scientific calculator in C++" --agent llm --executor fork`): a planner model plans from the request alone (no blueprint, no reference),
-mechanical mends and checks repair what they can, the squad builds test-first, a developer's failure can be disputed back to its tester, the harness integrates generically, and a
-validation grader outside the harness judges the result.
+## 3. The design direction the owner set on 2026-11-23
 
-**The request slipped (found 2026-11-16, owner): the sandbox project is a SCIENTIFIC calculator** (the web sample was always "write a scientific calculator as a web page"). Every clean-slate run in this section used `write a calculator in C++`, so the planner correctly planned only `+ - * /` and parentheses, and the trig functions, inverses and degrees mode that the old hand-written blueprint carried were never asked for. All results below are for the plain calculator: they prove the machinery, not the scientific project. `scripts/campaign.py` and `docs/CLEAN_SLATE.md` now say `scientific`; the next full run must use it, and the planner will have to get nested trig expectations right (the tester's wrong-literal failure gets harder). `validation/grade_blackbox.py` has a separate `scientific` group of cases.
+Recorded in [BACKLOG.md](BACKLOG.md), "Now: the proving ladder and reasoned workflow decisions":
+1. **A reasoning or evidence step in each workflow decision**, not a hard limit. The planned process's `--min-speedup 2.0` bar sent the calculator's
+   planner round 8 turns and still ended at 1.31x, and the same bar would split a hello world. A threshold becomes evidence for a recorded decision.
+2. **A test plan before tests.** In that run the CLI tester was accepted with 3 tests and nothing asked whether more were needed. Plans per area (code,
+   tests, interfaces, and others the agents raise) are living documents, revised as work lands and checked before the project is accepted.
+3. **Hello world first, then the calculator, then larger projects.**
 
-**Hands-off parallelism bar (2026-11-16, owner):** the planned process now runs the planner with `--min-speedup 2.0` and `--max-turns 8`: a plan that passes every check but whose expected speedup on the engine's slots (plan-lint) is below 2.0x goes back to the planner as a problem ("too serial ... split into more independent deliverables") until it reaches the bar; if no turn does, the best valid plan stands and `planner.json` says `barMet: false`. First use: `w-000024` ("write a scientific calculator as a web page"): turn 2 was valid at 1.66x, turn 3 reached 2.23x with three independent module pairs (engine, trig/log functions, ui). The engine now runs `-c 65536 -np 4` (16384 per slot, the service peaked at 24.0 GiB of its 25 GiB cap; `scripts/start-campaign.sh` defaults to it); the planner's reply budget follows the profile's window (45 %, at most 7000 tokens).
+Earlier direction still in force: no pre-built plan or reference in the harness ([CLEAN_SLATE.md](CLEAN_SLATE.md)); repairs are edits, not
+regenerations; every change to how the squad works is an A/B on the same seeds ([EXPERIMENTS.md](EXPERIMENTS.md)).
 
-**It has not passed end to end yet.** Evidence (35B on this CPU, 3 to 5 tok/s decode, 4 slots at 8192 tokens):
+## 4. Priority order for the next session
 
-| What | Result |
-|---|---|
-| Planner valid plan (single reply, current code) | about half of runs; every failure was format (JSON slips, cut-off replies), not planning |
-| Planner with `--prose` (prose lead, then one formatter call) | 1 of 4 valid: one formatter call for the whole plan does not help; per-item formatting is untested |
-| Supplied plan, all four items accepted, then integration by hand | run `w-000020`: product 12 of 12 black-box cases, 0 wrong test literals (`validation/grade_blackbox.py`) |
-| Full run from the request, planner passed | `w-000022`: engine pair accepted at once; `dev-app` failed 6 attempts (the engine returns NaN on error and the app's card did not say so). Fixed since: a developer's card shows the contracts of the items it builds on |
-| Supplied plan, whole workflow (items, dispute, integration, no manual step) | run `w-000023`: **succeeded** ("all items accepted; integration passed"); `validation/grade_blackbox.py out/e2e/supplied-7`: product 12 of 12, 5 literals audited, 0 wrong. The plan came from `w-000022`'s planner; the full run from the request (planner included) has still not passed in one go |
+1. **Hello world end to end.** Add a test that configures an app-only workspace, run the request through `do`, and grade it. Fix what it finds the same
+   way: a defect in the harness is fixed in the harness, and the model is never asked to work round it.
+2. **The reasoned decision step for planning size**, so hello world is not forced into parallel items. Then the test-plan step for testers.
+3. **A simple-profile T0 cohort** on a fresh output directory, with the calibration kept apart. Work the whole-engine cases through the cases they
+   require (write-engine, replace-function), using the canvas reasoning brief's arms.
+4. **T1** once T0 passes, then T2. Then the 9B on T0.
+5. The tracked workstreams in [BACKLOG.md](BACKLOG.md) (issues 2 to 7): the manager-led second attempt, workflow extension seams, prompt
+   restatement, unary-minus proving grounds, the calculator receiving case.
 
-Wrong expected values in the tester's tests (`2 + 3 * 4 - (5 / 5)` = 14, `3 + 4 * 2 / (1 - 5)` = 2, `10 / 3` as a float literal) recur in nearly every run; the dispute rung catches them but costs
-about an hour on this CPU. Nothing in the harness has an oracle (by decision); the structural answer is the expectation QA step below.
+## 5. Engine and host
 
-Last pushed commit when this was written: `4adca03` on `origin/main`; 48 of 48 ctest tests pass (`ctest -j2`, about 6 minutes). On 2026-11-17: `f25441c`, CI full green on Linux and Windows; 54 of 54 locally.
+The 35B (`Qwen3.6-35B-A3B-APEX-I-Compact.gguf`) runs on `llama-server` on port 8092, alias `qwen35`. As run on 2026-11-23: `-c 131072 -np 4`,
+`--reasoning-budget 2048`, `--jinja`, flash attention, q8_0 KV cache, `--sleep-idle-seconds 900`, and sampling defaults of temperature 0.6, top-p 0.95,
+top-k 20, presence 0. Model-specific guidance (the card's sampling, `enable_thinking`, templates) belongs to Sub0LlmEngine (`docs/MODEL_BEHAVIOR.md`).
+Another session owns tuning the llama configuration. A 9B is downloaded for T0 once the 35B passes.
 
-## 2. The design direction the owner set this week (read before building)
+## 6. Rules that still bind
 
-1. **`docs/CLEAN_SLATE.md`**: the principle (no pre-built plan, no reference in the harness; the oracle is in `validation/`), the split table, the first-probe results (section 7).
-2. **`docs/CLEAN_SLATE.md` section 8** (was `PLAN_FORMAT.md`): why format, not planning, is the failure; prior art (BAML schema-aligned parsing, "Let Me Speak Freely", TOON, grammar-constrained decoding); the options table; the
-   recommendation; and **the discipline ladder** (end of section 8): plan prose, plan form, work prose, work source. Each layer has one job, a format problem is repaired in place by edits and never
-   climbs, a content problem is raised to the AUTHOR of the layer above (the same hand-off as a fork's coordinator), so a layer's author is recorded with it.
-3. **Repairs are edits, not regenerations** (BACKLOG "Repairs as edits"): built for the planner (`planner/doc/turn-N/`, canvas transactions, block 1 has four repair cases); not yet for the other roles.
-4. **Context kept on disk**: llama-server slot save and restore (unmeasured here).
-
-## 3. Priority order for the next session
-
-Cheap first; each step names what proves it. Rules in section 5 apply throughout.
-
-0. **(2026-11-18) The tier 0 gate first**: it FAILS on wrong-approach and skeleton (section 1); make them pass on the 35B, then a PASS (`run_t0.sh` then `gate_t0.py`; `out/runs/t0/gate.md`), then tier 1 (`run_tier.sh <repo> 1
-   <engine>`), then tier 0 on the 9B. The items below predate the model tiers. **Where it got to** (late 2026-11-18): a T0 run stops at its first failed
-   attempt; wrong-approach and skeleton are worked through the cases they require (write-engine 0/2, replace-function 1/2), not directly; half-written
-   gained a cut-off hint from an A/B (2/5 against 4/19). The record and the order of work: [BLOCK_PROVING_GROUNDS.md](BLOCK_PROVING_GROUNDS.md),
-   "Tier 0 iteration (2026-11-18)".
-
-   For T1 rework in parallel, the [case review and first T1 slice](T0_LAYERS.md#24-first-t1-rework-slice) split the archived 10/22 failure into independent grammar and delimiter controls. Work from those controls and the folded-view evidence before scheduling a whole-project run.
-
-1. **Re-measure on the faster machine before anything else**: decode and prefill speed, then the planner success rate over at least 10 seeds with the current code (`llm-planner --workflow-dir D --engine "qwen35=URL,model=qwen35,ctx=8192,slots=4,seed=N" --request "write a scientific calculator in C++" --max-turns 6`, with and without `--prose`). A faster machine changes which timeouts, wall budgets and context sizes are right; the numbers in section 1 are CPU-bound. Record them in `docs/CLEAN_SLATE.md` section 7.
-2. **Get one full run through `do` to pass and grade it** (`validation/grade_blackbox.py WORKFLOW_DIR`, and the literal audit it includes). Then repeat for a 20-seed clean-slate baseline (`scripts/start-campaign.sh`; the campaign driver still starts from blueprints and has no grader, plan-validity or repair columns: extend `scripts/campaign.py`).
-3. **Plan format, per BACKLOG "Plan format and discipline boundaries"**: (a) measure the format-only failure share on the existing `planner.json` records; (b) prose plan, then one formatter call per item in parallel on idle slots, repaired by edits, against the single-reply planner on the same seeds; (c) pass a grammar or JSON schema to llama-server for the format step only and check content quality does not fall; (d) a schema-guided tolerant parser in place of one mend per slip. Thinking stays off for format steps.
-4. **Expectation QA** (BACKLOG "Many experts, one result"): an explicit step that checks the tester's expected values against the contract and the worked examples before a developer is graded (a referee call that re-derives each literal), with the failing line as the dispute text. The one-failing-test shortcut was tried and reverted (it breaks `test_nearpass`); the reason and the alternative are in the BACKLOG.
-5. **Work prose** for tester and developer (describe, then write); the concern hand-off from a failing item to the layer above (generalise `reviseTests`); the recorded author per layer.
-6. **Prompt wording A/B** (BACKLOG): prompts as data, variants B to E from the owner against today's wording, at least 10 seeds each. Built since (local session, 2026-11-16): the worker stance switch `--stance baseline|specialist` and the CONCERN block (experiment E1,
-   [EXPERIMENTS.md](EXPERIMENTS.md) section 9, [PROMPTS.md](PROMPTS.md)); `--stance` is the first prompt-as-data switch. Also built: the platform layer, moved to Sub0Platform on 2026-11-19
-   ([PLATFORM.md](PLATFORM.md)), process launch in one place.
-7. **Portal**: the planning card and graph node are built. The [work overview design](PORTAL_WORK_OVERVIEW.md) covers multiple projects, stages, backlog items, scenarios and tier evidence. The [first implementation brief](sessions/portal-work-overview.md) receives two homes, staged work and archived detail before adding campaign adapters. Dispute edges, gate classes and remote access remain separate backlog work.
-8. **Slot save and restore** measurement; per-role windows; the phased design and execution planner (BACKLOG, CLEAN_SLATE section 6).
-9. Fault-injection campaign at every step and role; web and Python scaffolds (only C++ self-scaffolds today); a section-count cap in the fork split (a 15-section skeleton for a 20-line file); the A/B context campaigns.
-
-## 4. Known defects and how they are held (INTERVENTIONS rows 76 to 81 and this week's fixes)
-
-Mended mechanically in `mendPlan` (`src/plan_checks.cpp`), each with a test in `tests/test_planner.cpp`: weak or unreachable gates, a developer not tied to its tester, the program's item not depending on the library item (row 79), test files named off-pattern, a missing `main.cpp` stub, stub parameters the body does not read, card includes that name no file, project headers added to every card. Checked in `checkPlan` and `cppCheckPlanScaffold`: stubs must link together, the contract's `NAME::` must be declared by a header. Fixed: a planner-made plan has no reference tier (row 78); the integrator makes no calculator assumptions for planned plans; `app::run("A B")` is ONE argument (a string starting with `-` is a command line). Open: the portal gap, the whole list in section 3.
-
-## 5. Rules that still bind
-
-STOP AND ASK before: the final project name; enabling any frontier tier; changes to Sub0Pipeline or Sub0Pub; downloads or installs; credentials. Never stop the daemon or portal while a request is open. One CPU-heavy job at a time; builds at `-j2` (revisit on the new machine); process-spawning tests under `ulimit -u` and a timeout. Source `scripts/dev-env.sh` before a build that may reconfigure. Style: camelCase, Doxygen, `#pragma once`, `[[nodiscard]]`, new capability off by default, C++23 `-Wall -Wextra -Werror`, `std::format`/`std::print` rather than `printf` (DECISIONS 25). Every manual fix is catalogued in `docs/INTERVENTIONS.md` with a detector, a mend and a fixture. Report outcomes faithfully; claim nothing that was not observed. The Bash tool expands `${...}` even in quoted heredocs: write such text with the Write or Edit tool. Commit as the owner's noreply identity, trailer `Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>`; push to origin/main.
-
-## 6. Starting on the new machine
-
-```bash
-git pull && source scripts/dev-env.sh && cmake --preset dev && cmake --build out/build/dev -j2   # see docs/DEV_SETUP.md
-scripts/start-campaign.sh status          # the engine service (sub0-llama35) and the campaign; MODEL, LLAMA, CTX, SLOTS, THREADS can be overridden
-out/build/dev/sub0squad up && out/build/dev/sub0squad portal --port 8780   # the portal: http://127.0.0.1:8780/
-out/build/dev/sub0squad do "write a scientific calculator in C++" --agent llm --engine "qwen35=http://127.0.0.1:8092/v1,model=qwen35,ctx=8192,slots=4" --executor fork --defaults
-```
-
-A plan can be supplied instead of planned: put `plan.json` and an empty `plan.supplied` in a directory and pass `--sandbox DIR` to `do`; it still goes through the mends and checks. Memory notes for the assistant are in the user's `.claude` project memory (`sub0squad-iteration-state.md`).
+The owner's standing rules are in [STATUS.md](STATUS.md) section 6, and that list is complete. In short: STOP AND ASK before downloads or installs,
+credentials, the final project name, enabling frontier, and changes to Sub0Pipeline or Sub0Pub. Commit as you go and confirm before pushing. One
+CPU-heavy job at a time. Report only what was observed. An experiment switch reaches a job only when `src/shim.cpp` passes it through (a lesson from
+2026-11-18). One `run_t0.sh` loop at a time (it takes a lock).

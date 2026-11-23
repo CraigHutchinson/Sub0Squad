@@ -31,5 +31,6 @@ follow the link here. Section numbers in those comments are unchanged.
 | [WORKER_PROBE.md](https://github.com/CraigHutchinson/Sub0Squad/blob/96a17c925fb82feff086fc5106bc0a79915be3e8/docs/WORKER_PROBE.md) | A Haiku worker probe of the seed-1000 card | [EXPERIMENTS.md](EXPERIMENTS.md) section 7 |
 | [PLAN_FORMAT.md](https://github.com/CraigHutchinson/Sub0Squad/blob/96a17c925fb82feff086fc5106bc0a79915be3e8/docs/PLAN_FORMAT.md) | How a plan should be written: options, prior art, the discipline ladder (5b) | [CLEAN_SLATE.md](CLEAN_SLATE.md) section 8 |
 | [FOLDED_VIEWS.md](https://github.com/CraigHutchinson/Sub0Squad/blob/96a17c925fb82feff086fc5106bc0a79915be3e8/docs/FOLDED_VIEWS.md) | Folded views and read requests | [CANVAS.md](CANVAS.md) "Folded views" |
+| [RESUME.md as of 2026-11-20](https://github.com/CraigHutchinson/Sub0Squad/blob/f1103529d20626081ff88f47ca5582f93040e52f/docs/RESUME.md) | The 2026-11-16/17 resume: the clean-slate path and its evidence table, the scientific request, the parallelism bar, the faster-machine priorities | [RESUME.md](RESUME.md) (2026-11-23), [CLEAN_SLATE.md](CLEAN_SLATE.md) |
 
 Earlier still: the tag `parked-v1` holds the version parked on 2026-11-12, before the Fable iteration.

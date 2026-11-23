@@ -114,7 +114,7 @@ proven without a model; whether each mend holds on the model is unknown until th
 did not compile under `-Werror`; every plan had width 2 on 4 slots. Details in [CLEAN_SLATE.md](CLEAN_SLATE.md) section 7. No model-made plan has been built
 into a project yet.
 
-**Clean-slate runs of 2026-11-16** (remote session; from [RESUME.md](RESUME.md), not re-run here):
+**Clean-slate runs of 2026-11-16** (remote session; from the 2026-11-16 RESUME, now in [ARCHIVE.md](ARCHIVE.md); not re-run here):
 
 | Run | What it showed |
 |---|---|

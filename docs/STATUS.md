@@ -1,16 +1,16 @@
 # Status
 
-One page for the owner and for whoever works on this next. Updated 2026-11-16. Sub0Squad is a working title.
+One page for the owner and for whoever works on this next. Updated 2026-11-23. Sub0Squad is a working title.
 
 **Where it is.** The machinery is built and proven without a model: the daemon and its durable jobs, workflows as processes of stages, three project
 harnesses (C++ with CMake, Python, a static web page), three executors (session, canvas, forked sections), the escalation ladder with self-mending, the
-planner role, the portal and the wizard. **No real model has completed a project yet.** There is no release and no production code: the work now is the
+planner role, the portal and the wizard. **A model has built a project from the request once** (2026-11-20: the scientific calculator, 16 tests passing after integration; not yet graded,
+and accepted on a CLI test file of 3 tests); the model tiers have not passed. There is no release and no production code: the work now is the
 proving sandbox on a local llama.cpp server, optimising and A/B-verifying each part ([EXPERIMENTS.md](EXPERIMENTS.md)).
 
-**Next.** Experiment E1, the specialist stance and the contest channel: built 2026-11-16 (`--stance specialist`, the CONCERN block, `replay --accepted`),
-waiting for an engine run. Then the window plan (E2) and the planner arms (E3 to E5). The queue, with hypotheses and commands, is
-[EXPERIMENTS.md](EXPERIMENTS.md) section 8.
-Resuming on a new machine: [RESUME.md](RESUME.md) has the priority order and the start commands.
+**Next.** The proving ladder, paused on 2026-11-23 with the tree clean: hello world end to end first (its harness defect is fixed), then the tier 0
+gate on the simple profile, then tiers 1 and 2. Where each rung stands and the order of work: [RESUME.md](RESUME.md); the brief to start from:
+[sessions/tier-work-resume.md](sessions/tier-work-resume.md). The experiment queue (E1 to E10) is [EXPERIMENTS.md](EXPERIMENTS.md) section 8.
 
 ## 1. Proven without a model (and the test that proves it)
 

@@ -243,7 +243,7 @@ on: the hint lists what the tail must still hold (the names the errors report as
 listed there beside `SUB0SQUAD_ISSUE_LAYER`. The first A/B had `SUB0SQUAD_CUTOFF` missing from that list and measured the default four times;
 the hint arm's transcripts, which never showed the hint, gave it away. Check an arm's transcript for its effect after its first turn.
 
-**Next, in order:** half-written (iterate the hint, or take the gain); write-engine (it blocks wrong-approach, skeleton and write-file);
+**Next, in order** (as written on 2026-11-18; superseded by [RESUME.md](RESUME.md) section 4 of 2026-11-23): half-written (iterate the hint, or take the gain); write-engine (it blocks wrong-approach, skeleton and write-file);
 replace-function; then wrong-approach and skeleton again; then a fresh full gate on that build, then tier 1. Also, the gate should report a failing
 composite as blocked by a failing requirement (`gate_t0.py` does not read `REQUIRES` yet), not as a failure of its own.
 
