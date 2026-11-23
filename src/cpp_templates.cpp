@@ -25,8 +25,14 @@ enable_testing()
 # The library is every src/*.cpp except main.cpp; the app is main.cpp; each tests/<name>.test.cpp is its own executable test_<name>.
 file(GLOB LIB_SOURCES CONFIGURE_DEPENDS ${CMAKE_SOURCE_DIR}/src/*.cpp)
 list(FILTER LIB_SOURCES EXCLUDE REGEX "/main\\.cpp$")
-add_library(calc STATIC ${LIB_SOURCES})
-target_include_directories(calc PUBLIC include src)
+if(LIB_SOURCES)
+  add_library(calc STATIC ${LIB_SOURCES})
+  target_include_directories(calc PUBLIC include src)
+else()
+  # An app-only project (hello world: src/main.cpp alone) has no library sources; its headers still reach the app and the tests.
+  add_library(calc INTERFACE)
+  target_include_directories(calc INTERFACE include src)
+endif()
 # The app exists only when the project has a src/main.cpp (a library-only project has none).
 if(EXISTS ${CMAKE_SOURCE_DIR}/src/main.cpp)
   add_executable(calc_cli src/main.cpp)
