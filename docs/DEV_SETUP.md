@@ -133,8 +133,8 @@ bash validation/tiers/run_tier.sh . 1 'qwen35=...'                              
 End-to-end tests start a real daemon and the real CLI under `SUB0SQUAD_HOME` inside the build tree. The fixture sets `SUB0SQUAD_EXIT_WITH` to
 the test's own process (and passes `serve --exit-with`), so a test that ctest kills on its timeout leaves no daemon behind: the daemon stops
 within a second of the test ending. The CLI gives up on a daemon that does not answer within 30 s (`SUB0SQUAD_REPLY_TIMEOUT` seconds; `wait`
-is not bounded) with an error that says it may be hung. Run timing targets alone on a quiet machine. sub0perf git hooks and the after-build check are **off** by default (`SUB0MATH_PERF_GIT_HOOKS`,
-`SUB0MATH_PERF_ON_BUILD`); an existing build directory keeps the values it cached, so pass them with `-D` there.
+is not bounded) with an error that says it may be hung. Run timing targets alone on a quiet machine. sub0perf git hooks and the after-build check are **off** by default (`SUB0PERF_GIT_HOOKS`,
+`SUB0PERF_ON_BUILD`); an existing build directory keeps the values it cached, so pass them with `-D` there.
 
 ## A Windows host (WSL)
 
@@ -159,7 +159,7 @@ ctest --test-dir out/build/mingw --timeout 900 --output-on-failure -L smoke   # 
 ```
 
 MinGW's GCC has no AddressSanitizer or UBSan runtime: the C++ harness probes for them and integrates without them there (its report says so). The
-benchmarks' sub0perf baselines are per host name; a WSL instance on the same machine needs its own name (`-DSUB0MATH_PERF_HOST=...` at configure, for example `croglegion` natively
+benchmarks' sub0perf baselines are per host name; a WSL instance on the same machine needs its own name (`-DSUB0PERF_HOST=...` at configure, for example `croglegion` natively
 and `croglegion-wsl` in WSL), since both baselines live in the same `perf/baselines/` folder.
 
 

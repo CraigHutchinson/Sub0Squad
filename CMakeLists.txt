@@ -193,7 +193,7 @@ include(cmake/TestTiers.cmake)
 
 # sub0perf benchmark (Sub0Perf tooling): Sub0Squad_Bench, plus _json, _runs, _check and _baseline targets.
 # One executable, so one baseline per host (perf/baselines/<host>.json): the kernel's pairs and the platform primitives' (bench_platform.cpp).
-sub0math_add_benchmark(Sub0Squad_Bench benchmarks/bench_squad.cpp benchmarks/bench_platform.cpp)
+sub0perf_add_benchmark(Sub0Squad_Bench benchmarks/bench_squad.cpp benchmarks/bench_platform.cpp)
 target_include_directories(Sub0Squad_Bench PRIVATE include src)
 target_link_libraries(Sub0Squad_Bench PRIVATE sub0squad_kernel Sub0Platform::sub0platform simdjson::simdjson)
 if(WIN32)
