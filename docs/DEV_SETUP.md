@@ -23,7 +23,7 @@ On the Sub0 Linux dev machine this is set for the nine libraries by `~/.config/s
 
 | Variable | Checkout |
 |---|---|
-| `CPM_Sub0Pipeline_SOURCE` `CPM_Sub0Pub_SOURCE` `CPM_Sub0Log_SOURCE` `CPM_Sub0ECS_SOURCE` `CPM_Sub0Math_SOURCE` | `$SUB0_GITHUB_DIR/<Name>` |
+| `CPM_Sub0Pipeline_SOURCE` `CPM_Sub0Pub_SOURCE` `CPM_Sub0Log_SOURCE` `CPM_Sub0ECS_SOURCE` `CPM_Sub0Math_SOURCE` `CPM_Sub0Perf_SOURCE` | `$SUB0_GITHUB_DIR/<Name>` |
 | `CPM_Sub0MemPage_SOURCE` `CPM_Sub0TieredCache_SOURCE` `CPM_Sub0HexGrid_SOURCE` `CPM_Sub0Physics_SOURCE` `CPM_Sub0Canvas_SOURCE` | `$SUB0_GITHUB_DIR/<Name>` |
 
 `SUB0_GITHUB_DIR` is the directory that holds the sibling checkouts; `. scripts/dev-env.sh` sets it to this repository's parent and exports every `CPM_<Name>_SOURCE`, so no machine-specific path is written anywhere (set `SUB0_GITHUB_DIR_OVERRIDE` to use another directory). A configure with the overrides active logs
@@ -38,7 +38,7 @@ which does not read them; converting those to CPM is a separate change.
 
 ## Checkouts
 
-`Sub0Pipeline Sub0Pub Sub0Log Sub0ECS Sub0Math Sub0MemPage Sub0TieredCache Sub0HexGrid Sub0Physics Sub0Platform` are cloned next to this
+`Sub0Pipeline Sub0Pub Sub0Log Sub0ECS Sub0Math Sub0Perf Sub0MemPage Sub0TieredCache Sub0HexGrid Sub0Physics Sub0Platform` are cloned next to this
 project; update with `git -C <dir> pull`.
 
 ## CPM source cache

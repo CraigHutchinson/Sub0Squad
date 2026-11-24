@@ -191,7 +191,7 @@ endif()
 # Every test's tier (smoke or full) and area labels, checked at configure; after the last add_test.
 include(cmake/TestTiers.cmake)
 
-# sub0perf benchmark (Sub0Math tooling): Sub0Squad_Bench, plus _json, _runs, _check and _baseline targets.
+# sub0perf benchmark (Sub0Perf tooling): Sub0Squad_Bench, plus _json, _runs, _check and _baseline targets.
 # One executable, so one baseline per host (perf/baselines/<host>.json): the kernel's pairs and the platform primitives' (bench_platform.cpp).
 sub0math_add_benchmark(Sub0Squad_Bench benchmarks/bench_squad.cpp benchmarks/bench_platform.cpp)
 target_include_directories(Sub0Squad_Bench PRIVATE include src)
