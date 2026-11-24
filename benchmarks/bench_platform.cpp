@@ -1,4 +1,4 @@
-// Platform-layer micro-benchmarks (docs/PLATFORM.md), run through Sub0Math's sub0perf tooling (docs/DEV_SETUP.md, "Tests and benchmarks").
+// Platform-layer micro-benchmarks (docs/PLATFORM.md), run through Sub0Perf's tooling (docs/DEV_SETUP.md, "Tests and benchmarks").
 // Each primitive is paired with a hand-written twin: the fewest direct system calls that do the same job on this OS, the fastest version we know.
 // Naming follows sub0perf: the twin and the library call share the text before the comma and form a pair group, judged as a ratio.
 // Part of Sub0Squad_Bench (one executable, so one baseline per host): bench_squad.cpp's main calls runPlatformBenchmarks.

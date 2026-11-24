@@ -20,18 +20,18 @@ CPMAddPackage(NAME Sub0Pub
   GIT_TAG 504d772ecd8da6f22a22a26dd78ae3cb61c97868
   OPTIONS "SUB0PUB_BUILD_TESTING OFF" "SUB0PUB_BUILD_EXAMPLES OFF")
 
-# Sub0Math: hosts the family's performance tooling (sub0perf: calibrated interleaved benchmark rounds, per-host baselines, the
-# measuring lock, pre-push gate; docs/PERFORMANCE.md there). Used here only for its tooling (cmake/Sub0MathTooling.cmake), not its maths.
-# Pinned to the head of its default branch as of 2026-11-09.
-CPMAddPackage(NAME Sub0Math
-  GIT_REPOSITORY https://github.com/CraigHutchinson/Sub0Math.git
-  GIT_TAG 1d20313cbd2ff2753620246b81934d0489a0636f
+# Sub0Perf: the family's performance tooling (sub0perf: calibrated interleaved benchmark rounds, per-host baselines, the measuring
+# lock, pre-push gate; docs/PERFORMANCE.md there). It moved out of Sub0Math (ADR 0004 in CraigHutchinson/.github); the sub0math_*
+# functions and SUB0MATH_* variables keep their names. Pinned to the head of its default branch as of 2026-11-24.
+CPMAddPackage(NAME Sub0Perf
+  GIT_REPOSITORY https://github.com/CraigHutchinson/Sub0Perf.git
+  GIT_TAG 3c74bce22e848d3e4e13dfcb5eb9c480703b7db8
   DOWNLOAD_ONLY YES)
 # Off by default in this project: no git hooks installed and no benchmark run after every build; run the targets deliberately
 # (cmake --build <dir> --target Sub0Squad_Bench_check) and enable the hooks only when ready (docs/DEV_SETUP.md).
 set(SUB0MATH_PERF_ON_BUILD "OFF" CACHE STRING "")
 set(SUB0MATH_PERF_GIT_HOOKS OFF CACHE BOOL "")
-include("${Sub0Math_SOURCE_DIR}/cmake/Sub0MathTooling.cmake")
+include("${Sub0Perf_SOURCE_DIR}/cmake/Sub0Perf.cmake")
 
 # Sub0Platform: the operating-system layer of the Sub0 C++ projects (cpp/README.md there). It is the layer below Sub0Squad's kernel
 # (docs/COMPONENTS.md): only it includes operating-system headers. Pinned to the head of its default branch as of 2026-11-19; its own tests are off here.
