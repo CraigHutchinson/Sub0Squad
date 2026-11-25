@@ -55,7 +55,7 @@ which an `edit` cannot do across files), and `request` (it is the only signal fo
 ### 2.3 Trade-off, for the probe to decide
 
 Fewer operations give the model fewer verbs to choose among, but each `edit` address now has its own parameters. Whether that is easier for a model
-than six separate verbs is an empirical question, and the one the catalogue scenarios answer: the scenarios hold the task fixed and vary only the
+than separate verbs is an empirical question, and the one the catalogue scenarios answer: the scenarios hold the task fixed and vary only the
 operation the model picks. The cut-off in the probe's T2 tier ("the operation the task calls for") is the measure. If `edit` with a `match` address
 fails T2 where a separate `replace` would pass, the reduction is wrong at that point, and the operation goes back.
 
@@ -102,7 +102,7 @@ Measurements common to both arms, from the existing tiers:
 
 1. **Knowledge probe** (running, 2026-11-25): does the model name the forms with and without them in its system prompt, and what does its own system
    prompt for this task contain? Its answers test whether the wording or the model is the limit. Result to be recorded here.
-2. **Canonical operation table** in code: the core four and the codified catalogue (section 2.2), with their parameters and guards. The text renderer and the scorer both read it.
+2. **Canonical operation table** in code: the five operations in section 2.1, with their address kinds and guards. The text renderer and the scorer both read it.
 3. **Native arm** (`--encoding native` in the probe): the same scenarios, the same canonical checks, the tools passed through the chat template. Three
    samples per scenario, as now.
 4. **Usage variants**: the table's text against the model's self-written text, same scenarios, same arm.
@@ -119,5 +119,5 @@ Measurements common to both arms, from the existing tiers:
    yet confirmed; the native arm needs that checked, read only, before any run.
 2. Should `request` (FIND TOOL) have an effect, such as queueing a tool for review, or stay a text signal that the harness only records? Today it is
    recorded only; automated tool addition is not built (frontier off).
-3. Is the codified catalogue the right size for the product? Each codified operation adds a scenario and a usage paragraph, so a larger set costs
-   probe time. Should `view` and `edit` be split by address kind for models that handle many small tools better?
+3. Is five operations with rich addresses the right grain for the product, or do models do better with more, narrower verbs (section 2.3)? A
+   larger set costs probe time and a usage paragraph per operation. Should `view` and `edit` be split by address kind for models that handle many small tools better?
