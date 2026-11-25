@@ -43,8 +43,11 @@ costs many turns or risks collateral change. Anything that fails a test stays a 
 | `view-around` | read | a search hit (a handle from `search`); lines before and after | the window lies inside the file | `search`, then `view` | codified |
 | `replace` | change | pattern; replacement; mode `literal` or `regex`; scope; **expected count** | the count found must equal the expected count, or nothing is written | one `edit` per occurrence, a turn each | codified |
 | `rename-symbol` | change | old name; new name; scope | whole identifiers only; the new name must be unused in scope; the count is checked | `replace` with word boundaries, unchecked | codified |
-| `delete-file` | structure | path | the file exists; deletion is reported, not silent | none | codified |
-| `move-file` | structure | from; to | the target does not exist; content is kept whole | `create` plus `delete-file`, which loses content if copied by hand | codified |
+| `rename-file` | structure | from; to | the source exists; the target does not exist; content is moved whole, not copied | `create` plus a delete, which loses content if copied by hand | codified |
+
+Delete is not a separate operation. It is `rename-file` into the harness's bin path (`.bin/<original path>`, a reserved location the worker cannot
+create files in directly), so a deletion is recoverable by renaming back. The bin keeps the original path, so a second deletion of the same name
+is refused until the first is cleared.
 | `move-block`, `extract-function`, `reorder` | change | varies | varies | `view`, `create`, `edit`, `delete` in sequence | composed (not codified until a case needs it atomically) |
 
 Notes that follow from the rule:
@@ -52,6 +55,8 @@ Notes that follow from the rule:
 * **Regex is a mode, not an operation.** `search` and `replace` take `mode: literal | regex`. A regex that does not compile is refused with its position.
 * **Every bulk change names its expected count.** `replace` and `rename-symbol` refuse to write when the count differs. This makes collateral change explicit
   in the request, and the probe can check it at T3, the same way it checks a SEARCH text that must occur once.
+* **Delete is a move to the bin.** `rename-file` to `.bin/<original path>` is a deletion the harness can undo by renaming back. Nothing is
+  lost silently, so there is no separate delete operation to guard.
 * **`search` returns handles.** A hit carries the path, line, revision and a handle that `edit` and `view-around` accept, so a change can address a hit
   without copying its text. That is the cheapest address the 2026-11-20 study measured, and it needs no new edit form.
 * **`outline` is the folded rule's source.** The "read before edit" precondition (section 3) needs the worker to know what is folded; `outline` states it.
@@ -59,7 +64,7 @@ Notes that follow from the rule:
 ### 2.3 Grouping
 
 Five families, read in this order by the usage text: **locate** (`search`, `outline`, `find-files`), **read** (`view`, `view-around`), **change**
-(`edit`, `replace`, `rename-symbol`), **structure** (`create`, `delete-file`, `move-file`), **request** (`request`). Each family has at most three
+(`edit`, `replace`, `rename-symbol`), **structure** (`create`, `rename-file`), **request** (`request`). Each family has at most three
 operations, so the surface stays small enough to describe in one short list.
 
 ## 3. Layer 1: usage (the embellishment)
@@ -110,7 +115,8 @@ Measurements common to both arms, from the existing tiers:
    samples per scenario, as now.
 4. **Usage variants**: the table's text against the model's self-written text, same scenarios, same arm.
 5. **Catalogue scenarios**: one scenario per codified operation, each with a reference reply and a failing control. For `replace` the control
-   gives the wrong expected count; for `rename-symbol` it renames a substring inside another identifier; for `search` it sends an invalid regex.
+   gives the wrong expected count; for `rename-symbol` it renames a substring inside another identifier; for `search` it sends an invalid regex;
+   for `rename-file` it targets an existing path, and a deletion scenario checks that the file sits under the bin path.
 6. **Adoption**: change the production canvas prompt only when an arm wins on T2 and T3 without more failures on T1. Record the comparison in
    [INTERVENTIONS.md](INTERVENTIONS.md) with the numbers.
 
