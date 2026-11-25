@@ -22,10 +22,10 @@ CPMAddPackage(NAME Sub0Pub
 
 # Sub0Perf: the family's performance tooling (sub0perf: calibrated interleaved benchmark rounds, per-host baselines, the measuring
 # lock, pre-push gate; docs/PERFORMANCE.md there). It moved out of Sub0Math (ADR 0004 in CraigHutchinson/.github); the sub0math_*
-# functions and SUB0MATH_* variables keep their names. Pinned to the head of its default branch as of 2026-11-25 (tag v0.2.0).
+# functions and SUB0MATH_* variables keep their names. Pinned to the head of its default branch as of 2026-11-25 (tag v0.3.0).
 CPMAddPackage(NAME Sub0Perf
   GIT_REPOSITORY https://github.com/CraigHutchinson/Sub0Perf.git
-  GIT_TAG 7f69fabd880278fac6ba9e4915cff497855a5f17
+  GIT_TAG 09ddbd42f509f45395718bead3e8305c95dc8ea9
   DOWNLOAD_ONLY YES)
 # Off by default in this project: no git hooks installed and no benchmark run after every build; run the targets deliberately
 # (cmake --build <dir> --target Sub0Squad_Bench_check) and enable the hooks only when ready (docs/DEV_SETUP.md).
