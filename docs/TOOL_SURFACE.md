@@ -98,6 +98,25 @@ Measurements common to both arms, from the existing tiers:
   the same semantic checks.
 * **Framing**: reported separately. Under B it is a schema rejection, not a text failure, so the two arms are not compared on framing alone.
 
+## 4a. Aliases: recovering intent from hallucinated names
+
+A model asked for operations it was not given will still name the ones it knows (`read_file`, `propose_edit`, `apply_edit`, `list_files`,
+`request_review`, and `comment`, which has no operation). The three self-written prompts from the 2026-11-25 knowledge probe show this: they describe
+one generic API each, with names different from ours.
+
+An alias table maps each name to a canonical operation and renames its arguments. It lives beside the scorer (`ALIASES` in
+[t0_tools.py](D:/Craig/GitHub/Sub0Squad/validation/tiers/t0_tools.py)). Rules:
+
+* **Two results per call.** A call is recorded strictly (did it use our name and framing) and by intent (`aliased`: the alias resolved to the operation
+  the task needed). Only the strict result counts for a pass, so a model is not credited for using a foreign name. The intent result tells us what
+  to add to the table, or to the usage text, to close the gap.
+* **Unmapped names are findings.** A name with no operation (`comment`, `run_tests`) is recorded as unmapped and goes to the request capture
+  (`request`), where the harness owner decides whether it is a real need.
+* **Arguments are renamed by the table and nothing else.** An argument with no mapping is dropped and recorded, so a missing argument cannot be
+  guessed into a valid edit.
+* **Aliases are not a parser.** The table maps calls that already parsed. Wiring it into the live parser is for the native-tool arm (section 4),
+  where a hallucinated call arrives as a structured call with a name, not as framed text.
+
 ## 5. Plan
 
 1. **Knowledge probe** (running, 2026-11-25): does the model name the forms with and without them in its system prompt, and what does its own system
@@ -118,7 +137,8 @@ Measurements common to both arms, from the existing tiers:
 2. **Canonical operation table** in code: the five operations in section 2.1, with their address kinds and guards. The text renderer and the scorer both read it.
 3. **Native arm** (`--encoding native` in the probe): the same scenarios, the same canonical checks, the tools passed through the chat template. Three
    samples per scenario, as now.
-4. **Usage variants**: the table's text against the model's self-written text, same scenarios, same arm.
+4. **Usage variants**: the table's text against the model's self-written text, same scenarios, same arm. Aliases (section 4a) are reported
+   alongside, so a near-miss name is visible rather than scored as a failure.
 5. **Catalogue scenarios**: one scenario per operation's address or mode, each with a reference reply and a failing control. For `edit` by `match`
    the control gives the wrong expected count; for `identifier` it renames a substring inside another identifier; for `search` it sends an invalid
    regex; for `rename` it targets an existing path, and a deletion scenario checks that the file sits under the bin path. For `view` with `outline` the

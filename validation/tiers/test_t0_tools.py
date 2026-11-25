@@ -4,7 +4,7 @@
 """
 import unittest
 
-from t0_tools import CONTROLS, REFERENCE, SCENARIO, SCENARIOS, Scenario, parse_reply, score, selftest, wilson
+from t0_tools import CONTROLS, REFERENCE, SCENARIO, SCENARIOS, Scenario, canonical_call, parse_reply, score, selftest, wilson
 
 TWO_SAME = "x = 1;\nx = 1;\n"
 
@@ -78,6 +78,14 @@ class ToolScorerTest(unittest.TestCase):
         self.assertAlmostEqual(low, 0.72, places=2)
         self.assertAlmostEqual(high, 1.0, places=2)
         self.assertAlmostEqual(wilson(9, 10)[0], 0.60, places=2)
+
+    def test_an_alias_maps_to_its_operation_and_drops_unknown_arguments(self):
+        mapped = canonical_call("read_file", {"path": "src/calc.cpp", "encoding": "utf-8"})
+        self.assertEqual(mapped, {"operation": "view", "alias": "read_file", "arguments": {"path": "src/calc.cpp"}})
+
+    def test_an_unmapped_name_has_no_operation(self):
+        self.assertIsNone(canonical_call("comment", {"text": "looks fine"}))
+        self.assertIsNone(canonical_call("run_tests", {}))
 
 
 if __name__ == "__main__":

@@ -419,6 +419,97 @@ def chat(url, model, system, user, seed, temperature, max_tokens, timeout):
     return payload["choices"][0]["message"]["content"] or ""
 
 
+# Aliases: the names a model uses for an operation it was not given (the 2026-11-25 self-written prompts). An alias maps the intent of a call to
+# a canonical operation and its arguments. A mapping is recorded beside the strict result: "aliased" means the intent was recovered, and the
+# strict pass is unchanged, so a model is not credited for using our names. None means the name has no canonical operation and is unmapped.
+ALIASES = {
+    "read_file": ("view", {"path": "path"}),
+    "list_files": ("search", {"scope": "paths", "path": "pattern"}),
+    "propose_edit": ("edit", {"path": "path", "text": "body"}),
+    "apply_edit": ("edit", {"path": "path", "text": "body"}),
+    "replace": ("edit", {"path": "path", "pattern": "match", "replacement": "body"}),
+    "request_review": ("request", {"capability": "capability"}),
+    "comment": (None, {}),
+}
+
+
+def canonical_call(name: str, arguments: dict) -> dict | None:
+    """The canonical operation a call intends, or None when the name has no operation. Arguments are renamed by the alias table."""
+    if name not in ALIASES:
+        return None
+    operation, renames = ALIASES[name]
+    if operation is None:
+        return None
+    return {"operation": operation, "alias": name, "arguments": {renames[key]: value for key, value in arguments.items() if key in renames}}
+
+
+KNOW_QUESTIONS = {
+    "forms": "Which request forms could you use to read or change files? Give the exact header line of each one.",
+    "read-symbol": "Explain how to read a folded function before you edit it. Give one exact example line.",
+    "read-lines": "Explain how to read lines 10 to 20 of a file. Give one exact example line.",
+    "edit-symbol": "Explain how to replace a whole function. Give the exact header line.",
+    "edit-search": "Explain how to change three lines in the middle of a file. Give the exact header and markers.",
+    "file": "When would you write a whole file rather than an edit? Give the exact header line.",
+    "find-tool": "If a task needs a tool that none of your request forms provides, what do you send? Give the exact line.",
+}
+# The pattern a correct answer to each question must show; "forms" is judged on what it names.
+KNOW_EXPECT = {"read-symbol": "read-symbol", "read-lines": "read-lines", "edit-symbol": "symbol", "edit-search": "search",
+               "file": "file", "find-tool": "find-tool"}
+KNOW_PATTERN = {"file": r"===\s*FILE:", "symbol": r"EDIT:[^\n]*SYMBOL", "search": r"SEARCH", "read-symbol": r"READ:[^\n]*SYMBOL",
+                "read-lines": r"READ:[^\n]*LINES", "after": r"AFTER", "find-tool": r"FIND TOOL"}
+FRAMED = re.compile(r"^=== (FILE|EDIT|READ|FIND TOOL):", re.M)
+SELF_PROMPT = ("Write the system prompt you would give a model that must edit files in a shared canvas. "
+               "Include the request forms yourself and say when to use each.")
+KNOW_CONDITIONS = {
+    "tools-shown": system_for(SCENARIO["need-format"], "need"),
+    "no-tools": "You are a helpful assistant.",
+}
+
+
+def know_scores(answer: str) -> dict:
+    found = sorted(name for name, pattern in KNOW_PATTERN.items() if re.search(pattern, answer))
+    return {"forms": found, "framed": bool(FRAMED.search(answer))}
+
+
+def know(arguments) -> int:
+    """Ask the model what request forms it knows, with and without the forms in its system prompt. Measurement only."""
+    out = pathlib.Path(arguments.out)
+    if out.exists() and any(out.iterdir()):
+        raise SystemExit(f"{out} is not empty: give a new output directory")
+    (out / "replies").mkdir(parents=True)
+    results = []
+    for condition, system in KNOW_CONDITIONS.items():
+        for question, ask in KNOW_QUESTIONS.items():
+            for sample in range(arguments.samples):
+                seed = arguments.seed + sample
+                answer = chat(arguments.url, arguments.model, system, ask, seed, arguments.temperature, arguments.max_tokens,
+                              arguments.timeout)
+                answer = re.sub(r"<think>.*?</think>", "", answer, flags=re.S).strip()
+                name = f"{condition}-{question}-{seed}"
+                (out / "replies" / f"{name}.txt").write_text(answer, encoding="utf-8")
+                scores = know_scores(answer)
+                expected = KNOW_EXPECT.get(question)
+                results.append({"condition": condition, "question": question, "seed": seed, **scores,
+                                "expectedForm": expected, "knowsExpected": expected is None or expected in scores["forms"]})
+    for sample in range(arguments.samples):   # the model's own system prompt, unaided
+        seed = arguments.seed + sample
+        text = chat(arguments.url, arguments.model, "You are a helpful assistant.", SELF_PROMPT, seed, arguments.temperature,
+                    arguments.max_tokens * 2, arguments.timeout)
+        text = re.sub(r"<think>.*?</think>", "", text, flags=re.S).strip()
+        (out / "replies" / f"self-prompt-{seed}.txt").write_text(text, encoding="utf-8")
+        results.append({"condition": "self-prompt", "question": "self-prompt", "seed": seed, "forms": know_scores(text)["forms"],
+                        "framed": bool(FRAMED.search(text)), "expectedForm": None, "knowsExpected": None})
+    (out / "summary.json").write_text(json.dumps({"schema": "t0-tools-know-1", "model": arguments.model, "samples": arguments.samples,
+                                                  "seed": arguments.seed, "temperature": arguments.temperature,
+                                                  "maxTokens": arguments.max_tokens, "results": results}, indent=2), encoding="utf-8")
+    print(f"{len(results)} answers written to {out}")
+    for condition in list(KNOW_CONDITIONS) + ["self-prompt"]:
+        rows = [r for r in results if r["condition"] == condition and r["knowsExpected"] is not None]
+        if rows:
+            print(f"{condition:12} expected form named in {sum(r['knowsExpected'] for r in rows)}/{len(rows)} answers")
+    return 0
+
+
 def capture(scenario: Scenario, arm: str, seed: int, text: str, row: dict) -> list[dict]:
     """Every FIND TOOL request in a reply, true or false, bare or framed, with its verdict."""
     digest = hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
@@ -568,6 +659,15 @@ def main(argv=None) -> int:
     commands.add_parser("selftest", help="check the scorer against its scripted controls (no model)")
     republish = commands.add_parser("publish", help="add the portal fields to a finished run's summary.json")
     republish.add_argument("out")
+    know_parser = commands.add_parser("know", help="ask the model which request forms it knows, with and without them shown (opt-in)")
+    know_parser.add_argument("--out", required=True)
+    know_parser.add_argument("--url", default="http://127.0.0.1:8092/v1/chat/completions")
+    know_parser.add_argument("--model", required=True)
+    know_parser.add_argument("--samples", type=int, default=3)
+    know_parser.add_argument("--seed", type=int, default=7101)
+    know_parser.add_argument("--temperature", type=float, default=0.7)
+    know_parser.add_argument("--max-tokens", type=int, default=600)
+    know_parser.add_argument("--timeout", type=float, default=240)
     rejudge = commands.add_parser("rescore", help="judge a finished run's saved replies again with this checker (no model)")
     rejudge.add_argument("out")
     live = commands.add_parser("run", help="call an engine on every scenario (opt-in)")
@@ -595,6 +695,8 @@ def main(argv=None) -> int:
         return 1 if failures else 0
     if arguments.command == "publish":
         return publish(pathlib.Path(arguments.out))
+    if arguments.command == "know":
+        return know(arguments)
     if arguments.command == "rescore":
         return rescore(pathlib.Path(arguments.out))
     return run_live(arguments)
