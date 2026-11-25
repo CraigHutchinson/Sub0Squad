@@ -477,8 +477,37 @@ def run_live(arguments) -> int:
         for need in needs:
             handle.write(json.dumps(need) + "\n")
     (out / "summary.json").write_text(json.dumps({"arm": arguments.arm, "model": arguments.model, "samples": arguments.samples,
+                                                  "seed": arguments.seed, "temperature": arguments.temperature,
+                                                  "maxTokens": arguments.max_tokens,
                                                   "rows": rows}, indent=2), encoding="utf-8")
     return publish(out, len(needs))
+
+
+def transcript(out: pathlib.Path, record: dict) -> str:
+    """Every trial as it was sent and answered: the system prompt, the user message, the reply and the verdict.
+
+    The prompts are rebuilt from the scenario and arm with the same functions the run used. The reply is the text after any
+    reasoning block was stripped, which is what the checker judged; the stripped reasoning is not kept.
+    """
+    arm = record["arm"]
+    lines = [f"# Tool-use probe, arm {arm}", "",
+             f"Model `{record['model']}`, {record['samples']} samples per scenario (seeds as in each heading), "
+             f"temperature {record.get('temperature', 'not recorded')}, max tokens {record.get('maxTokens', 'not recorded')}, "
+             "prompt caching off. Not the T0 gate.", ""]
+    for row in record["rows"]:
+        scenario = SCENARIO[row["scenario"]]
+        label = f"{scenario.id} · seed {row['seed']} · " + ("engine failed" if row["tier"] == "infra" else
+                                                             ("pass" if row["tier"] == "pass" else f"{row['tier']} {row['kind']}"))
+        lines += [f"## {label}", "", f"Task: {scenario.task}", "", "### Input: system prompt", "",
+                  "````", system_for(scenario, arm), "````", "", "### Input: user message", "", "````", user_for(scenario), "````", ""]
+        if row["tier"] == "infra":
+            lines += ["### Model output", "", "No reply: " + "; ".join(row["problems"]), ""]
+        else:
+            reply_text = (out / "replies" / f"{scenario.id}-{arm}-{row['seed']}.txt").read_text(encoding="utf-8")
+            lines += ["### Model output", "", "````", reply_text.rstrip("\n"), "````", ""]
+            if row["tier"] != "pass":
+                lines += ["Verdict: " + row["tier"] + " " + row["kind"] + " · " + "; ".join(row["problems"]), ""]
+    return "\n".join(lines)
 
 
 def publish(out: pathlib.Path, needs_captured: int | None = None) -> int:
@@ -507,6 +536,7 @@ def publish(out: pathlib.Path, needs_captured: int | None = None) -> int:
         "scenarios": summary,
     })
     (out / "summary.json").write_text(json.dumps(record, indent=2), encoding="utf-8")
+    (out / "transcript.md").write_text(transcript(out, record), encoding="utf-8")
     for scenario_id, item in summary.items():
         low, high = wilson(item["passed"], item["counted"])
         print(f"{scenario_id:22} {item['passed']}/{item['counted']} pass  95% {low:.2f}-{high:.2f}  "
