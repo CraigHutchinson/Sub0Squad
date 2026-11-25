@@ -435,14 +435,42 @@ def run_live(arguments) -> int:
     with (out / "tool-needs.jsonl").open("w", encoding="utf-8") as handle:
         for need in needs:
             handle.write(json.dumps(need) + "\n")
-    summary = summarise(rows)
     (out / "summary.json").write_text(json.dumps({"arm": arguments.arm, "model": arguments.model, "samples": arguments.samples,
-                                                  "scenarios": summary, "rows": rows}, indent=2), encoding="utf-8")
+                                                  "rows": rows}, indent=2), encoding="utf-8")
+    return publish(out, len(needs))
+
+
+def publish(out: pathlib.Path, needs_captured: int | None = None) -> int:
+    """Write the portal fields into summary.json (a `cases` object in the shape the Work tab's gate adapter reads).
+
+    The probe is a measurement, not the T0 gate: its verdict is "measured", and its detail says so.
+    """
+    record = json.loads((out / "summary.json").read_text(encoding="utf-8"))
+    rows = record["rows"]
+    summary = summarise(rows)
+    if needs_captured is None:
+        needs_captured = sum(1 for line in (out / "tool-needs.jsonl").read_text(encoding="utf-8").splitlines() if line.strip())
+    cases = {scenario_id: {"state": "measured", "runs": item["counted"], "passed": item["passed"]}
+             for scenario_id, item in summary.items()}
+    counted = sum(item["counted"] for item in summary.values())
+    passed = sum(item["passed"] for item in summary.values())
+    infra = sum(item["infra"] for item in summary.values())
+    record.update({
+        "schema": "t0-tools-1",
+        "verdict": "measured",
+        "engine": record["model"],
+        "build": "not recorded",
+        "detail": (f"Tool-use probe, arm {record['arm']}: not the T0 gate. {passed} of {counted} counted replies pass all tiers"
+                   f" ({infra} engine failures kept apart). Tool needs captured: {needs_captured}."),
+        "cases": cases,
+        "scenarios": summary,
+    })
+    (out / "summary.json").write_text(json.dumps(record, indent=2), encoding="utf-8")
     for scenario_id, item in summary.items():
         low, high = wilson(item["passed"], item["counted"])
         print(f"{scenario_id:22} {item['passed']}/{item['counted']} pass  95% {low:.2f}-{high:.2f}  "
               f"fails {dict(item['tiers'])}  infra {item['infra']}")
-    print(f"tool needs captured: {len(needs)} -> {out / 'tool-needs.jsonl'}")
+    print(f"tool needs captured: {needs_captured} -> {out / 'tool-needs.jsonl'}")
     return 0
 
 
@@ -467,6 +495,8 @@ def main(argv=None) -> int:
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("list", help="the scenarios and the forms each offers")
     commands.add_parser("selftest", help="check the scorer against its scripted controls (no model)")
+    republish = commands.add_parser("publish", help="add the portal fields to a finished run's summary.json")
+    republish.add_argument("out")
     live = commands.add_parser("run", help="call an engine on every scenario (opt-in)")
     live.add_argument("--out", required=True)
     live.add_argument("--url", default="http://127.0.0.1:8092/v1/chat/completions")
@@ -490,6 +520,8 @@ def main(argv=None) -> int:
             print("FAIL", failure)
         print(f"selftest: {len(CONTROLS)} controls, {len(failures)} failures")
         return 1 if failures else 0
+    if arguments.command == "publish":
+        return publish(pathlib.Path(arguments.out))
     return run_live(arguments)
 
 
