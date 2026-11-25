@@ -15,57 +15,49 @@ The 2026-11-25 plain-arm probe shows the cost of mixing them. Most failures are 
 framing), which is an embedding problem, not a question of which operations exist. The model also emitted its own tool-call token
 (`<|content_invoke_tool_json|>`), so it has a trained calling convention that the text protocol does not use.
 
-## 2. Layer 0: the operations (the base and its catalogue)
+## 2. Layer 0: the operations
 
-### 2.1 Core: the minimal complete set
+### 2.1 The reduced set
 
-| Operation | Effect | Address (one of) | Body |
-|---|---|---|---|
-| `view` | read, no change | a file; a line range; a named function | none |
-| `edit` | change part of an existing file | a line range; a named function; a unique text match; a position after line n | the replacement (empty deletes) |
-| `create` | make a file, or replace a stub | the path | the complete file |
-| `request` | ask for a capability none of the above provides | a capability description | none |
+Five operations. Each is a verb with one kind of address or mode; the rest is parameters.
 
-These four are complete for the task space: any read is `view`, any change to a file is `create` or `edit`, and any capability they lack is `request`.
-The current forms map onto them exactly: FILE = `create`; SYMBOL, SEARCH/REPLACE, AFTER and LINES = `edit` with four address kinds; READ SYMBOL and READ LINES
-= `view` with two address kinds; FIND TOOL = `request`.
+| Operation | Effect | Address or mode | Body or parameters | Guard the harness enforces |
+|---|---|---|---|---|
+| `view` | read, no change | a file; a line range; a symbol; a handle from `search` with `context n` lines around it | `mode: text` (default) or `outline` (functions and folded spans) | ranges and handles lie inside the file; a folded span is shown as folded until it is viewed |
+| `search` | locate, no change | scope `content` or `paths`; a pattern | `mode: literal`, `regex` or `identifier`; case; result cap | a regex that does not compile is refused with its position; results are capped and say so; each hit carries a handle |
+| `edit` | change part of a file, or write a whole file | a line range; a symbol; a position (after line n); a `match` (pattern, mode, scope, **expected count**); a whole file | the replacement (empty deletes) | a symbol must exist or be added; a match is written only if its count equals the expected count; a whole file replaces only a stub, or creates a missing file |
+| `rename` | move a file, keeping its content whole | from; to | none | the source exists and the target does not; deletion is `rename` into `.bin/<original path>`, which is recoverable |
+| `request` | ask for a capability none of the above provides | a capability description | none | recorded only; it changes nothing |
 
-### 2.2 Codified extensions
+Expected count is the safety rule for every bulk change: an `edit` by `match` states how many occurrences it expects, and writes nothing otherwise. A
+unique-match SEARCH/REPLACE is the case where the count is one, so it is the same operation, not a separate form.
 
-Codify an operation when it passes all three tests: it is common in real tasks, the harness can guard it deterministically, and composing it from the core
-costs many turns or risks collateral change. Anything that fails a test stays a composition of core operations.
+### 2.2 The reduction pass
 
-| Operation | Family | Parameters | Guard the harness enforces | Composed from the core as | Status |
-|---|---|---|---|---|---|
-| `search` | locate | pattern; scope (file, files, tree); mode `literal` or `regex`; case; whole-word; result cap | a bad regex is a refusal, not a guess; results are capped and say so | many `view`s and reads | codified |
-| `outline` | locate | path | none; reports the spans the folded view uses | `view` of every range | codified |
-| `find-files` | locate | glob within the tree | result cap | none without a listing | codified |
-| `view-around` | read | a search hit (a handle from `search`); lines before and after | the window lies inside the file | `search`, then `view` | codified |
-| `replace` | change | pattern; replacement; mode `literal` or `regex`; scope; **expected count** | the count found must equal the expected count, or nothing is written | one `edit` per occurrence, a turn each | codified |
-| `rename-symbol` | change | old name; new name; scope | whole identifiers only; the new name must be unused in scope; the count is checked | `replace` with word boundaries, unchecked | codified |
-| `rename-file` | structure | from; to | the source exists; the target does not exist; content is moved whole, not copied | `create` plus a delete, which loses content if copied by hand | codified |
+The rule: an operation is removed when it can be expressed as an address or mode of an operation that stays, and the guard it needs is the same. Each
+removal keeps its guard, so nothing the harness checks is lost.
 
-Delete is not a separate operation. It is `rename-file` into the harness's bin path (`.bin/<original path>`, a reserved location the worker cannot
-create files in directly), so a deletion is recoverable by renaming back. The bin keeps the original path, so a second deletion of the same name
-is refused until the first is cleared.
-| `move-block`, `extract-function`, `reorder` | change | varies | varies | `view`, `create`, `edit`, `delete` in sequence | composed (not codified until a case needs it atomically) |
+| Removed (earlier catalogue) | Now expressed as | Guard kept |
+|---|---|---|
+| `create` | `edit` with a whole-file address | replaces only a stub, or creates a missing file |
+| `replace` | `edit` with a `match` address, mode `literal` or `regex`, and an expected count | the count must match |
+| `rename-symbol` | `edit` with a `match` address, mode `identifier`, scope the tree, and an expected count | whole identifiers only, count checked; "the new name is unused" is a usage precondition (search first) and is caught by the compiler gate if violated |
+| `find-files` | `search` with scope `paths` | result cap |
+| `outline` | `view` with `mode: outline` | the folded spans it reports are the ones `view` shows folded |
+| `view-around` | `view` with a handle and `context n` | the window lies inside the file |
+| `delete-file` | `rename` into the bin | recoverable by renaming back |
+| `move-file` | `rename` | the target does not exist; content is moved, not copied |
 
-Notes that follow from the rule:
+Kept, because no other operation can express them without losing a guard or an effect: `view` (reads have no effect, so no other verb carries them),
+`search` (it returns the handles that `edit` and `view` accept, which a plain read cannot), `edit` (the only change), `rename` (a move keeps content whole,
+which an `edit` cannot do across files), and `request` (it is the only signal for a capability that is missing).
 
-* **Regex is a mode, not an operation.** `search` and `replace` take `mode: literal | regex`. A regex that does not compile is refused with its position.
-* **Every bulk change names its expected count.** `replace` and `rename-symbol` refuse to write when the count differs. This makes collateral change explicit
-  in the request, and the probe can check it at T3, the same way it checks a SEARCH text that must occur once.
-* **Delete is a move to the bin.** `rename-file` to `.bin/<original path>` is a deletion the harness can undo by renaming back. Nothing is
-  lost silently, so there is no separate delete operation to guard.
-* **`search` returns handles.** A hit carries the path, line, revision and a handle that `edit` and `view-around` accept, so a change can address a hit
-  without copying its text. That is the cheapest address the 2026-11-20 study measured, and it needs no new edit form.
-* **`outline` is the folded rule's source.** The "read before edit" precondition (section 3) needs the worker to know what is folded; `outline` states it.
+### 2.3 Trade-off, for the probe to decide
 
-### 2.3 Grouping
-
-Five families, read in this order by the usage text: **locate** (`search`, `outline`, `find-files`), **read** (`view`, `view-around`), **change**
-(`edit`, `replace`, `rename-symbol`), **structure** (`create`, `rename-file`), **request** (`request`). Each family has at most three
-operations, so the surface stays small enough to describe in one short list.
+Fewer operations give the model fewer verbs to choose among, but each `edit` address now has its own parameters. Whether that is easier for a model
+than six separate verbs is an empirical question, and the one the catalogue scenarios answer: the scenarios hold the task fixed and vary only the
+operation the model picks. The cut-off in the probe's T2 tier ("the operation the task calls for") is the measure. If `edit` with a `match` address
+fails T2 where a separate `replace` would pass, the reduction is wrong at that point, and the operation goes back.
 
 ## 3. Layer 1: usage (the embellishment)
 
@@ -114,9 +106,10 @@ Measurements common to both arms, from the existing tiers:
 3. **Native arm** (`--encoding native` in the probe): the same scenarios, the same canonical checks, the tools passed through the chat template. Three
    samples per scenario, as now.
 4. **Usage variants**: the table's text against the model's self-written text, same scenarios, same arm.
-5. **Catalogue scenarios**: one scenario per codified operation, each with a reference reply and a failing control. For `replace` the control
-   gives the wrong expected count; for `rename-symbol` it renames a substring inside another identifier; for `search` it sends an invalid regex;
-   for `rename-file` it targets an existing path, and a deletion scenario checks that the file sits under the bin path.
+5. **Catalogue scenarios**: one scenario per operation's address or mode, each with a reference reply and a failing control. For `edit` by `match`
+   the control gives the wrong expected count; for `identifier` it renames a substring inside another identifier; for `search` it sends an invalid
+   regex; for `rename` it targets an existing path, and a deletion scenario checks that the file sits under the bin path. For `view` with `outline` the
+   control reads a span the outline reports as folded.
 6. **Adoption**: change the production canvas prompt only when an arm wins on T2 and T3 without more failures on T1. Record the comparison in
    [INTERVENTIONS.md](INTERVENTIONS.md) with the numbers.
 
