@@ -102,6 +102,19 @@ Measurements common to both arms, from the existing tiers:
 
 1. **Knowledge probe** (running, 2026-11-25): does the model name the forms with and without them in its system prompt, and what does its own system
    prompt for this task contain? Its answers test whether the wording or the model is the limit. Result to be recorded here.
+
+   **Result (2026-11-25, Inkling 2 Mini, 3 samples, [summary](D:/Craig/GitHub/Sub0Squad/out/runs/t0-tools-know/20261125T223755Z/summary.json), [replies](D:/Craig/GitHub/Sub0Squad/out/runs/t0-tools-know/20261125T223755Z/replies)):
+
+   * **With the forms in the system prompt**, the model names the expected form in 16 of 21 answers, and its answers use the framed header in most
+     of them. Its misses name a neighbouring form (a FIND TOOL for a read, a READ LINES for an edit), not an invented one.
+   * **With no forms shown**, it names none of them. Its answers describe generic tools (`read_file`, `propose_edit`) and never the `=== … ===`
+     framing, so the framed syntax is learned from the prompt, not from prior training.
+   * **Its own system prompt** (the self-prompt request, 3 samples) is written for a generic tool API (`read_file`, `list_files`, `propose_edit`,
+     `apply_edit`, `comment`, `request_review`), not for our forms.
+
+   Reading: the model follows the forms when they are shown, so the framing failures in the 2026-11-25 probe are about how reliably it writes the
+   framing, not a failure to understand it. Its unprompted prior is a generic function-calling style. That points to native tool calling (option B
+   in section 4) as the arm to measure, and to the names of the operations being a free choice the owner can make without changing behaviour much.
 2. **Canonical operation table** in code: the five operations in section 2.1, with their address kinds and guards. The text renderer and the scorer both read it.
 3. **Native arm** (`--encoding native` in the probe): the same scenarios, the same canonical checks, the tools passed through the chat template. Three
    samples per scenario, as now.
