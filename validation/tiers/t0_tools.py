@@ -53,6 +53,7 @@ BASE = frozenset({"file", "symbol", "search", "read-symbol", "read-lines"})
 ARM_TOOLS = {"plain": frozenset(), "need": frozenset({"find-tool"})}
 END = {"EDIT": "=== END EDIT ===", "FILE": "=== END FILE ==="}
 HEADER = re.compile(r"^=== ([A-Z][A-Z ]*?): (.*) ===$")
+BARE = re.compile(r"^(READ|EDIT|FILE|FIND TOOL): (\S.*)$")
 IDENT = re.compile(r"[A-Za-z_]\w*")
 
 
@@ -185,6 +186,8 @@ CONTROLS = (
     ("control-read-lines", "plain", reply("=== READ: src/calc.cpp LINES 2-40 ==="), "T3", "malformed"),
     ("control-read-lines", "plain", "Lines 2 to 4 are the sum function.", "T1", "no-request"),
     ("control-read-lines", "need", reply("=== FIND TOOL: read lines 2 to 4 of a file ==="), "T2", "false-need"),
+    ("control-read-lines", "plain", "READ: src/calc.cpp LINES 2-4", "T3", "unframed"),
+    ("need-run-tests", "need", "FIND TOOL: run the unit tests and report which one fails", "T3", "unframed"),
 )
 
 
@@ -199,6 +202,11 @@ def parse_reply(text: str):
         line = lines[index]
         head = HEADER.match(line)
         if head is None:
+            bare = BARE.match(line)
+            if bare:   # a request written without the === framing: kept, and judged malformed (kind "unframed")
+                transactions.append({"verb": bare[1], "arg": bare[2], "body": None, "bare": True})
+                index += 1
+                continue
             if line.strip():
                 prose.append(line.strip())
             index += 1
@@ -319,6 +327,8 @@ def score(scenario: Scenario, text: str, arm: str = "plain") -> dict:
     if not transactions:
         return fail("T1", "no-request", "the reply makes no transaction" + (f" (prose: {prose[0]!r})" if prose else ""))
     for transaction, tool in zip(transactions, tools):
+        if tool is None and transaction.get("bare"):   # run together or cut short: a request the checker cannot read as any form
+            return fail("T3", "unframed", f"unframed and unreadable: {transaction['verb']}: {transaction['arg']!r}")
         if tool is None:
             return fail("T1", "invented-form", f"{transaction['verb']}: {transaction['arg']!r} is not a form the worker has")
         if tool not in offered:
@@ -348,6 +358,9 @@ def score(scenario: Scenario, text: str, arm: str = "plain") -> dict:
         bad.append("a read or find-tool request must be the whole reply")
     for transaction, tool in zip(transactions, tools):
         bad += check_transaction(transaction, tool, scenario)
+    if any(transaction.get("bare") for transaction in transactions):
+        bad.insert(0, "a request is not framed: each form is written between === and ===")
+        return fail("T3", "unframed", *bad)
     if bad:
         return fail("T3", "malformed", *bad)
     return result
@@ -406,6 +419,39 @@ def chat(url, model, system, user, seed, temperature, max_tokens, timeout):
     return payload["choices"][0]["message"]["content"] or ""
 
 
+def capture(scenario: Scenario, arm: str, seed: int, text: str, row: dict) -> list[dict]:
+    """Every FIND TOOL request in a reply, true or false, bare or framed, with its verdict."""
+    digest = hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
+    found = []
+    for transaction in parse_reply(text)[0]:
+        if tool_of(transaction) == "find-tool":
+            verdict = "named" if row["tier"] == "pass" and scenario.need else row["kind"]
+            found.append({"scenario": scenario.id, "arm": arm, "seed": seed, "capability": transaction["arg"], "verdict": verdict,
+                          "reply": digest, "utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())})
+    return found
+
+
+def rescore(out: pathlib.Path) -> int:
+    """Judge the saved replies again with the current checker. No model is called."""
+    record = json.loads((out / "summary.json").read_text(encoding="utf-8"))
+    arm, rows, needs = record["arm"], [], []
+    for row in record["rows"]:
+        if row["tier"] == "infra":
+            rows.append(row)
+            continue
+        scenario = SCENARIO[row["scenario"]]
+        text = (out / "replies" / f"{scenario.id}-{arm}-{row['seed']}.txt").read_text(encoding="utf-8")
+        judged = score(scenario, text, arm) | {"seed": row["seed"]}
+        rows.append(judged)
+        needs.extend(capture(scenario, arm, row["seed"], text, judged))
+    record["rows"] = rows
+    (out / "summary.json").write_text(json.dumps(record, indent=2), encoding="utf-8")
+    with (out / "tool-needs.jsonl").open("w", encoding="utf-8") as handle:
+        for need in needs:
+            handle.write(json.dumps(need) + "\n")
+    return publish(out, len(needs))
+
+
 def run_live(arguments) -> int:
     out = pathlib.Path(arguments.out)
     if out.exists() and any(out.iterdir()):
@@ -426,12 +472,7 @@ def run_live(arguments) -> int:
             (out / "replies" / f"{scenario.id}-{arguments.arm}-{seed}.txt").write_text(text, encoding="utf-8")
             row = score(scenario, text, arguments.arm) | {"seed": seed}
             rows.append(row)
-            digest = hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
-            for transaction in parse_reply(text)[0]:
-                if tool_of(transaction) == "find-tool":   # every request is kept, true or false, for harness review
-                    verdict = "named" if row["tier"] == "pass" and scenario.need else row["kind"]
-                    needs.append({"scenario": scenario.id, "arm": arguments.arm, "seed": seed, "capability": transaction["arg"],
-                                  "verdict": verdict, "reply": digest, "utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())})
+            needs.extend(capture(scenario, arguments.arm, seed, text, row))
     with (out / "tool-needs.jsonl").open("w", encoding="utf-8") as handle:
         for need in needs:
             handle.write(json.dumps(need) + "\n")
@@ -497,6 +538,8 @@ def main(argv=None) -> int:
     commands.add_parser("selftest", help="check the scorer against its scripted controls (no model)")
     republish = commands.add_parser("publish", help="add the portal fields to a finished run's summary.json")
     republish.add_argument("out")
+    rejudge = commands.add_parser("rescore", help="judge a finished run's saved replies again with this checker (no model)")
+    rejudge.add_argument("out")
     live = commands.add_parser("run", help="call an engine on every scenario (opt-in)")
     live.add_argument("--out", required=True)
     live.add_argument("--url", default="http://127.0.0.1:8092/v1/chat/completions")
@@ -522,6 +565,8 @@ def main(argv=None) -> int:
         return 1 if failures else 0
     if arguments.command == "publish":
         return publish(pathlib.Path(arguments.out))
+    if arguments.command == "rescore":
+        return rescore(pathlib.Path(arguments.out))
     return run_live(arguments)
 
 
