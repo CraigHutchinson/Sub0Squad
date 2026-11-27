@@ -1,4 +1,5 @@
 #include "check.hpp"
+#include "sub0platform/lease.hpp"
 #include "sub0squad/job_spec.hpp"
 
 using namespace sub0squad;
@@ -15,6 +16,7 @@ int main()
     CHECK(back.has_value());
     if (back) {
         CHECK(back->argv == s.argv);
+        CHECK(!back->machineLease);
         CHECK(back->env == s.env);
         CHECK_EQ(back->wallSeconds, 30);
         CHECK(back->resumeArgv == s.resumeArgv);
@@ -27,5 +29,12 @@ int main()
     CHECK(JobSpec::fromJson("{\"argv\":[\"x\"],\"tier\":\"frontier-stub\"}").has_value());
     CHECK(!JobSpec::fromJson("{\"argv\":[\"x\"],\"tier\":\"claude\"}").has_value());
     CHECK(!JobSpec::fromJson("{\"schema\":\"job-spec-9\",\"argv\":[\"x\"]}").has_value());
+    for (const auto mode : {sub0platform::LeaseMode::shared, sub0platform::LeaseMode::exclusive}) {
+        s.machineLease = mode;
+        const auto leased = JobSpec::fromJson(s.toJson());
+        CHECK(leased && leased->machineLease == mode);
+    }
+    CHECK(!JobSpec::fromJson(R"({"argv":["x"],"machineLease":"unknown"})"));
+    CHECK(!JobSpec::fromJson(R"({"argv":["x"],"machineLease":true})"));
     return finish();
 }

@@ -1,8 +1,16 @@
 #include "sub0squad/job_spec.hpp"
 
 #include "json_util.hpp"
+#include "sub0platform/lease.hpp"
 
 namespace sub0squad {
+
+std::optional<sub0platform::LeaseMode> parseMachineLeaseMode(std::string_view value)
+{
+    if (value == "shared") return sub0platform::LeaseMode::shared;
+    if (value == "exclusive") return sub0platform::LeaseMode::exclusive;
+    return std::nullopt;
+}
 
 std::string JobSpec::toJson() const
 {
@@ -22,6 +30,7 @@ std::string JobSpec::toJson() const
     w.endArray();
     w.kv("workflow", workflow).kv("item", item).kv("role", role).kv("attempt", attempt);
     w.kvBool("service", service).kv("leaseResource", leaseResource).kv("leaseCap", leaseCap);
+    if (machineLease) w.kv("machineLease", *machineLease == sub0platform::LeaseMode::shared ? "shared" : "exclusive");
     w.key("adapter").beginObject().kv("type", adapter.type).kv("path", adapter.path).kv("schema", adapter.schema).endObject();
     w.endObject();
     return w.take();
@@ -31,6 +40,7 @@ std::expected<JobSpec, std::string> JobSpec::fromJson(std::string_view text)
 {
     JobSpec spec;
     std::string schema;
+    std::optional<std::string> machineLeaseName;
     try {
         json::withObject(text, [&](simdjson::ondemand::object& obj) {
             for (auto field : obj) {
@@ -60,6 +70,7 @@ std::expected<JobSpec, std::string> JobSpec::fromJson(std::string_view text)
                 else if (key == "service") spec.service = value.get_bool();
                 else if (key == "leaseResource") spec.leaseResource = json::toString(value);
                 else if (key == "leaseCap") spec.leaseCap = value.get_int64();
+                else if (key == "machineLease") machineLeaseName = json::toString(value);
                 else if (key == "expectedEventIntervalSec") spec.expectedEventIntervalSec = value.get_int64();
                 else if (key == "adapter") {
                     for (auto kv : value.get_object()) {
@@ -79,6 +90,10 @@ std::expected<JobSpec, std::string> JobSpec::fromJson(std::string_view text)
     if (spec.tier != "stub" && spec.tier != "local" && spec.tier != "frontier-stub")
         return std::unexpected("tier '" + spec.tier + "' is not available (stub, local, frontier-stub; no live frontier tier exists in this build)");
     if (spec.wallSeconds < 0 || spec.graceSeconds < 0) return std::unexpected("negative duration in job spec");
+    if (machineLeaseName) {
+        spec.machineLease = parseMachineLeaseMode(*machineLeaseName);
+        if (!spec.machineLease) return std::unexpected("machineLease must be shared or exclusive");
+    }
     return spec;
 }
 

@@ -5,11 +5,19 @@
 #include <cstdint>
 #include <expected>
 #include <map>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
 
+namespace sub0platform { enum class LeaseMode; }
+
 namespace sub0squad {
+
+/// Parses a machine-wide lease mode for job JSON and CLI arguments.
+/// @param value The mode name, shared or exclusive.
+/// @return The mode, or no value for an unknown name.
+[[nodiscard]] std::optional<sub0platform::LeaseMode> parseMachineLeaseMode(std::string_view value);
 
 /// Optional adapter that derives progress events from a file the tool already writes (the optimisation harness's state.json).
 struct ProgressAdapter
@@ -42,6 +50,8 @@ struct JobSpec
     bool service = false;                    ///< a long-lived server (an engine): it does not count against the daemon's job slots, only against memory
     std::string leaseResource;               ///< shared resource the job occupies while running (an engine endpoint); empty = none
     std::int64_t leaseCap = 0;               ///< jobs allowed to hold `leaseResource` at once (an engine's slots); the job slot limit still applies
+
+    std::optional<sub0platform::LeaseMode> machineLease{}; ///< Machine-wide lease held through the job's process-tree teardown.
 
     /// Serialise as a `job-spec-1` JSON object.
     [[nodiscard]] std::string toJson() const;

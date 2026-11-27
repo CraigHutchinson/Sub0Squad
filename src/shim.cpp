@@ -1,6 +1,7 @@
 #include "sub0squad/shim.hpp"
 
 #include "json_util.hpp"
+#include "sub0squad/host_guard.hpp"
 #include "sub0squad/job_spec.hpp"
 #include "sub0platform/file.hpp"
 #include "sub0platform/proc.hpp"
@@ -11,7 +12,10 @@
 #include <chrono>
 #include <cstdio>
 #include <filesystem>
+#include <format>
+#include <optional>
 #include <thread>
+#include <utility>
 
 namespace sub0squad {
 
@@ -54,6 +58,7 @@ private:
     std::filesystem::path dir_;
     JobSpec spec_;
     sub0platform::Waiter waiter_;
+    std::optional<sub0platform::MachineLease> machineLease_;
     sub0platform::Child child_;
     Stream out_, err_, events_;
     std::vector<std::jthread> readers_;
@@ -88,6 +93,16 @@ bool Shim::start()
     err_.file = openOut("stderr.log");
     events_.file = openOut("events.ndjson");
     events_.events = true;
+
+    if (spec_.machineLease) {
+        auto lease = requireMachineLease(*spec_.machineLease, std::format("{} ({})", spec_.tool, dir_.filename().string()));
+        if (!lease) {
+            if (err_.file.isOpen()) (void)err_.file.append(std::format("sub0squad: {}\n", lease.error()));
+            outcome_ = "startFailed";
+            return false;
+        }
+        machineLease_.emplace(std::move(*lease));
+    }
 
     sub0platform::ProcessSpec ps;
     ps.argv = spec_.argv;
@@ -267,14 +282,11 @@ void Shim::writeExit()
 
 int Shim::run()
 {
-    if (!start()) {
-        teardown_ = "verified";
-        writeExit();
-        return 1;
-    }
-    loop();
+    const bool started = start();
+    if (started) loop();
+    machineLease_.reset();
     writeExit();
-    return 0;
+    return started ? 0 : 1;
 }
 
 }  // namespace

@@ -6,7 +6,9 @@
 
 #include <cstdio>
 #include <cstdlib>
+#include <format>
 #include <fstream>
+#include <utility>
 #include <sstream>
 
 namespace sub0squad {
@@ -40,6 +42,25 @@ std::expected<void, std::string> requireDisk(const fs::path& path, std::int64_t 
     if (needMiB + reserveMiB > free)
         return std::unexpected("not enough free disk space at " + path.string() + ": need " + std::to_string(needMiB) + " MiB plus a " + std::to_string(reserveMiB) + " MiB reserve, " + std::to_string(free) + " MiB free");
     return {};
+}
+
+std::expected<sub0platform::MachineLease, std::string> requireMachineLease(sub0platform::LeaseMode mode, std::string_view job)
+{
+    using sub0platform::MachineLease;
+    const auto path = MachineLease::defaultLockFile();
+    if (!path) return std::unexpected(std::format("machine lease unavailable: {}", path.error().message));
+
+    auto lease = MachineLease::acquire(mode, "sub0squad", std::string{job}, *path);
+    if (!lease) return std::unexpected(std::format("machine lease unavailable: {}", lease.error().message));
+    if (*lease) return std::move(**lease);
+
+    std::string message = "machine lease busy";
+    const auto owners = MachineLease::readOwners(*path);
+    if (owners.empty()) return std::unexpected(message + "; retry once the current holder finishes");
+    for (const auto& owner : owners) {
+        message += std::format("\n{}", sub0platform::describeLeaseOwner(owner));
+    }
+    return std::unexpected(std::move(message));
 }
 
 namespace {

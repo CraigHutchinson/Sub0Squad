@@ -52,6 +52,7 @@ const char* const kUsage =
     "  cancel ID | resume ID | wait ID [--timeout SEC] | ping | stop\n"
     "  check                                make the daemon run its watchers now (memory pressure, then admission) instead of at its next timer; `ping` changes nothing\n"
     "  archive [--label TEXT]               set the finished runs aside (state -> archive/<UTC time>[-label]/state) and leave a fresh, empty state; the daemon must be stopped\n"
+    "         --machine-lease shared|exclusive (held from job start through process-tree teardown)\n"
     "  every submit (submit, do, project submit) is refused when the running daemon is another build of this program: restart it, or pass --allow-build-mismatch\n"
     "  do \"<task in words>\" [project options]   triage first, then run: a known blueprint starts at once, otherwise a needs-plan.md handoff is written\n"
     "  project submit --task calculator-web|calculator-cpp|calculator-py (any blueprint of a registered harness starts at once) [--sandbox DIR] [--inject ITEM[:N]]... [--max-local N]\n"

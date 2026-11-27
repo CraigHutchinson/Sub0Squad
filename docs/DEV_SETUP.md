@@ -62,6 +62,16 @@ Use the **latest release or default-branch head** of every dependency, recorded 
 2026-11-09: Sub0Pipeline `3d11ffe`, Sub0Pub `504d772`, Sub0Math `1d20313` are the heads of `main`; simdjson v5.1.1; CPM.cmake 0.43.2;
 Boost 1.92.0 to be pinned when first used. Bump deliberately, one dependency per commit.
 
+## Machine-wide leases for submitted jobs
+
+Use `sub0squad submit --machine-lease exclusive -- <command> [args...]` for a job that needs the machine to
+itself. Use `shared` for work that may overlap other shared holders but must yield to exclusive timing.
+A JSON job specification can set `"machineLease": "exclusive"` or `"shared"`. Jobs opt in individually.
+
+The shim acquires the [ADR 0005 lease](https://github.com/CraigHutchinson/.github/blob/main/docs/decisions/0005-machine-scheduling.md)
+before starting the process and holds it through process-tree teardown. A busy lease fails the job at startup
+and reports the holder in the job's standard-error log. Resubmitting after the holder exits retries admission.
+
 ## Tests and benchmarks
 
 ```sh
