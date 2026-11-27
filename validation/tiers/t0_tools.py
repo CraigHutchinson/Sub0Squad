@@ -510,6 +510,63 @@ def know(arguments) -> int:
     return 0
 
 
+# The five operations of docs/TOOL_SURFACE.md section 2.1, named and described, for the adoption experiment.
+OPERATIONS = {
+    "view": "read a file, a line range, a symbol, or a search hit with context; mode text or outline",
+    "search": "find text or identifiers in content or file paths, literal or regex; returns hits with handles",
+    "edit": "change part of a file: a line range, a named function, a position, or text matching a pattern with an expected count; "
+            "or write a whole file that is new or a stub",
+    "rename": "move a file to a new path; delete a file by renaming it into the bin",
+    "request": "ask for a capability none of the operations provides; changes nothing",
+}
+ADOPT_ASK = ("You will edit files in a shared canvas with these operations, each described beside its name:\n"
+             + "\n".join(f"- {name}: {text}" for name, text in OPERATIONS.items()) +
+             "\n\nWrite the system prompt you would give a model that must do this. You may keep these names or rename the operations; "
+             "if you rename any, list each new name against the old one and say why. Say how a call is written.")
+CALL_NAME = re.compile(r"\b(view|search|edit|rename|request)\b\s*[\(:]", re.I)
+
+
+def adopt(arguments) -> int:
+    """Ask the model for its own system prompt, given our operation names, then run the scenarios with that prompt as the system prompt.
+
+    Measurement only. Names are judged by the calls the replies make; strict tiers apply only where the reply uses our framing.
+    """
+    out = pathlib.Path(arguments.out)
+    if out.exists() and any(out.iterdir()):
+        raise SystemExit(f"{out} is not empty: give a new output directory")
+    (out / "prompts").mkdir(parents=True)
+    (out / "replies").mkdir()
+    generated = []
+    for sample in range(arguments.samples):
+        seed = arguments.seed + sample
+        text = chat(arguments.url, arguments.model, "You are a helpful assistant.", ADOPT_ASK, seed, arguments.temperature,
+                    arguments.max_tokens * 2, arguments.timeout)
+        text = re.sub(r"<think>.*?</think>", "", text, flags=re.S).strip()
+        (out / "prompts" / f"prompt-{seed}.txt").write_text(text, encoding="utf-8")
+        generated.append({"seed": seed, "mentionedOurNames": sorted(name for name in OPERATIONS if re.search(rf"\b{name}\b", text, re.I)),
+                          "prompt": f"prompts/prompt-{seed}.txt"})
+    results = []
+    for entry in generated:
+        system = (out / entry["prompt"]).read_text(encoding="utf-8")
+        for scenario in SCENARIOS:
+            text = chat(arguments.url, arguments.model, system, user_for(scenario), entry["seed"], arguments.temperature,
+                        arguments.max_tokens, arguments.timeout)
+            text = re.sub(r"<think>.*?</think>", "", text, flags=re.S).strip()
+            name = f"{entry['seed']}-{scenario.id}"
+            (out / "replies" / f"{name}.txt").write_text(text, encoding="utf-8")
+            used = sorted({m.group(1).lower() for m in CALL_NAME.finditer(text)})
+            ours = score(scenario, text, "need" if scenario.need else "plain")
+            results.append({"prompt": entry["seed"], "scenario": scenario.id, "namesUsed": used,
+                            "tier": ours["tier"], "kind": ours["kind"]})
+    (out / "summary.json").write_text(json.dumps({"schema": "t0-tools-adopt-1", "model": arguments.model, "prompts": generated,
+                                                  "results": results}, indent=2), encoding="utf-8")
+    for entry in generated:
+        mine = [r for r in results if r["prompt"] == entry["seed"]]
+        print(f"prompt {entry['seed']}: mentioned our names {entry['mentionedOurNames']}; "
+              f"passed existing protocol tiers {sum(r['tier'] == 'pass' for r in mine)}/{len(mine)}")
+    return 0
+
+
 def capture(scenario: Scenario, arm: str, seed: int, text: str, row: dict) -> list[dict]:
     """Every FIND TOOL request in a reply, true or false, bare or framed, with its verdict."""
     digest = hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
@@ -668,6 +725,15 @@ def main(argv=None) -> int:
     know_parser.add_argument("--temperature", type=float, default=0.7)
     know_parser.add_argument("--max-tokens", type=int, default=600)
     know_parser.add_argument("--timeout", type=float, default=240)
+    adopt_parser = commands.add_parser("adopt", help="the model writes its system prompt from our names, then runs the scenarios with it (opt-in)")
+    adopt_parser.add_argument("--out", required=True)
+    adopt_parser.add_argument("--url", default="http://127.0.0.1:8092/v1/chat/completions")
+    adopt_parser.add_argument("--model", required=True)
+    adopt_parser.add_argument("--samples", type=int, default=3)
+    adopt_parser.add_argument("--seed", type=int, default=8101)
+    adopt_parser.add_argument("--temperature", type=float, default=0.7)
+    adopt_parser.add_argument("--max-tokens", type=int, default=800)
+    adopt_parser.add_argument("--timeout", type=float, default=240)
     rejudge = commands.add_parser("rescore", help="judge a finished run's saved replies again with this checker (no model)")
     rejudge.add_argument("out")
     live = commands.add_parser("run", help="call an engine on every scenario (opt-in)")
@@ -697,6 +763,8 @@ def main(argv=None) -> int:
         return publish(pathlib.Path(arguments.out))
     if arguments.command == "know":
         return know(arguments)
+    if arguments.command == "adopt":
+        return adopt(arguments)
     if arguments.command == "rescore":
         return rescore(pathlib.Path(arguments.out))
     return run_live(arguments)

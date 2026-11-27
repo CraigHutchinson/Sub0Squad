@@ -2,14 +2,33 @@
 // jobs running and the next daemon adopts them; status reports progress without parsing logs. Then the daemon's edges: a hung daemon is a clear
 // error within the reply timeout, --exit-with ends a daemon with the process it serves, and a deep home's moved socket name is removed or cleared.
 #include "e2e.hpp"
+#include "fake_engine.hpp"
 #include "sub0platform/file.hpp"
 #include "sub0platform/ipc.hpp"
 
 using namespace e2e;
 
-int main(int, char** argv)
+void checkReportedSlot(const std::string& exe)
+{
+    fake::Engine engine(std::vector<fake::Reply>{}, 1);
+    Squad sq(exe, "reported-slot");
+    sq.startDaemon(4);
+    const std::string resource = "http://127.0.0.1:" + std::to_string(engine.port()) + "/v1=4";
+    const auto first = sq.submitWorker("slot-a", {"--steps", "30", "--step-ms", "100"}, {"--lease", resource});
+    const auto second = sq.submitWorker("slot-b", {"--steps", "30", "--step-ms", "100"}, {"--lease", resource});
+    CHECK(sq.waitState(first, "running"));
+    CHECK(sq.statusField(second, "state") == "queued");
+    CHECK(sq.waitState(first, "succeeded"));
+    CHECK(sq.waitState(second, "succeeded"));
+}
+
+int main(int argc, char** argv)
 {
     const std::string exe = argv[1];
+    if (argc > 2 && std::string{argv[2]} == "--reported-slot-only") {
+        checkReportedSlot(exe);
+        return finish();
+    }
 
     { // Gate: cancel leaves no child (worker + stubborn server + setsid escapee), released, cancelled not failed. Repeated.
         Squad sq(exe, "cancel");
@@ -181,6 +200,7 @@ int main(int, char** argv)
         CHECK(peak == 2);
         for (const auto& id : ids) CHECK(sq.waitState(id, "succeeded"));
     }
+    checkReportedSlot(exe);
     if (std::filesystem::exists("/proc/self/oom_score_adj")) { // OOM priority (Linux): jobs run with oom_score_adj 600 and servers 900, so the kernel's last resort takes them before the owner's session.
         Squad sq(exe, "oomadj");
         sq.startDaemon();

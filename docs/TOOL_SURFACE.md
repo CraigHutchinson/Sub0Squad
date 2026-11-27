@@ -1,5 +1,7 @@
 # Tool surface: operations, usage and embedding (design, 2026-11-25)
 
+To run and inspect the local prompt exercises, see [TOOL_EXERCISES.md](TOOL_EXERCISES.md).
+
 Design only; nothing here is built. Status of the measurements it relies on: [T0_ITERATIVE_SANDBOX.md](T0_ITERATIVE_SANDBOX.md), "Tool-use probe".
 
 ## 1. Why
@@ -116,6 +118,60 @@ An alias table maps each name to a canonical operation and renames its arguments
   guessed into a valid edit.
 * **Aliases are not a parser.** The table maps calls that already parsed. Wiring it into the live parser is for the native-tool arm (section 4),
   where a hallucinated call arrives as a structured call with a name, not as framed text.
+
+### Model-authored protocols: research and measurement (2026-11-27)
+
+The 7102 self-prompt did name operations: `INSPECT` and `PROPOSE`. The earlier claim that it named no tools was wrong: the detector searched only a fixed
+list of names. In the later adoption run, a broken word-boundary expression also reported no canonical names in all three drafts. Rechecking the saved
+drafts finds `view`, `search`, `edit`, `rename` in 8101, and all five names in 8102 and 8103. A word appearing in prose does not prove that the prompt
+defines or adopts that operation. The existing text-protocol scorer passed 0/27 replies; it is not a scorer for the generated protocols. Its old
+`usedOnlyOurNames` field cannot establish exclusivity and must not be used as evidence.
+
+[EasyTool](https://aclanthology.org/2025.naacl-long.44/) generates tool-use instructions from supplied API documentation and reports fewer name and
+argument errors on its evaluated tasks. It is evidence that generated descriptions can help, not that a model follows an unconstrained interface it
+authored. [Toolformer](https://arxiv.org/abs/2302.04761) filters self-generated calls for a training procedure; it does not establish one-shot adherence.
+[BFCL](https://proceedings.mlr.press/v267/patil25a.html) distinguishes correct selection and arguments from formatting. None establishes the result for
+this model, quantization, endpoint or shared-canvas operations.
+
+The experimental `validation/tiers/t0_self_format.py` captures an unaided draft, a second turn embedding our five definitions, then a self-check in a
+fresh context. Failed or malformed self-checks lead to a bounded revision and another fresh check. Only after the model reports all five present does
+it request one example per operation in a fresh context across seeds. It records full messages, responses, usage and incomplete runs. The self-check is
+the model's claim, not a host verification. Captured calls require a separately specified parser and independent argument and effect checks before any
+adherence rate or adoption decision; a canonical control and paired held-out scenarios remain necessary. The model's proposed prompt never changes the
+executable harness contract.
+
+The first 2026-11-27 2,048-token run stopped at the output limit during integration. A 4,096-token retry produced a complete candidate that names all
+five operations, but human inspection found contract drift: `view` requires a range, symbol or handle even for a whole-file read; `rename` omits the
+destination-must-not-exist guard; and edits and renames require base-version arguments that our definitions did not supply. Its self-check cannot
+establish semantic equivalence, and simple example prompts without version information may properly lead it to ask for that information. Do not
+interpret those replies as a clean test of the canonical contract.
+
+The retry's self-check reported all five present. Across seeds 8101–8103 the first set of 15 task replies included 12 native-marker payloads, none
+parseable as strict JSON, and three parseable textual `request(...)` calls. It is not established whether the malformed native payloads arose in
+generation or endpoint rendering. The task wording also allowed a preliminary read/search, so this set does not isolate direct operation adherence.
+A replay of the same candidate explicitly requested each operation and supplied the candidate's required version and authorization. The conservative
+checker parsed 10/15 as keyword calls with the requested name; two native-marker payloads were not JSON, and three other responses were outside the
+checker. The unknown group includes unquoted payload keys and prose; it is not automatically a model failure against a defined grammar, because the
+candidate did not define that grammar precisely. These are syntax/name observations, not argument, effect or safety passes, nor a paired comparison.
+The exact messages, replies and usage are in local ignored artifacts `out/runs/self-format-20261127{,-r2,-direct}/manifest.json`; the syntax checker is
+`validation/tiers/t0_self_format_check.py`. Preserve them when transferring the experiment. Next, specify an independently checked executable call
+grammar and canonical semantics, include wrong-argument and missing-guard controls, then compare generated and canonical prompts on held-out tasks
+and matched seeds before considering adoption. The three seeds are replication of one candidate, not three prompt revisions.
+
+On 2026-11-27 a narrower, fixed JSON exercise was added in `validation/tiers/t0_contract.py`: five tasks, exact parsed operation and arguments, plus
+negative controls. The acceptance KPI requires all five exact calls per seed, not just an average. On seeds 9201–9203 the baseline got 11/15 calls
+and 0/3 all-five seeds; `tool_prompt_v2.txt`, which explicitly asks for the demonstrated call without a preliminary call, got 15/15 and 3/3.
+The same pairing on a second set of five cases also scored 11/15 versus 15/15 and 0/3 versus 3/3. These second cases were written after examining prior
+replies and are stress cases, not an independent blind set. Both raw messages and usage are in
+`out/runs/tool-contract-20261127-{baseline,v2,baseline-stress,v2-stress}/manifest.json`. These are small diagnostic samples using a subset of
+the design; they do not test the full address catalogue, actual application of edits, ambiguous inputs, unsafe calls, other models, or independent
+held-out cases. The model is not yet shown to accept a production-ready system prompt. Compare paired variants and run independently authored,
+hidden-answer tests before using this result to change the worker.
+
+Capacity observation on 2026-11-27: the owner's Inkling 2 Mini endpoint reported `total_slots: 1` and `/slots` showed one idle slot. This experiment
+issues requests serially. Squad's `engineSlots` queries `/slots`, and the fork path uses its idle count, but planner and workflow lease limits also use
+the configured `maxConcurrent`; endpoint discovery is therefore not yet an end-to-end guarantee. Configure `slots=1` for this server until the
+workflow's admission and planning paths are reconciled with server-reported capacity.
 
 ## 5. Plan
 

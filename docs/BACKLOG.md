@@ -6,6 +6,11 @@ change to how the squad works is an experiment on the local engine, with a hypot
 **Resuming the tier work?** [RESUME.md](RESUME.md) (2026-11-23) is where it stands and what comes next; the brief is
 [sessions/tier-work-resume.md](sessions/tier-work-resume.md).
 
+## Engine capacity discovery
+
+The server's reported slot count is not yet consistently received by planning and workflow leases. See the
+[capacity discovery brief](sessions/engine-capacity-discovery.md); until then set the engine profile's `slots` to the actual server capacity.
+
 ## Now: the proving ladder and reasoned workflow decisions (owner, 2026-11-23)
 
 **The ladder.** "Write a hello world app in C++" is the lowest bar: one request through the planned process (planner, tester, developer, integration),

@@ -43,6 +43,8 @@ machine (frontier off), no commits without the owner's go-ahead, ask before chan
 
 ## Open
 
+- [Engine capacity discovery](engine-capacity-discovery.md) — reconcile reported server slots with planner and workflow admission.
+
 - [Resume the tier work](tier-work-resume.md) — hello world end to end, reasoned planner sizing, then T0 to T2 on the 35B. Start here for the tier work.
 
 - [Adopt Sub0Canvas as the backend](canvas-backbone-adoption.md) — backbone migration phase 1: upstream the drifted turn control, release v0.3.0, drop the squad's copies. Start here for the backbone work.

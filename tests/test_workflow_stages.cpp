@@ -34,6 +34,23 @@ int main()
         };
         const auto count = [](Sim& s, const char* action) { int n = 0; for (const auto& d : s.wfs.find("w-000001")->decisions) if (d.action == action) ++n; return n; };
         const auto gate = [](const char* tests, bool stub) { GateSpec g; g.kind = "node-test"; g.tests = {tests}; g.minTests = 1; g.mustFailOnStub = stub; return g; };
+        {
+            auto process = Process::fromJson("{\"schema\":\"process-1\",\"name\":\"lease-plan\",\"stages\":[{\"name\":\"plan\",\"kind\":\"job\",\"job\":{\"step\":\"planner\",\"tool\":\"llm-planner\",\"args\":[\"--engine\",\"${engine}\"]}}]}");
+            CHECK(process.has_value());
+            if (process) {
+                Sim s;
+                WorkflowSpec spec;
+                spec.task = "t"; spec.sandboxDir = "/sb"; spec.agent = "llm";
+                spec.engines = {"e=http://127.0.0.1:9/v1,slots=4"}; spec.process = *process;
+                s.feed("workflowSubmitted", wfbody::submitted("w-000001", spec));
+                const auto acts = advance(*s.wfs.find("w-000001"), s.jobs, s.settings, s.policy);
+                CHECK(acts.size() == 1);
+                if (!acts.empty()) {
+                    CHECK(acts[0].job.leaseResource == "http://127.0.0.1:9/v1");
+                    CHECK(acts[0].job.leaseCap == 4);
+                }
+            }
+        }
         // A tester's item and a wide developer's item that depends on it: the plan on which the processes differ.
         const auto widePlan = [&] {
             Plan p;

@@ -667,6 +667,12 @@ bool advanceJobStage(const WorkflowRecord& wf, const Mine& mine, const WorkflowS
         JobSpec s = baseJob(wf, st, p.step, command, p.tier, p.wallSeconds);
         s.argv = {st.exe, command};
         for (const auto& a : p.args) s.argv.push_back(substituted(a, wf));
+        if (command == "llm-planner") {
+            if (const auto engine = wf.spec.engineFor("planner")) {
+                s.leaseResource = engine->endpoint;
+                s.leaseCap = std::max(1, engine->maxConcurrent);
+            }
+        }
         out.push_back(start(std::move(s)));
     };
     if (facts.tries == 0) startIt();

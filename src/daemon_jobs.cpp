@@ -120,10 +120,26 @@ void Daemon::Impl::scheduleQueued()
                 ++held[jr->spec.leaseResource];
                 if (r->leaseIndex >= 0) usedIndex[jr->spec.leaseResource].insert(r->leaseIndex);
             }
+        // Conflicting profiles for one endpoint share the most restrictive configured cap.
+        std::map<std::string, std::int64_t> caps;
+        for (const auto& j : store.jobs()) {
+            if ((j.state != JobState::queued && j.state != JobState::running && j.state != JobState::cancelling) || j.spec.leaseResource.empty()) continue;
+            const auto cap = std::max<std::int64_t>(1, j.spec.leaseCap);
+            auto [it, inserted] = caps.emplace(j.spec.leaseResource, cap);
+            if (!inserted) it->second = std::min(it->second, cap);
+        }
+        for (auto& [resource, cap] : caps) {
+            if (cap <= 1) continue;
+            if (!resource.starts_with("http://") && !resource.starts_with("https://")) continue;
+            EngineProfile engine;
+            engine.endpoint = resource;
+            const auto slots = engineSlots(engine);
+            cap = slots ? std::min<std::int64_t>(cap, slots->total) : 1;
+        }
         const JobRecord* next = nullptr;
         for (const auto& j : store.jobs()) {
             if (j.state != JobState::queued || running.count(j.id)) continue;
-            if (!j.spec.leaseResource.empty() && held[j.spec.leaseResource] >= std::max<std::int64_t>(1, j.spec.leaseCap)) continue;
+            if (!j.spec.leaseResource.empty() && held[j.spec.leaseResource] >= caps[j.spec.leaseResource]) continue;
             if (!j.spec.service && !admitsJob(reservedClass(j.spec), activeNormal, activeReserved, opts.maxJobs)) continue;
             const bool structural = isStructuralJob(j.spec.workflow, j.spec.role), nextStructural = next && isStructuralJob(next->spec.workflow, next->spec.role);
             if (!next || (structural && !nextStructural) || (structural == nextStructural && j.submittedAt < next->submittedAt)) next = &j;
@@ -133,7 +149,7 @@ void Daemon::Impl::scheduleQueued()
         if (!next->spec.leaseResource.empty()) {
             const std::string key = next->spec.workflow + "/" + next->spec.item;
             const auto prev = lastSlot.find(key);
-            idx = chooseLeaseSlot(static_cast<int>(std::max<std::int64_t>(1, next->spec.leaseCap)), usedIndex[next->spec.leaseResource], prev == lastSlot.end() ? -1 : prev->second);
+            idx = chooseLeaseSlot(static_cast<int>(caps[next->spec.leaseResource]), usedIndex[next->spec.leaseResource], prev == lastSlot.end() ? -1 : prev->second);
             if (!next->spec.item.empty()) lastSlot[key] = idx;  // a node's next attempt goes back to the slot that already holds its prompt
         }
         startRun(*next, idx);

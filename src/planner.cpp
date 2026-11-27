@@ -265,7 +265,10 @@ int runLlmPlanner(const std::vector<std::string>& args)
     std::string prose;
     if (std::find(args.begin(), args.end(), "--prose") != args.end()) {
         events::progress(0, 1, "writing the plan in prose");
-        const std::vector<ChatMessage> proseMessages = {{"system", prosePlannerPrompt(std::atoi(arg(args, "slots", std::to_string(engine->maxConcurrent)).c_str()))}, {"user", user + "\nWrite the plan in prose."}};
+        const auto capacity = engineSlots(*engine);
+        const int configured = std::atoi(arg(args, "slots", std::to_string(engine->maxConcurrent)).c_str());
+        const int available = capacity ? std::min(configured, capacity->total) : 1;
+        const std::vector<ChatMessage> proseMessages = {{"system", prosePlannerPrompt(std::max(1, available))}, {"user", user + "\nWrite the plan in prose."}};
         auto lead = chatCompleteMessages(*engine, proseMessages, 1800, std::min(timeoutSec, wallSec), {});
         if (!lead) { std::fprintf(stderr, "llm-planner: the prose step failed: %s\n", lead.error().c_str()); return 2; }
         prose = lead->content;
@@ -275,7 +278,9 @@ int runLlmPlanner(const std::vector<std::string>& args)
     }
     user += "\nWrite the plan.";
 
-    const int slots = std::atoi(arg(args, "slots", std::to_string(engine->maxConcurrent)).c_str());
+    const int configuredSlots = std::atoi(arg(args, "slots", std::to_string(engine->maxConcurrent)).c_str());
+    const auto capacity = engineSlots(*engine);
+    const int slots = std::max(1, capacity ? std::min(configuredSlots, capacity->total) : 1);
     std::vector<ChatMessage> messages = {{"system", plannerSystemPrompt(slots, stance)}, {"user", user}};
     long promptTokens = 0, completionTokens = 0;
     std::string lintText;

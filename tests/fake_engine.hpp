@@ -70,9 +70,9 @@ public:
     using Script = std::function<Reply(const Request&, int index)>;
 
     /// Replies are taken in order, one per chat request; past the end the last one repeats.
-    explicit Engine(std::vector<Reply> replies) : Engine([r = std::move(replies)](const Request&, int i) { return r.empty() ? Reply{} : r[static_cast<std::size_t>(i) < r.size() ? static_cast<std::size_t>(i) : r.size() - 1]; }) {}
+    explicit Engine(std::vector<Reply> replies, int slots = 0) : Engine([r = std::move(replies)](const Request&, int i) { return r.empty() ? Reply{} : r[static_cast<std::size_t>(i) < r.size() ? static_cast<std::size_t>(i) : r.size() - 1]; }, slots) {}
     /// The script chooses the reply from the request (forked sessions arrive in any order).
-    explicit Engine(Script script) : script_(std::move(script))
+    explicit Engine(Script script, int slots = 0) : script_(std::move(script)), slots_(slots)
     {
         auto l = sub0platform::listenLoopback(0);
         if (!l) { std::fprintf(stderr, "%s\n", l.error().message.c_str()); std::exit(2); }
@@ -140,6 +140,13 @@ private:
             req.append(buf, **n);
         }
         const std::string line = req.substr(0, req.find("\r\n"));
+        if (line.find("/slots") != std::string::npos && slots_ > 0) {
+            std::string body = "[";
+            for (int i = 0; i < slots_; ++i) body += (i ? "," : "") + std::string{"{\"is_processing\":false}"};
+            body += "]";
+            sendAll(fd, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: " + std::to_string(body.size()) + "\r\nConnection: close\r\n\r\n" + body);
+            return;
+        }
         if (line.find("/models") != std::string::npos) {   // what `doctor` asks to see that a server answers
             const std::string body = "{\"data\":[{\"id\":\"m\"}]}";
             sendAll(fd, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: " + std::to_string(body.size()) + "\r\nConnection: close\r\n\r\n" + body);
@@ -206,6 +213,7 @@ private:
     }
 
     Script script_;
+    int slots_ = 0;
     sub0platform::SocketListener listener_;
     int port_ = 0;
     std::atomic<bool> stop_{false};
