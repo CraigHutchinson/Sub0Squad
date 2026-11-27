@@ -65,7 +65,8 @@ Boost 1.92.0 to be pinned when first used. Bump deliberately, one dependency per
 ## Machine-wide leases for submitted jobs
 
 Use `sub0squad submit --machine-lease exclusive -- <command> [args...]` for a job that needs the machine to
-itself. Use `shared` for work that may overlap other shared holders but must yield to exclusive timing.
+itself and relies on Squad to acquire the lease. Submit a command that acquires its own machine lease
+without the option. Use `shared` for work that may overlap other shared holders but must yield to exclusive timing.
 A JSON job specification can set `"machineLease": "exclusive"` or `"shared"`. Jobs opt in individually.
 
 The shim acquires the [ADR 0005 lease](https://github.com/CraigHutchinson/.github/blob/main/docs/decisions/0005-machine-scheduling.md)
