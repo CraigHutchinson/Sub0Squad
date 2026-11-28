@@ -5,11 +5,13 @@
 #include "sub0squad/supervisor.hpp"
 
 #include "tagged.hpp"
+#include "sub0platform/lease.hpp"
 #include "sub0platform/proc.hpp"
 #include "sub0platform/wait.hpp"
 
 #include <chrono>
 #include <fstream>
+#include <optional>
 #include <sstream>
 #include <thread>
 
@@ -24,7 +26,8 @@ static int countByTag(const std::string& tag) { return tagged::count(tag); }
 
 struct Run { fs::path dir; sub0platform::ProcessId shim = 0; };
 
-static Run startRun(const char* tag, std::vector<std::string> workerArgs, std::int64_t wall = 0, std::int64_t grace = 1)
+static Run startRun(const char* tag, std::vector<std::string> workerArgs, std::int64_t wall = 0, std::int64_t grace = 1,
+                    std::optional<sub0platform::LeaseMode> machineLease = std::nullopt)
 {
     Run r;
     r.dir = makeTempDir(tag);
@@ -33,6 +36,7 @@ static Run startRun(const char* tag, std::vector<std::string> workerArgs, std::i
     for (auto& a : workerArgs) spec.argv.push_back(a);
     spec.wallSeconds = wall;
     spec.graceSeconds = grace;
+    spec.machineLease = machineLease;
     { std::ofstream o(r.dir / "spec.json"); o << spec.toJson(); }
     auto pid = spawnShim(gExe, r.dir);
     CHECK(pid.has_value());
@@ -116,6 +120,47 @@ int main(int, char** argv)
         if (!timedOut || left != 0)
             std::fprintf(stderr, "wall timeout: exit.json=[%s] shim.json=[%s] processes left=%d events=[%s] stderr=[%s]\n", slurp(r.dir / "exit.json").c_str(), slurp(r.dir / "shim.json").c_str(), left,
                          slurp(r.dir / "events.ndjson").c_str(), slurp(r.dir / "stderr.log").c_str());
+    }
+    {
+        using sub0platform::LeaseMode;
+        using sub0platform::MachineLease;
+        const auto state = makeTempDir("lease-state");
+#ifdef _WIN32
+        sub0platform::setEnvironment("LOCALAPPDATA", state.string());
+#else
+        sub0platform::setEnvironment("XDG_STATE_HOME", state.string());
+#endif
+        auto holder = MachineLease::acquire(LeaseMode::exclusive, "timing fixture", "calibration");
+        CHECK(holder && holder->has_value());
+        auto blocked = startRun("lease-blocked", {"--steps", "1"}, 10, 1, LeaseMode::shared);
+        waitShim(blocked);
+        const auto exit = readExitRecord(blocked.dir);
+        CHECK(exit && exit->outcome == "startFailed");
+        CHECK(!fs::exists(blocked.dir / "shim.json"));
+        const auto diagnostic = slurp(blocked.dir / "stderr.log");
+        CHECK(diagnostic.find("timing fixture") != std::string::npos);
+        CHECK(diagnostic.find("calibration") != std::string::npos);
+        if (holder) holder->reset();
+
+        auto live = startRun("lease-live", {"--steps", "1000", "--step-ms", "20"}, 15, 1, LeaseMode::shared);
+        CHECK(waitForFile(live.dir / "shim.json"));
+        {
+            auto reader = MachineLease::acquire(LeaseMode::shared, "fixture", "another reader");
+            CHECK(reader && reader->has_value());
+            auto writer = MachineLease::acquire(LeaseMode::exclusive, "fixture", "exclusive timing");
+            CHECK(writer && !writer->has_value());
+        }
+        CHECK(sub0platform::terminateProcess(live.shim));
+        waitShim(live);
+        const auto cancelled = readExitRecord(live.dir);
+        CHECK(cancelled && cancelled->outcome == "cancelled" && cancelled->teardown == "verified");
+        {
+            auto writer = MachineLease::acquire(LeaseMode::exclusive, "fixture", "after teardown");
+            CHECK(writer && writer->has_value());
+        }
+        removeTree(blocked.dir);
+        removeTree(live.dir);
+        removeTree(state);
     }
     return finish();
 }

@@ -27,6 +27,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
+#include <print>
 #include <sstream>
 #include <thread>
 
@@ -227,6 +228,13 @@ int cmdSubmit(const RuntimePaths& paths, int argc, char** argv)
         else if (a == "--wall") spec.wallSeconds = std::atoll(val().c_str());
         else if (a == "--memory-mib") spec.memoryMiB = std::atoll(val().c_str());
         else if (a == "--service") spec.service = true;
+        else if (a == "--machine-lease") {
+            spec.machineLease = parseMachineLeaseMode(val());
+            if (!spec.machineLease) {
+                std::println(stderr, "submit: --machine-lease wants shared or exclusive");
+                return 2;
+            }
+        }
         else if (a == "--lease") { const std::string v = val(); const auto eq = v.rfind('='); if (eq == std::string::npos || eq == 0) { std::fprintf(stderr, "--lease wants RESOURCE=CAP\n"); return 2; } spec.leaseResource = v.substr(0, eq); spec.leaseCap = std::max(1, std::atoi(v.c_str() + eq + 1)); }
         else if (a == "--grace") spec.graceSeconds = std::atoll(val().c_str());
         else if (a == "--tool") spec.tool = val();
@@ -240,6 +248,10 @@ int cmdSubmit(const RuntimePaths& paths, int argc, char** argv)
         else { std::fprintf(stderr, "submit: unknown option %s (put the command after --)\n", a.c_str()); return 2; }
     }
     if (!specFile.empty()) {
+        if (spec.machineLease) {
+            std::println(stderr, "submit: set machineLease in the job spec when using --spec");
+            return 2;
+        }
         auto parsed = JobSpec::fromJson(slurpFile(specFile));
         if (!parsed) { std::fprintf(stderr, "submit: %s\n", parsed.error().c_str()); return 2; }
         spec = *parsed;

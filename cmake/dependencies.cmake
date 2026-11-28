@@ -34,10 +34,10 @@ set(SUB0PERF_GIT_HOOKS OFF CACHE BOOL "")
 include("${Sub0Perf_SOURCE_DIR}/cmake/Sub0Perf.cmake")
 
 # Sub0Platform: the operating-system layer of the Sub0 C++ projects (cpp/README.md there). It is the layer below Sub0Squad's kernel
-# (docs/COMPONENTS.md): only it includes operating-system headers. Pinned to the head of its default branch as of 2026-11-19; its own tests are off here.
+# (docs/COMPONENTS.md): only it includes operating-system headers. The job host guard uses the ADR 0005 lease introduced by this pin.
 CPMAddPackage(NAME Sub0Platform
   GIT_REPOSITORY https://github.com/CraigHutchinson/Sub0Platform.git
-  GIT_TAG 5feccdf226046cc790214bc30793832a1888ce4b
+  GIT_TAG 2823cf3e2cbd9f702dc2b7e988a58756e57c1ba9
   SOURCE_SUBDIR cpp
   OPTIONS "SUB0PLATFORM_BUILD_TESTS OFF" "SUB0PLATFORM_INSTALL OFF")
 
